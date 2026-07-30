@@ -1,5 +1,4 @@
 {% extends 'crud/page.html' %}
-{% load l10n %}
 {% block crud_content %}
 
     <div class="flex items-center justify-between gap-4 w-full">
@@ -296,7 +295,7 @@
     {% if form.instance.pk %}
     <script>
     (function() {
-        var BUDGET_ID = {{ form.instance.pk|unlocalize }};
+        var BUDGET_ID = {{ form.instance.pk }};
         var OBJ_TYPE = 'budget.budget';
         var LOCK_REFRESH_INTERVAL_MS = 30000;
 

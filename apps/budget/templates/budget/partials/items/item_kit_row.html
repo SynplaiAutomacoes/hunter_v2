@@ -1,5 +1,4 @@
-{% load l10n %}
-<tr id="budget-item-{{ item.id|unlocalize }}"
+<tr id="budget-item-{{ item.id }}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
 
     {% if not step6 %}
@@ -7,7 +6,7 @@
         <input
             type="checkbox"
             name="selected_kit_items"
-            value="{{ item.id|unlocalize }}"
+            value="{{ item.id|stringformat:'d' }}"
             class="checkbox checkbox-primary checkbox-sm budget-kit-select"
         >
     </td>

@@ -1,4 +1,4 @@
-{% load l10n table_tags %}
+{% load table_tags %}
 
 {% if show_grouped_financial_groups %}
     <div id="dre-financial-groups-table-content">
@@ -115,9 +115,9 @@
                                     type="checkbox"
                                     class="checkbox row-checkbox"
                                     name="financial_groups"
-                                    value="{{ financial_group.pk|unlocalize }}"
-                                    data-row-id="{{ financial_group.pk|unlocalize }}"
-                                    {% if financial_group.parent_pk %}data-parent-id="{{ financial_group.parent_pk|unlocalize }}"{% endif %}
+                                    value="{{ financial_group.pk }}"
+                                    data-row-id="{{ financial_group.pk }}"
+                                    {% if financial_group.parent_pk %}data-parent-id="{{ financial_group.parent_pk }}"{% endif %}
                                     {% if financial_group.is_selected %}checked{% endif %}
                                     @change="handleRowCheckboxChange($event)"
                                     aria-label="Selecionar grupo financeiro"

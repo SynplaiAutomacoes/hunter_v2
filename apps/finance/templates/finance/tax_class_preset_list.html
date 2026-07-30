@@ -1,5 +1,4 @@
 {% extends 'crud/list_page.html' %}
-{% load l10n %}
 
 {% block crud_title %}Presets de Classe de Imposto{% endblock %}
 {% block crud_subtitle %}Monte modelos reutilizáveis de Nota Fiscal de Produto e Nota Fiscal de Serviço para cada oficina sem depender de presets hardcoded.{% endblock %}
@@ -75,7 +74,7 @@
                                         {% csrf_token %}
                                         <input type="hidden" name="form_action" value="delete">
                                         <input type="hidden" name="tab" value="nfe">
-                                        <input type="hidden" name="preset_id" value="{{ preset.pk|unlocalize }}">
+                                        <input type="hidden" name="preset_id" value="{{ preset.pk }}">
                                         <button type="submit" class="btn-table-delete" aria-label="Excluir preset" title="Excluir">
                                             <span class="material-icons text-base">delete</span>
                                         </button>
@@ -113,7 +112,7 @@
                                         {% csrf_token %}
                                         <input type="hidden" name="form_action" value="delete">
                                         <input type="hidden" name="tab" value="nfse">
-                                        <input type="hidden" name="preset_id" value="{{ preset.pk|unlocalize }}">
+                                        <input type="hidden" name="preset_id" value="{{ preset.pk }}">
                                         <button type="submit" class="btn-table-delete" aria-label="Excluir preset" title="Excluir">
                                             <span class="material-icons text-base">delete</span>
                                         </button>

@@ -1,8 +1,7 @@
-{% load l10n %}
 <div class="modal-box w-11/12 max-w-7xl bg-base-100 p-0 overflow-hidden relative"
      data-item-ids="{{ item_ids|join:',' }}"
      data-current-index="0"
-     data-budget-id="{{ budget.id|unlocalize }}"
+     data-budget-id="{{ budget.id }}"
      data-item-type="{{ item_type }}"
      data-current-step="{{ current_step }}"
      id="edit-queue-modal">

@@ -1,4 +1,3 @@
-{% load l10n %}
 {% for product in products %}
 <tr>
     <td>
@@ -9,7 +8,7 @@
     <td class="text-center">
         <button type="button"
                 class="btn btn-primary btn-xs"
-                @click="confirmLink({ id: '{{ product.id|unlocalize }}', name: '{{ product.name|escapejs }}' })">
+                @click="confirmLink({ id: '{{ product.id }}', name: '{{ product.name|escapejs }}' })">
             Vincular
         </button>
     </td>

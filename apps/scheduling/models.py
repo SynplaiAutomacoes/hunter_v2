@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
@@ -8,18 +7,6 @@ from phonenumber_field.modelfields import PhoneNumberField
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.customer.vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
-
-
-ALERT_LEAD_TIME_CHOICES: list[tuple[int, str]] = [
-    (30, "30 minutos"),
-    (60, "1 hora"),
-    (120, "2 horas"),
-    (180, "3 horas"),
-    (300, "5 horas"),
-    (1440, "1 dia"),
-    (2880, "2 dias"),
-    (10080, "1 semana"),
-]
 
 
 def _digits_only(value: object) -> str:
@@ -62,12 +49,21 @@ class Appointment(TimeStampedModel):
     ends_at = models.DateTimeField(verbose_name="Data e hora de saida")
     block_color = models.CharField(verbose_name="Cor do bloco", max_length=7, default="#0ea5e9")
     alert_customer = models.BooleanField(verbose_name="Alertar cliente", default=False)
-    alert_lead_times = ArrayField(
-        models.PositiveIntegerField(choices=ALERT_LEAD_TIME_CHOICES),
+    alert_lead_time = models.PositiveIntegerField(
         verbose_name="Antecedência do alerta",
+        null=True,
         blank=True,
-        default=list,
-        help_text="Minutos antes do início do agendamento para enviar o alerta. É possível selecionar mais de uma opção.",
+        choices=[
+            (30, "30 minutos"),
+            (60, "1 hora"),
+            (120, "2 horas"),
+            (180, "3 horas"),
+            (300, "5 horas"),
+            (1440, "1 dia"),
+            (2880, "2 dias"),
+            (10080, "1 semana"),
+        ],
+        help_text="Minutos antes do início do agendamento para enviar o alerta.",
     )
     notes = models.TextField(verbose_name="Observacoes", blank=True, default="")
     status = models.CharField(verbose_name="Status", max_length=20, choices=AppointmentStatus.choices, default=AppointmentStatus.SCHEDULED)

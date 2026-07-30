@@ -66,7 +66,7 @@
                                 <select id="commission-collaborator" name="collaborator" class="select select-bordered w-full">
                                     <option value="">Todos</option>
                                     {% for collaborator in collaborator_filters %}
-                                        <option value="{{ collaborator.pk|unlocalize }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
+                                        <option value="{{ collaborator.pk }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
                                     {% endfor %}
                                 </select>
                             </div>

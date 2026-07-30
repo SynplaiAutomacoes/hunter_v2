@@ -1,6 +1,5 @@
 import json
 from decimal import Decimal
-from html import escape
 from typing import Any, Protocol, cast
 
 from django import forms
@@ -18,11 +17,10 @@ from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput
 from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus
-from apps.workshops.models.review_plans import ReviewPlan
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
@@ -776,19 +774,10 @@ class WorkOrderAttachmentForm(CoreModelForm):
 class WorkOrderCustomerApprovalForm(CoreForm):
     km_initial = forms.IntegerField(label="KM inicial", required=False, widget=NumberInput(attrs={"readonly": "readonly"}))
     km_final = forms.IntegerField(label="KM final", required=True, min_value=0, widget=NumberInput())
-    last_oil_change_date = forms.DateField(label="Data da última troca de óleo", required=False, widget=CalendarDateInput())
-    last_oil_change_km = forms.IntegerField(label="KM da última troca de óleo", required=False, min_value=0, widget=NumberInput())
-    review_plan = forms.ModelChoiceField(label="Plano de revisão", queryset=ReviewPlan.objects.none(), required=False, widget=SearchableSelectInput())
     unsigned_delivery_reason = forms.CharField(
         label="Justificativa da entrega sem assinatura",
         required=False,
-        widget=TextareaInput(
-            rows=6,
-            attrs={
-                "placeholder": "Explique por que o veículo está sendo entregue sem a assinatura da O.S.",
-                "class": "min-h-[10.5rem] h-full resize-y",
-            },
-        ),
+        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Explique por que o veículo está sendo entregue sem a assinatura da O.S."}),
     )
 
     def __init__(self, *args, **kwargs):
@@ -807,108 +796,27 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         self.fields["km_final"].error_messages["required"] = "Preencha o KM final para concluir a entrega do veículo."
         self.fields["unsigned_delivery_reason"].error_messages["required"] = "Informe a justificativa para entregar o veículo sem a assinatura da O.S."
 
-        vehicle = getattr(getattr(self.workorder, "budget", None), "vehicle", None)
-        review_plan_field = cast(forms.ModelChoiceField, self.fields["review_plan"])
-        workshop = getattr(self.workorder, "workshop", None)
-        review_plan_field.queryset = ReviewPlan.objects.filter(workshop=workshop, is_active=True).order_by("name") if workshop else ReviewPlan.objects.none()
-
         if self.workorder and self.workorder.km_final is not None and not self.is_bound:
             self.fields["km_final"].initial = self.workorder.km_final
         if self.workorder and self.workorder.unsigned_delivery_reason and not self.is_bound:
             self.fields["unsigned_delivery_reason"].initial = self.workorder.unsigned_delivery_reason
 
-        if self.workorder and not self.is_bound:
-            has_workorder_oil_data = bool(self.workorder.last_oil_change_date or self.workorder.last_oil_change_km is not None or self.workorder.review_plan_id)
-            if has_workorder_oil_data:
-                self.fields["last_oil_change_date"].initial = self.workorder.last_oil_change_date
-                self.fields["last_oil_change_km"].initial = self.workorder.last_oil_change_km
-                self.fields["review_plan"].initial = self.workorder.review_plan_id
-            elif vehicle is not None:
-                if vehicle.last_oil_change_date:
-                    self.fields["last_oil_change_date"].initial = vehicle.last_oil_change_date
-                if vehicle.last_oil_change_km is not None:
-                    self.fields["last_oil_change_km"].initial = vehicle.last_oil_change_km
-                if vehicle.review_plan_id:
-                    self.fields["review_plan"].initial = vehicle.review_plan_id
-
         unsigned_delivery_is_required = bool(self.require_unsigned_delivery_reason and self.workorder and self.workorder.signature_request_status != WorkOrderSignatureStatus.APPROVED)
         self.fields["unsigned_delivery_reason"].required = unsigned_delivery_is_required
-
-        reason_value = ""
-        if self.is_bound:
-            reason_value = str(self.data.get("unsigned_delivery_reason") or "").strip()
-        else:
-            reason_value = str(self.fields["unsigned_delivery_reason"].initial or "").strip()
-        reason_starts_visible = bool(unsigned_delivery_is_required and reason_value)
-        reason_wrapper_class = "col-span-12 lg:col-span-6 flex flex-col"
-        if unsigned_delivery_is_required and not reason_starts_visible:
-            reason_wrapper_class = f"{reason_wrapper_class} hidden"
-        oil_panel_class = "col-span-12 rounded-box border border-success/25 bg-success/10 p-4 text-base-content [&_label]:text-base-content [&_.label-text]:text-base-content"
-        if reason_starts_visible:
-            oil_panel_class = f"{oil_panel_class} lg:col-span-6"
-            oil_half_class = "col-span-12 sm:col-span-6 oil-field-half"
-            oil_plan_class = "col-span-12 sm:col-span-12 oil-field-plan"
-        else:
-            oil_half_class = "col-span-12 sm:col-span-4 oil-field-half"
-            oil_plan_class = "col-span-12 sm:col-span-4 oil-field-plan"
-
-        delivered_at = getattr(self.workorder, "delivered_at", None) if self.workorder is not None else None
-        if delivered_at is not None:
-            delivered_at_local = timezone.localtime(delivered_at)
-            delivered_at_display = escape(delivered_at_local.strftime("%d/%m/%Y %H:%M"))
-        else:
-            delivered_at_display = "Será preenchida ao concluir a entrega."
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             alert_confirm_layout(),
             Div(
-                Div(
-                    Field("km_initial", wrapper_class="mb-0"),
-                    HTML(
-                        f"""
-                        <div class="form-control mt-4">
-                            <label class="label" for="workorder-delivered-at-display">
-                                <span class="label-text font-medium">Data de saída</span>
-                            </label>
-                            <input
-                                id="workorder-delivered-at-display"
-                                type="text"
-                                class="input-theme"
-                                value="{delivered_at_display}"
-                                readonly
-                            >
-                        </div>
-                        """
-                    ),
-                    css_class="col-span-12 lg:col-span-6",
-                ),
+                Field("km_initial", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("km_final", wrapper_class="col-span-12 lg:col-span-6"),
                 css_class="grid grid-cols-12 gap-4",
             ),
             Div(
-                Div(
-                    Field(
-                        "unsigned_delivery_reason",
-                        wrapper_class="flex h-full min-h-[10.5rem] flex-col [&>div]:flex [&>div]:h-full [&>div]:flex-col [&_textarea]:flex-1",
-                    ),
-                    css_id="unsigned-delivery-reason-wrapper",
-                    css_class=reason_wrapper_class,
-                ),
-                Div(
-                    Div(
-                        Field("last_oil_change_date", wrapper_class=oil_half_class),
-                        Field("last_oil_change_km", wrapper_class=oil_half_class),
-                        Field("review_plan", wrapper_class=oil_plan_class),
-                        css_class="grid grid-cols-12 gap-4",
-                        css_id="oil-fields-grid",
-                    ),
-                    css_id="oil-fields-panel",
-                    css_class=oil_panel_class,
-                ),
-                css_id="delivery-oil-reason-row",
-                css_class="mt-4 grid grid-cols-12 gap-4 items-stretch",
+                Field("unsigned_delivery_reason"),
+                css_id="unsigned-delivery-reason-wrapper",
+                css_class="mt-4",
             ),
         )
 

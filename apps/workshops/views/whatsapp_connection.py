@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import re
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -27,11 +26,6 @@ from apps.workshops.services.whatsapp_instance_status import (
 logger = logging.getLogger(__name__)
 
 
-def _digits_only_phone(value: object) -> str:
-    """Persist/send WhatsApp numbers as digits only (no +, spaces, or masks)."""
-    return re.sub(r"\D", "", str(value or ""))
-
-
 def _png_data_uri(png_bytes: bytes) -> str:
     qrcode_base64 = base64.b64encode(png_bytes).decode("ascii")
     return f"data:image/png;base64,{qrcode_base64}"
@@ -44,17 +38,10 @@ def _is_instance_not_found_error(exc: WhatsAppServiceError) -> bool:
 class WhatsAppConnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Workshop
     workshop_permission_codename = "change_workshop"
-    resolve_workshop_from_url_pk = True
 
     def post(self, request, *args, **kwargs):
         workshop = self.workshop
-        posted_phone = _digits_only_phone(request.POST.get("whatsapp_phone"))
-        current_phone = _digits_only_phone(workshop.whatsapp_phone)
-        phone = posted_phone or current_phone
-
-        if posted_phone and posted_phone != current_phone:
-            workshop.whatsapp_phone = posted_phone
-            workshop.save(update_fields=["whatsapp_phone"])
+        phone = str(workshop.whatsapp_phone or "").strip()
 
         if not phone:
             return JsonResponse(
@@ -105,7 +92,6 @@ class WhatsAppConnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class WhatsAppStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Workshop
     workshop_permission_codename = "change_workshop"
-    resolve_workshop_from_url_pk = True
 
     def get(self, request, *args, **kwargs):
         workshop = self.workshop
@@ -210,7 +196,6 @@ class WhatsAppQrcodeRefreshView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     model = Workshop
     workshop_permission_codename = "change_workshop"
-    resolve_workshop_from_url_pk = True
 
     def post(self, request, *args, **kwargs):
         workshop = self.workshop
@@ -312,7 +297,6 @@ class WhatsAppQrcodeRefreshView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class WhatsAppDisconnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Workshop
     workshop_permission_codename = "change_workshop"
-    resolve_workshop_from_url_pk = True
 
     def post(self, request, *args, **kwargs):
         workshop = self.workshop
@@ -341,17 +325,13 @@ class WhatsAppPhoneAutosaveView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     model = Workshop
     workshop_permission_codename = "change_workshop"
-    resolve_workshop_from_url_pk = True
 
     def post(self, request, *args, **kwargs):
         workshop = self.workshop
-        whatsapp_phone = _digits_only_phone(request.POST.get("whatsapp_phone"))
-        current_phone = _digits_only_phone(workshop.whatsapp_phone)
+        whatsapp_phone = str(request.POST.get("whatsapp_phone") or "").strip()
+        current_phone = str(workshop.whatsapp_phone or "").strip()
 
         if whatsapp_phone == current_phone:
-            if workshop.whatsapp_phone != current_phone:
-                workshop.whatsapp_phone = current_phone
-                workshop.save(update_fields=["whatsapp_phone"])
             return JsonResponse(
                 {
                     "ok": True,

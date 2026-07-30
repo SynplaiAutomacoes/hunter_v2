@@ -1,4 +1,3 @@
-{% load l10n %}
 <form
     hx-post="{% url 'workshops:workshop_select' %}"
     hx-trigger="change from:#active-workshop-select, workshops-table-refresh from:body"
@@ -11,7 +10,7 @@
         class="select select-xs bg-base-100 text-base-content min-w-40 max-w-56 outline-0"
     >
         {% for workshop in active_workshops %}
-            <option value="{{ workshop.pk|unlocalize }}" {% if workshop.pk == active_workshop_id %}selected{% endif %}>
+            <option value="{{ workshop.pk }}" {% if workshop.pk == active_workshop_id %}selected{% endif %}>
                 {{ workshop.name }}
             </option>
         {% empty %}

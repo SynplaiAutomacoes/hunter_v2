@@ -2,21 +2,4 @@
 
 {% block crud_title %}Criar cliente{% endblock %}
 {% block crud_subtitle %}Cadastro do cliente para a oficina ativa.{% endblock %}
-
-{% block crud_header_actions %}
-    {% if show_disable_all_messaging_action %}
-        <form
-            method="post"
-            action="{% url 'customer:disable_all_messaging' %}"
-            onsubmit="return confirm('Desativar o recebimento de mensagens para TODOS os clientes desta oficina?');"
-        >
-            {% csrf_token %}
-            <button type="submit" class="btn btn-outline btn-warning btn-sm gap-2" title="Disponível apenas fora de produção">
-                <span class="material-icons text-base">notifications_off</span>
-                Desativar mensagens de todos
-            </button>
-        </form>
-    {% endif %}
-{% endblock %}
-
 {% block crud_back_url %}{% url 'customer:customer_list' %}{% endblock %}

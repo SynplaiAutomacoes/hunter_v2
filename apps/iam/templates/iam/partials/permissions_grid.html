@@ -1,4 +1,3 @@
-{% load l10n %}
 <div class="space-y-4" id="permissions-container">
 
     <div class="flex items-center justify-between bg-base-200 p-4 rounded-lg">
@@ -54,7 +53,7 @@
                         <label class="flex items-center gap-1 cursor-pointer hover:text-primary transition-colors">
                             <input type="checkbox"
                                    name="permissions"
-                                   value="{{ perm.id|unlocalize }}"
+                                   value="{{ perm.id }}"
                                    class="checkbox checkbox-xs checkbox-primary permission-checkbox"
                                    data-parent-app="{{ app_id }}"
                                    {% if perm.id in form.permissions.value or perm in form.permissions.value %}checked{% endif %}>

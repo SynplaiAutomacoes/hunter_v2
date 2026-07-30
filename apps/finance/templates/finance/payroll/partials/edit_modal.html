@@ -171,7 +171,7 @@
                                                 </div>
                                             </div>
                                             <div class="collapse-content">
-                                                <input type="hidden" name="tab_{{ tab.key }}_movement_id_{{ item.movement_id|unlocalize }}" value="{{ item.movement_id|unlocalize }}">
+                                                <input type="hidden" name="tab_{{ tab.key }}_movement_id_{{ item.movement_id }}" value="{{ item.movement_id }}">
                                                 <div class="grid grid-cols-12 gap-4 pt-2">
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.due_date|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.amount|as_crispy_field }}</div>
@@ -194,7 +194,7 @@
                                 {% if tab.movements|length > 1 %}
                                     <div class="flex flex-wrap gap-2">
                                         {% for movement_option in tab.movements %}
-                                            <button type="button" class="btn btn-xs" hx-get="{{ modal_url }}?tab={{ tab.key }}&movement_id={{ movement_option.pk|unlocalize }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML">{{ movement_option.description|default:tab.label }}</button>
+                                            <button type="button" class="btn btn-xs" hx-get="{{ modal_url }}?tab={{ tab.key }}&movement_id={{ movement_option.pk }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML">{{ movement_option.description|default:tab.label }}</button>
                                         {% endfor %}
                                     </div>
                                 {% endif %}
@@ -209,7 +209,7 @@
                                     </div>
                                 </div>
                             {% elif tab.form %}
-                                <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id|unlocalize }}">
+                                <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id }}">
                                 <div class="grid grid-cols-12 gap-4">
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>

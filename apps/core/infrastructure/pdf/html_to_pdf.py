@@ -10,7 +10,7 @@ import asyncio
 async def _render(html: str, url: str | None, output_path: str) -> None:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        page = await browser.new_page(viewport={"width": 794, "height": 1123})
+        page = await browser.new_page(viewport={"width": 1280, "height": 1810})
         if url:
             await page.goto(url, wait_until="networkidle", timeout=60000)
         else:

@@ -28,7 +28,6 @@ def create_customer(
     is_active: bool = True,
     birth_date: date | None = None,
     criado_em: date | None = None,
-    accepts_messages: bool = True,
 ) -> Customer:
     customer = Customer.objects.create(
         workshop=workshop,
@@ -38,7 +37,6 @@ def create_customer(
         phone="+5511999999999",
         is_active=is_active,
         birth_date=birth_date,
-        accepts_messages=accepts_messages,
     )
     if criado_em:
         Customer.objects.filter(pk=customer.pk).update(criado_em=timezone.make_aware(timezone.datetime.combine(criado_em, timezone.datetime.min.time())))

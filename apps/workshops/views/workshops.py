@@ -29,11 +29,9 @@ from apps.finance.models.finance import WebmaniaCompany
 from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
-from apps.messaging.application.services.default_templates import create_default_message_templates
 from apps.workshops.forms.workshops import (
     BaseWebmaniaCompanySectionForm,
     WorkshopAddressSectionForm,
-    WorkshopAssistantVirtualSectionForm,
     WorkshopCertificateSectionForm,
     WorkshopCompanySectionForm,
     WorkshopFiscalSectionForm,
@@ -50,14 +48,7 @@ from apps.workshops.services.files import (
     schedule_workshop_files_cleanup,
 )
 from apps.workshops.usecases.upload_file_usecase import UploadWorkshopFileUseCase
-from apps.workshops.util.default_setup import create_default_workshop_setup
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
-from apps.workshops.util.webmania_provision import (
-    get_webmania_company_provision_enabled,
-    is_non_production_environment,
-    set_webmania_company_provision_enabled,
-    should_provision_webmania_company,
-)
 from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director, is_workshop_manager
 
 
@@ -114,14 +105,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
         context.update(get_fiscal_service().get_context_meta(u_acc_id))
 
         ref_w = self._reference_workshop_for_permission()
-        context.update(
-            {
-                "can_sync_webmania_companies": has_webmania_change_perm(self.request.user, ref_w, self.request) and get_fiscal_service().is_homolog_environment(),
-                "is_webmania_homolog_environment": get_fiscal_service().is_homolog_environment(),
-                "show_webmania_provision_toggle": is_non_production_environment(),
-                "webmania_company_provision_enabled": get_webmania_company_provision_enabled(session=self.request.session),
-            }
-        )
+        context.update({"can_sync_webmania_companies": has_webmania_change_perm(self.request.user, ref_w, self.request) and get_fiscal_service().is_homolog_environment(), "is_webmania_homolog_environment": get_fiscal_service().is_homolog_environment()})
         return context
 
     def dispatch(self, request, *args, **kwargs):
@@ -156,15 +140,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 workshop.account = user_account
                 workshop.save()
 
-                if should_provision_webmania_company(session=self.request.session):
-                    get_fiscal_service().provision_webmania_company_for_workshop(workshop=workshop)
-                else:
-                    logger.info(
-                        "workshop_create_skipped_webmania_provision workshop_id=%s account_id=%s user_id=%s",
-                        getattr(workshop, "pk", None),
-                        getattr(user_account, "id", None),
-                        getattr(user, "id", None),
-                    )
+                get_fiscal_service().provision_webmania_company_for_workshop(workshop=workshop)
 
                 director_role = get_or_create_director_role(account=user_account)
                 WorkshopMember.objects.get_or_create(
@@ -177,8 +153,6 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 )
 
                 create_default_monthly_costs(workshop=workshop)
-                create_default_workshop_setup(workshop=workshop)
-                create_default_message_templates(workshop=workshop)
 
                 self.object = workshop
                 logger.info(
@@ -204,7 +178,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     template_name = "workshops/workshop_update.html"
 
     TAB_EMPRESA = "empresa"
-    TAB_ASSISTENTE_VIRTUAL = "assistente_virtual"
     TAB_ENDERECO = "endereco"
     TAB_NOTA_FISCAL = "nota_fiscal"
     TAB_CERTIFICADO = "certificado"
@@ -214,7 +187,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     TAB_LOGO_AUTOUPLOAD = "logo_autoupload"
     TABS = {
         TAB_EMPRESA,
-        TAB_ASSISTENTE_VIRTUAL,
         TAB_ENDERECO,
         TAB_NOTA_FISCAL,
         TAB_CERTIFICADO,
@@ -280,7 +252,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     ) -> dict[str, forms.BaseForm]:
         form_map: dict[str, forms.BaseForm] = {
             self.TAB_EMPRESA: WorkshopCompanySectionForm(instance=self.company, workshop=self.object),
-            self.TAB_ASSISTENTE_VIRTUAL: WorkshopAssistantVirtualSectionForm(instance=self.object),
             self.TAB_ENDERECO: WorkshopAddressSectionForm(instance=self.company, workshop=self.object),
             self.TAB_NOTA_FISCAL: WorkshopFiscalSectionForm(instance=self.company, workshop=self.object),
             self.TAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
@@ -293,8 +264,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         if active_tab == self.TAB_EMPRESA:
             form_map[self.TAB_EMPRESA] = WorkshopCompanySectionForm(data=data, files=files, instance=self.company, workshop=self.object)
-        elif active_tab == self.TAB_ASSISTENTE_VIRTUAL:
-            form_map[self.TAB_ASSISTENTE_VIRTUAL] = WorkshopAssistantVirtualSectionForm(data=data, files=files, instance=self.object)
         elif active_tab == self.TAB_ENDERECO:
             form_map[self.TAB_ENDERECO] = WorkshopAddressSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
         elif active_tab == self.TAB_NOTA_FISCAL:
@@ -386,7 +355,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "active_nf_subtab": active_nf_subtab,
             "current_certificate_name": self._current_certificate_name(),
             "company_form": forms_map[self.TAB_EMPRESA],
-            "assistant_virtual_form": forms_map[self.TAB_ASSISTENTE_VIRTUAL],
             "address_form": forms_map[self.TAB_ENDERECO],
             "fiscal_form": forms_map[self.TAB_NOTA_FISCAL],
             "certificate_form": forms_map[self.TAB_CERTIFICADO],
@@ -613,7 +581,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         }
         restricted_workshop_tabs = {
             self.TAB_PDF_OBSERVATION,
-            self.TAB_ASSISTENTE_VIRTUAL,
         }
 
         if active_tab in restricted_webmania_tabs and not self._can_change_webmania_company():
@@ -633,15 +600,6 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             company_form = cast(WorkshopCompanySectionForm, forms_map[self.TAB_EMPRESA])
             if company_form.is_valid():
                 return self._save_company_tab_form(form=company_form, tab=active_tab, nf_subtab=active_nf_subtab, sync_name=True)
-        elif active_tab == self.TAB_ASSISTENTE_VIRTUAL:
-            assistant_form = cast(WorkshopAssistantVirtualSectionForm, forms_map[self.TAB_ASSISTENTE_VIRTUAL])
-            if assistant_form.is_valid():
-                return self._save_workshop_tab_form(
-                    form=assistant_form,
-                    tab=active_tab,
-                    nf_subtab=active_nf_subtab,
-                    success_message="Configuracoes do assistente virtual atualizadas com sucesso.",
-                )
         elif active_tab == self.TAB_ENDERECO:
             address_form = cast(WorkshopAddressSectionForm, forms_map[self.TAB_ENDERECO])
             if address_form.is_valid():
@@ -860,25 +818,10 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
                 "webmania_last_sync_error": to_public_integration_message(latest_sync_error(account_companies)) if latest_sync_error(account_companies) else "",
                 "can_sync_webmania_companies": can_sync_webmania_companies and get_fiscal_service().is_homolog_environment(),
                 "is_webmania_homolog_environment": get_fiscal_service().is_homolog_environment(),
-                "show_webmania_provision_toggle": is_non_production_environment(),
-                "webmania_company_provision_enabled": get_webmania_company_provision_enabled(session=self.request.session),
             }
         )
 
         return context
-
-
-class WorkshopWebmaniaProvisionToggleView(LoginRequiredMixin, View):
-    """Persiste preferência de provisionar empresa Webmania ao criar oficina (somente fora de produção)."""
-
-    def post(self, request, *args: object, **kwargs: object):
-        if not is_non_production_environment():
-            raise PermissionDenied
-
-        raw_enabled = str(request.POST.get("enabled", "")).strip().casefold()
-        enabled = raw_enabled in {"1", "true", "on", "yes"}
-        set_webmania_company_provision_enabled(session=request.session, enabled=enabled)
-        return JsonResponse({"enabled": enabled})
 
 
 class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):

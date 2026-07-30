@@ -4,13 +4,11 @@ import json
 from typing import Any, cast
 
 from django import forms
-from django.db import transaction
 from django.db.models import Q
 
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import CheckboxInput, TextInput, TextareaInput
 from apps.core.text_normalization import sentence_case
-from apps.messaging.application.services.typed_templates import deactivate_other_active_typed_templates
 from apps.messaging.domain.value_objects import FilterCriteria
 from apps.messaging.models import CustomerMessageGroup, MessageTemplate
 from apps.workshops.models.workshops import Workshop
@@ -22,10 +20,9 @@ MESSAGE_PLACEHOLDER = "Ex: Olá %%nome%%, vimos que seu veículo %%modelo%% (%%p
 class MessageTemplateForm(CoreModelForm):
     class Meta:
         model = MessageTemplate
-        fields = ["name", "template_type", "message", "is_active"]
+        fields = ["name", "message", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Ex: Revisão preventiva, Pós-serviço, Cobrança amigável"}),
-            "template_type": forms.Select(attrs={"class": "select select-bordered w-full"}),
             "message": TextareaInput(rows=12, attrs={"placeholder": MESSAGE_PLACEHOLDER}),
             "is_active": CheckboxInput(),
         }
@@ -33,8 +30,6 @@ class MessageTemplateForm(CoreModelForm):
     def __init__(self, *args: Any, workshop: Workshop | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
-        template_type_field = cast(forms.ChoiceField, self.fields["template_type"])
-        template_type_field.choices = MessageTemplate.TemplateType.choices
 
     def clean_name(self) -> str:
         name = str(self.cleaned_data.get("name") or "").strip()
@@ -55,60 +50,9 @@ class MessageTemplateForm(CoreModelForm):
 
         return name
 
-    def clean_message(self) -> str:
-        message = str(self.cleaned_data.get("message") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-        if not message:
-            raise forms.ValidationError("Informe o texto da mensagem.")
-        return message
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = super().clean()
-        if not isinstance(cleaned, dict):
-            return cleaned
-
-        template_type = str(cleaned.get("template_type") or MessageTemplate.TemplateType.GENERIC)
-        is_active = bool(cleaned.get("is_active"))
-        if self.workshop is not None and is_active and template_type in MessageTemplate.SPECIAL_TYPES:
-            existing = MessageTemplate.objects.filter(
-                workshop=self.workshop,
-                template_type=template_type,
-                is_active=True,
-            )
-            if self.instance.pk:
-                existing = existing.exclude(pk=self.instance.pk)
-            if existing.exists():
-                cleaned["_deactivate_previous_typed"] = True
-
-        return cleaned
-
-    def save(self, commit: bool = True) -> MessageTemplate:
-        instance = cast(MessageTemplate, super().save(commit=False))
-        if self.workshop is not None and getattr(instance, "workshop_id", None) is None:
-            instance.workshop = self.workshop
-
-        if not commit:
-            return instance
-
-        with transaction.atomic():
-            if bool(self.cleaned_data.get("_deactivate_previous_typed")) and instance.is_active:
-                deactivate_other_active_typed_templates(
-                    workshop_id=instance.workshop_id,
-                    template_type=instance.template_type,
-                    keep_pk=instance.pk,
-                )
-            instance.save()
-            self.save_m2m()
-        return instance
-
 
 class QuickMessageTemplateForm(MessageTemplateForm):
-    def __init__(self, *args: Any, workshop: Workshop | None = None, **kwargs: Any):
-        super().__init__(*args, workshop=workshop, **kwargs)
-        self.fields["template_type"].initial = MessageTemplate.TemplateType.GENERIC
-        self.fields["template_type"].widget = forms.HiddenInput()
-
-    def clean_template_type(self) -> str:
-        return MessageTemplate.TemplateType.GENERIC
+    pass
 
 
 class CustomerMessageGroupForm(CoreModelForm):
@@ -136,10 +80,7 @@ class CustomerMessageGroupForm(CoreModelForm):
 
         if self.workshop is not None:
             current_message_template_id = self.instance.message_template_id if self.instance.pk else None
-            template_queryset = MessageTemplate.objects.filter(
-                workshop=self.workshop,
-                template_type=MessageTemplate.TemplateType.GENERIC,
-            )
+            template_queryset = MessageTemplate.objects.filter(workshop=self.workshop)
             if current_message_template_id is None:
                 template_queryset = template_queryset.filter(is_active=True)
             else:
@@ -166,7 +107,7 @@ class CustomerMessageGroupForm(CoreModelForm):
         return name
 
     def clean_message(self) -> str:
-        message = str(self.cleaned_data.get("message") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        message = str(self.cleaned_data.get("message") or "").strip()
         if not message:
             raise forms.ValidationError("Informe a mensagem que será usada neste grupo.")
         return sentence_case(message)

@@ -34,7 +34,6 @@ def create_customer(
     suffix: int,
     is_active: bool = True,
     birth_date: date | None = None,
-    accepts_messages: bool = True,
 ) -> Customer:
     return Customer.objects.create(
         workshop=workshop,
@@ -44,7 +43,6 @@ def create_customer(
         phone="+5511999999999",
         is_active=is_active,
         birth_date=birth_date,
-        accepts_messages=accepts_messages,
     )
 
 

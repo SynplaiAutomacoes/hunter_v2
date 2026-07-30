@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import Any, Iterable
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
@@ -21,10 +21,6 @@ from apps.catalog.product_issues import ProductIssueSummary, annotate_product_is
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
-from apps.stock.models import StockMovement
-
-if TYPE_CHECKING:
-    from apps.workshops.models.review_plans import ReviewPlan
 
 logger = logging.getLogger(__name__)
 
@@ -89,16 +85,6 @@ class WorkOrder(TimeStampedModel):
     rejection_reason = models.TextField(verbose_name="Justificativa da rejeicao", blank=True)
     reopen_reason = models.TextField(verbose_name="Justificativa da reabertura", blank=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
-    last_oil_change_date = models.DateField(verbose_name="Data da última troca de óleo", null=True, blank=True)
-    last_oil_change_km = models.PositiveIntegerField(verbose_name="KM da última troca de óleo", null=True, blank=True)
-    review_plan = models.ForeignKey(
-        "workshops.ReviewPlan",
-        verbose_name="Plano de revisão",
-        on_delete=models.SET_NULL,
-        related_name="workorders",
-        null=True,
-        blank=True,
-    )
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
     stored_total_amount = MoneyField(
@@ -490,28 +476,10 @@ class WorkOrder(TimeStampedModel):
         self.unsigned_delivery_reason = reason
         self.save(update_fields=["unsigned_delivery_reason"])
 
-    def complete_delivery(
-        self,
-        *,
-        km_final: int,
-        unsigned_delivery_reason: str = "",
-        last_oil_change_date: date | None = None,
-        last_oil_change_km: int | None = None,
-        review_plan: "ReviewPlan | None" = None,
-    ) -> None:
+    def complete_delivery(self, *, km_final: int, unsigned_delivery_reason: str = "") -> None:
         self.km_final = km_final
         self.unsigned_delivery_reason = unsigned_delivery_reason
-        update_fields = ["km_final", "unsigned_delivery_reason"]
-        if last_oil_change_date is not None:
-            self.last_oil_change_date = last_oil_change_date
-            update_fields.append("last_oil_change_date")
-        if last_oil_change_km is not None:
-            self.last_oil_change_km = last_oil_change_km
-            update_fields.append("last_oil_change_km")
-        if review_plan is not None:
-            self.review_plan = review_plan
-            update_fields.append("review_plan")
-        self.save(update_fields=update_fields)
+        self.save(update_fields=["km_final", "unsigned_delivery_reason"])
         self._sync_vehicle_km_from_exit()
 
     def _sync_vehicle_km_from_exit(self) -> None:
@@ -1004,7 +972,7 @@ class WorkOrderItem(TimeStampedModel):
 
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
+    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
 
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
     product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)

@@ -4,24 +4,8 @@
 {% block crud_subtitle %}Clientes cadastrados na oficina ativa.{% endblock %}
 
 {% block crud_header_actions %}
-    <div class="flex items-center gap-2">
-        {% if show_disable_all_messaging_action %}
-            <form
-                method="post"
-                action="{% url 'customer:disable_all_messaging' %}"
-                onsubmit="return confirm('Desativar o recebimento de mensagens para TODOS os clientes desta oficina?');"
-            >
-                {% csrf_token %}
-                <button type="submit" class="btn btn-outline btn-warning btn-sm gap-2" title="Disponível apenas fora de produção">
-                    <span class="material-icons text-base">notifications_off</span>
-                    Desativar mensagens de todos
-                </button>
-            </form>
-        {% endif %}
-
-        {% url 'customer:customer_create' as customer_create_url %}
-        {% include 'favorites/partials/favoritable_action_link.html' with action_url=customer_create_url action_label='Criar Cliente' favorite_url=customer_create_url favorite_label='Criar Cliente' %}
-    </div>
+    {% url 'customer:customer_create' as customer_create_url %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=customer_create_url action_label='Criar Cliente' favorite_url=customer_create_url favorite_label='Criar Cliente' %}
 {% endblock %}
 
 {% block crud_table_wrapper_id %}customer-table-wrapper{% endblock %}

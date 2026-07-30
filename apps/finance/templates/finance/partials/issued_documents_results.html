@@ -1,4 +1,3 @@
-{% load l10n %}
 {% if filter_state.filter_error %}
     <div class="alert alert-error">
         <span>{{ filter_state.filter_error }}</span>
@@ -59,7 +58,7 @@
                                     name="note_selection"
                                     value="{{ row.selection_key }}"
                                     data-note-type="{{ row.note_type }}"
-                                    data-request-id="{{ row.request_id|unlocalize }}"
+                                    data-request-id="{{ row.request_id }}"
                                     data-has-xml="{{ row.has_xml|yesno:'true,false' }}"
                                     data-has-pdf="{{ row.has_pdf|yesno:'true,false' }}"
                                     {% if not row.is_selectable %}disabled{% endif %}

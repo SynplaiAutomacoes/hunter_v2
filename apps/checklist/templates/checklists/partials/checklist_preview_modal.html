@@ -1,4 +1,3 @@
-{% load l10n %}
 <input type="checkbox" id="checklist-preview-modal" class="modal-toggle" checked />
 
 <div class="modal" role="dialog" aria-modal="true">
@@ -13,7 +12,7 @@
                 <button
                     type="button"
                     class="btn btn-sm btn-primary"
-                    onclick="const frame = document.getElementById('checklist-preview-iframe-{{ checklist.pk|unlocalize }}'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
+                    onclick="const frame = document.getElementById('checklist-preview-iframe-{{ checklist.pk }}'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
                 >
                     Imprimir
                 </button>
@@ -23,7 +22,7 @@
 
         <div class="h-[calc(92vh-73px)] bg-base-200/40">
             <iframe
-                id="checklist-preview-iframe-{{ checklist.pk|unlocalize }}"
+                id="checklist-preview-iframe-{{ checklist.pk }}"
                 src="{{ preview_url }}"
                 class="h-full w-full bg-white"
                 frameborder="0"

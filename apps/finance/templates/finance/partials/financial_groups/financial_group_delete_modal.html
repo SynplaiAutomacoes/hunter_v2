@@ -1,5 +1,1 @@
-{% if has_children %}
-  {% include 'crud/delete_modal.html' with modal_id='financial-group-delete-modal' delete_title='Excluir Grupo Financeiro' delete_warning_title='Esta ação excluirá o grupo e todos os seus subgrupos' delete_warning_text='Tem certeza que deseja excluir'|add:' '|add:object.name|add:' e todos os seus subgrupos?' %}
-{% else %}
-  {% include 'crud/delete_modal.html' with modal_id='financial-group-delete-modal' delete_title='Excluir Grupo Financeiro' delete_warning_text='Tem certeza que deseja excluir este grupo financeiro' %}
-{% endif %}
+{% include 'crud/delete_modal.html' with modal_id='financial-group-delete-modal' delete_title='Excluir Grupo Financeiro' delete_warning_text='Tem certeza que deseja excluir este grupo financeiro' %}

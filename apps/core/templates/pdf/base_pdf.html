@@ -190,11 +190,10 @@
         <tr>
             <td style="width: 60%;">
                 {% block company_info %}
-                    <h3 class="company-title">{{ workshop.nome_fantasia_display|default:budget.workshop.nome_fantasia_display|default:workorder.workshop.nome_fantasia_display|default:"-" }}</h3>
-                    <p style="margin: 2px 0; font-weight: bold;">{{ workshop.razao_social_display|default:budget.workshop.razao_social_display|default:workorder.workshop.razao_social_display|default:"-" }}</p>
-                    <p style="margin: 2px 0; font-weight: bold;">CNPJ: {{ workshop.cnpj|default:budget.workshop.cnpj|default:workorder.workshop.cnpj|cnpj_br|default:"-" }}</p>
-                    <p style="margin: 2px 0; font-weight: bold;">{{ workshop.address|default:budget.workshop.address|default:workorder.workshop.address|default:"-" }}</p>
-                    <p style="margin: 2px 0; font-weight: bold;">Fone: {{ workshop.pdf_phone|default:budget.workshop.pdf_phone|default:workorder.workshop.pdf_phone|phone_br|default:"-" }}</p>
+                    <h3 class="company-title">{{ workshop.name|default:budget.workshop.name|default:workorder.workshop.name|default:"-" }}</h3>
+                    <p style="margin: 2px 0;">CNPJ: {{ workshop.cnpj|default:budget.workshop.cnpj|default:workorder.workshop.cnpj|cnpj_br|default:"-" }}</p>
+                    <p style="margin: 2px 0;">{{ workshop.address|default:budget.workshop.address|default:workorder.workshop.address|default:"-" }}</p>
+                    <p style="margin: 2px 0;">Fone: {{ workshop.pdf_phone|default:budget.workshop.pdf_phone|default:workorder.workshop.pdf_phone|phone_br|default:"-" }}</p>
                 {% endblock %}
             </td>
             <td style="width: 40%; vertical-align:top;" align="right">

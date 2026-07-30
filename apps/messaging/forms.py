@@ -48,12 +48,6 @@ class MessageTemplateForm(CoreModelForm):
 
         return name
 
-    def clean_message(self) -> str:
-        message = str(self.cleaned_data.get("message") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-        if not message:
-            raise forms.ValidationError("Informe o texto da mensagem.")
-        return message
-
 
 class QuickMessageTemplateForm(MessageTemplateForm):
     pass
@@ -109,7 +103,7 @@ class CustomerMessageGroupForm(CoreModelForm):
         return name
 
     def clean_message(self) -> str:
-        message = str(self.cleaned_data.get("message") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        message = str(self.cleaned_data.get("message") or "").strip()
         if not message:
             raise forms.ValidationError("Informe a mensagem que será usada neste grupo.")
         return sentence_case(message)

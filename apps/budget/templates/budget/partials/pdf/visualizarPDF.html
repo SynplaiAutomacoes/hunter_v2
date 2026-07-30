@@ -236,11 +236,10 @@
                 </div>
                 {% endif %}
                 <div class="min-w-0">
-                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.nome_fantasia_display }}</h3>
-                    <p class="field-row"><span class="field-value font-bold">{{ budget.workshop.razao_social_display }}</span></p>
-                    <p class="field-row"><span class="field-value font-bold">CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
-                    <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline font-bold">{{ budget.workshop.address|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-value font-bold">Fone: {{ budget.workshop.pdf_phone|phone_br|default:"-" }}</span></p>
+                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
+                    <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
+                    <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.pdf_phone|phone_br|default:"-" }}</span></p>
                 </div>
             </div>
             <div class="text-right w-[180px] flex-shrink-0">
@@ -471,12 +470,6 @@
             <p>Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }} hrs</p>
             {% endif %}
             <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
-            {% if budget.cancellation_reason %}
-            <p>Motivo do Cancelamento: <span class="font-bold text-gray-700">{{ budget.cancellation_reason }}</span></p>
-            {% endif %}
-            {% if budget.rejection_reason %}
-            <p>Motivo da Reprovação: <span class="font-bold text-gray-700">{{ budget.rejection_reason }}</span></p>
-            {% endif %}
         </div>
 
     </div>

@@ -165,10 +165,6 @@ def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpRespons
             if can_finalize_workorder or workorder.status == WorkOrderStatus.APPROVED:
                 approve_workorder_with_stock(workorder=workorder, signature_approved=True)
                 sync_workorder_financial_movement(workorder=workorder)
-                from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
-
-                workorder.refresh_from_db()
-                schedule_satisfaction_survey_for_workorder(workorder)
                 logger.info("supersign_webhook_workorder_approved", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
             else:
                 workorder.mark_signature_approved()

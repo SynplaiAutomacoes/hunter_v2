@@ -1,4 +1,3 @@
-{% load l10n %}
 {% for product in products %}
 <tr>
     <td>
@@ -8,7 +7,7 @@
     <td class="text-center font-mono">{{ product.stock_products.current_quantity }}</td>
     <td class="text-right font-mono">{{ product.cost_price }}</td>
     <td class="text-center">
-        <button type="button" class="btn btn-primary btn-xs" @click="confirmLink({ id: '{{ product.id|unlocalize }}' })">Adicionar</button>
+        <button type="button" class="btn btn-primary btn-xs" @click="confirmLink({ id: '{{ product.id }}' })">Adicionar</button>
     </td>
 </tr>
 {% empty %}

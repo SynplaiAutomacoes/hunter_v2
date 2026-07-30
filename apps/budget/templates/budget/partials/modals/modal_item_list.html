@@ -83,6 +83,7 @@
                 <th class="w-full">Descrição</th>
                 {% endif %}
                 {% if item_type == 'product' %}
+                    <th class="min-w-[300px]">Aplicação</th>
                     <th class="whitespace-nowrap text-center">Em estoque</th>
                 {% endif %}
                 {% if item_type != 'kit' %}
@@ -158,17 +159,15 @@
                             </span>
                         </td>
                     {% else %}
-                    <td class="min-w-[400px]">
+                    <td class="min-w-[300px]">
                         <div class="font-bold {% if item.id in existing_items %}text-success{% endif %}">
                             {{ item.name|default:item.description }}
-                            {% if item.application %}
-                            <span class="font-normal text-base-content/70"> — {{ item.application }}</span>
-                            {% endif %}
                         </div>
                     </td>
                     {% endif %}
 
                     {% if item_type == 'product' %}
+                        <td class="min-w-[300px] whitespace-normal break-words">{{ item.application|default:"-" }}</td>
                         <td class="text-center font-semibold whitespace-nowrap">{{ item.current_stock }}</td>
                     {% endif %}
 

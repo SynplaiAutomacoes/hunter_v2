@@ -2,34 +2,7 @@
 
 <input type="checkbox" id="customer-message-group-dispatch-modal" class="modal-toggle" checked />
 
-<div
-    class="modal"
-    role="dialog"
-    aria-modal="true"
-    x-data="{
-        isDispatching: false,
-        prepareClientMessageIds(event) {
-            const source = document.getElementById('customer-message-group-dispatch-customer-ids');
-            const input = event.target.querySelector('input[name=client_message_ids]');
-            if (!source || !input) {
-                return;
-            }
-            let customerIds = [];
-            try {
-                customerIds = JSON.parse(source.textContent || '[]');
-            } catch (error) {
-                customerIds = [];
-            }
-            const mapping = {};
-            customerIds.forEach((customerId) => {
-                mapping[String(customerId)] = (window.crypto && window.crypto.randomUUID)
-                    ? window.crypto.randomUUID()
-                    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-            });
-            input.value = JSON.stringify(mapping);
-        }
-    }"
->
+<div class="modal" role="dialog" aria-modal="true">
     <div class="modal-box">
         <h3 class="text-lg font-bold text-base-content">Disparar mensagens do grupo</h3>
         <p class="text-base-content/70 mt-1">As mensagens serão enviadas para a fila de processamento do WhatsApp.</p>
@@ -54,18 +27,37 @@
             hx-target="#modal-container"
             hx-swap="innerHTML"
             @submit="prepareClientMessageIds($event)"
-            @htmx:before-request="isDispatching = true"
-            @htmx:after-request="isDispatching = false"
+            x-data="{
+                prepareClientMessageIds(event) {
+                    const source = document.getElementById('customer-message-group-dispatch-customer-ids');
+                    const input = event.target.querySelector('input[name=client_message_ids]');
+                    if (!source || !input) {
+                        return;
+                    }
+                    let customerIds = [];
+                    try {
+                        customerIds = JSON.parse(source.textContent || '[]');
+                    } catch (error) {
+                        customerIds = [];
+                    }
+                    const mapping = {};
+                    customerIds.forEach((customerId) => {
+                        mapping[String(customerId)] = (window.crypto && window.crypto.randomUUID)
+                            ? window.crypto.randomUUID()
+                            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    });
+                    input.value = JSON.stringify(mapping);
+                }
+            }"
         >
             {% csrf_token %}
             <input type="hidden" name="client_message_ids" value="">
-            <label for="customer-message-group-dispatch-modal" class="btn btn-ghost" :class="isDispatching && 'btn-disabled'">Cancelar</label>
-            <button type="submit" class="btn btn-primary" :disabled="isDispatching">
-                <span x-show="isDispatching" x-cloak class="loading loading-spinner loading-sm"></span>
-                <span x-show="!isDispatching" class="material-icons">send</span>
-                <span x-text="isDispatching ? 'Disparando...' : 'Disparar'">Disparar</span>
+            <label for="customer-message-group-dispatch-modal" class="btn btn-ghost">Cancelar</label>
+            <button type="submit" class="btn btn-primary">
+                <span class="material-icons">send</span>
+                Disparar
             </button>
         </form>
     </div>
-    <label class="modal-backdrop" for="customer-message-group-dispatch-modal" :class="isDispatching && 'pointer-events-none'">Close</label>
+    <label class="modal-backdrop" for="customer-message-group-dispatch-modal">Close</label>
 </div>

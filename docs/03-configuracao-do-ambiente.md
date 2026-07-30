@@ -104,6 +104,10 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | --- | --- |
 | `APP_PROCESS` | define o processo do container: `web` (Gunicorn, default) ou `realtime` (Daphne ASGI + poller de outbound) |
 | `OUTBOUND_POLLER_INTERVAL_SECONDS` | intervalo do poller no realtime (default `60`); processa `run_due_outbound_messages` |
+| `OUTBOUND_BUSINESS_HOURS_ENABLED` | se `1`/`true` (default), so envia alertas no horario comercial; `0` desliga o gate |
+| `OUTBOUND_BUSINESS_WEEKDAYS` | dias da semana (Python: Mon=0 … Sun=6); default `0,1,2,3,4` (seg–sex) |
+| `OUTBOUND_BUSINESS_START_HOUR` | hora inicial inclusiva (default `8` = 08:00), timezone `TIME_ZONE` |
+| `OUTBOUND_BUSINESS_END_HOUR` | hora final exclusiva (default `18` = ate 17:59); janela padrao 08:00–18:00 |
 | `MESSAGE_WORKER_BASE_URL` | base URL do worker de envio WhatsApp; o cancelamento usa `POST {BASE}/stop` |
 | `MESSAGE_DISPATCH_STATUS_TOKEN` | token esperado no header `X-Dispatch-Status-Token` na ingestao de status do worker |
 | `MESSAGE_DISPATCH_WS_BASE_URL` | base URL do servico ASGI de WebSocket (ex.: `wss://realtime.example.com`); se vazio, o front usa o host atual |
@@ -117,7 +121,7 @@ O front autentica o WebSocket com um **token assinado** (query `?token=...`), ge
 
 Portas na Railway: o platform injeta `PORT` em cada service. O `entrypoint.sh` escuta em `0.0.0.0:$PORT`. URL publica (`*.up.railway.app`) nao precisa de porta; URL interna (`*.railway.internal`) usa a porta em que o processo escuta (o valor de `PORT` daquele service). Veja nos logs (`Starting ... on 0.0.0.0:NNNN`) ou em Variables do service.
 
-Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (default a cada 60s). O horario comercial de envio e configurado por oficina em **Gestao de Oficinas → Assistente Virtual**. Fora da janela da oficina, as mensagens vencidas ficam `PENDING` e sao enviadas no proximo tick dentro da janela. Para forcar (debug): `run_due_outbound_messages --force`. Nao e obrigatorio um Cron service separado.
+Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (default a cada 60s). Fora do horario comercial as mensagens vencidas ficam `PENDING` e sao enviadas no proximo tick dentro da janela. Para forcar (debug): `run_due_outbound_messages --force`. Nao e obrigatorio um Cron service separado.
 
 ### Eventos de orcamento e performance
 

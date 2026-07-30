@@ -50,7 +50,6 @@ class CustomerMessageGroupMembershipSyncTests(TestCase):
             email="c1@example.com",
             phone="+5511988887777",
             is_active=True,
-            accepts_messages=True,
         )
         customer_two = Customer.objects.create(
             workshop=workshop,
@@ -59,7 +58,6 @@ class CustomerMessageGroupMembershipSyncTests(TestCase):
             email="c2@example.com",
             phone="+5511988887778",
             is_active=True,
-            accepts_messages=True,
         )
 
         _sync_customer_message_group_memberships(
@@ -87,7 +85,6 @@ class CustomerMessageGroupMembershipSyncTests(TestCase):
                 email=f"c{index}@example.com",
                 phone="+5511988887777",
                 is_active=True,
-                accepts_messages=True,
             )
             for index in range(5)
         ]
@@ -114,7 +111,6 @@ class CustomerMessageGroupMembershipSyncTests(TestCase):
             email="ok@example.com",
             phone="+5511988887777",
             is_active=True,
-            accepts_messages=True,
         )
         inactive = Customer.objects.create(
             workshop=workshop,
@@ -131,7 +127,6 @@ class CustomerMessageGroupMembershipSyncTests(TestCase):
             email="nophone@example.com",
             phone="+5511988887779",
             is_active=True,
-            accepts_messages=True,
         )
         Customer.objects.filter(pk=phoneless.pk).update(phone="")
 
@@ -156,7 +151,6 @@ class CustomerMessageGroupMembershipSyncTests(TestCase):
             email="ok2@example.com",
             phone="+5511988887777",
             is_active=True,
-            accepts_messages=True,
         )
         inactive = Customer.objects.create(
             workshop=workshop,
@@ -173,7 +167,6 @@ class CustomerMessageGroupMembershipSyncTests(TestCase):
             email="nophone2@example.com",
             phone="+5511988887779",
             is_active=True,
-            accepts_messages=True,
         )
         Customer.objects.filter(pk=phoneless.pk).update(phone="")
 
@@ -252,7 +245,6 @@ class CustomerMessageGroupUpdateMembershipTests(TestCase):
                 email="old@example.com",
                 phone="+5511988887777",
                 is_active=True,
-                accepts_messages=True,
             ),
         )
         self.customers = [
@@ -263,7 +255,6 @@ class CustomerMessageGroupUpdateMembershipTests(TestCase):
                 email=f"new{index}@example.com",
                 phone="+5511988887777",
                 is_active=True,
-                accepts_messages=True,
             )
             for index in range(5)
         ]

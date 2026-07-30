@@ -1,4 +1,3 @@
-{% load l10n %}
 <div class="space-y-4">
     <div class="flex items-center justify-between gap-3">
         <div>
@@ -18,19 +17,19 @@
     {% else %}
         <div class="space-y-3">
             {% for batch in dispatch_history_batches %}
-                <div class="collapse collapse-arrow border border-base-300 bg-base-100" data-batch-id="{{ batch.pk|unlocalize }}">
-                    <input type="radio" name="dispatch-history-accordion" {% if forloop.first %}checked{% endif %} @change="connectLiveBatch({{ batch.pk|unlocalize }})" />
+                <div class="collapse collapse-arrow border border-base-300 bg-base-100" data-batch-id="{{ batch.pk }}">
+                    <input type="radio" name="dispatch-history-accordion" {% if forloop.first %}checked{% endif %} @change="connectLiveBatch({{ batch.pk }})" />
                     <div class="collapse-title text-sm font-semibold">
                         <div class="flex flex-wrap items-center gap-3">
                             <span>#{{ batch.pk }} · {{ batch.created_at_display }}</span>
-                            <span class="badge badge-outline" data-batch-status="{{ batch.pk|unlocalize }}">{{ batch.get_status_display }}</span>
+                            <span class="badge badge-outline" data-batch-status="{{ batch.pk }}">{{ batch.get_status_display }}</span>
                             <span class="text-xs text-base-content/60">
-                                total <span data-batch-count="{{ batch.pk|unlocalize }}-total">{{ batch.total_count }}</span>
-                                · enviadas <span data-batch-count="{{ batch.pk|unlocalize }}-sent">{{ batch.sent_count }}</span>
-                                · falhas <span data-batch-count="{{ batch.pk|unlocalize }}-failed">{{ batch.failed_count }}</span>
-                                · processando <span data-batch-count="{{ batch.pk|unlocalize }}-processing">{{ batch.processing_count }}</span>
-                                · canceladas <span data-batch-count="{{ batch.pk|unlocalize }}-cancelled">{{ batch.cancelled_count }}</span>
-                                · fila <span data-batch-count="{{ batch.pk|unlocalize }}-queued">{{ batch.queued_count }}</span>
+                                total <span data-batch-count="{{ batch.pk }}-total">{{ batch.total_count }}</span>
+                                · enviadas <span data-batch-count="{{ batch.pk }}-sent">{{ batch.sent_count }}</span>
+                                · falhas <span data-batch-count="{{ batch.pk }}-failed">{{ batch.failed_count }}</span>
+                                · processando <span data-batch-count="{{ batch.pk }}-processing">{{ batch.processing_count }}</span>
+                                · canceladas <span data-batch-count="{{ batch.pk }}-cancelled">{{ batch.cancelled_count }}</span>
+                                · fila <span data-batch-count="{{ batch.pk }}-queued">{{ batch.queued_count }}</span>
                             </span>
                         </div>
                     </div>

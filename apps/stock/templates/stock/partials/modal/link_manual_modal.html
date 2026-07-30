@@ -1,8 +1,7 @@
-{% load l10n %}
 <div class="modal modal-open" x-data="{
     confirmLink(product) {
         const params = new URLSearchParams({
-            pk: '{{ pk|unlocalize }}',
+            pk: '{{ pk }}',
             product_id: String(product.id)
         });
         const itemIdx = '{{ item_idx|default:'' }}';

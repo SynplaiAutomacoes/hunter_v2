@@ -48,7 +48,7 @@ Se a aplicacao passar a falhar em conversao de SVG no ambiente remoto, revise pr
 
 1. aplica migrations com `manage.py migrate --noinput`
 2. se `APP_PROCESS=web`: sincroniza webhook (`manage.py webhook`) e sobe Gunicorn
-3. se `APP_PROCESS=realtime`: sobe um poller em background (`run_due_outbound_messages` a cada `OUTBOUND_POLLER_INTERVAL_SECONDS`, default 60s; respeita o horario de disparo configurado por oficina) e o Daphne (`config.asgi:application`) na porta `PORT`
+3. se `APP_PROCESS=realtime`: sobe um poller em background (`run_due_outbound_messages` a cada `OUTBOUND_POLLER_INTERVAL_SECONDS`, default 60s; respeita `OUTBOUND_BUSINESS_*` / horario comercial) e o Daphne (`config.asgi:application`) na porta `PORT`
 
 Configuracao operacional do Gunicorn (env vars, defaults entre parenteses):
 

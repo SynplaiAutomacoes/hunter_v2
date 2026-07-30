@@ -1,5 +1,4 @@
 {% extends 'crud/page.html' %}
-{% load l10n %}
 
 {% block crud_content %}
     <div class="space-y-6">
@@ -110,7 +109,7 @@
                                                     <option value="">Todas</option>
                                                     <option value="none" {% if request.GET.conta_bancaria == 'none' %}selected{% endif %}>Sem Vínculo</option>
                                                     {% for account in bank_accounts %}
-                                                        <option value="{{ account.pk|unlocalize }}" {% if request.GET.conta_bancaria == account.pk|stringformat:"s" %}selected{% endif %}>{{ account }}</option>
+                                                        <option value="{{ account.pk }}" {% if request.GET.conta_bancaria == account.pk|stringformat:"s" %}selected{% endif %}>{{ account }}</option>
                                                     {% endfor %}
                                                 </select>
                                             </div>
@@ -121,7 +120,7 @@
                                             <select name="forma_pagamento" id="cashflow-filter-forma-pagamento" class="select select-bordered w-full">
                                                 <option value="">Todas</option>
                                                 {% for pm in payment_methods %}
-                                                    <option value="{{ pm.pk|unlocalize }}" {% if request.GET.forma_pagamento == pm.pk|stringformat:"s" %}selected{% endif %}>{{ pm.description }}</option>
+                                                    <option value="{{ pm.pk }}" {% if request.GET.forma_pagamento == pm.pk|stringformat:"s" %}selected{% endif %}>{{ pm.description }}</option>
                                                 {% endfor %}
                                             </select>
                                         </div>
@@ -131,7 +130,7 @@
                                             <select name="plano_orcamentario" id="cashflow-filter-plano-orcamentario" class="select select-bordered w-full">
                                                 <option value="">Todos</option>
                                                 {% for plan in budget_plans %}
-                                                    <option value="{{ plan.pk|unlocalize }}" {% if request.GET.plano_orcamentario == plan.pk|stringformat:"s" %}selected{% endif %}>{{ plan }}</option>
+                                                    <option value="{{ plan.pk }}" {% if request.GET.plano_orcamentario == plan.pk|stringformat:"s" %}selected{% endif %}>{{ plan }}</option>
                                                 {% endfor %}
                                             </select>
                                         </div>

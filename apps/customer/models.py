@@ -6,16 +6,10 @@ from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.infrastructure.models import TimeStampedModel, Address
-from apps.core.infrastructure.runtime_environment import is_production_environment
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 
 from .vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
 from .vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
-
-
-def default_customer_accepts_messages() -> bool:
-    """Prod liga recebimento por padrão; fora de produção nasce desligado."""
-    return is_production_environment()
 
 
 class Customer(TimeStampedModel, Address):
@@ -38,10 +32,6 @@ class Customer(TimeStampedModel, Address):
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
     email = models.EmailField(verbose_name="Email", blank=False, null=False)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
-    accepts_messages = models.BooleanField(
-        verbose_name="Receber mensagens",
-        default=default_customer_accepts_messages,
-    )
 
     # CAMPOS PESSOA FISICA
     rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)
@@ -101,17 +91,6 @@ class Customer(TimeStampedModel, Address):
         super().save(*args, **kwargs)
 
 
-class OilForecastReason(models.TextChoices):
-    BY_DAYS = "VALIDADE_POR_DIAS", "Validade por dias"
-    BY_KM = "VALIDADE_POR_QUILOMETRAGEM", "Validade por quilometragem"
-
-
-class MileageReadingSource(models.TextChoices):
-    BUDGET = "budget", "Orçamento"
-    WORKORDER_DELIVERY = "workorder_delivery", "Entrega da O.S."
-    MANUAL = "manual", "Manual"
-
-
 class Vehicle(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="vehicles")
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="vehicles")
@@ -127,24 +106,6 @@ class Vehicle(TimeStampedModel):
     type = models.CharField(verbose_name="Tipo", max_length=50, null=True, blank=True)
     renavam = models.CharField(verbose_name="Renavam", max_length=500, null=True, blank=True)
     chassi = models.CharField(verbose_name="Chassi", max_length=500, null=True, blank=True)
-    last_oil_change_date = models.DateField(verbose_name="Data da última troca de óleo", null=True, blank=True)
-    last_oil_change_km = models.PositiveIntegerField(verbose_name="KM da última troca de óleo", null=True, blank=True)
-    review_plan = models.ForeignKey(
-        "workshops.ReviewPlan",
-        verbose_name="Plano de revisão",
-        on_delete=models.SET_NULL,
-        related_name="vehicles",
-        null=True,
-        blank=True,
-    )
-    next_oil_change_date = models.DateField(verbose_name="Data prevista da próxima troca de óleo", null=True, blank=True)
-    oil_forecast_reason = models.CharField(
-        verbose_name="Motivo da previsão de troca de óleo",
-        max_length=40,
-        choices=OilForecastReason.choices,
-        null=True,
-        blank=True,
-    )
 
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         verbose_name = "Veículo"
@@ -173,86 +134,3 @@ class Vehicle(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.plate} - {self.model}"
-
-
-class VehicleOilChange(TimeStampedModel):
-    vehicle = models.ForeignKey(Vehicle, verbose_name="Veículo", on_delete=models.CASCADE, related_name="oil_changes")
-    changed_at = models.DateField(verbose_name="Data da troca")
-    odometer_km = models.PositiveIntegerField(verbose_name="Quilometragem da troca")
-    review_plan = models.ForeignKey(
-        "workshops.ReviewPlan",
-        verbose_name="Plano de revisão",
-        on_delete=models.SET_NULL,
-        related_name="oil_changes",
-        null=True,
-        blank=True,
-    )
-    validity_days = models.PositiveIntegerField(verbose_name="Validade do óleo (dias)")
-    validity_km = models.PositiveIntegerField(verbose_name="Validade do óleo (km)")
-    budget = models.ForeignKey(
-        "budget.Budget",
-        verbose_name="Orçamento",
-        on_delete=models.SET_NULL,
-        related_name="oil_changes",
-        null=True,
-        blank=True,
-    )
-    workorder = models.ForeignKey(
-        "workorder.WorkOrder",
-        verbose_name="Ordem de serviço",
-        on_delete=models.SET_NULL,
-        related_name="oil_changes",
-        null=True,
-        blank=True,
-    )
-
-    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
-        verbose_name = "Troca de óleo"
-        verbose_name_plural = "Trocas de óleo"
-        indexes = [
-            models.Index(fields=["vehicle", "-changed_at"]),
-            models.Index(fields=["workorder"]),
-        ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=("workorder",),
-                condition=models.Q(workorder__isnull=False),
-                name="unique_oil_change_per_workorder",
-            ),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.vehicle} @ {self.changed_at}"
-
-
-class VehicleMileageReading(TimeStampedModel):
-    vehicle = models.ForeignKey(Vehicle, verbose_name="Veículo", on_delete=models.CASCADE, related_name="mileage_readings")
-    read_at = models.DateField(verbose_name="Data da leitura")
-    odometer_km = models.PositiveIntegerField(verbose_name="Quilometragem")
-    source = models.CharField(verbose_name="Origem da leitura", max_length=32, choices=MileageReadingSource.choices)
-    budget = models.ForeignKey(
-        "budget.Budget",
-        verbose_name="Orçamento",
-        on_delete=models.SET_NULL,
-        related_name="mileage_readings",
-        null=True,
-        blank=True,
-    )
-    workorder = models.ForeignKey(
-        "workorder.WorkOrder",
-        verbose_name="Ordem de serviço",
-        on_delete=models.SET_NULL,
-        related_name="mileage_readings",
-        null=True,
-        blank=True,
-    )
-
-    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
-        verbose_name = "Leitura de quilometragem"
-        verbose_name_plural = "Leituras de quilometragem"
-        indexes = [
-            models.Index(fields=["vehicle", "read_at", "odometer_km"]),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.vehicle} {self.odometer_km} km @ {self.read_at}"

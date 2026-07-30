@@ -217,7 +217,6 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
             "phone",
             "email",
             "is_active",
-            "accepts_messages",
             "fantasy_name",
             "state_registration",
             "municipal_registration",
@@ -243,16 +242,12 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
             "phone": PhoneInput(),
             "email": EmailInput(),
             "is_active": CheckboxInput(),
-            "accepts_messages": CheckboxInput(),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
         self.setup_address_fields()
-        # Callable model default enables show_hidden_initial; our checkbox widget does not
-        # reliably pair with that hidden input under crispy, so compare against instance/initial.
-        self.fields["accepts_messages"].show_hidden_initial = False
 
         initial_customer_type = str(self.data.get("customer_type") or self.initial.get("customer_type") or getattr(self.instance, "customer_type", "PF") or "PF").upper()
         if initial_customer_type not in {"PF", "PJ"}:
@@ -390,7 +385,6 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
                 # Ativo | Data de Nascimento | Sexo
                 # ─────────────────────────────
                 Field("is_active", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("accepts_messages", wrapper_class="col-span-12 lg:col-span-4"),
                 HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-4">'),
                 Field("birth_date", wrapper_class="col-span-12"),
                 HTML("</div>"),

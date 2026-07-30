@@ -56,7 +56,7 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
 
 
 class WebmaniaCompanyUpdateForm(CoreModelForm):
-    secret_fields = ("nfse_password", "nfse_token", "certificado", "certificado_senha", "nfce_id_csc", "nfce_codigo_csc", "nfce_id_csc_dev", "nfce_codigo_csc_dev")
+    secret_fields = ("nfse_password", "nfse_token", "certificado", "certificado_senha")
     nullable_boolean_fields = (
         "partilha_icms_contribuinte",
         "partilha_icms_isento",
@@ -110,7 +110,6 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "nfe_numero",
             "nfe_numero_dev",
             "cnae_issqn",
-            "nfce_enabled",
             "nfce_serie",
             "nfce_numero",
             "nfce_id_csc",
@@ -130,10 +129,6 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "regime_especial_municipal",
             "nfse_lote_rps_numero",
             "nfse_rps_numero_dev",
-            "nfse_substitution_preview_enabled",
-            "nfse_manual_emission_preview_enabled",
-            "nfse_manual_emission_enabled",
-            "nfse_received_import_enabled",
             "certificado",
             "certificado_senha",
             "partilha_icms_contribuinte",
@@ -175,10 +170,10 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "cidade": TextInput(),
             "uf": TextInput(),
             "cnae_issqn": TextInput(),
-            "nfce_id_csc": PasswordInput(),
-            "nfce_codigo_csc": PasswordInput(),
-            "nfce_id_csc_dev": PasswordInput(),
-            "nfce_codigo_csc_dev": PasswordInput(),
+            "nfce_id_csc": TextInput(),
+            "nfce_codigo_csc": TextInput(),
+            "nfce_id_csc_dev": TextInput(),
+            "nfce_codigo_csc_dev": TextInput(),
             "informacoes_fisco": TextareaInput(rows=3),
             "nfse_rps_serie": TextInput(),
             "cnae": TextInput(),
@@ -200,11 +195,6 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "exclusao_difal_pis_cofins": CheckboxInput(),
             "deduzir_desconto_ipi": CheckboxInput(),
             "email_automatico_nfse": CheckboxInput(),
-            "nfce_enabled": CheckboxInput(),
-            "nfse_substitution_preview_enabled": CheckboxInput(),
-            "nfse_manual_emission_preview_enabled": CheckboxInput(),
-            "nfse_manual_emission_enabled": CheckboxInput(),
-            "nfse_received_import_enabled": CheckboxInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -251,7 +241,6 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
         nfce_fields: list[Any] = [
             HTML("<div class='col-span-12 divider my-1'></div>"),
             HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>NFC-e</p>"),
-            Field("nfce_enabled", wrapper_class="col-span-12 lg:col-span-3"),
             Field("nfce_serie", wrapper_class="col-span-12 lg:col-span-3"),
             Field("nfce_numero", wrapper_class="col-span-12 lg:col-span-3"),
         ]
@@ -290,10 +279,6 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
                 Field("regime_apuracao_sn", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("regime_especial_nacional", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("regime_especial_municipal", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("nfse_substitution_preview_enabled", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("nfse_manual_emission_preview_enabled", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("nfse_manual_emission_enabled", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("nfse_received_import_enabled", wrapper_class="col-span-12 lg:col-span-4"),
             ]
         )
 

@@ -22,7 +22,6 @@ from django.urls import path, include
 from django.views.generic import RedirectView
 
 from apps.core.presentation.views import permission_denied
-from apps.messaging.presentation.views.satisfaction_review_views import PublicSatisfactionReviewView
 
 handler403 = permission_denied
 
@@ -45,7 +44,6 @@ urlpatterns = [
     path("stock/", include("apps.stock.urls")),
     path("finance/", include("apps.finance.urls")),
     path("messaging/", include("apps.messaging.urls")),
-    path("review/<str:token>/", PublicSatisfactionReviewView.as_view(), name="public_satisfaction_review"),
 ]
 
 if settings.DEBUG:

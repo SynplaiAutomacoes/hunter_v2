@@ -232,7 +232,6 @@ class RequireFirstWorkshopMiddleware:
     allowed_routes = {
         "workshops:create",
         "workshops:webmania_company_sync",
-        "workshops:webmania_provision_toggle",
         "accounts:login",
         "accounts:register",
         "accounts:logout",

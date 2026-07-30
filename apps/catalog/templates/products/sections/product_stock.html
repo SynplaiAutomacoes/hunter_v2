@@ -1,4 +1,3 @@
-{% load l10n %}
 <section class="card bg-base-100 shadow-md">
   <div class="card-body">
     <div class="flex justify-between items-center">
@@ -24,7 +23,7 @@
                hx-post="{% url 'catalog:update_stock_fields' %}"
                hx-trigger="blur"
                hx-swap="innerHTML"
-               hx-vals='{"product_id": "{{ product.id|unlocalize }}"}'>
+               hx-vals='{"product_id": "{{ product.id }}"}'>
       </div>
 
       <div class="form-control">
@@ -36,7 +35,7 @@
                hx-post="{% url 'catalog:update_stock_fields' %}"
                hx-trigger="blur"
                hx-swap="innerHTML"
-               hx-vals='{"product_id": "{{ product.id|unlocalize }}"}'>
+               hx-vals='{"product_id": "{{ product.id }}"}'>
       </div>
     </div>
   </div>
