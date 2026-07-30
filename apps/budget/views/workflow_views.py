@@ -451,9 +451,11 @@ class BudgetStatusReportDataMixin:
         if selection_report is None:
             raise Http404("Status de orcamento invalido")
 
+        report_budgets = self._get_selection_report_items()
         return {
             "workshop": self.workshop,
-            "report_budgets": self._get_selection_report_items(),
+            "report_budgets": report_budgets,
+            "show_cancellation_reason_column": any(budget.cancellation_reason for budget in report_budgets),
             "selection_report": selection_report,
             "selected_status_report": selection_report,
             "status_report_pdf_title": self.status_report_pdf_title,
@@ -1122,6 +1124,9 @@ def _compute_budget_diff(state_old, state_new):
         s_new = str(val_new or "").strip()
 
         if s_old != s_new:
+            if field == "budget_type":
+                val_old = BudgetType(val_old).label if val_old in BudgetType.values else val_old
+                val_new = BudgetType(val_new).label if val_new in BudgetType.values else val_new
             diff["fields"][field] = {"label": label, "old": val_old, "new": val_new}
 
     old_items = state_old.get("items", {})
