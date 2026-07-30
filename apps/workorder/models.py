@@ -144,6 +144,14 @@ class WorkOrder(TimeStampedModel):
             return {"text": "Cortesia", "class": "badge-info"}
         return {"text": "Venda", "class": "badge-success"}
 
+    def sync_items_benefit_type_to_budget_type(self) -> int:
+        benefit_type = WorkOrderItemBenefitType.NORMAL
+        if self.budget_type == "warranty":
+            benefit_type = WorkOrderItemBenefitType.WARRANTY
+        elif self.budget_type == "courtesy":
+            benefit_type = WorkOrderItemBenefitType.COURTESY
+        return self.items.exclude(item_benefit_type=benefit_type).update(item_benefit_type=benefit_type)
+
     def _iter_items(self) -> Iterable["WorkOrderItem"]:
         if not self.pk:
             return ()
@@ -861,7 +869,8 @@ class WorkOrder(TimeStampedModel):
             self.discount_value = self.budget.resolved_discount_value
             self.discount_percentage = self.budget.resolved_discount_percentage
             self.discount_type = self.budget.discount_type
-            self.save(update_fields=["discount_value", "discount_percentage", "discount_type"])
+            self.budget_type = self.budget.budget_type
+            self.save(update_fields=["discount_value", "discount_percentage", "discount_type", "budget_type"])
 
             collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
             if not collaborator_ids and self.budget.collaborator_id:
