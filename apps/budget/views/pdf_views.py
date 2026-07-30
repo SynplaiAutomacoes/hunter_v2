@@ -162,6 +162,8 @@ def visualizar_pdf_checklist(request, pk):
 
     workshop_header = {
         "name": workshop.pdf_name,
+        "nome_fantasia": workshop.nome_fantasia_display,
+        "razao_social": workshop.razao_social_display,
         "address": workshop.address or "-",
         "cep_city": workshop_cep_city,
         "phone": workshop.pdf_phone,
