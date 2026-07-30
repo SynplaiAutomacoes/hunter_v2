@@ -1307,12 +1307,18 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if not cancellation_reason:
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 budget.cancellation_reason = cancellation_reason
+            elif status == "reject":
+                rejection_reason = request.POST.get("rejection_reason")
+                if not rejection_reason:
+                    return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
+                budget.rejection_reason = rejection_reason
             elif status == "reopen":
                 reopen_reason = str(request.POST.get("reopen_reason") or "").strip()
                 if not reopen_reason:
                     return JsonResponse({"success": False, "error": "A justificativa da reabertura é obrigatória."}, status=400)
 
                 budget.cancellation_reason = ""
+                budget.rejection_reason = ""
                 budget.regenerate_signature_token()
 
                 # Salvar o estado inicial completo no momento da reabertura

@@ -1,0 +1,20 @@
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div>
+        <label class="mb-2 block text-sm font-semibold text-base-content" for="filter-status">Status</label>
+        <select id="filter-status" name="status" class="select select-bordered w-full">
+            <option value="">Todos</option>
+            {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if request.GET.status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label class="mb-2 block text-sm font-semibold text-base-content" for="filter-rating">Nota</label>
+        <select id="filter-rating" name="rating" class="select select-bordered w-full">
+            <option value="">Todas</option>
+            {% for value, label in rating_choices %}
+                <option value="{{ value }}" {% if request.GET.rating == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</div>

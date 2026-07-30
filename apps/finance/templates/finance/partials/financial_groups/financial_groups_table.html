@@ -1,3 +1,3 @@
 {% load table_tags %}
 
-{% render_table financial_groups fields table_id='financial-groups-table' per_page=financial_groups_per_page selectable=True hierarchical_selection=True actions=actions filter_fields_template='tables/partials/is_active_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar grupos financeiros' filter_param_names='is_active' %}
+{% render_table financial_groups fields table_id='financial-groups-table' per_page=financial_groups_per_page actions=actions selectable=True hierarchical_selection=True checkbox_name='selected' filter_fields_template='tables/partials/is_active_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar grupos financeiros' filter_param_names='is_active' %}
