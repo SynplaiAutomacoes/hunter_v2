@@ -14,8 +14,12 @@ from .emission import (
     EmissionStep5Form,
 )
 from .financial_group import FinancialGroupForm
+from .fiscal_referenced_basis import FiscalReferencedBasisCreateForm
+from .fiscal_credit_product_preview import FiscalCreditProductPreviewCreateForm
 from .nfe import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from .nfse import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
+from .nfse_capabilities import NfseMunicipalCapabilityForm
+from .nfse_received import NfseReceivedDocumentBatchUploadForm, NfseReceivedDocumentUploadForm
 from .tax_class import (
     CST_PIS_COFINS_CHOICES,
     CofinsScenarioForm,
@@ -54,6 +58,8 @@ from .webmania import (
 
 __all__ = [
     "FinancialGroupForm",
+    "FiscalReferencedBasisCreateForm",
+    "FiscalCreditProductPreviewCreateForm",
     "EMISSION_NOTE_MODE_CHOICES",
     "EMISSION_NOTE_TYPE_CHOICES",
     "EmissionKitProductComponentForm",
@@ -84,6 +90,9 @@ __all__ = [
     "NfseRequestStep1Form",
     "NfseRequestStep2Form",
     "NfseRequestStep3Form",
+    "NfseMunicipalCapabilityForm",
+    "NfseReceivedDocumentUploadForm",
+    "NfseReceivedDocumentBatchUploadForm",
     "NfseTaxClassForm",
     "NfeTaxClassForm",
     "PisScenarioForm",

@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+{% block content %}
+<div class="mx-auto max-w-4xl space-y-5 p-4">
+    <div><h1 class="text-2xl font-bold">Preparar emissão manual NFS-e</h1><p class="text-base-content/70">Monte e valide o RPS sem transmitir para a Webmania.</p></div>
+    <div class="alert alert-warning">Esta etapa não emite NFS-e, não cria XML/DANFSE e não reserva número oficial de forma irreversível.</div>
+    <form method="post" class="space-y-4">
+        {% csrf_token %}{{ form|crispy }}
+        <div class="flex justify-end gap-2"><a class="btn btn-ghost" href="{% url 'finance:nfse_manual_emission_preview_list' %}">Cancelar</a><button class="btn btn-primary" type="submit">Validar preview</button></div>
+    </form>
+</div>
+{% endblock %}

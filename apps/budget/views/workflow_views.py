@@ -670,6 +670,8 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
         form_kwargs = self.get_form_kwargs()
+        if step != self.get_current_step():
+            form_kwargs.pop("data", None)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object
@@ -1149,7 +1151,7 @@ def _compute_budget_diff(state_old, state_new):
                 "product_selling_price": "Valor Venda (Peça)",
                 "service_selling_price": "Valor Venda (Serviço)",
                 "shipping": "Frete",
-                "is_customer_supplied": "Peça trazida pelo cliente",
+                "is_customer_supplied": "Peça fornecida pelo cliente",
                 "total": "Total",
             }
             for f, f_label in item_fields.items():
@@ -1305,12 +1307,18 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if not cancellation_reason:
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 budget.cancellation_reason = cancellation_reason
+            elif status == "reject":
+                rejection_reason = request.POST.get("rejection_reason")
+                if not rejection_reason:
+                    return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
+                budget.rejection_reason = rejection_reason
             elif status == "reopen":
                 reopen_reason = str(request.POST.get("reopen_reason") or "").strip()
                 if not reopen_reason:
                     return JsonResponse({"success": False, "error": "A justificativa da reabertura é obrigatória."}, status=400)
 
                 budget.cancellation_reason = ""
+                budget.rejection_reason = ""
                 budget.regenerate_signature_token()
 
                 # Salvar o estado inicial completo no momento da reabertura

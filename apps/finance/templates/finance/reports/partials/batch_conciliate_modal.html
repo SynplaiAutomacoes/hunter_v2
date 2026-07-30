@@ -1,3 +1,4 @@
+{% load l10n %}
 <dialog id="batch-conciliate-modal" class="modal" x-init="$nextTick(() => $el.showModal())" @click="if ($event.target === $el) $el.close()" @close="$el.remove()">
     <div class="modal-box w-[95vw] max-w-xl border border-base-300 bg-base-100 shadow-2xl p-6 md:p-10">
         <div class="flex items-center justify-between mb-6">
@@ -24,7 +25,7 @@
             {% csrf_token %}
 
             {% for movement_id in movement_ids %}
-                <input type="hidden" name="movement_ids" value="{{ movement_id }}">
+                <input type="hidden" name="movement_ids" value="{{ movement_id|unlocalize }}">
             {% endfor %}
 
             <div>
@@ -32,7 +33,7 @@
                 <select id="batch-bank-account" name="bank_account_id" class="select select-bordered w-full mt-2" required>
                     <option value="">Selecione uma conta</option>
                     {% for account in bank_accounts %}
-                        <option value="{{ account.pk }}">{{ account }}</option>
+                        <option value="{{ account.pk|unlocalize }}">{{ account }}</option>
                     {% endfor %}
                 </select>
             </div>
