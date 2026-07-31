@@ -1,4 +1,4 @@
-def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_viewed_url: str, update_budget_discount_url: str) -> str:
+def build_step5_assets_html(*, metodo_precificacao: str, step5_should_block_next_button: str, mark_step5_calculation_viewed_url: str, update_budget_discount_url: str) -> str:
     return f"""
                 <style>
                     :root[data-theme="light"] {{
@@ -265,27 +265,21 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                         }})();
 
                         (function () {{
-                            window.initBudgetStep5CalculationGate = function initCalculationGate() {{
+                            function initCalculationGate() {{
                                 const calculateButton = document.getElementById('step5-calculate-values-btn');
                                 const calculationStatus = document.getElementById('step5-calculation-status');
                                 const loadingCard = document.getElementById('step5-calc-loader-card');
                                 const methodCard = document.getElementById('step5-method-card');
                                 const controlsCard = document.getElementById('step5-controls-card');
+                                const submitButton = document.getElementById('budget-submit-btn');
                                 const calculatedInput = document.getElementById('id_step5_calculated');
+                                const shouldBlockNextStep = {step5_should_block_next_button};
 
-                                if (!calculateButton || !loadingCard || !methodCard || !controlsCard) {{
-                                    if (typeof window.syncBudgetStep5SubmitButton === 'function') {{
-                                        window.syncBudgetStep5SubmitButton();
-                                    }}
-                                    return;
-                                }}
+                                if (!calculateButton || !loadingCard || !methodCard || !controlsCard || calculateButton.dataset.initialized === 'true') return;
 
-                                if (typeof window.syncBudgetStep5SubmitButton === 'function') {{
-                                    window.syncBudgetStep5SubmitButton();
-                                }}
-
-                                if (calculateButton.dataset.initialized === 'true') {{
-                                    return;
+                                if (submitButton && shouldBlockNextStep) {{
+                                    submitButton.disabled = true;
+                                    submitButton.classList.add('btn-disabled');
                                 }}
 
                                 calculateButton.dataset.initialized = 'true';
@@ -327,8 +321,9 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                         methodCard.classList.remove('hidden');
                                         controlsCard.classList.remove('hidden');
 
-                                        if (typeof window.syncBudgetStep5SubmitButton === 'function') {{
-                                            window.syncBudgetStep5SubmitButton();
+                                        if (submitButton) {{
+                                            submitButton.disabled = false;
+                                            submitButton.classList.remove('btn-disabled');
                                         }}
 
                                         if (typeof window.step5InitSlider === 'function') {{
@@ -336,15 +331,10 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                         }}
                                     }}, 5000);
                                 }});
-                            }};
-
-                            if (!window.__budgetStep5CalcGateBound) {{
-                                window.__budgetStep5CalcGateBound = true;
-                                document.addEventListener('DOMContentLoaded', window.initBudgetStep5CalculationGate);
-                                document.body.addEventListener('htmx:afterSettle', window.initBudgetStep5CalculationGate);
                             }}
 
-                            window.initBudgetStep5CalculationGate();
+                            document.addEventListener('DOMContentLoaded', initCalculationGate);
+                            document.body.addEventListener('htmx:afterSettle', initCalculationGate);
                         }})();
 
                         (function () {{

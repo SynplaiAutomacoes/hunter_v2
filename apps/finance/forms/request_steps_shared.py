@@ -4,11 +4,8 @@ from html import escape
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
-from django.db.models import Exists, OuterRef
-from django.urls import reverse
 
 from apps.core.presentation.widgets import SearchableSelectInput
-from apps.finance.models.finance import NfeRequest, NfseRequest
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.core.presentation.forms import CoreModelForm
 
@@ -26,17 +23,10 @@ class SharedEmissionWorkorderSelectionForm(CoreModelForm):
 
         queryset = WorkOrder.objects.none()
         if workshop is not None:
-            nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"))
-            nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"))
-
-            queryset = (
-                WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED)
-                .select_related("budget", "budget__customer", "budget__vehicle")
-                .annotate(
-                    has_nfe=Exists(nfe_exists),
-                    has_nfse=Exists(nfse_exists),
-                )
-                .exclude(has_nfe=True, has_nfse=True)
+            queryset = WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED).select_related(
+                "budget",
+                "budget__customer",
+                "budget__vehicle",
             )
 
         field = self.fields["workorder"]
@@ -49,25 +39,7 @@ class SharedEmissionWorkorderSelectionForm(CoreModelForm):
 
         field.label_from_instance = _label_from_instance
         field.widget = SearchableSelectInput(choices=field.choices)
-        field.widget.attrs.update(
-            {
-                "hx-get": reverse("finance:emission_check_workorder"),
-                "hx-trigger": "change",
-                "hx-target": "#workorder-warning-container",
-                "hx-swap": "innerHTML",
-            }
-        )
         field.label = self.workorder_label
-
-        warning_html = ""
-        selected_workorder = getattr(self.instance, "workorder", None)
-        if selected_workorder is not None:
-            has_nfe = NfeRequest.objects.filter(workorder=selected_workorder).exists()
-            has_nfse = NfseRequest.objects.filter(workorder=selected_workorder).exists()
-            if has_nfe and not has_nfse:
-                warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Servico será processada nesta emissão.</div>"
-            elif has_nfse and not has_nfe:
-                warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Serviço emitida. Apenas a Nota Fiscal de Produto será processada nesta emissão.</div>"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -76,7 +48,6 @@ class SharedEmissionWorkorderSelectionForm(CoreModelForm):
                 HTML(f"<h2 class='text-2xl font-bold'>{self.step_title}</h2>"),
                 HTML(f"<p class='text-base-content/70 mb-6'>{self.step_subtitle}</p>"),
                 Field("workorder"),
-                HTML(f"<div id='workorder-warning-container'>{warning_html}</div>"),
                 css_class="space-y-4",
             )
         )

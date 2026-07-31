@@ -207,15 +207,10 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
                     html += '<div class="mb-5">';
                     html += '<h4 class="font-semibold text-base mb-2 border-b pb-1 text-base-content">Informações Gerais Modificadas</h4>';
                     html += '<ul class="list-disc list-inside space-y-1 text-sm text-base-content/80">';
-                    const budgetTypeLabels = {sale: 'Venda', warranty: 'Garantia', courtesy: 'Cortesia'};
                     fieldKeys.forEach(function(key) {
                         const change = fields[key];
-                        let oldVal = (change.old !== null && change.old !== undefined && change.old !== '') ? change.old : '<i>(vazio)</i>';
-                        let newVal = (change.new !== null && change.new !== undefined && change.new !== '') ? change.new : '<i>(vazio)</i>';
-                        if (key === 'budget_type') {
-                            oldVal = budgetTypeLabels[oldVal] || oldVal;
-                            newVal = budgetTypeLabels[newVal] || newVal;
-                        }
+                        const oldVal = (change.old !== null && change.old !== undefined && change.old !== '') ? change.old : '<i>(vazio)</i>';
+                        const newVal = (change.new !== null && change.new !== undefined && change.new !== '') ? change.new : '<i>(vazio)</i>';
                         html += '<li><strong>' + change.label + '</strong>: de ' + oldVal + ' para ' + newVal + '</li>';
                     });
                     html += '</ul>';

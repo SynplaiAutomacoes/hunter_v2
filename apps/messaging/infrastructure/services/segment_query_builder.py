@@ -9,12 +9,14 @@ from django.utils import timezone
 
 from apps.budget.models import Budget
 from apps.customer.models import Customer
+from apps.customer.services.messaging_consent import filter_messageable_customers
 from apps.messaging.domain.value_objects import FilterCriteria, SegmentRule
 
 
 def eligible_customers_queryset(*, workshop: Any) -> QuerySet[Customer]:
-    """Customers eligible for message groups: active and with a phone number."""
-    return Customer.objects.filter(workshop=workshop, is_active=True).exclude(phone__isnull=True).exclude(phone="")
+    """Customers eligible for message groups: active, opted in and with a phone number."""
+    queryset = filter_messageable_customers(Customer.objects.filter(workshop=workshop))
+    return queryset.exclude(phone__isnull=True).exclude(phone="")
 
 
 def merge_customer_querysets(*querysets: QuerySet[Customer]) -> QuerySet[Customer]:
@@ -22,7 +24,7 @@ def merge_customer_querysets(*querysets: QuerySet[Customer]) -> QuerySet[Custome
     ids: set[int] = set()
     for qs in querysets:
         ids.update(qs.values_list("pk", flat=True))
-    return Customer.objects.filter(pk__in=ids)
+    return filter_messageable_customers(Customer.objects.filter(pk__in=ids))
 
 
 def _apply_birthday_rule(queryset: QuerySet[Customer], rule: SegmentRule) -> QuerySet[Customer]:

@@ -48,10 +48,6 @@ class BudgetStep4Form(BudgetStepBaseForm):
                     .budget-step4-table .budget-step4-select-col {
                         width: 3.25rem;
                     }
-
-                    .budget-step4-table thead th {
-                        font-size: 0.80rem;
-                    }
                 </style>
                 """
             ),
@@ -165,13 +161,13 @@ class BudgetStep4Form(BudgetStepBaseForm):
                                                 <input type="checkbox" id="select-all-services" class="checkbox text-white checkbox-sm" 
                                                        style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
                                             </th>
-                                            <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                                            <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
-                                            <th class="w-[12%] text-right">VALOR VENDA</th>
-                                            <th class="w-[12%] text-right">FRETE</th>
-                                            <th class="w-[12%] text-center">TEMPO</th>
-                                            <th class="w-[12%] text-right">TOTAL</th>
+                                            <th class="w-[12%] text-right">CUSTO/MECÂNICO</th>
+                                            <th class="w-[14%] text-right">VALOR VENDA</th>
+                                            <th class="w-[10%] text-right">FRETE</th>
+                                            <th class="w-[10%] text-center">TEMPO</th>
+                                            <th class="w-[14%] text-right">TOTAL</th>
                                             <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>

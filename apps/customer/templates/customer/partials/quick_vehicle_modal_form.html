@@ -6,6 +6,7 @@
                 <span class="material-icons">{% if form.instance.pk %}edit_road{% else %}directions_car{% endif %}</span>
                 <span>{% if form.instance.pk %}Editar veículo{% else %}Cadastro rápido de veículo{% endif %}</span>
             </h3>
+            <p class="text-sm text-base-content/70">Layout otimizado para preencher placa, catálogo do veículo e ano sem quebrar o modal.</p>
         </div>
         <button type="button" class="btn btn-sm btn-circle btn-ghost shrink-0" onclick="this.closest('dialog').close()" aria-label="Fechar modal">
             ✕
@@ -16,31 +17,6 @@
         {% csrf_token %}
         {% if customer_id_persist %}<input type="hidden" name="customer_id_persist" value="{{ customer_id_persist }}">{% endif %}
         {% crispy form %}
-
-        <input type="checkbox" id="transfer-modal-quick" class="modal-toggle transfer-modal-toggle" />
-        <div class="modal" role="dialog">
-            <div class="modal-box">
-                <h3 class="text-lg font-bold text-base-content">Veículo já cadastrado</h3>
-                <p class="text-base-content/70 mt-1">
-                    Este veículo (placa <strong class="transfer-plate-display"></strong>) já está vinculado a
-                    <strong class="transfer-customer-display"></strong>. Deseja transferir a propriedade?
-                </p>
-                <div class="alert alert-warning mt-4">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                    <div>
-                        <div class="font-semibold">Confirmar transferência</div>
-                        <div class="text-sm">A propriedade do veículo será transferida para o cliente atual.</div>
-                    </div>
-                </div>
-                <div class="modal-action">
-                    <label for="transfer-modal-quick" class="btn btn-ghost">Cancelar</label>
-                    <button type="button" class="btn btn-warning transfer-confirm-btn">
-                        Confirmar Transferência
-                    </button>
-                </div>
-            </div>
-            <div class="modal-backdrop"></div>
-        </div>
 
         <div class="flex flex-col-reverse gap-3 border-t border-base-300 pt-5 sm:flex-row sm:items-center sm:justify-end">
             <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancelar</button>

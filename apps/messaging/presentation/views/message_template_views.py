@@ -43,6 +43,7 @@ class MessageTemplateListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn(str(MessageTemplate.name.field.verbose_name), attr=MessageTemplate.name.field.name),
+            TableColumn("Tipo", attr="template_type_display", searchable=False),
             TableColumn(str(MessageTemplate.is_active.field.verbose_name), attr=MessageTemplate.is_active.field.name),
             TableColumn("Criada em", attr="created_at_display"),
         ]

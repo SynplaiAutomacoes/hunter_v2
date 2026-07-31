@@ -20,8 +20,8 @@ from djmoney.models.fields import MoneyField
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
-from apps.workshops.models.workshop_costs import WorkshopCost
-from apps.workshops.util.monthly_costs import get_productive_salary_total_including_transport
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -234,6 +234,11 @@ class Budget(TimeStampedModel):
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
+                if self.vehicle_id and self.current_km is not None:
+                    from apps.customer.services.oil_change import handle_budget_approved_mileage
+
+                    handle_budget_approved_mileage(budget=self)
+
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},
@@ -248,17 +253,12 @@ class Budget(TimeStampedModel):
                 self.refresh_stored_total_amount()
 
     def refresh_stored_total_amount(self) -> None:
-        """Persist list/dashboard total for SQL aggregates.
-
-        Sale budgets store the chargeable pricing total. Warranty/courtesy store the
-        operational catalog total so listings show face value while chargeable
-        pricing (`total_budget_value`) remains zero.
-        """
+        """Persist live pricing total for dashboard SQL aggregates."""
         if self.pk is None:
             return
         if getattr(self, "_skip_stored_total_refresh", False):
             return
-        total = self.stored_total_source_value
+        total = self.total_budget_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
 
@@ -345,10 +345,12 @@ class Budget(TimeStampedModel):
             minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
             hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
             profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("0.00")
-            productive_salary_total = get_productive_salary_total_including_transport(
-                workshop=self.workshop,
-                workshop_cost=workshop_cost,
-            )
+
+            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+            if mechanic_salary_obj is not None:
+                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+                if salary_item is not None:
+                    productive_salary_total = salary_item.amount
 
         return {
             "pricing_reference_month": reference_month,
@@ -423,10 +425,12 @@ class Budget(TimeStampedModel):
             working_hours_per_month = workshop_cost.working_hours_per_month or Decimal("0.00")
             hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
             profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
-            productive_salary_total = get_productive_salary_total_including_transport(
-                workshop=self.workshop,
-                workshop_cost=workshop_cost,
-            )
+
+            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+            if mechanic_salary_obj is not None:
+                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+                if salary_item is not None:
+                    productive_salary_total = salary_item.amount
 
         cached = SimpleNamespace(
             hourly_cost_value=hourly_cost_value,
@@ -704,6 +708,8 @@ class Budget(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if (item.service or self._is_local_service_item(item)) and item.duration:
+                if item.service and item.service.is_third_party:
+                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -712,6 +718,9 @@ class Budget(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
+                if kit_service.service.is_third_party:
+                    continue
+
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
@@ -815,14 +824,6 @@ class Budget(TimeStampedModel):
         return self.pricing_snapshot.total_third_party_services_selling
 
     @property
-    def get_total_third_party_by_slider(self) -> Money:
-        return self.pricing_snapshot.total_third_party_by_slider
-
-    @property
-    def display_total_third_party_by_slider(self) -> Money:
-        return self.get_total_third_party_by_slider
-
-    @property
     def total_costs_services_value(self) -> Money:
         return self.pricing_snapshot.total_costs_services_value
 
@@ -910,16 +911,7 @@ class Budget(TimeStampedModel):
         return self.resolved_discount_value
 
     @property
-    def stored_total_source_value(self) -> Money:
-        """Canonical value persisted into ``stored_total_amount``."""
-        if self.is_fixed_budget:
-            return self.summary_total_before_benefit_value
-        return self.total_budget_value
-
-    @property
     def display_total_budget_value(self) -> Money:
-        if self.is_fixed_budget:
-            return self.summary_total_before_benefit_value
         return self.total_budget_value
 
     @property
