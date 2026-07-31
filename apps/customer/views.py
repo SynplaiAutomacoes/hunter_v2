@@ -2,6 +2,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Count, Prefetch
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -25,6 +26,7 @@ from apps.core.infrastructure.services.dashboard_query_service import (
 from apps.customer.services.messaging_consent import disable_workshop_customer_messaging
 from apps.messaging.application.services.outbound_dispatch import cancel_pending_outbound_for_customer
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import get_active_workshop_or_404
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.core.presentation.navigation import CREATE_CLIENT_FAVORITE_PAGE
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
@@ -35,6 +37,7 @@ from .vehicle_engine import normalize_vehicle_engine_choice
 from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from ..core.presentation import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
+from ..core.text_normalization import plate_case
 from .forms import CustomerForm, VehicleFormSet
 from .models import Customer, Vehicle
 
@@ -216,6 +219,7 @@ class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMi
         data["show_disable_all_messaging_action"] = is_non_production_environment()
         return data
 
+    @transaction.atomic
     def form_valid(self, form):
         context = self.get_context_data()
         vehicles = context["vehicles"]
@@ -223,10 +227,31 @@ class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMi
 
         if form.is_valid() and vehicles.is_valid():
             self.object = form.save()
+
+            transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+            transferred_plates: set[str] = set()
+            if transfer_vehicle_ids:
+                qs = Vehicle.objects.filter(
+                    pk__in=transfer_vehicle_ids,
+                    workshop=self.workshop,
+                ).select_for_update()
+                locked = list(qs)
+                transferred_plates = {v.plate for v in locked}
+                Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=self.object)
+
             vehicles.instance = self.object
-            for v_form in vehicles:
-                v_form.instance.workshop = self.workshop
-            vehicles.save()
+            instances = vehicles.save(commit=False)
+            for instance in instances:
+                if str(instance.pk or "") in transfer_vehicle_ids:
+                    continue
+                if instance.pk is None and instance.plate in transferred_plates:
+                    continue
+                instance.workshop = self.workshop
+                instance.save()
+
+            for obj in vehicles.deleted_objects:
+                obj.delete()
+
             return super().form_valid(form)
         return self.render_to_response(self.get_context_data(form=form))
 
@@ -238,6 +263,41 @@ def api_check_plate(request, plate):
         data["fuel"] = normalize_vehicle_fuel_choice(data.get("fuel"))
         return JsonResponse(data)
     return JsonResponse({"error": "Veículo não encontrado"}, status=404)
+
+
+def api_check_plate_duplicate(request, plate):
+    try:
+        workshop = get_active_workshop_or_404(request)
+    except Exception:
+        return JsonResponse({"exists": False})
+
+    import re
+
+    search_plates = set()
+
+    stripped = re.sub(r"[^a-zA-Z0-9]", "", plate).upper()
+    search_plates.add(stripped)
+
+    original = plate_case(plate)
+    search_plates.add(original)
+
+    if re.match(r"^[A-Z]{3}\d{4}$", stripped):
+        search_plates.add(f"{stripped[:3]}-{stripped[3:]}")
+
+    vehicle = (
+        Vehicle.objects
+        .filter(workshop=workshop, plate__in=list(search_plates))
+        .select_related("customer")
+        .first()
+    )
+    if vehicle:
+        return JsonResponse({
+            "exists": True,
+            "vehicle_id": vehicle.pk,
+            "customer_name": vehicle.customer.name if vehicle.customer else "",
+            "customer_id": vehicle.customer.pk if vehicle.customer else None,
+        })
+    return JsonResponse({"exists": False})
 
 
 def api_vehicle_catalog_brands(request):
@@ -333,6 +393,7 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         data.update(_build_customer_history_context(self.object))
         return data
 
+    @transaction.atomic
     def form_valid(self, form):
         context = self.get_context_data()
         vehicles = context["vehicles"]
@@ -343,11 +404,26 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             # Callable defaults set show_hidden_initial; without the hidden field in POST,
             # changed_data may miss accepts_messages. Compare against form.initial instead.
             previously_accepted_messages = bool(form.initial.get("accepts_messages", False))
+            transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+            transferred_plates: set[str] = set()
+            if transfer_vehicle_ids:
+                qs = Vehicle.objects.filter(
+                    pk__in=transfer_vehicle_ids,
+                    workshop=self.workshop,
+                ).select_for_update()
+                locked = list(qs)
+                transferred_plates = {v.plate for v in locked}
+                Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=self.object)
+
             self.object = form.save()
             vehicles.instance = self.object
 
             instances = vehicles.save(commit=False)
             for instance in instances:
+                if str(instance.pk or "") in transfer_vehicle_ids:
+                    continue
+                if instance.pk is None and instance.plate in transferred_plates:
+                    continue
                 instance.workshop = self.workshop
                 instance.save()
 
@@ -357,7 +433,9 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             if previously_accepted_messages and not self.object.accepts_messages:
                 cancel_pending_outbound_for_customer(self.object.pk)
 
-            return super().form_valid(form)
+            response = super().form_valid(form)
+            response["HX-Trigger"] = "vehicle-section-refresh"
+            return response
 
         return self.render_to_response(self.get_context_data(form=form))
 
@@ -411,6 +489,22 @@ class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResp
 
     htmx_template_name = "customer/partials/customer_delete_modal.html"
     htmx_trigger = "customer-table-refresh"
+
+
+class VehicleSectionView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+    model = Customer
+    template_name = "customer/partials/vehicle_formset_list.html"
+    workshop_permission_codename = "view_customer"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        customer = get_object_or_404(Customer, pk=self.kwargs["pk"], workshop=self.workshop)
+        context["vehicles"] = VehicleFormSet(
+            instance=customer,
+            prefix="vehicles",
+            form_kwargs={"workshop": self.workshop},
+        )
+        return context
 
 
 class AddVehicleFormView(LoginRequiredMixin, TemplateView):
@@ -493,16 +587,40 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         context["customer_id_persist"] = self.request.GET.get("customer_id") or self.request.POST.get("customer_id_persist")
         return context
 
+    @transaction.atomic
     def form_valid(self, form):
         if not bool(getattr(self.request, "htmx", False)):
             return super().form_valid(form)
 
+        target_customer = form.customer
+
+        transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+        transferred_plates: set[str] = set()
+        if transfer_vehicle_ids and target_customer is not None:
+            qs = Vehicle.objects.filter(
+                pk__in=transfer_vehicle_ids,
+                workshop=self.workshop,
+            ).select_for_update()
+            locked = list(qs)
+            transferred_plates = {v.plate for v in locked}
+            Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=target_customer)
+
         form.instance.workshop = self.workshop
-        vehicle = form.save()
-        self.object = vehicle
+        vehicle = form.save(commit=False)
+
+        is_transferred = (
+            str(vehicle.pk or "") in transfer_vehicle_ids
+            or (vehicle.pk is None and vehicle.plate in transferred_plates)
+        )
+
+        if not is_transferred:
+            vehicle.save()
+            self.object = vehicle
+        else:
+            self.object = Vehicle.objects.filter(plate=vehicle.plate, workshop=self.workshop).first()
 
         response = HttpResponse(status=204)
-        response["HX-Trigger"] = build_vehicle_saved_trigger(vehicle)
+        response["HX-Trigger"] = build_vehicle_saved_trigger(self.object)
         return response
 
 
@@ -516,9 +634,21 @@ class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    @transaction.atomic
     def form_valid(self, form):
         if not bool(getattr(self.request, "htmx", False)):
             return super().form_valid(form)
+
+        target_customer = form.customer
+
+        transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+        if transfer_vehicle_ids and target_customer is not None:
+            qs = Vehicle.objects.filter(
+                pk__in=transfer_vehicle_ids,
+                workshop=self.workshop,
+            ).select_for_update()
+            locked = list(qs)
+            Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=target_customer)
 
         form.instance.workshop = self.workshop
         vehicle = form.save()

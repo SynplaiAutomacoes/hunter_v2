@@ -234,6 +234,28 @@
                 });
             }
 
+            window.syncBudgetStep5SubmitButton = function() {
+                const calculatedInput = document.getElementById('id_step5_calculated');
+                const submitButton = document.getElementById('budget-submit-btn');
+                if (!calculatedInput || !submitButton) {
+                    return;
+                }
+
+                const shouldBlock = calculatedInput.value !== '1';
+                submitButton.disabled = shouldBlock;
+                submitButton.classList.toggle('btn-disabled', shouldBlock);
+            };
+
+            if (!window.__budgetStep5SubmitSyncBound) {
+                window.__budgetStep5SubmitSyncBound = true;
+                document.body.addEventListener('htmx:afterSettle', function() {
+                    window.syncBudgetStep5SubmitButton();
+                });
+                document.addEventListener('DOMContentLoaded', function() {
+                    window.syncBudgetStep5SubmitButton();
+                });
+            }
+
             lockBudgetEditing(document);
             if (!window.__budgetLockAfterSwapBound) {
                 window.__budgetLockAfterSwapBound = true;

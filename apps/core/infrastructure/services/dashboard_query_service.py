@@ -382,22 +382,55 @@ def resolve_indicator_row_amount(*, item: Any, indicator: str, is_budget_report:
     return resolve_decimal_amount(item.total_budget_value)
 
 
+def _resolve_root_budget_id(*, budget_id: int, reference_map: dict[int, int | None]) -> int:
+    """Resolve the root budget id of a ``reference_budget_id`` chain.
+
+    ``reference_map`` maps budget ids to their direct reference; only budgets
+    present in the map can be followed, so chains ending outside the loaded scope
+    stop at the first unresolved budget. Cycles are guarded: if a cycle is
+    detected the budget is treated as independent (its own root).
+    """
+    visited: set[int] = set()
+    current = budget_id
+    while current in reference_map:
+        if current in visited:
+            return budget_id
+        visited.add(current)
+        next_id = reference_map[current]
+        if next_id is None:
+            return current
+        current = next_id
+    return current
+
+
 def _build_workorder_groups(*, items: list[WorkOrder], indicator: str) -> list[FinancialIndicatorWorkOrderGroup]:
     """Group WorkOrders into parent/child structure for the modal report.
 
-    Primary items: OSs where budget.reference_budget_id is None (same criteria as qtd_carros_mes).
-    Child items: OSs where budget.reference_budget_id is set, nested under their parent budget.
-    Orphan children (parent not in items) are simply omitted.
+    Primary items: OSs whose budget is the root of a reference chain
+    (budget.reference_budget_id is None at the top level, same criteria as qtd_carros_mes).
+    Child items: OSs linked via reference_budget_id, nested under the root budget
+    of their chain. Orphan children (root budget not present in items) are
+    promoted to their own group so no OS is silently omitted.
     """
+    reference_map: dict[int, int | None] = {
+        workorder.budget_id: workorder.budget.reference_budget_id
+        for workorder in items
+        if workorder.budget_id is not None
+    }
+    budget_ids_in_scope = set(reference_map.keys())
+
     primary_items: list[WorkOrder] = []
     child_map: dict[int, list[WorkOrder]] = {}
 
     for workorder in items:
-        ref_id = workorder.budget.reference_budget_id
-        if ref_id is None:
+        if workorder.budget_id is None:
             primary_items.append(workorder)
             continue
-        child_map.setdefault(ref_id, []).append(workorder)
+        root_budget_id = _resolve_root_budget_id(budget_id=workorder.budget_id, reference_map=reference_map)
+        if root_budget_id == workorder.budget_id or root_budget_id not in budget_ids_in_scope:
+            primary_items.append(workorder)
+            continue
+        child_map.setdefault(root_budget_id, []).append(workorder)
 
     groups: list[FinancialIndicatorWorkOrderGroup] = []
     for workorder in primary_items:
