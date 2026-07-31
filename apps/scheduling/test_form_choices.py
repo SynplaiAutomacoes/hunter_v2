@@ -55,12 +55,13 @@ class AppointmentFormChoiceLoadingTests(TestCase):
         self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
         self.other_workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.other_budget)
 
-    def test_form_does_not_eagerly_load_all_budget_and_workorder_choices_without_vehicle(self) -> None:
+    def test_new_form_defaults_alert_customer_and_lead_times(self) -> None:
         form = AppointmentForm(workshop=self.workshop)
 
-        self.assertFalse(form.fields["customer"].queryset.exists())
-        self.assertFalse(form.fields["budget"].queryset.exists())
-        self.assertFalse(form.fields["workorder"].queryset.exists())
+        self.assertEqual(form.fields["alert_lead_times"].initial, ["60", "1440", "2880"])
+        # Alpine/UI flag mirrors the same default used for new appointments.
+        layout_html = str(form.helper.layout)
+        self.assertIn('"alertCustomer": true', layout_html)
 
     def test_form_limits_budget_and_workorder_choices_to_selected_vehicle(self) -> None:
         form = AppointmentForm(

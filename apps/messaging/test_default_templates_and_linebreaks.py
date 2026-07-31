@@ -114,6 +114,7 @@ class MessageTemplateLinebreakTests(TestCase):
             workshop=self.workshop,
         )
         self.assertIn("\n\n", rendered)
-        self.assertIn("Cliente Linhas", rendered)
+        self.assertIn("Cliente", rendered)
+        self.assertNotIn("Cliente Linhas", rendered)
         self.assertIn(self.workshop.name, rendered)
         self.assertEqual(rendered.count("\n"), DEFAULT_BIRTHDAY_MESSAGE.count("\n"))

@@ -220,7 +220,7 @@ class BirthdayAlertTests(TestCase):
         MessageTemplate.objects.create(
             workshop=self.workshop,
             name="Niver",
-            message="Feliz aniversario %%nome%% da %%nome_oficina%%",
+            message="Feliz aniversario %%nome%% da %%nome_fantasia%%",
             template_type=MessageTemplate.TemplateType.BIRTHDAY,
             is_active=True,
         )
@@ -276,7 +276,7 @@ class SatisfactionSurveyTests(TestCase):
         self.satisfaction_template = MessageTemplate.objects.create(
             workshop=self.workshop,
             name="Avaliacao",
-            message="Oi %%nome%% da %%nome_oficina%%. Avalie: %%link-avaliacao%%",
+            message="Oi %%nome%% da %%nome_fantasia%%. Avalie: %%link-avaliacao%%",
             template_type=MessageTemplate.TemplateType.SATISFACTION,
             is_active=True,
         )
@@ -389,7 +389,7 @@ class SatisfactionSurveyTests(TestCase):
 
     def test_active_satisfaction_template_contains_expected_tokens(self) -> None:
         self.assertIn("%%nome%%", self.satisfaction_template.message)
-        self.assertIn("%%nome_oficina%%", self.satisfaction_template.message)
+        self.assertIn("%%nome_fantasia%%", self.satisfaction_template.message)
         self.assertIn("%%link-avaliacao%%", self.satisfaction_template.message)
         rendered = render_message_template(
             self.satisfaction_template.message,

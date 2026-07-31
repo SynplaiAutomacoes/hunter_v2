@@ -13,7 +13,7 @@
 
             <div class="flex justify-between items-start p-4 border-b border-gray-200">
                 <div>
-                    <h3 class="font-bold text-xl uppercase">{{workorder.workshop.name}}</h3>
+                    <h3 class="font-bold text-xl uppercase">{{ workorder.workshop.pdf_name }}</h3>
                     <p class="">CNPJ: {{ workorder.workshop.cnpj|cnpj_br|default:"-" }}</p>
                     <p class="">{{ workorder.workshop.address|default:"-" }}</p>
                     <p class="">Telefone: {{ workorder.workshop.phone|default:"-" }}</p>
