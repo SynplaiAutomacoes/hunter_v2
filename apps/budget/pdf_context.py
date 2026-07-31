@@ -429,7 +429,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     total_products_shipping_value = sum((line["shipping"] for line in produtos if not line.get("is_customer_supplied", False)), Money(0, "BRL"))
     total_profit_product_value = sum((line["profit_value"] for line in produtos if not line.get("is_customer_supplied", False)), Money(0, "BRL"))
     soma_markup = _calculate_soma_markup(
-        total_budget_value=total_geral,
+        total_budget_value=budget.total_budget_value,
         total_costs_products_value=total_products_cost_value,
         total_costs_services_value=total_services_mechanic_cost_value,
         total_products_shipping=total_products_shipping_value,

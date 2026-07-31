@@ -119,7 +119,7 @@ def configure_budget_step5_form(form):
 
                                         <div class="grid grid-cols-12 border border-base-300 bg-base-100">
                                             <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Serviço de Terceiros</span>
-                                            <span class="col-span-4 p-2 border-l border-base-300">{venda_servico_terceiros}</span>
+                                            <span id="display-venda-terceiros" class="col-span-4 p-2 border-l border-base-300">{venda_servico_terceiros}</span>
                                         </div>
 
                                         <div class="grid grid-cols-12 border border-base-300 bg-base-100">
