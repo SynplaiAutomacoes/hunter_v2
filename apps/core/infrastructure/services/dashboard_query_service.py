@@ -773,7 +773,7 @@ class DashboardQueryService:
     def _compute_projection(*, workshop_cost: WorkshopCost | None, total_sold: Decimal, today: date) -> dict[str, Any]:
         if workshop_cost is None:
             return {
-                "projection": None,
+                "projection": Decimal("0.00"),
                 "projection_warning": MISSING_WORKSHOP_COST_WARNING,
                 "elapsed_days": 0,
                 "remaining_days": 0,
@@ -804,9 +804,9 @@ class DashboardQueryService:
     @staticmethod
     def _compute_target_metrics(*, workshop_cost: WorkshopCost | None, total_sold: Decimal, projection: Decimal | None, elapsed_days: int) -> dict[str, Any]:
         base: dict[str, Any] = {
-            "gross_revenue_target": None,
-            "daily_revenue_target": None,
-            "actual_daily_revenue": None,
+            "gross_revenue_target": Decimal("0.00"),
+            "daily_revenue_target": Decimal("0.00"),
+            "actual_daily_revenue": Decimal("0.00"),
             "projection_vs_target": None,
             "actual_daily_revenue_vs_target": None,
         }
@@ -829,7 +829,7 @@ class DashboardQueryService:
 
         actual_daily = base["actual_daily_revenue"]
         daily_target = base["daily_revenue_target"]
-        if actual_daily is not None and daily_target is not None:
+        if actual_daily is not None and daily_target is not None and daily_target > 0:
             base["actual_daily_revenue_vs_target"] = _compute_daily_vs_target(actual_daily, daily_target)
 
         return base
