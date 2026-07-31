@@ -234,6 +234,11 @@ class Budget(TimeStampedModel):
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
+                if self.vehicle_id and self.current_km is not None:
+                    from apps.customer.services.oil_change import handle_budget_approved_mileage
+
+                    handle_budget_approved_mileage(budget=self)
+
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},

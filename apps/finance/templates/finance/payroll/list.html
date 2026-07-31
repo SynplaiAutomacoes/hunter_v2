@@ -274,7 +274,7 @@
                                         <tr>
                                             <td>
                                                 {% if row.can_select %}
-                                                    <input type="checkbox" name="payroll_ids" value="{{ row.id }}" data-is-paid="{{ row.is_paid|yesno:'true,false' }}" data-is-reconciled="{{ row.is_reconciled|yesno:'true,false' }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
+                                                    <input type="checkbox" name="payroll_ids" value="{{ row.id|unlocalize }}" data-is-paid="{{ row.is_paid|yesno:'true,false' }}" data-is-reconciled="{{ row.is_reconciled|yesno:'true,false' }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
                                                 {% endif %}
                                             </td>
                                             <td>

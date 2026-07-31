@@ -1,17 +1,18 @@
+{% load l10n %}
 <div class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
     <div class="max-h-[360px] overflow-y-auto divide-y divide-base-200">
         {% for kit in kits_page_obj.object_list %}
             <div class="flex items-start gap-3 p-4 {% if kit.is_product_assigned %}bg-success/10{% endif %}">
                 <input
                     type="checkbox"
-                    id="kit-checkbox-{{ kit.pk }}"
+                    id="kit-checkbox-{{ kit.pk|unlocalize }}"
                     class="checkbox checkbox-sm mt-1 {% if kit.is_product_assigned %}checkbox-success{% else %}checkbox-primary{% endif %}"
                     {% if kit.is_product_assigned %}
                         checked
                         disabled
                     {% else %}
-                        :checked="isSelected('{{ kit.pk }}')"
-                        @change="toggleSelection('{{ kit.pk }}', $event.target.checked)"
+                        :checked="isSelected('{{ kit.pk|unlocalize }}')"
+                        @change="toggleSelection('{{ kit.pk|unlocalize }}', $event.target.checked)"
                     {% endif %}
                 />
 
@@ -26,7 +27,7 @@
                                 <button
                                     type="button"
                                     class="btn btn-xs btn-error text-white"
-                                    @click="selectedKitIds = selectedKitIds.filter(id => id !== '{{ kit.pk }}')"
+                                    @click="selectedKitIds = selectedKitIds.filter(id => id !== '{{ kit.pk|unlocalize }}')"
                                     hx-post="{% url 'catalog:product-kit-unassign-hx' product.id kit.id %}"
                                     hx-target="#product-kits-assignment-section"
                                     hx-swap="outerHTML"
@@ -37,7 +38,7 @@
                             </div>
                         </div>
                     {% else %}
-                        <label for="kit-checkbox-{{ kit.pk }}" class="block cursor-pointer space-y-1">
+                        <label for="kit-checkbox-{{ kit.pk|unlocalize }}" class="block cursor-pointer space-y-1">
                             <span class="block font-medium text-base-content">{{ kit.name }}</span>
                             {% if kit.is_pending_product_assignment %}
                                 <span class="block text-sm text-primary">Selecionado para atribuição</span>

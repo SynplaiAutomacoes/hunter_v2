@@ -1,3 +1,4 @@
+{% load l10n %}
 <form
     method="post"
     action="{% url 'budget:budget_link_process' pk=budget.pk %}"
@@ -22,7 +23,7 @@
                 {% for item in results_page.object_list %}
                 <tr>
                     <td>
-                        <input type="radio" name="reference_budget_id" value="{{ item.pk }}" class="radio radio-primary" required>
+                        <input type="radio" name="reference_budget_id" value="{{ item.pk|unlocalize }}" class="radio radio-primary" required>
                     </td>
                     <td>#{{ item.pk }}</td>
                     <td>{{ item.customer.name|default:'-' }}</td>

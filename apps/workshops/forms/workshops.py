@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
+from datetime import time
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from django import forms
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
 from django.urls import reverse
 
@@ -13,11 +16,11 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 from apps.core.infrastructure.providers import get_fiscal_service
-from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.presentation.widgets import (
     CEPInput,
     CheckboxInput,
     CPForCNPJInput,
+    DurationInput,
     EmailInput,
     ImageInput,
     NumberInput,
@@ -279,6 +282,9 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
 
         return cleaned_data
 
+    def clean_whatsapp_phone(self) -> str:
+        return re.sub(r"\D", "", str(self.cleaned_data.get("whatsapp_phone") or ""))
+
     def save(self, commit: bool = True) -> WebmaniaCompany:
         instance = super().save(commit=commit)
 
@@ -287,7 +293,7 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
             if self.workshop.is_active != workshop_is_active:
                 self.workshop.is_active = workshop_is_active
                 self.workshop.save(update_fields=["is_active"])
-            whatsapp_phone = str(self.cleaned_data.get("whatsapp_phone") or "").strip()
+            whatsapp_phone = str(self.cleaned_data.get("whatsapp_phone") or "")
             if self.workshop.whatsapp_phone != whatsapp_phone:
                 self.workshop.whatsapp_phone = whatsapp_phone
                 self.workshop.save(update_fields=["whatsapp_phone"])
@@ -482,6 +488,189 @@ class WorkshopPdfObservationSectionForm(CoreModelForm):
         if field is not None:
             field.label = "Observacao fixa do PDF"
             field.help_text = "Exibida no PDF abaixo das observacoes do orcamento."
+
+
+WEEKDAY_CHOICES: list[tuple[str, str]] = [
+    ("6", "Dom"),
+    ("0", "Seg"),
+    ("1", "Ter"),
+    ("2", "Qua"),
+    ("3", "Qui"),
+    ("4", "Sex"),
+    ("5", "Sáb"),
+]
+
+
+def _format_clock_time_for_widget(value: object) -> str:
+    if isinstance(value, time):
+        return f"{value.hour:02d}:{value.minute:02d}:00"
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.isdigit():
+        hour = max(0, min(int(raw), 23))
+        return f"{hour:02d}:00:00"
+    return raw
+
+
+def _parse_clock_time(value: object, *, field_label: str) -> time:
+    if isinstance(value, time):
+        return value
+
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValidationError(f"Informe {field_label.lower()}.")
+
+    try:
+        parts = [int(part) for part in raw.split(":")]
+    except ValueError as exc:
+        raise ValidationError("Informe um horário válido no formato HH:MM.") from exc
+
+    if len(parts) == 1:
+        hour, minute = parts[0], 0
+    elif len(parts) >= 2:
+        hour, minute = parts[0], parts[1]
+    else:
+        raise ValidationError("Informe um horário válido no formato HH:MM.")
+
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise ValidationError("Informe um horário entre 00:00 e 23:59.")
+
+    return time(hour=hour, minute=minute)
+
+
+class WorkshopAssistantVirtualSectionForm(CoreModelForm):
+    """Configurações do assistente virtual da oficina (horário de funcionamento e pesquisa de satisfação)."""
+
+    weekdays = forms.MultipleChoiceField(
+        label="Dias de envio",
+        choices=WEEKDAY_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=True,
+        error_messages={"required": "Selecione pelo menos um dia da semana."},
+        help_text="Selecione os dias em que alertas automáticos podem ser enviados.",
+    )
+    outbound_business_start_time = forms.CharField(
+        label="Hora inicial",
+        required=True,
+        widget=DurationInput(mode="hours_minutes"),
+        help_text="Início inclusivo da janela (ex.: 08:00).",
+    )
+    outbound_business_end_time = forms.CharField(
+        label="Hora final",
+        required=True,
+        widget=DurationInput(mode="hours_minutes"),
+        help_text="Fim exclusivo da janela (ex.: 18:00 envia até 17:59).",
+    )
+    google_review_min_rating = forms.TypedChoiceField(
+        label="Nota mínima para pedir avaliação no Google",
+        choices=[(i, str(i)) for i in range(1, 6)],
+        coerce=int,
+        required=True,
+        widget=forms.Select(attrs={"class": "select select-bordered w-full"}),
+        help_text="Se a nota do cliente for igual ou maior, exibe o link do Google.",
+    )
+
+    class Meta:
+        model = Workshop
+        fields = [
+            "outbound_business_start_time",
+            "outbound_business_end_time",
+            "satisfaction_survey_enabled",
+            "satisfaction_survey_delay_days",
+            "satisfaction_survey_send_immediately",
+            "google_review_url",
+            "google_review_min_rating",
+        ]
+        widgets = {
+            "satisfaction_survey_enabled": CheckboxInput(),
+            "satisfaction_survey_delay_days": NumberInput(mode="positive", attrs={"min": 0, "max": 365}),
+            "satisfaction_survey_send_immediately": CheckboxInput(),
+            "google_review_url": TextInput(attrs={"placeholder": "https://g.page/r/..."}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        raw_weekdays = str(getattr(self.instance, "outbound_business_weekdays", "") or "0,1,2,3,4")
+        initial_days = [part.strip() for part in raw_weekdays.split(",") if part.strip()]
+        self.fields["weekdays"].initial = initial_days
+
+        start_value = self.initial.get("outbound_business_start_time", getattr(self.instance, "outbound_business_start_time", None))
+        end_value = self.initial.get("outbound_business_end_time", getattr(self.instance, "outbound_business_end_time", None))
+        self.initial["outbound_business_start_time"] = _format_clock_time_for_widget(start_value or time(8, 0))
+        self.initial["outbound_business_end_time"] = _format_clock_time_for_widget(end_value or time(18, 0))
+
+        from apps.messaging.application.services.satisfaction_survey import allows_immediate_satisfaction_survey
+
+        delay_field = self.fields["satisfaction_survey_delay_days"]
+        delay_field.help_text = "Quantidade de dias após o fechamento da O.S. para enviar o link de avaliação."
+        delay_field.widget = NumberInput(mode="positive", attrs={"min": 0, "max": 365})
+
+        if allows_immediate_satisfaction_survey():
+            self.fields["satisfaction_survey_send_immediately"].required = False
+        else:
+            self.fields.pop("satisfaction_survey_send_immediately", None)
+
+    def clean_outbound_business_start_time(self) -> time:
+        return _parse_clock_time(self.cleaned_data.get("outbound_business_start_time"), field_label="Hora inicial")
+
+    def clean_outbound_business_end_time(self) -> time:
+        return _parse_clock_time(self.cleaned_data.get("outbound_business_end_time"), field_label="Hora final")
+
+    def clean_satisfaction_survey_delay_days(self) -> int:
+        value = self.cleaned_data.get("satisfaction_survey_delay_days")
+        try:
+            days = int(value)
+        except (TypeError, ValueError) as exc:
+            raise forms.ValidationError("Informe um número válido de dias.") from exc
+        if days < 0:
+            raise forms.ValidationError("Os dias após a entrega não podem ser negativos.")
+        if days > 365:
+            raise forms.ValidationError("Informe no máximo 365 dias.")
+        return days
+
+    def clean_google_review_url(self) -> str:
+        return str(self.cleaned_data.get("google_review_url") or "").strip()
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean()
+        if not isinstance(cleaned, dict):
+            return cleaned
+
+        weekdays = [str(day) for day in (cleaned.get("weekdays") or [])]
+        start_time = cleaned.get("outbound_business_start_time")
+        end_time = cleaned.get("outbound_business_end_time")
+
+        if not weekdays:
+            self.add_error("weekdays", "Selecione pelo menos um dia da semana.")
+
+        if isinstance(start_time, time) and isinstance(end_time, time) and start_time >= end_time:
+            self.add_error(
+                "outbound_business_end_time",
+                "A hora final deve ser maior que a hora inicial.",
+            )
+
+        if cleaned.get("satisfaction_survey_enabled") and cleaned.get("google_review_url"):
+            min_rating = cleaned.get("google_review_min_rating")
+            if min_rating is not None and (int(min_rating) < 1 or int(min_rating) > 5):
+                self.add_error("google_review_min_rating", "A nota mínima deve ser entre 1 e 5.")
+
+        cleaned["weekdays"] = weekdays
+        return cleaned
+
+    def save(self, commit: bool = True) -> Workshop:
+        from apps.messaging.application.services.satisfaction_survey import allows_immediate_satisfaction_survey
+
+        workshop = cast(Workshop, super().save(commit=False))
+        weekdays = [str(day) for day in (self.cleaned_data.get("weekdays") or [])]
+        workshop.outbound_business_weekdays = ",".join(sorted(weekdays, key=int)) if weekdays else "0,1,2,3,4"
+        workshop.outbound_business_hours_enabled = True
+        if not allows_immediate_satisfaction_survey():
+            workshop.satisfaction_survey_send_immediately = False
+        if commit:
+            workshop.save()
+        return workshop
 
 
 class WorkshopCertificateSectionForm(CoreForm):
