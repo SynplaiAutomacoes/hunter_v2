@@ -172,32 +172,22 @@ class DashboardMetricsQueryTests(TestCase):
         self.assertEqual((previous.created_count, previous.approved_count), (1, 1))
         self.assertEqual((empty.created_count, empty.approved_count), (0, 0))
 
-    @patch("apps.core.infrastructure.services.dashboard_query_service.build_dre_calculation")
-    def test_markup_uses_dre_gross_revenue_over_cogs_plus_cos(self, dre_mock) -> None:
-        from apps.finance.services.dre import COMP_COGS, COMP_COS, COMP_GROSS_REVENUE, DreCalculationResult
-        from djmoney.money import Money
-
-        dre_mock.return_value = DreCalculationResult(
-            rows=[
-                {"component": COMP_GROSS_REVENUE, "amount": Money("100.00", "BRL")},
-                {"component": COMP_COGS, "amount": Money("30.00", "BRL")},
-                {"component": COMP_COS, "amount": Money("20.00", "BRL")},
-            ],
-            summary_cards=[],
-        )
-
+    @patch("apps.core.infrastructure.services.dashboard_query_service._aggregate_revenue")
+    @patch("apps.core.infrastructure.services.dashboard_query_service._get_workorder_ids_from_payments", return_value=[1])
+    @patch(
+        "apps.core.infrastructure.services.dashboard_query_service._aggregate_costs",
+        return_value=(Decimal("25.00"), Decimal("10.00"), Decimal("10.00"), Decimal("5.00")),
+    )
+    def test_markup_reuses_supplied_revenue_without_repeating_revenue_query(self, _costs_mock, _ids_mock, revenue_mock) -> None:
         markup = calculate_aggregate_markup(
             workshop_id=self.workshop.pk,
             month=7,
             year=2026,
-            total_revenue=Decimal("999.00"),
+            total_revenue=Decimal("100.00"),
         )
 
         self.assertEqual(markup, Decimal("2.00"))
-        dre_mock.assert_called_once()
-        call_kwargs = dre_mock.call_args.kwargs
-        self.assertEqual(call_kwargs["start_date"], date(2026, 7, 1))
-        self.assertEqual(call_kwargs["end_date"], date(2026, 7, 31))
+        revenue_mock.assert_not_called()
 
     @patch("apps.core.infrastructure.services.dashboard_query_service.timezone.localdate", return_value=date(2026, 7, 12))
     def test_current_date_is_timezone_aware_source_for_dashboard_revenue(self, localdate_mock) -> None:

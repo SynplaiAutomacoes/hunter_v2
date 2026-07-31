@@ -322,20 +322,13 @@ class WorkshopCollaboratorCreateForm(BaseWorkshopCollaboratorForm):
 
 
 class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
-    password1 = forms.CharField(
-        label="Senha",
-        required=False,
-        widget=PasswordInput(),
-        help_text="Deixe em branco para manter a senha atual.",
-    )
-    password2 = forms.CharField(
-        label="Confirmar senha",
-        required=False,
-        widget=PasswordInput(),
-        help_text="Deixe em branco para manter a senha atual.",
-    )
+    password1 = forms.CharField(label="Senha", required=False, widget=PasswordInput())
+    password2 = forms.CharField(label="Confirmar senha", required=False, widget=PasswordInput())
 
     def get_access_extra_layout_fields(self) -> list[Field]:
+        if getattr(self.instance, "user_id", None):
+            return []
+
         return [
             Field("password1", wrapper_class="col-span-12 lg:col-span-6", x_ref="password1"),
             Field("password2", wrapper_class="col-span-12 lg:col-span-6", x_ref="password2"),
@@ -344,26 +337,16 @@ class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
     def clean(self):
         cleaned = super().clean()
 
-        if not cleaned.get("system_access"):
-            return cleaned
+        if cleaned.get("system_access") and not getattr(self.instance, "user_id", None):
+            p1 = cleaned.get("password1")
+            p2 = cleaned.get("password2")
 
-        p1 = cleaned.get("password1")
-        p2 = cleaned.get("password2")
-        has_existing_user = bool(getattr(self.instance, "user_id", None))
-
-        if not has_existing_user:
             if not p1:
                 self.add_error("password1", "Informe a senha.")
             if not p2:
                 self.add_error("password2", "Confirme a senha.")
-        elif p1 or p2:
-            if not p1:
-                self.add_error("password1", "Informe a senha.")
-            if not p2:
-                self.add_error("password2", "Confirme a senha.")
-
-        if p1 and p2 and p1 != p2:
-            self.add_error("password2", "As senhas não conferem.")
+            if p1 and p2 and p1 != p2:
+                self.add_error("password2", "As senhas não conferem.")
 
         return cleaned
 

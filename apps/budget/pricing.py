@@ -152,7 +152,6 @@ class PricingSnapshot:
     total_labor_by_slider: Money
     total_products_by_slider: Money
     total_services_by_slider: Money
-    total_third_party_by_slider: Money
     total_base_value: Money
     resolved_discount_value: Money
     resolved_discount_percentage: Decimal
@@ -664,25 +663,15 @@ def build_pricing_snapshot(
 
     total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
     total_labor_selling_value = labor_selling_value_override if labor_selling_value_override is not None else sum((line.raw_total for line in labor_service_lines), zero_money())
-    # Hunter labor cost (mechanic hour * duration). This is the slider floor shown in step 5.
-    # Never fall back to sum(service_cost_price) for the floor — those can equal selling and block transfer.
-    hunter_labor_cost_value = labor_cost_value if labor_cost_value is not None and labor_cost_value.amount > 0 else zero_money()
-    resolved_labor_cost_value = hunter_labor_cost_value if hunter_labor_cost_value.amount > 0 else sum((line.cost_total for line in service_lines if not line.third_party), zero_money())
+    resolved_labor_cost_value = labor_cost_value if labor_cost_value is not None and labor_cost_value.amount > 0 else sum((line.cost_total for line in service_lines if not line.third_party), zero_money())
     fixed_labor_service_lines = [line for line in labor_service_lines if line.fixed_cost_total.amount > 0]
     variable_labor_service_lines = [line for line in labor_service_lines if line.fixed_cost_total.amount <= 0]
     preserved_labor_cost_value = sum((line.fixed_cost_total for line in fixed_labor_service_lines), zero_money())
 
-    # Kit fixed costs must not raise the labor floor above the Hunter mechanic cost.
-    if preserved_labor_cost_value.amount > hunter_labor_cost_value.amount and hunter_labor_cost_value.amount > 0:
-        fixed_labor_service_lines = []
-        variable_labor_service_lines = list(labor_service_lines)
-        preserved_labor_cost_value = zero_money()
-
     for line in fixed_labor_service_lines:
         line.cost_total = line.fixed_cost_total
 
-    labor_cost_allocation_target = hunter_labor_cost_value if hunter_labor_cost_value.amount > 0 else resolved_labor_cost_value
-    remaining_labor_cost_value = max(labor_cost_allocation_target - preserved_labor_cost_value, zero_money())
+    remaining_labor_cost_value = max(resolved_labor_cost_value - preserved_labor_cost_value, zero_money())
     labor_cost_weights = [Decimal(int(line.duration.total_seconds())) for line in variable_labor_service_lines]
     if not any(weight > 0 for weight in labor_cost_weights):
         labor_cost_weights = [line.raw_total.amount for line in variable_labor_service_lines]
@@ -696,32 +685,26 @@ def build_pricing_snapshot(
     ):
         line.cost_total = allocated_cost
 
-    effective_labor_cost_value = labor_cost_allocation_target
+    effective_labor_cost_value = preserved_labor_cost_value + remaining_labor_cost_value
     total_costs_services_value = total_third_party_services_cost + effective_labor_cost_value
 
     slider_decimal = Decimal(int(slider or 0)) / Decimal(100)
     total_products_by_slider = total_products_value
     total_labor_by_slider = total_labor_selling_value
-    total_third_party_shipping = sum((line.shipping for line in third_party_service_lines), zero_money())
-    total_third_party_by_slider = total_third_party_services_selling
+    total_services_by_slider = total_services_value
 
     if slider < 0:
-        # 100% pecas: move labor + third-party profit to products; MO floor = Hunter cost (+ freight in display).
-        available_labor = max(total_labor_selling_value - hunter_labor_cost_value, zero_money())
-        third_party_floor = total_third_party_services_cost + total_third_party_shipping
-        available_third_party = max(total_third_party_services_selling - third_party_floor, zero_money())
-        transfer_labor = available_labor * abs(slider_decimal)
-        transfer_third_party = available_third_party * abs(slider_decimal)
-        total_products_by_slider = total_products_value + transfer_labor + transfer_third_party
-        total_labor_by_slider = total_labor_selling_value - transfer_labor
-        total_third_party_by_slider = total_third_party_services_selling - transfer_third_party
+        available_services = max(total_labor_selling_value - effective_labor_cost_value, zero_money())
+        transfer = available_services * abs(slider_decimal)
+        total_products_by_slider = total_products_value + transfer
+        total_labor_by_slider = total_labor_selling_value - transfer
     elif slider > 0:
         available_products = max(total_products_value - (total_costs_products_value + total_products_shipping), zero_money())
         transfer = available_products * slider_decimal
         total_products_by_slider = total_products_value - transfer
         total_labor_by_slider = total_labor_selling_value + transfer
 
-    total_services_by_slider = total_third_party_by_slider + total_labor_by_slider + total_labor_services_shipping
+    total_services_by_slider = total_third_party_services_selling + total_labor_by_slider + total_labor_services_shipping
 
     for line, adjusted_subtotal in zip(
         chargeable_product_lines,
@@ -736,15 +719,8 @@ def build_pricing_snapshot(
     for line in customer_supplied_product_lines:
         line.adjusted_total = line.raw_total
 
-    for line, adjusted_total in zip(
-        third_party_service_lines,
-        _distribute_totals(
-            base_values=[line.raw_total + line.shipping for line in third_party_service_lines],
-            target_total=total_third_party_by_slider,
-        ),
-        strict=False,
-    ):
-        line.adjusted_total = adjusted_total
+    for line in third_party_service_lines:
+        line.adjusted_total = line.raw_total + line.shipping
 
     remaining_labor_profit = max(total_labor_by_slider - effective_labor_cost_value, zero_money())
     labor_profit_weights = [max(line.raw_total.amount - line.cost_total.amount, Decimal("0.00")) for line in labor_service_lines]
@@ -786,7 +762,6 @@ def build_pricing_snapshot(
         total_labor_by_slider=total_labor_by_slider,
         total_products_by_slider=total_products_by_slider,
         total_services_by_slider=total_services_by_slider,
-        total_third_party_by_slider=total_third_party_by_slider,
         total_base_value=total_base_value,
         resolved_discount_value=resolved_discount_value,
         resolved_discount_percentage=resolved_discount_percentage,

@@ -53,9 +53,7 @@
                                 <div class="p-3 hover:bg-base-200/50">
                                     <div class="flex justify-between items-start">
                                         <div>
-                                            <p class="font-semibold text-sm">
-                                              <a href="{% url 'workorder:workorder_detail' pk=os.pk %}" target="_blank" class="hover:text-primary transition-colors">#{{ os.get_id }}</a>
-                                            </p>
+                                            <p class="font-semibold text-sm">#{{ os.get_id }}</p>
                                             <p class="text-xs text-base-content/70">{{ os.budget.customer|default:"-" }}</p>
                                             <p class="text-xs text-base-content/60">{{ os.budget.vehicle|default:"-" }}</p>
                                         </div>
@@ -106,9 +104,7 @@
                                 <div class="p-3 hover:bg-base-200/50">
                                     <div class="flex justify-between items-start">
                                         <div>
-                                            <p class="font-semibold text-sm">
-                                              <a href="{% url 'workorder:workorder_detail' pk=os.pk %}" target="_blank" class="hover:text-primary transition-colors">#{{ os.get_id }}</a>
-                                            </p>
+                                            <p class="font-semibold text-sm">#{{ os.get_id }}</p>
                                             <p class="text-xs text-base-content/70">{{ os.budget.customer|default:"-" }}</p>
                                             <p class="text-xs text-base-content/60">{{ os.budget.vehicle|default:"-" }}</p>
                                         </div>
@@ -385,18 +381,7 @@
 
         <div class="stat bg-base-100 shadow rounded-box">
             <div class="stat-title text-base-content/70">Venda do Dia</div>
-            <div class="stat-value text-success mt-2 flex items-center gap-1">
-                R$ {{ venda_do_dia|floatformat:2 }}
-                <button type="button"
-                        class="flex items-center text-base-content/30 hover:text-success"
-                        title="Visualizar relação"
-                        hx-get="{% url 'core:dashboard_financial_report_modal' %}?indicador=venda_do_dia&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}"
-                        hx-target="#dashboard-financial-report-modal-content"
-                        hx-swap="innerHTML"
-                        onclick="document.getElementById('dashboardFinancialReportModal').showModal()">
-                    <span class="material-icons" style="font-size: 14px;">visibility</span>
-                </button>
-            </div>
+            <div class="stat-value text-success mt-2">R$ {{ venda_do_dia|floatformat:2 }}</div>
             <div class="stat-desc">Total de OS entregue + entrada recebida do dia.</div>
         </div>
     </div>

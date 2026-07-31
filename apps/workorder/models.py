@@ -21,6 +21,7 @@ from apps.catalog.product_issues import ProductIssueSummary, annotate_product_is
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
+
 from apps.stock.models import StockMovement
 
 if TYPE_CHECKING:
@@ -158,14 +159,6 @@ class WorkOrder(TimeStampedModel):
             return {"text": "Cortesia", "class": "badge-info"}
         return {"text": "Venda", "class": "badge-success"}
 
-    def sync_items_benefit_type_to_budget_type(self) -> int:
-        benefit_type = WorkOrderItemBenefitType.NORMAL
-        if self.budget_type == "warranty":
-            benefit_type = WorkOrderItemBenefitType.WARRANTY
-        elif self.budget_type == "courtesy":
-            benefit_type = WorkOrderItemBenefitType.COURTESY
-        return self.items.exclude(item_benefit_type=benefit_type).update(item_benefit_type=benefit_type)
-
     def _iter_items(self) -> Iterable["WorkOrderItem"]:
         if not self.pk:
             return ()
@@ -198,6 +191,8 @@ class WorkOrder(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if item.service and item.duration:
+                if item.service.is_third_party:
+                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -206,6 +201,9 @@ class WorkOrder(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
+                if kit_service.service.is_third_party:
+                    continue
+
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
@@ -265,7 +263,7 @@ class WorkOrder(TimeStampedModel):
             return
         if getattr(self, "_skip_stored_total_refresh", False):
             return
-        total = self.stored_total_source_value
+        total = self.total_budget_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
 
@@ -279,7 +277,7 @@ class WorkOrder(TimeStampedModel):
     def refresh_stored_amounts(self) -> None:
         if self.pk is None:
             return
-        total = self.stored_total_source_value
+        total = self.total_budget_value
         paid = self.paid_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total, stored_paid_amount=paid)
         self.stored_total_amount = total
@@ -423,10 +421,14 @@ class WorkOrder(TimeStampedModel):
             self.save(update_fields=["status"])
 
     def _ensure_stock_consumed_on_approve(self, user: object | None = None) -> None:
-        from apps.stock.services.workorder_stock import has_unreversed_exit_movements
         from apps.workorder.approval import approve_workorder_with_stock
 
-        if has_unreversed_exit_movements(workorder=self):
+        has_movements = StockMovement.objects.filter(
+            workorder=self,
+            type=StockMovement.MovementType.EXIT,
+        ).exists()
+
+        if has_movements:
             return
 
         try:
@@ -484,7 +486,6 @@ class WorkOrder(TimeStampedModel):
     def set_km_final(self, km_final: int) -> None:
         self.km_final = km_final
         self.save(update_fields=["km_final"])
-        self._sync_vehicle_km_from_exit()
 
     def set_unsigned_delivery_reason(self, reason: str) -> None:
         self.unsigned_delivery_reason = reason
@@ -512,16 +513,6 @@ class WorkOrder(TimeStampedModel):
             self.review_plan = review_plan
             update_fields.append("review_plan")
         self.save(update_fields=update_fields)
-        self._sync_vehicle_km_from_exit()
-
-    def _sync_vehicle_km_from_exit(self) -> None:
-        from apps.customer.services.vehicle_km import sync_vehicle_km_from_exit
-
-        budget = getattr(self, "budget", None)
-        vehicle = getattr(budget, "vehicle", None) if budget is not None else None
-        if vehicle is None:
-            return
-        sync_vehicle_km_from_exit(vehicle=vehicle, km_final=self.km_final)
 
     @property
     def total_products_shipping(self) -> Money:
@@ -798,25 +789,6 @@ class WorkOrder(TimeStampedModel):
         return self.pricing_snapshot.total_budget_value
 
     @property
-    def is_fixed_budget(self) -> bool:
-        return self.budget_type in ("warranty", "courtesy")
-
-    @property
-    def operational_total_value(self) -> Money:
-        """Catalog face total including warranty/courtesy items (for listings)."""
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            total += item.total_price
-        return total
-
-    @property
-    def stored_total_source_value(self) -> Money:
-        """Canonical value persisted into ``stored_total_amount``."""
-        if self.is_fixed_budget:
-            return self.operational_total_value
-        return self.total_budget_value
-
-    @property
     def resolved_discount_value(self) -> Money:
         return self.pricing_snapshot.resolved_discount_value
 
@@ -901,8 +873,7 @@ class WorkOrder(TimeStampedModel):
             self.discount_value = self.budget.resolved_discount_value
             self.discount_percentage = self.budget.resolved_discount_percentage
             self.discount_type = self.budget.discount_type
-            self.budget_type = self.budget.budget_type
-            self.save(update_fields=["discount_value", "discount_percentage", "discount_type", "budget_type"])
+            self.save(update_fields=["discount_value", "discount_percentage", "discount_type"])
 
             collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
             if not collaborator_ids and self.budget.collaborator_id:
@@ -1004,7 +975,7 @@ class WorkOrderItem(TimeStampedModel):
 
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
+    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
 
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
     product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)

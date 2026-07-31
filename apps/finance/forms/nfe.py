@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from html import escape
-from typing import Any, cast
+from typing import Any
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
@@ -18,7 +18,6 @@ from apps.finance.forms.emission_ui import (
     format_money,
     resolve_initial_slider,
 )
-from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
 from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfeRequest
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
@@ -51,11 +50,6 @@ class NfeRequestStep3Form(CoreModelForm):
         self.request = kwargs.pop("request", None)
         self.tax_class_choices = kwargs.pop("tax_class_choices", [])
         super().__init__(*args, **kwargs)
-        configure_nfe_transport_form(
-            form=self,
-            snapshot=getattr(self.instance, "transport_snapshot", {}),
-            freight_mode=getattr(self.instance, "freight_mode", 9),
-        )
 
         preview_url = f"{self.request.path}?step=3" if self.request is not None else ""
         default_slider = int(getattr(getattr(getattr(self.instance, "workorder", None), "budget", None), "slider", 0) or 0)
@@ -186,7 +180,6 @@ class NfeRequestStep3Form(CoreModelForm):
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
                 Field("additional_information"),
-                build_nfe_transport_form_layout(),
                 HTML('<div id="nfe-warning-block">' + warning_html + "</div>"),
                 HTML('<div id="nfe-preview-block">' + preview_html + "</div>"),
                 css_class="space-y-4",
@@ -202,17 +195,3 @@ class NfeRequestStep3Form(CoreModelForm):
     def clean_additional_information(self) -> str:
         value = str(self.cleaned_data.get("additional_information") or "").strip()
         return sentence_case(value) if value else value
-
-    def clean(self) -> dict[str, Any]:
-        cleaned_data = super().clean()
-        if not self.errors:
-            cleaned_data["transport_snapshot"] = clean_nfe_transport_form(cleaned_data)
-        return cleaned_data
-
-    def save(self, commit: bool = True) -> NfeRequest:
-        instance = cast(NfeRequest, super().save(commit=False))
-        instance.freight_mode = int(self.cleaned_data.get("freight_mode") or 9)
-        instance.transport_snapshot = dict(self.cleaned_data.get("transport_snapshot") or {})
-        if commit:
-            instance.save()
-        return instance

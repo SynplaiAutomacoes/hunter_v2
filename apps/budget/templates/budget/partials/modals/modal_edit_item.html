@@ -406,17 +406,12 @@
                 const stockInput = document.getElementById('stock-quantity-reference');
                 const alertBox = document.getElementById('stock-warning-alert');
                 const message = document.getElementById('stock-warning-message');
-                const customerSuppliedCheckbox = document.getElementById('id_is_customer_supplied');
 
                 if (!quantityInput || !stockInput || !alertBox || !message) {
                     return;
                 }
 
                 const updateWarning = () => {
-                    if (customerSuppliedCheckbox && customerSuppliedCheckbox.checked) {
-                        alertBox.classList.add('hidden');
-                        return;
-                    }
                     const quantity = Number.parseInt(quantityInput.value || '0', 10) || 0;
                     const stock = Number.parseInt(stockInput.value || '0', 10) || 0;
                     const excess = Math.max(quantity - stock, 0);
@@ -431,9 +426,6 @@
 
                 quantityInput.addEventListener('input', updateWarning);
                 quantityInput.addEventListener('change', updateWarning);
-                if (customerSuppliedCheckbox) {
-                    customerSuppliedCheckbox.addEventListener('change', updateWarning);
-                }
                 updateWarning();
             }
         };

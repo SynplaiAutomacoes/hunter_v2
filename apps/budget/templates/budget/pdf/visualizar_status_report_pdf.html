@@ -76,11 +76,10 @@
                     <div class="min-w-0">
                         <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Relatorio gerencial</p>
                         <h1 class="mt-1 text-[20px] font-bold uppercase">{{ status_report_pdf_title }}</h1>
-                        <p class="mt-1 text-[20px] font-bold uppercase">{{ workshop.nome_fantasia_display|default:"-" }}</p>
-                        <p class="text-[12px] font-bold">{{ workshop.razao_social_display|default:"-" }}</p>
-                        <p class="mt-1 text-[11px] font-bold">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
-                        <p class="text-[11px] font-bold">Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
-                        <p class="text-[11px] font-bold">{{ workshop.address|default:"-" }}</p>
+                        <p class="mt-2 text-[12px] font-semibold">{{ workshop.name|default:"-" }}</p>
+                        <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
+                        <p class="text-[11px] text-gray-600">Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
+                        <p class="text-[11px] text-gray-600">{{ workshop.address|default:"-" }}</p>
                     </div>
                 </div>
 
@@ -109,14 +108,13 @@
             <table class="report-table text-[11px]">
                 <thead class="bg-gray-100 text-left uppercase text-[10px] tracking-[0.16em] text-gray-600">
                     <tr>
-                        <th class="px-3 py-2 w-[6%]">ID</th>
-                        <th class="px-3 py-2 w-[16%]">Cliente</th>
-                        <th class="px-3 py-2 w-[14%]">Veiculo</th>
-                        <th class="px-3 py-2 w-[14%]">Colaborador</th>
-                        <th class="px-3 py-2 w-[11%]">Criado em</th>
-                        <th class="px-3 py-2 w-[12%] text-right">Valor total</th>
-                        <th class="px-3 py-2 w-[12%]">Status</th>
-                        {% if show_cancellation_reason_column %}<th class="px-3 py-2 w-[15%]">Motivo do Cancelamento</th>{% endif %}
+                        <th class="px-3 py-2 w-[8%]">ID</th>
+                        <th class="px-3 py-2 w-[18%]">Cliente</th>
+                        <th class="px-3 py-2 w-[16%]">Veiculo</th>
+                        <th class="px-3 py-2 w-[16%]">Colaborador</th>
+                        <th class="px-3 py-2 w-[14%]">Criado em</th>
+                        <th class="px-3 py-2 w-[14%] text-right">Valor total</th>
+                        <th class="px-3 py-2 w-[14%]">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -129,11 +127,10 @@
                             <td class="px-3 py-3 text-gray-600">{{ budget.criado_em|date:"d/m/Y"|default:"-" }}</td>
                             <td class="px-3 py-3 text-right font-semibold">{{ budget.stored_total_amount }}</td>
                             <td class="px-3 py-3 font-semibold">{{ budget.budget_status_badge.text }}</td>
-                            {% if show_cancellation_reason_column %}<td class="px-3 py-3">{{ budget.cancellation_reason|default:"-" }}</td>{% endif %}
                         </tr>
                     {% empty %}
                         <tr class="border-t border-gray-200">
-                            <td colspan="{% if show_cancellation_reason_column %}8{% else %}7{% endif %}" class="px-4 py-6 text-center text-gray-500">Nao ha orcamentos para os filtros selecionados.</td>
+                            <td colspan="7" class="px-4 py-6 text-center text-gray-500">Nao ha orcamentos para os filtros selecionados.</td>
                         </tr>
                     {% endfor %}
                 </tbody>

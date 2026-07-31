@@ -112,8 +112,9 @@
         .pdf-mode .text-xs { font-size: 0.625rem !important; }
         .pdf-mode [class*="text-[11px]"] { font-size: 9px !important; }
         .pdf-mode [class*="xl:text-[2rem]"] { font-size: 1.25rem !important; }
-        .pdf-mode .text-base { font-size: 0.75rem !important; }
-        .pdf-mode .table { font-size: 0.6875rem !important; line-height: 1rem !important; }
+        .pdf-mode .text-base { font-size: 0.6875rem !important; }
+        .pdf-mode .table { font-size: 0.625rem !important; line-height: 0.9375rem !important; }
+        .pdf-mode p.tabular-nums { font-size: 0.875rem !important; white-space: nowrap !important; }
 
         .pdf-mode .p-4 { padding: 0.625rem !important; }
         .pdf-mode .p-5 { padding: 0.75rem !important; }
@@ -134,8 +135,8 @@
         .pdf-mode .mt-5 { margin-top: 0.625rem !important; }
         .pdf-mode .mt-6 { margin-top: 0.75rem !important; }
 
-        .pdf-mode [class*="min-w-[220px]"] { min-width: 130px !important; }
-        .pdf-mode [class*="min-w-[240px]"] { min-width: 140px !important; }
+        .pdf-mode [class*="min-w-[220px]"] { min-width: 115px !important; }
+        .pdf-mode [class*="min-w-[240px]"] { min-width: 125px !important; }
         .pdf-mode .w-44 { width: 100px !important; }
         .pdf-mode .w-36 { width: 80px !important; }
         .pdf-mode .w-28 { width: 60px !important; }
@@ -151,7 +152,10 @@
         .pdf-mode [class*="rounded-[1.5rem]"] { border-radius: 0.625rem !important; }
 
         .pdf-mode .overflow-x-auto { overflow: hidden !important; }
-        .pdf-mode table { word-break: break-word !important; }
+        .pdf-mode table td.tabular-nums,
+        .pdf-mode table th.tabular-nums { white-space: nowrap !important; }
+        .pdf-mode table td:not(.tabular-nums),
+        .pdf-mode table th:not(.tabular-nums) { overflow-wrap: break-word !important; }
     </style>
 </head>
 <body class="bg-base-200 pdf-mode">

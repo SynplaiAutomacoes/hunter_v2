@@ -35,7 +35,6 @@ class Step6ReviewContext:
     base_pdf_download_url: str
     saved_observation_html: str
     cancellation_reason_html: str
-    rejection_reason_html: str
     reopen_history_html: str
     step6_action_button_state_class: str
     blocked_step6_action_attrs: str
@@ -111,12 +110,6 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         cancellation_reason_html = (
             '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo do Cancelamento</span><span class="text-gray-900 text-base">{reason}</span></div></div>'
         ).format(reason=budget.cancellation_reason)
-
-    rejection_reason_html = ""
-    if budget.rejection_reason:
-        rejection_reason_html = (
-            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo da Reprovação</span><span class="text-gray-900 text-base">{reason}</span></div></div>'
-        ).format(reason=budget.rejection_reason)
 
     history_entries = list(budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).select_related("user")[:10])
     history_entries.reverse()
@@ -214,15 +207,10 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
                     html += '<div class="mb-5">';
                     html += '<h4 class="font-semibold text-base mb-2 border-b pb-1 text-base-content">Informações Gerais Modificadas</h4>';
                     html += '<ul class="list-disc list-inside space-y-1 text-sm text-base-content/80">';
-                    const budgetTypeLabels = {sale: 'Venda', warranty: 'Garantia', courtesy: 'Cortesia'};
                     fieldKeys.forEach(function(key) {
                         const change = fields[key];
-                        let oldVal = (change.old !== null && change.old !== undefined && change.old !== '') ? change.old : '<i>(vazio)</i>';
-                        let newVal = (change.new !== null && change.new !== undefined && change.new !== '') ? change.new : '<i>(vazio)</i>';
-                        if (key === 'budget_type') {
-                            oldVal = budgetTypeLabels[oldVal] || oldVal;
-                            newVal = budgetTypeLabels[newVal] || newVal;
-                        }
+                        const oldVal = (change.old !== null && change.old !== undefined && change.old !== '') ? change.old : '<i>(vazio)</i>';
+                        const newVal = (change.new !== null && change.new !== undefined && change.new !== '') ? change.new : '<i>(vazio)</i>';
                         html += '<li><strong>' + change.label + '</strong>: de ' + oldVal + ' para ' + newVal + '</li>';
                     });
                     html += '</ul>';
@@ -346,7 +334,6 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         base_pdf_download_url=base_pdf_download_url,
         saved_observation_html=saved_observation_html,
         cancellation_reason_html=cancellation_reason_html,
-        rejection_reason_html=rejection_reason_html,
         reopen_history_html=reopen_history_html,
         step6_action_button_state_class=step6_action_button_state_class,
         blocked_step6_action_attrs=blocked_step6_action_attrs,

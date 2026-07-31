@@ -55,74 +55,6 @@ class StoredTotalsWritePathTests(TestCase):
         self.assertGreater(budget.stored_total_amount.amount, Decimal("0.00"))
         self.assertEqual(budget.stored_total_amount.amount, budget.total_budget_value.amount)
 
-    def test_fixed_budget_stores_operational_total_while_chargeable_stays_zero(self) -> None:
-        from apps.budget.models import BudgetItem
-
-        workshop = create_workshop(suffix=6)
-        group = CatalogGroup.objects.create(workshop=workshop, name="Grupo Garantia")
-        product = Product.objects.create(
-            workshop=workshop,
-            group=group,
-            name="Peca Garantia",
-            cost_price=Money(10, "BRL"),
-            selling_price=Money(100, "BRL"),
-        )
-        budget = Budget.objects.create(
-            workshop=workshop,
-            entry_date=date(2026, 6, 1),
-            budget_type=BudgetType.WARRANTY,
-            status=BudgetStatus.DRAFT,
-        )
-        BudgetItem.objects.create(
-            workshop=workshop,
-            budget=budget,
-            product=product,
-            quantity=1,
-            product_cost_price=Money(10, "BRL"),
-            product_selling_price=Money(100, "BRL"),
-            shipping=Money(5, "BRL"),
-        )
-        budget.refresh_from_db()
-        budget.invalidate_pricing_snapshot_cache()
-
-        self.assertEqual(budget.total_budget_value.amount, Decimal("0.00"))
-        self.assertEqual(budget.summary_total_before_benefit_value.amount, Decimal("105.00"))
-        self.assertEqual(budget.stored_total_amount.amount, Decimal("105.00"))
-        self.assertEqual(budget.display_total_budget_value.amount, Decimal("105.00"))
-
-    def test_fixed_workorder_stores_operational_total_while_chargeable_stays_zero(self) -> None:
-        from apps.workorder.models import WorkOrderItem
-
-        workshop = create_workshop(suffix=7)
-        budget = Budget.objects.create(
-            workshop=workshop,
-            entry_date=date(2026, 6, 1),
-            budget_type=BudgetType.COURTESY,
-        )
-        workorder = WorkOrder.objects.create(
-            workshop=workshop,
-            budget=budget,
-            budget_type="courtesy",
-            status=WorkOrderStatus.DRAFT,
-        )
-        WorkOrderItem.objects.create(
-            workshop=workshop,
-            workorder=workorder,
-            description="Servico cortesia",
-            quantity=1,
-            product_selling_price=Money(40, "BRL"),
-            service_selling_price=Money(60, "BRL"),
-            shipping=Money(10, "BRL"),
-            item_benefit_type="courtesy",
-        )
-        workorder.invalidate_pricing_snapshot_cache()
-        workorder.refresh_stored_total_amount()
-        workorder.refresh_from_db()
-
-        self.assertEqual(workorder.total_budget_value.amount, Decimal("0.00"))
-        self.assertEqual(workorder.operational_total_value.amount, Decimal("110.00"))
-        self.assertEqual(workorder.stored_total_amount.amount, Decimal("110.00"))
-
     def test_workorder_payment_updates_stored_paid(self) -> None:
         workshop = create_workshop(suffix=2)
         payment_method = PaymentMethod.objects.create(workshop=workshop, description="Pix")
@@ -181,37 +113,6 @@ class DashboardPendingAggregateTests(TestCase):
         self.assertEqual(metrics.total_general, Decimal("70.00"))
         self.assertEqual(metrics.monthly, Decimal("70.00"))
 
-    def test_pending_receivable_excludes_warranty_and_courtesy(self) -> None:
-        workshop = create_workshop(suffix=8)
-        sale_budget = Budget.objects.create(workshop=workshop, entry_date=date(2026, 6, 1), budget_type=BudgetType.SALE)
-        warranty_budget = Budget.objects.create(
-            workshop=workshop,
-            entry_date=date(2026, 6, 1),
-            budget_type=BudgetType.WARRANTY,
-        )
-        sale_wo = WorkOrder.objects.create(
-            workshop=workshop,
-            budget=sale_budget,
-            budget_type="sale",
-            status=WorkOrderStatus.DRAFT,
-        )
-        warranty_wo = WorkOrder.objects.create(
-            workshop=workshop,
-            budget=warranty_budget,
-            budget_type="warranty",
-            status=WorkOrderStatus.DRAFT,
-        )
-        WorkOrder.objects.filter(pk=sale_wo.pk).update(stored_total_amount=Money(100, "BRL"), stored_paid_amount=Money(0, "BRL"))
-        WorkOrder.objects.filter(pk=warranty_wo.pk).update(stored_total_amount=Money(500, "BRL"), stored_paid_amount=Money(0, "BRL"))
-
-        metrics = DashboardQueryService._get_pending_receivable_metrics(
-            workshop_id=workshop.pk,
-            selected_month=sale_wo.criado_em.month,
-            selected_year=sale_wo.criado_em.year,
-        )
-        self.assertEqual(metrics.total_general, Decimal("100.00"))
-        self.assertEqual(metrics.monthly, Decimal("100.00"))
-
     def test_rejected_budget_total_uses_stored_amount(self) -> None:
         workshop = create_workshop(suffix=5)
         budget = Budget.objects.create(
@@ -221,30 +122,6 @@ class DashboardPendingAggregateTests(TestCase):
             status=BudgetStatus.REJECTED,
         )
         Budget.objects.filter(pk=budget.pk).update(stored_total_amount=Money(80, "BRL"))
-
-        total = DashboardQueryService._get_rejected_budget_total(
-            workshop_id=workshop.pk,
-            selected_month=6,
-            selected_year=2026,
-        )
-        self.assertEqual(total, Decimal("80.00"))
-
-    def test_rejected_budget_total_excludes_warranty(self) -> None:
-        workshop = create_workshop(suffix=9)
-        sale = Budget.objects.create(
-            workshop=workshop,
-            entry_date=date(2026, 6, 12),
-            budget_type=BudgetType.SALE,
-            status=BudgetStatus.REJECTED,
-        )
-        warranty = Budget.objects.create(
-            workshop=workshop,
-            entry_date=date(2026, 6, 12),
-            budget_type=BudgetType.WARRANTY,
-            status=BudgetStatus.REJECTED,
-        )
-        Budget.objects.filter(pk=sale.pk).update(stored_total_amount=Money(80, "BRL"))
-        Budget.objects.filter(pk=warranty.pk).update(stored_total_amount=Money(200, "BRL"))
 
         total = DashboardQueryService._get_rejected_budget_total(
             workshop_id=workshop.pk,

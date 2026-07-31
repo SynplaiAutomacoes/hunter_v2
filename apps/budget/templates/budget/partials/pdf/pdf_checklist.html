@@ -453,11 +453,10 @@
             </div>
 
             <div class="header-right">
-                <div class="header-line"><span class="header-value font-bold">{{ workshop_header.nome_fantasia|default:"-" }}</span></div>
-                <div class="header-line"><span class="header-value font-bold">{{ workshop_header.razao_social|default:"-" }}</span></div>
-                <div class="header-line"><span class="header-label">Endereço:</span><span class="header-value font-bold">{{ workshop_header.address|default:"-" }}</span></div>
-                <div class="header-line"><span class="header-label">CEP-Cidade:</span><span class="header-value font-bold">{{ workshop_header.cep_city|default:"-" }}</span></div>
-                <div class="header-line"><span class="header-label">Telefone:</span><span class="header-value font-bold">{{ workshop_header.phone|phone_br|default:"-" }}</span></div>
+                <div class="header-line"><span class="header-label">Oficina:</span><span class="header-value">{{ workshop_header.name|default:"-" }}</span></div>
+                <div class="header-line"><span class="header-label">Endereço:</span><span class="header-value">{{ workshop_header.address|default:"-" }}</span></div>
+                <div class="header-line"><span class="header-label">CEP-Cidade:</span><span class="header-value">{{ workshop_header.cep_city|default:"-" }}</span></div>
+                <div class="header-line"><span class="header-label">Telefone:</span><span class="header-value">{{ workshop_header.phone|phone_br|default:"-" }}</span></div>
                 <div class="header-line"><span class="header-label">Data Entrada:</span><span class="header-value">{{ budget.entry_date|date:"d/m/Y"|default:"-" }}</span></div>
             </div>
         </div>

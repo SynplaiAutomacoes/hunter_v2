@@ -3,34 +3,7 @@
 {% block crud_title %}Cadastrar Oficina{% endblock %}
 {% block crud_subtitle %}Preencha os dados da unidade para registro no sistema.{% endblock %}
 {% block crud_form %}
-    <div class="flex items-center gap-2 mb-4">
-        {% if show_webmania_provision_toggle %}
-            {% csrf_token %}
-            <label class="label cursor-pointer gap-2 py-0" title="Quando desligado, o cadastro de oficina não cria empresa na Webmania.">
-                <span class="label-text text-sm whitespace-nowrap">Criar empresa na Webmania</span>
-                <input
-                    type="checkbox"
-                    class="toggle toggle-primary toggle-sm"
-                    {% if webmania_company_provision_enabled %}checked{% endif %}
-                    aria-label="Criar empresa na Webmania ao cadastrar oficina"
-                    onchange="(function(el){
-                        const body = new URLSearchParams({enabled: el.checked ? '1' : '0'});
-                        fetch('{% url 'workshops:webmania_provision_toggle' %}', {
-                            method: 'POST',
-                            headers: {
-                                'X-CSRFToken': '{{ csrf_token }}',
-                                'X-Requested-With': 'XMLHttpRequest'
-                            },
-                            body: body,
-                            credentials: 'same-origin'
-                        }).then(function(response){
-                            if (!response.ok) { el.checked = !el.checked; }
-                        }).catch(function(){ el.checked = !el.checked; });
-                    })(this)"
-                />
-            </label>
-        {% endif %}
-
+    <div class="flex items-center gap-2">
         {% if can_sync_webmania_companies %}
             <form method="post" action="{% url 'workshops:webmania_company_sync' %}" onsubmit="this.querySelector('button[type=submit]').disabled = true;">
                 {% csrf_token %}
