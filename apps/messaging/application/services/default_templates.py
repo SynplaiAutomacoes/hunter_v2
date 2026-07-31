@@ -3,7 +3,7 @@ from __future__ import annotations
 from apps.messaging.models import MessageTemplate
 from apps.workshops.models.workshops import Workshop
 
-DEFAULT_BIRTHDAY_MESSAGE = """Oi %%nome%%, tudo bem?
+DEFAULT_BIRTHDAY_MESSAGE = """Oi %%primeiro_nome%%, tudo bem?
 
 Passando aqui para desejar um Feliz Aniversário!
 
@@ -11,7 +11,7 @@ A equipe da %%nome_fantasia%% deseja a você um dia muito especial, cheio de ale
 
 Conte com a gente sempre que precisar cuidar do seu veículo."""
 
-DEFAULT_APPOINTMENT_MESSAGE = """Oi %%nome%%, tudo bem?
+DEFAULT_APPOINTMENT_MESSAGE = """Oi %%primeiro_nome%%, tudo bem?
 
 Passando para lembrar do seu agendamento na %%nome_fantasia%%.
 
@@ -20,13 +20,13 @@ Horário: %%hora_agendamento%%
 
 Até lá!"""
 
-DEFAULT_REVIEW_PLAN_MESSAGE = """Oi %%nome%%, tudo bem?
+DEFAULT_REVIEW_PLAN_MESSAGE = """Oi %%primeiro_nome%%, tudo bem?
 
 A revisão do seu veículo %%modelo%% (placa %%placa%%) está chegando perto.
 
 Agende um horário na %%nome_fantasia%% para manter tudo em dia e rodar com segurança."""
 
-DEFAULT_SATISFACTION_MESSAGE = """Oi %%nome%%, tudo bem?
+DEFAULT_SATISFACTION_MESSAGE = """Oi %%primeiro_nome%%, tudo bem?
 Faz um tempinho que você esteve na %%nome_fantasia%% para um serviço no seu carro, e ficamos curiosos: como foi?
 
 Sua avaliação nos ajuda muito a melhorar cada vez mais.

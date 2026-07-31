@@ -32,6 +32,34 @@ class WorkshopCompanyVariableTests(SimpleTestCase):
     def test_nome_oficina_variable_was_removed(self) -> None:
         self.assertNotIn("nome_oficina", get_variable_definition_map())
 
+    def test_primeiro_nome_extracts_first_token_and_nome_keeps_full_name(self) -> None:
+        class CustomerStub:
+            name = "Maria Silva Santos"
+
+        self.assertIn("primeiro_nome", get_variable_definition_map())
+        self.assertIn("nome", get_variable_definition_map())
+        rendered = render_message_template(
+            "Oi %%primeiro_nome%% / %%nome%%",
+            customer=CustomerStub(),
+        )
+        self.assertEqual(rendered, "Oi Maria / Maria Silva Santos")
+
+    def test_primeiro_nome_handles_single_name_and_empty(self) -> None:
+        class SingleNameStub:
+            name = "Maria"
+
+        class EmptyNameStub:
+            name = "   "
+
+        self.assertEqual(
+            render_message_template("%%primeiro_nome%%", customer=SingleNameStub()),
+            "Maria",
+        )
+        self.assertEqual(
+            render_message_template("%%primeiro_nome%%", customer=EmptyNameStub()),
+            "",
+        )
+
     def test_razao_social_and_nome_fantasia_fall_back_to_workshop_name(self) -> None:
         class WorkshopStub:
             name = "Oficina Fallback"

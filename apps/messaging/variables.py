@@ -118,6 +118,16 @@ def _workorder_status_label(ctx: VariableContext) -> object:
     return WorkOrderStatus(status).label
 
 
+def _customer_first_name(ctx: VariableContext) -> object:
+    value = _customer_attr(ctx, "name")
+    if value is MISSING:
+        return MISSING
+    name = str(value or "").strip()
+    if not name:
+        return ""
+    return name.split(None, 1)[0]
+
+
 def _workshop_company_attr(ctx: VariableContext, attr_name: str) -> object:
     workshop = ctx.workshop
     if workshop is None:
@@ -154,7 +164,8 @@ def _extra(ctx: VariableContext, key: str) -> object:
 
 
 VARIABLE_DEFINITIONS: tuple[VariableDefinition, ...] = (
-    VariableDefinition(key="nome", group="cliente", label="Nome", description="Nome do cliente.", resolver=lambda ctx: _customer_attr(ctx, "name")),
+    VariableDefinition(key="nome", group="cliente", label="Nome", description="Nome completo do cliente.", resolver=lambda ctx: _customer_attr(ctx, "name")),
+    VariableDefinition(key="primeiro_nome", group="cliente", label="Primeiro nome", description="Primeiro nome do cliente.", resolver=_customer_first_name),
     VariableDefinition(key="cpf", group="cliente", label="CPF/CNPJ", description="Documento do cliente cadastrado.", resolver=_formatted_customer_document),
     VariableDefinition(key="rg", group="cliente", label="RG", description="RG do cliente.", resolver=lambda ctx: _customer_attr(ctx, "rg")),
     VariableDefinition(key="data_nascimento", group="cliente", label="Data de nascimento", description="Data de nascimento do cliente.", resolver=lambda ctx: _customer_attr(ctx, "birth_date")),
