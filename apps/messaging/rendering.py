@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
@@ -10,7 +10,7 @@ from django.utils import timezone
 from apps.core.templatetags.format_tags import money_br, phone_br
 
 
-TOKEN_PATTERN = re.compile(r"%%(?P<key>[a-z0-9_]+)%%", re.IGNORECASE)
+TOKEN_PATTERN = re.compile(r"%%(?P<key>[a-z0-9_-]+)%%", re.IGNORECASE)
 MISSING = object()
 
 
@@ -21,9 +21,18 @@ class VariableContext:
     budget: Any = None
     workorder: Any = None
     workshop: Any = None
+    extras: dict[str, Any] = field(default_factory=dict)
 
 
-def resolve_variable_context(*, customer: Any = None, vehicle: Any = None, budget: Any = None, workorder: Any = None, workshop: Any = None) -> VariableContext:
+def resolve_variable_context(
+    *,
+    customer: Any = None,
+    vehicle: Any = None,
+    budget: Any = None,
+    workorder: Any = None,
+    workshop: Any = None,
+    extras: dict[str, Any] | None = None,
+) -> VariableContext:
     resolved_workshop = workshop
     resolved_budget = budget or getattr(workorder, "budget", None)
     resolved_customer = customer or getattr(resolved_budget, "customer", None)
@@ -38,6 +47,7 @@ def resolve_variable_context(*, customer: Any = None, vehicle: Any = None, budge
         budget=resolved_budget,
         workorder=workorder,
         workshop=resolved_workshop,
+        extras=dict(extras or {}),
     )
 
 
@@ -63,15 +73,43 @@ def format_phone_value(value: Any) -> str:
     return phone_br(value)
 
 
-def render_message_template(template: str, *, customer: Any = None, vehicle: Any = None, budget: Any = None, workorder: Any = None, workshop: Any = None) -> str:
+def render_message_template(
+    template: str,
+    *,
+    customer: Any = None,
+    vehicle: Any = None,
+    budget: Any = None,
+    workorder: Any = None,
+    workshop: Any = None,
+    extras: dict[str, Any] | None = None,
+) -> str:
     from apps.messaging.variables import get_variable_definition_map, resolve_variable
 
-    context = resolve_variable_context(customer=customer, vehicle=vehicle, budget=budget, workorder=workorder, workshop=workshop)
+    context = resolve_variable_context(
+        customer=customer,
+        vehicle=vehicle,
+        budget=budget,
+        workorder=workorder,
+        workshop=workshop,
+        extras=extras,
+    )
     variable_definitions = get_variable_definition_map()
+    normalized_extras = {str(key).lower().replace("-", "_"): value for key, value in context.extras.items()}
+    # Also keep hyphen keys as-is for exact match.
+    for key, value in context.extras.items():
+        normalized_extras[str(key).lower()] = value
 
     def replace(match: re.Match[str]) -> str:
         key = match.group("key").lower()
-        definition = variable_definitions.get(key)
+        underscore_key = key.replace("-", "_")
+
+        if key in normalized_extras or underscore_key in normalized_extras:
+            raw = normalized_extras.get(key, normalized_extras.get(underscore_key))
+            if raw is MISSING:
+                return match.group(0)
+            return format_variable_value(raw)
+
+        definition = variable_definitions.get(underscore_key) or variable_definitions.get(key)
         if definition is None:
             return match.group(0)
 

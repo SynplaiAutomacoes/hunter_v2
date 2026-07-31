@@ -7,7 +7,6 @@ from django.http import HttpRequest
 from django.urls import reverse
 
 from apps.workshops.context_processors import active_workshops
-from apps.workshops.util.workshops import can_view_payroll_details
 
 
 VisibilityPredicate = Callable[[HttpRequest, dict[str, Any]], bool]
@@ -15,18 +14,6 @@ VisibilityPredicate = Callable[[HttpRequest, dict[str, Any]], bool]
 
 def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool:
     return bool(flags.get("active_workshop_is_director") or flags.get("active_workshop_is_manager"))
-
-
-def _can_view_payroll(request: HttpRequest, flags: dict[str, Any]) -> bool:
-    active_workshop_id = flags.get("active_workshop_id")
-    if active_workshop_id is None:
-        return False
-
-    active_workshop = next((workshop for workshop in flags.get("active_workshops", []) if workshop.pk == active_workshop_id), None)
-    if active_workshop is None:
-        return False
-
-    return can_view_payroll_details(user=request.user, workshop=active_workshop, request=request)
 
 
 BUDGET_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Orçamento", "view_name": "budget:budget_create"}
@@ -66,7 +53,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Emitir nota", "view_name": "finance:emission_create", "query": {"reset": 1}},
             {"label": "Central de Notas", "view_name": "finance:issued_documents_list"},
             {"label": "Movimentação Financeira", "view_name": "finance:reports_home"},
-            {"label": "Folha de Pagamento", "view_name": "finance:payroll_list", "visible_if": _can_view_payroll},
+            {"label": "Folha de Pagamento", "view_name": "finance:payroll_list"},
             {"label": "Apuração de Comissões", "view_name": "finance:commission_report"},
             {"label": "Conta Bancária", "view_name": "finance:bank_account_list"},
             {"label": "Formas de Pagamento", "view_name": "finance:payment_methods_list"},
@@ -89,6 +76,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Kit", "view_name": "catalog:kits_list"},
             {"label": "Grupo", "view_name": "catalog:group_list"},
             {"label": "Checklist", "view_name": "checklist:checklist_list"},
+            {"label": "Planos de Revisão", "view_name": "workshops:review_plan_list"},
         ),
     },
     {
@@ -99,6 +87,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
             {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
+            {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list"},
         ),
     },
 )

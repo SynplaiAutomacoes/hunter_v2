@@ -12,7 +12,8 @@
             hx-select="{{ htmx_select }}"
             hx-push-url="{{ htmx_push_url }}"
             hx-trigger="submit, change from:#{{ table_id }}-sort-ui"
-            hx-disinherit="*"
+            hx-disinherit="hx-vals"
+            hx-vals="{}"
         >
             <div class="flex w-full flex-col gap-4 sm:max-w-3xl">
                 <input type="hidden" name="page" value="1" />

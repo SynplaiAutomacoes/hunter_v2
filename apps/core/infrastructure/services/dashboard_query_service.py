@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import time
-from calendar import monthrange
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -20,11 +19,10 @@ from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, budget_kit_overrides_prefetch, workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
-from apps.finance.services.dre import COMP_COGS, COMP_COS, COMP_GROSS_REVENUE, build_dre_calculation
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
-from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.util.monthly_costs import get_productive_salary_total_including_transport
+from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 
 logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
@@ -80,7 +78,6 @@ INDICATOR_LABELS: dict[str, tuple[str, str]] = {
     "reprovados": ("Total Reprovados", "Orçamentos"),
     "carros_mes": ("Carros no Mês", "Ordens de Serviço"),
     "garantia_cortesia_mes": ("Garantia + Cortesia", "Ordens de Serviço"),
-    "venda_do_dia": ("Venda do Dia", "Ordens de Serviço"),
 }
 
 # ─── Prefetch descriptors (reused across all queries) ─────────────────────────
@@ -171,40 +168,31 @@ def _format_brl(amount: Decimal) -> str:
 
 
 def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int, total_revenue: Decimal | None = None) -> Decimal:
-    """Calculate aggregate markup from DRE totals for the selected month.
+    """Calculate aggregate markup aligned with DRE methodology.
 
-    Formula: Receita Bruta de Vendas e Serviços / (CMV + CSV)
-    where CMV = Custos de Mercadorias Vendidas and CSV = Custos de Serviços Vendidos.
+    Formula: SUM(total_paid) / SUM(total_costs_products_value + total_costs_services_value + total_products_shipping)
 
-    ``total_revenue`` is accepted for call-site compatibility but ignored; both
-    numerator and denominator always come from ``build_dre_calculation``.
+    Uses WorkOrderPaymentMethod due_date (same as DRE) instead of Budget entry_date.
     """
-    _ = total_revenue
-
-    workshop = Workshop.objects.filter(pk=workshop_id).first()
-    if workshop is None:
+    if total_revenue is None:
+        total_revenue = _aggregate_revenue(workshop_id=workshop_id, month=month, year=year)
+    if total_revenue == Decimal("0.00"):
         return Decimal("0.00")
 
-    start_date = date(year, month, 1)
-    end_date = date(year, month, monthrange(year, month)[1])
-    dre = build_dre_calculation(workshops=[workshop], start_date=start_date, end_date=end_date)
-
-    amounts_by_component: dict[str, Decimal] = {}
-    for row in dre.rows:
-        component = row.get("component")
-        if not component:
-            continue
-        amounts_by_component[str(component)] = resolve_decimal_amount(row.get("amount"))
-
-    total_revenue_dre = amounts_by_component.get(COMP_GROSS_REVENUE, Decimal("0.00"))
-    total_cogs = amounts_by_component.get(COMP_COGS, Decimal("0.00"))
-    total_cos = amounts_by_component.get(COMP_COS, Decimal("0.00"))
-    total_cost = total_cogs + total_cos
-
-    if total_revenue_dre == Decimal("0.00") or total_cost <= Decimal("0.00"):
+    workorder_ids = _get_workorder_ids_from_payments(workshop_id=workshop_id, month=month, year=year)
+    if not workorder_ids:
         return Decimal("0.00")
 
-    return (total_revenue_dre / total_cost).quantize(TWO_DECIMAL_PLACES)
+    total_product_cost, total_third_party_cost, total_mechanic_cost, total_shipping = _aggregate_costs(workorder_ids=workorder_ids)
+
+    total_service_cost = total_third_party_cost + total_mechanic_cost
+    total_cost = total_product_cost + total_service_cost + total_shipping
+    if total_cost <= Decimal("0.00"):
+        return Decimal("0.00")
+
+    markup = (total_revenue / total_cost).quantize(TWO_DECIMAL_PLACES)
+
+    return markup
 
 
 def _aggregate_revenue(*, workshop_id: int, month: int, year: int) -> Decimal:
@@ -262,10 +250,11 @@ def _build_injected_pricing_context(*, workshop: Workshop, workshop_cost: Worksh
         hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
         profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
         minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
-        productive_salary_total = get_productive_salary_total_including_transport(
-            workshop=workshop,
-            workshop_cost=workshop_cost,
-        )
+        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=workshop)
+        if mechanic_salary_obj is not None:
+            salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+            if salary_item is not None:
+                productive_salary_total = salary_item.amount
 
     return SimpleNamespace(
         minimum_hourly_cost=minimum_hourly_cost,
@@ -387,12 +376,6 @@ def resolve_indicator_row_amount(*, item: Any, indicator: str, is_budget_report:
             return max(pending, Decimal("0.00"))
         return resolve_decimal_amount(item.pending_payment_value)
 
-    if indicator == "venda_do_dia":
-        stored = getattr(item, "_today_payment_value", None)
-        if stored is not None:
-            return resolve_decimal_amount(stored)
-        return Decimal("0.00")
-
     stored_total = getattr(item, "stored_total_amount", None)
     if stored_total is not None:
         return resolve_decimal_amount(stored_total)
@@ -439,7 +422,7 @@ def _build_workorder_groups(*, items: list[WorkOrder], indicator: str) -> list[F
 def _resolve_value_column_label(indicator: str) -> str:
     if indicator.startswith("a_receber"):
         return "Valor pendente"
-    if indicator in {"carros_mes", "garantia_cortesia_mes", "venda_do_dia"}:
+    if indicator in {"carros_mes", "garantia_cortesia_mes"}:
         return "Valor consolidado"
     return "Valor total"
 
@@ -773,7 +756,7 @@ class DashboardQueryService:
     def _compute_projection(*, workshop_cost: WorkshopCost | None, total_sold: Decimal, today: date) -> dict[str, Any]:
         if workshop_cost is None:
             return {
-                "projection": Decimal("0.00"),
+                "projection": None,
                 "projection_warning": MISSING_WORKSHOP_COST_WARNING,
                 "elapsed_days": 0,
                 "remaining_days": 0,
@@ -804,9 +787,9 @@ class DashboardQueryService:
     @staticmethod
     def _compute_target_metrics(*, workshop_cost: WorkshopCost | None, total_sold: Decimal, projection: Decimal | None, elapsed_days: int) -> dict[str, Any]:
         base: dict[str, Any] = {
-            "gross_revenue_target": Decimal("0.00"),
-            "daily_revenue_target": Decimal("0.00"),
-            "actual_daily_revenue": Decimal("0.00"),
+            "gross_revenue_target": None,
+            "daily_revenue_target": None,
+            "actual_daily_revenue": None,
             "projection_vs_target": None,
             "actual_daily_revenue_vs_target": None,
         }
@@ -829,7 +812,7 @@ class DashboardQueryService:
 
         actual_daily = base["actual_daily_revenue"]
         daily_target = base["daily_revenue_target"]
-        if actual_daily is not None and daily_target is not None and daily_target > 0:
+        if actual_daily is not None and daily_target is not None:
             base["actual_daily_revenue_vs_target"] = _compute_daily_vs_target(actual_daily, daily_target)
 
         return base
@@ -980,7 +963,6 @@ class DashboardQueryService:
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
                 status=WorkOrderStatus.DRAFT,
-                budget_type="sale",
                 budget__isnull=False,
             )
             .annotate(pending_amount=pending_expr)
@@ -1046,7 +1028,6 @@ class DashboardQueryService:
         decimal_out = DecimalField(max_digits=14, decimal_places=2)
         result = Budget.objects.filter(
             workshop_id=workshop_id,
-            budget_type=BudgetType.SALE,
             status__in=REJECTED_BUDGET_STATUS_VALUES,
             entry_date__month=selected_month,
             entry_date__year=selected_year,
@@ -1059,21 +1040,21 @@ class DashboardQueryService:
 _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     "a_receber_em_execucao": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_mes_atual": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_meses_anteriores": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": True,
@@ -1101,7 +1082,7 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     },
     "reprovados": {
         "model": "budget",
-        "filters": {"budget_type": BudgetType.SALE, "status__in": REJECTED_BUDGET_STATUS_VALUES},
+        "filters": {"status__in": REJECTED_BUDGET_STATUS_VALUES},
         "date_field": "entry_date",
         "value_field": "display_total_budget_value",
         "exclude_month": False,
@@ -1124,16 +1105,6 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
         "value_field": None,
         "exclude_month": False,
     },
-    "venda_do_dia": {
-        "model": "workorder",
-        "filters": {
-            "budget_type": "sale",
-            "status__in": (WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
-        },
-        "date_field": "criado_em",
-        "value_field": "total_budget_value",
-        "exclude_month": False,
-    },
 }
 
 
@@ -1146,9 +1117,6 @@ def get_financial_indicator_data(
     query_config = _INDICATOR_QUERIES.get(indicator)
     if query_config is None:
         return [], False, "R$ 0,00"
-
-    if indicator == "venda_do_dia":
-        return _get_venda_do_dia_data(workshop)
 
     filters = {**query_config["filters"], "workshop": workshop}
     date_field: str = query_config["date_field"]
@@ -1177,38 +1145,6 @@ def get_financial_indicator_data(
     return items, is_budget_report, _format_brl(total)
 
 
-def _get_venda_do_dia_data(workshop: Workshop) -> tuple[list[WorkOrder], bool, str]:
-    today = timezone.localdate()
-    payment_qs = WorkOrderPaymentMethod.objects.filter(
-        workorder__workshop=workshop,
-        workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
-        workorder__budget_type="sale",
-        due_date=today,
-    )
-    payment_data = payment_qs.values("workorder_id").annotate(
-        today_payment_sum=Sum(
-            ExpressionWrapper(
-                F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
-                output_field=DecimalField(max_digits=14, decimal_places=2),
-            )
-        )
-    )
-    wo_ids = [p["workorder_id"] for p in payment_data]
-    payment_map = {p["workorder_id"]: p["today_payment_sum"] for p in payment_data}
-
-    items = list(
-        WorkOrder.objects.filter(pk__in=wo_ids)
-        .select_related("budget__customer", "budget__vehicle")
-        .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
-        .order_by("criado_em")
-    )
-    for item in items:
-        item._today_payment_value = payment_map.get(item.pk, Decimal("0.00"))
-
-    total_value = sum(payment_map.values(), Decimal("0.00"))
-    return items, False, _format_brl(total_value)
-
-
 def _build_indicator_queryset(model_name: str, filters: dict[str, Any]):
     """Build an optimized queryset for financial indicator modal/PDF reports.
 
@@ -1216,5 +1152,5 @@ def _build_indicator_queryset(model_name: str, filters: dict[str, Any]):
     when computing total_budget_value and pending_payment_value per item.
     """
     if model_name == "budget":
-        return Budget.objects.filter(**filters).select_related("customer", "vehicle").prefetch_related(_BUDGET_ITEMS_PREFETCH, "workorders").order_by("entry_date")
+        return Budget.objects.filter(**filters).select_related("customer", "vehicle").prefetch_related(_BUDGET_ITEMS_PREFETCH).order_by("entry_date")
     return WorkOrder.objects.filter(**filters).select_related("budget__customer", "budget__vehicle").prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments").order_by("criado_em")

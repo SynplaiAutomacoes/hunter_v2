@@ -29,7 +29,6 @@
         allPendingSelected: false,
         initialTerminationDate: '{% if form.termination_date.value %}{{ form.termination_date.value|date:"Y-m-d" }}{% elif form.instance.termination_date %}{{ form.instance.termination_date|date:"Y-m-d" }}{% endif %}',
         openPendingDeleteOnLoad: {{ open_pending_delete|yesno:'true,false' }},
-        pendingSyncSubmit: false,
         parseMoney(value) {
             const parsed = Number.parseFloat(String(value || '').trim());
             return Number.isFinite(parsed) ? parsed : 0;
@@ -98,20 +97,6 @@
             }
             this.$refs.terminationPendingModal.showModal();
         },
-        handleCollaboratorSubmit(event) {
-            if (this.pendingSyncSubmit) {
-                this.pendingSyncSubmit = false;
-                return;
-            }
-            event.preventDefault();
-            this.$refs.syncMonthlyCostsModal.showModal();
-        },
-        confirmSyncMonthlyCosts(shouldSync) {
-            this.$refs.syncMonthlyCostsInput.value = shouldSync ? '1' : '0';
-            this.pendingSyncSubmit = true;
-            this.$refs.syncMonthlyCostsModal.close();
-            this.$nextTick(() => this.$refs.collaboratorForm.requestSubmit());
-        },
         onTerminationDateChanged(event) {
             const nextValue = String(event.target && event.target.value || '').trim();
             const hadValue = Boolean(String(this.initialTerminationDate || '').trim());
@@ -142,9 +127,8 @@
     }"
     class="space-y-6"
 >
-    <form id="collaborator-update-form" method="post" novalidate x-ref="collaboratorForm" @submit="handleCollaboratorSubmit($event)">
+    <form id="collaborator-update-form" method="post" novalidate>
         {% csrf_token %}
-        <input type="hidden" name="sync_monthly_costs" value="" x-ref="syncMonthlyCostsInput">
         <input type="hidden" name="tab" value="cadastro">
 
         {% if form.non_field_errors or benefit_formset.non_form_errors %}
@@ -204,7 +188,7 @@
                             <span class="material-icons text-sm">payments</span>
                             Gerar Movimentações
                         </button>
-                        <div x-show="showGenerate" x-cloak class="flex items-center gap-2" id="generate-movements-controls-{{ object.pk }}">
+                        <div x-show="showGenerate" x-cloak class="flex items-center gap-2" id="generate-movements-controls-{{ object.pk|unlocalize }}">
                             <span class="text-xs text-base-content/70 whitespace-nowrap">A partir de:</span>
                             <select name="starting_month" x-model="genMonth" class="select select-bordered select-xs" aria-label="Mês">
                                 <option value="1">Janeiro</option>
@@ -225,7 +209,7 @@
                                 type="button"
                                 class="btn btn-primary btn-sm"
                                 hx-post="{% url 'collaborators:collaborator_generate_movements' object.pk %}"
-                                hx-include="#generate-movements-controls-{{ object.pk }} [name], #id_salary_repeat_count"
+                                hx-include="#generate-movements-controls-{{ object.pk|unlocalize }} [name], #id_salary_repeat_count"
                                 hx-swap="none"
                                 @click="showGenerate = false"
                             >
@@ -287,8 +271,8 @@
                                 <div class="col-span-12 lg:col-span-1">{{ benefit_form.is_active|as_crispy_field }}</div>
                                 <div class="col-span-12 lg:col-span-1 flex items-center justify-end lg:min-h-full">
                                     {% if benefit_form.instance.pk %}
-                                        <button type="button" class="btn btn-ghost btn-sm text-error" onclick="document.getElementById('delete-benefit-modal-{{ benefit_form.instance.pk }}').showModal()">Remover</button>
-                                        <dialog id="delete-benefit-modal-{{ benefit_form.instance.pk }}" class="modal" onclick="if (event.target === this) this.close()">
+                                        <button type="button" class="btn btn-ghost btn-sm text-error" onclick="document.getElementById('delete-benefit-modal-{{ benefit_form.instance.pk|unlocalize }}').showModal()">Remover</button>
+                                        <dialog id="delete-benefit-modal-{{ benefit_form.instance.pk|unlocalize }}" class="modal" onclick="if (event.target === this) this.close()">
                                             <div class="modal-box max-w-md">
                                                 <h3 class="text-lg font-bold text-base-content">Remover benefício</h3>
                                                 <p class="mt-2 text-sm text-base-content/70">Deseja realmente remover este benefício? A exclusão será aplicada imediatamente.</p>
@@ -296,11 +280,11 @@
                                                     <span>Esta ação atualiza a folha do colaborador assim que for confirmada.</span>
                                                 </div>
                                                 <div class="modal-action">
-                                                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('delete-benefit-modal-{{ benefit_form.instance.pk }}').close()">Cancelar</button>
+                                                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('delete-benefit-modal-{{ benefit_form.instance.pk|unlocalize }}').close()">Cancelar</button>
                                                     <button
                                                         type="button"
                                                         class="btn btn-error"
-                                                        onclick="deleteBenefit('{% url 'collaborators:collaborator_benefit_delete' form.instance.pk benefit_form.instance.pk %}', 'delete-benefit-modal-{{ benefit_form.instance.pk }}')"
+                                                        onclick="deleteBenefit('{% url 'collaborators:collaborator_benefit_delete' form.instance.pk benefit_form.instance.pk %}', 'delete-benefit-modal-{{ benefit_form.instance.pk|unlocalize }}')"
                                                     >
                                                         Confirmar remoção
                                                     </button>
@@ -367,8 +351,6 @@
             <button type="submit" class="btn-form-save">Salvar</button>
         </div>
     </form>
-
-    {% include 'collaborators/partials/sync_monthly_costs_confirm_modal.html' %}
 
     <form id="collaborator-delete-movements-form" x-ref="deleteMovementsForm" method="post" action="{% url 'collaborators:collaborator_delete_pending_movements' pk=object.pk %}">
         {% csrf_token %}

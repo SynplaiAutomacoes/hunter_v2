@@ -1,4 +1,4 @@
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags l10n %}
 
 <div class="modal-box w-11/12 max-w-6xl max-h-[90vh] bg-base-100 p-0 overflow-hidden flex flex-col">
     <!-- Header -->
@@ -45,7 +45,7 @@
                         </thead>
                         <tbody id="products-table-body">
                             {% for product in kit_products %}
-                            <tr data-product-id="{{ product.id }}">
+                            <tr data-product-id="{{ product.id|unlocalize }}">
                                 <td class="font-medium">{{ product.name }}</td>
                                 <td class="text-center">
                                     {{ product.form.quantity }}
@@ -111,7 +111,7 @@
                         </thead>
                         <tbody id="services-table-body">
                             {% for service in kit_services %}
-                            <tr data-service-id="{{ service.id }}">
+                            <tr data-service-id="{{ service.id|unlocalize }}">
                                 <td class="font-medium">{{ service.name }}</td>
                                 <td class="text-center">
                                     {{ service.form.quantity }}
