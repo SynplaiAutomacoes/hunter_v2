@@ -11,7 +11,7 @@ from django.conf import settings
 from django.db import transaction
 from django.http import HttpRequest
 
-from apps.finance.models.finance import NfeItem, NfeRequest
+from apps.finance.models.finance import NfeEmissionOrigin, NfeItem, NfeRequest
 from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain
 from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, require_ready_tax_class_for_normal_emission
@@ -263,9 +263,12 @@ def _require_customer_field(*, value: object, field_name: str) -> str:
 
 
 def _build_customer_payload(nfe_request: NfeRequest) -> dict[str, Any]:
-    customer = nfe_request.workorder.budget.customer
+    if nfe_request.emission_origin == NfeEmissionOrigin.MANUAL:
+        customer = nfe_request.manual_recipient
+    else:
+        customer = nfe_request.workorder.budget.customer
     if customer is None:
-        raise NfeEmissionError("A OS selecionada nao possui cliente vinculado.")
+        raise NfeEmissionError("A emissão não possui destinatário vinculado.")
 
     document = _normalize_document(customer.cpf_or_cnpj or "")
     payload: dict[str, Any] = {
@@ -347,6 +350,36 @@ def _extract_product_lines(*, workorder: WorkOrder) -> list[ProductEmissionLine]
         for line in snapshot.product_lines
         if not line.is_customer_supplied
     ]
+    return [line for line in lines if line.quantity > 0 and line.base_total > 0]
+
+
+def _build_manual_product_line(item: Any) -> ProductEmissionLine:
+    product = item.product
+    ncm = _normalize_ncm(product.ncm)
+    if len(ncm) != 8:
+        raise NfeEmissionError(f"Produto '{product.name}' sem NCM valido para emissao de Nota Fiscal.")
+
+    code = str(product.code or "").strip()
+    if not code:
+        raise NfeEmissionError(f"Produto '{product.name}' sem codigo para emissao de Nota Fiscal.")
+
+    quantity = Decimal(item.quantity)
+    base_total = _quantize_money(quantity * Decimal(item.unit_price))
+    return ProductEmissionLine(
+        description=str(product.name or "Produto")[:120],
+        code=code[:60],
+        ncm=ncm,
+        cest=str(product.cest or "").strip(),
+        unit=_unit_for_api(str(product.unit or "")),
+        origin=int(product.origin_cst or 0),
+        quantity=quantity,
+        base_total=base_total,
+    )
+
+
+def _extract_manual_product_lines(*, nfe_request: NfeRequest) -> list[ProductEmissionLine]:
+    manual_items = nfe_request.manual_items.select_related("product").order_by("pk")
+    lines = [_build_manual_product_line(item) for item in manual_items]
     return [line for line in lines if line.quantity > 0 and line.base_total > 0]
 
 
@@ -443,8 +476,8 @@ def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) ->
     return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
 
 
-def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal, discount_value: Decimal) -> dict[str, Any]:
-    payment = workorder.payments.order_by("id").first()
+def _build_payment_payload(*, workorder: WorkOrder | None, total_value: Decimal, discount_value: Decimal) -> dict[str, Any]:
+    payment = workorder.payments.order_by("id").first() if workorder is not None else None
 
     payment_indicator = 0
     if payment is not None:
@@ -493,32 +526,41 @@ def _apply_transport_to_nfe_payload(*, payload: dict[str, Any], nfe_request: Nfe
 
 def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation, Decimal]:
     workorder = nfe_request.workorder
-    allocation = build_slider_allocation_for_workorder(
-        workorder=workorder,
-        persisted_slider=getattr(nfe_request, "pricing_slider", None),
-        slider_override=slider_override,
-    )
+    if nfe_request.emission_origin == NfeEmissionOrigin.MANUAL:
+        lines = _extract_manual_product_lines(nfe_request=nfe_request)
+        if not lines:
+            raise NfeEmissionError("A emissão manual não possui produtos elegíveis para a Nota Fiscal.")
+        manual_total = _quantize_money(sum((line.base_total for line in lines), Decimal("0.00")))
+        allocation = SliderAllocation(slider=0, products_base=manual_total, services_base=Decimal("0.00"), total_base=manual_total, products_target=manual_total, services_target=Decimal("0.00"))
+        allocated_totals = [line.base_total for line in lines]
+        product_discount = Decimal("0.00")
+    else:
+        if workorder is None:
+            raise NfeEmissionError("A emissão com origem em Ordem de Serviço exige uma OS.")
+        allocation = build_slider_allocation_for_workorder(
+            workorder=workorder,
+            persisted_slider=getattr(nfe_request, "pricing_slider", None),
+            slider_override=slider_override,
+        )
 
-    if allocation.products_target <= 0:
-        raise NfeEmissionError("A configuracao atual do slider direciona 100% da venda para servicos. Utilize Nota Fiscal de Servico para esta emissao.")
+        if allocation.products_target <= 0:
+            raise NfeEmissionError("A configuracao atual do slider direciona 100% da venda para servicos. Utilize Nota Fiscal de Servico para esta emissao.")
 
-    lines = _extract_product_lines(workorder=workorder)
-    if not lines:
-        raise NfeEmissionError("A OS selecionada nao possui pecas elegiveis para emissao de Nota Fiscal.")
+        lines = _extract_product_lines(workorder=workorder)
+        if not lines:
+            raise NfeEmissionError("A OS selecionada nao possui pecas elegiveis para emissao de Nota Fiscal.")
 
-    try:
-        allocated_totals = distribute_total_proportionally(base_values=[line.base_total for line in lines], target_total=allocation.products_target)
-    except ValueError as exc:
-        raise NfeEmissionError("Nao foi possivel distribuir o valor da Nota Fiscal proporcionalmente entre as pecas.") from exc
+        try:
+            allocated_totals = distribute_total_proportionally(base_values=[line.base_total for line in lines], target_total=allocation.products_target)
+        except ValueError as exc:
+            raise NfeEmissionError("Nao foi possivel distribuir o valor da Nota Fiscal proporcionalmente entre as pecas.") from exc
 
-    # Calcula o desconto proporcional para produtos conforme o discount_type da WorkOrder
-    # (usado apenas no pedido.desconto; os valores unitários dos produtos permanecem brutos)
-    product_discount = compute_product_discount_for_nfe(
-        workorder=workorder,
-        products_target=allocation.products_target,
-        services_target=allocation.services_target,
-        discount_type_override=str(getattr(nfe_request, "discount_type_override", "") or ""),
-    )
+        product_discount = compute_product_discount_for_nfe(
+            workorder=workorder,
+            products_target=allocation.products_target,
+            services_target=allocation.services_target,
+            discount_type_override=str(getattr(nfe_request, "discount_type_override", "") or ""),
+        )
 
     products_payload: list[dict[str, Any]] = []
     tax_class_reference = str(nfe_request.tax_class or "").strip()
@@ -581,7 +623,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         str(allocation.products_target),
         str(allocation.services_target),
         str(product_discount),
-        nfe_request.workorder.discount_type,
+        getattr(nfe_request.workorder, "discount_type", "manual"),
     )
     return payload
 
@@ -901,11 +943,12 @@ def sync_nfe_emission_response(*, nfe_request: NfeRequest, response_payload: dic
         return
 
     with transaction.atomic():
+        lookup = {"request": nfe_request, "uuid": nfe_uuid} if nfe_request.emission_origin == NfeEmissionOrigin.MANUAL else {"workorder": nfe_request.workorder, "uuid": nfe_uuid}
         NfeItem.objects.update_or_create(
-            workorder=nfe_request.workorder,
-            uuid=nfe_uuid,
+            **lookup,
             defaults={
                 "workshop": nfe_request.workshop,
+                "workorder": nfe_request.workorder,
                 "request": nfe_request,
                 "raw_payload": response_payload,
                 "last_sync_error": "",

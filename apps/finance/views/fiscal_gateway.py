@@ -10,7 +10,8 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
 from django.views.generic import FormView
 
-from apps.finance.forms.fiscal_gateway import FiscalOperation, FiscalOperationGatewayForm
+from apps.finance.forms.fiscal_gateway import FiscalOperation, FiscalOperationGatewayForm, NfeEmissionOriginGatewayForm
+from apps.finance.models import NfeEmissionOrigin
 from apps.finance.views.emission import EmissionRequestCreateView
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -97,9 +98,52 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
     def form_valid(self, form: FiscalOperationGatewayForm) -> HttpResponse:
         operation = str(form.cleaned_data["operation"])
         if operation == FiscalOperation.NORMAL:
-            query = urlencode({"reset": 1})
-            return HttpResponseRedirect(f"{self._normal_wizard_url()}?{query}")
+            return HttpResponseRedirect(reverse("finance:emission_origin"))
 
         messages.info(self.request, self.EXISTING_OPERATION_MESSAGES[operation])
         query = urlencode({"tipo": "nfe", "operacao": operation})
         return HttpResponseRedirect(f"{reverse('finance:issued_documents_list')}?{query}")
+
+
+class NfeEmissionOriginGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
+    template_name = "finance/nfe_emission_origin_gateway.html"
+    form_class = NfeEmissionOriginGatewayForm
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    ORIGIN_CARDS: ClassVar[tuple[FiscalOperationCard, ...]] = (
+        FiscalOperationCard(
+            value=NfeEmissionOrigin.WORK_ORDER,
+            label="Ordem de Serviço",
+            description="Continua no wizard atual de NF-e, com os mesmos dados, validações e emissão.",
+            icon="handyman",
+        ),
+        FiscalOperationCard(
+            value=NfeEmissionOrigin.MANUAL,
+            label="Manual",
+            description="Identifica a nova origem arquitetural. O preenchimento manual será implementado em uma fase posterior.",
+            icon="edit_document",
+        ),
+    )
+
+    def get_initial(self) -> dict[str, object]:
+        initial = super().get_initial()
+        selected_origin = str(self.request.GET.get("origin") or "")
+        if selected_origin in NfeEmissionOrigin.values:
+            initial["origin"] = selected_origin
+        return initial
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, object]:
+        context = super().get_context_data(**kwargs)
+        context["origin_cards"] = self.ORIGIN_CARDS
+        context["manual_extension_pending"] = self.request.GET.get("origin") == NfeEmissionOrigin.MANUAL
+        return context
+
+    def form_valid(self, form: NfeEmissionOriginGatewayForm) -> HttpResponse:
+        origin = str(form.cleaned_data["origin"])
+        if origin == NfeEmissionOrigin.WORK_ORDER:
+            query = urlencode({"reset": 1})
+            return HttpResponseRedirect(f"{reverse('finance:emission_normal')}?{query}")
+
+        return HttpResponseRedirect(reverse("finance:emission_manual"))

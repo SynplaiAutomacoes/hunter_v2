@@ -3,6 +3,7 @@ from __future__ import annotations
 from django import forms
 
 from apps.core.presentation.forms import CoreForm
+from apps.finance.models import NfeEmissionOrigin
 
 
 class FiscalOperation:
@@ -21,10 +22,20 @@ FISCAL_OPERATION_CHOICES: tuple[tuple[str, str], ...] = (
     (FiscalOperation.ADJUSTMENT, "Nota de Ajuste"),
 )
 
+NFE_EMISSION_ORIGIN_CHOICES: tuple[tuple[str, str], ...] = tuple(NfeEmissionOrigin.choices)
+
 
 class FiscalOperationGatewayForm(CoreForm):
     operation = forms.ChoiceField(
         label="Tipo de operação",
         choices=FISCAL_OPERATION_CHOICES,
+        widget=forms.RadioSelect,
+    )
+
+
+class NfeEmissionOriginGatewayForm(CoreForm):
+    origin = forms.ChoiceField(
+        label="Origem da emissão",
+        choices=NFE_EMISSION_ORIGIN_CHOICES,
         widget=forms.RadioSelect,
     )

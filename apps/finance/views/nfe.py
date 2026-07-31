@@ -21,7 +21,7 @@ from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventType, FiscalDocumentLinkRole, FiscalDocumentPurpose, NfeItem, NfeRequest, NfeRequestStatus
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventType, FiscalDocumentLinkRole, FiscalDocumentPurpose, NfeEmissionOrigin, NfeItem, NfeRequest, NfeRequestStatus
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.core.domain.contracts.fiscal import FiscalServiceError
@@ -208,7 +208,7 @@ class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRe
     htmx_template_name = "finance/partials/nfe_request_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items").order_by("-criado_em", "-pk")
+        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle", "manual_recipient").prefetch_related("items").order_by("-criado_em", "-pk")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -222,7 +222,7 @@ class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRe
         ]
         context["actions"] = [
             TableActionDefaults.view("finance:nfe_detail"),
-            TableActionDefaults.edit("finance:nfe_update"),
+            TableActionDefaults.edit("finance:nfe_update", visible=lambda nfe_request: nfe_request.emission_origin == NfeEmissionOrigin.WORK_ORDER),
         ]
         return context
 
@@ -424,7 +424,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     context_object_name = "nfe_request"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items")
+        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle", "manual_recipient").prefetch_related("items")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -470,6 +470,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "can_cancel": can_cancel,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
+                    _build_field("Origem", self.object.get_emission_origin_display()),
                     _build_field("Ordem de serviço", self.object.workorder),
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),

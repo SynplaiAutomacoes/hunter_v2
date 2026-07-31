@@ -29,7 +29,7 @@ from apps.finance.forms import (
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
-from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import NfeEmissionOrigin, NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.finance.views.request_workflow import build_preview_hidden_fields, render_emission_preview_modal
@@ -672,6 +672,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             nfe_request = NfeRequest(workshop=self.workshop)
 
         nfe_request.workorder = workorder
+        nfe_request.emission_origin = NfeEmissionOrigin.WORK_ORDER
         nfe_request.current_step = 3
         nfe_request.status = NfeRequestStatus.CHECKING_PRODUCTS
         nfe_request.tax_class = str((state.get("nfe_config") or {}).get("tax_class") or "")

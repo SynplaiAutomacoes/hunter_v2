@@ -5,7 +5,7 @@
 {% block crud_back_url %}{{ back_url }}{% endblock %}
 
 {% block crud_header_actions %}
-    {% if nfe_request.status != 'invalidated' %}
+    {% if nfe_request.status != 'invalidated' and nfe_request.emission_origin == 'work_order' %}
         <a href="{% url 'finance:nfe_update' pk=nfe_request.pk %}" class="btn btn-sm btn-primary gap-2">
             <span class="material-icons text-sm">edit</span>
             Editar

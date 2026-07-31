@@ -1,0 +1,35 @@
+{% extends 'crud/page.html' %}
+{% load crispy_forms_tags %}
+
+{% block crud_content %}
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">Emitir NF-e Manual</h1>
+            <p class="mt-1 text-base-content/70">Emita uma NF-e sem Ordem de Serviço usando destinatário e produto já cadastrados.</p>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <span class="material-icons">info</span>
+        <span>Esta primeira versão aceita um produto cadastrado por emissão. Não movimenta estoque e não cria cadastros rápidos.</span>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <form method="post" class="space-y-6">
+                {% csrf_token %}
+                {{ form|crispy }}
+                <div class="flex items-center justify-between border-t border-base-200 pt-5">
+                    <a href="{% url 'finance:emission_origin' %}" class="btn btn-ghost gap-2">
+                        <span class="material-icons text-sm">arrow_back</span>
+                        Voltar
+                    </a>
+                    <button type="submit" class="btn btn-primary gap-2">
+                        <span class="material-icons text-sm">send</span>
+                        Emitir NF-e
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}

@@ -174,6 +174,7 @@ class IssuedDocumentsFilterMixin:
         if search_raw:
             search_filters = [
                 Q(workorder__budget__customer__name__icontains=search_raw),
+                Q(manual_recipient__name__icontains=search_raw),
                 Q(items__number__icontains=search_raw),
             ]
             if search_raw.isdigit():
@@ -182,7 +183,7 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(reserved_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 
-        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
+        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer", "manual_recipient").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
     def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
         qs = NfseRequest.objects.filter(workshop=self.workshop)
@@ -263,7 +264,7 @@ class IssuedDocumentsFilterMixin:
             "is_selectable": has_xml or has_pdf,
             "number": request_obj.number_display,
             "reference": f"Serie {series_value}",
-            "workorder_id": request_obj.workorder.get_id,
+            "workorder_id": request_obj.workorder.get_id if request_obj.workorder is not None else "Manual",
             "customer_name": request_obj.customer_name,
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfe_request_status_badge,

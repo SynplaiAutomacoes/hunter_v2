@@ -92,6 +92,11 @@ class NfeFreightMode(models.IntegerChoices):
     NO_TRANSPORT = 9, "Sem transporte"
 
 
+class NfeEmissionOrigin(models.TextChoices):
+    WORK_ORDER = "work_order", "Ordem de Serviço"
+    MANUAL = "manual", "Manual"
+
+
 class NfeRequestStatus(models.TextChoices):
     WAITING_WO = "waiting_wo", "Aguardando Ordem de Serviço"
     CHECKING_CLIENT = "checking_client", "Verificando Cliente"
@@ -669,7 +674,9 @@ class NfseRequest(TimeStampedModel):
 
 class NfeRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
-    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE, null=True)
+    manual_recipient = models.ForeignKey("customer.Customer", verbose_name="Destinatário manual", on_delete=models.PROTECT, null=True, blank=True, related_name="manual_nfe_requests")
+    emission_origin = models.CharField(verbose_name="Origem da emissão", max_length=16, choices=NfeEmissionOrigin.choices, default=NfeEmissionOrigin.WORK_ORDER, db_index=True)
     current_step = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=NfeRequestStatus.choices, default=NfeRequestStatus.WAITING_WO)
     pricing_slider = models.SmallIntegerField(
@@ -712,7 +719,7 @@ class NfeRequest(TimeStampedModel):
 
     @property
     def customer_name(self) -> str:
-        customer = getattr(getattr(self.workorder, "budget", None), "customer", None)
+        customer = self.manual_recipient if self.emission_origin == NfeEmissionOrigin.MANUAL else getattr(getattr(self.workorder, "budget", None), "customer", None)
         if not customer:
             return "-"
         return customer.name
@@ -776,6 +783,13 @@ class NfeRequest(TimeStampedModel):
         return str(first_item.number or "-")
 
     class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(emission_origin=NfeEmissionOrigin.WORK_ORDER, workorder__isnull=False, manual_recipient__isnull=True)
+                | models.Q(emission_origin=NfeEmissionOrigin.MANUAL, workorder__isnull=True, manual_recipient__isnull=False),
+                name="nfe_request_origin_matches_workorder",
+            ),
+        ]
         permissions = [
             ("cancel_nferequest", "Pode cancelar NF-e normal"),
             ("invalidate_nferequest_numbering", "Pode inutilizar numeracao de NF-e normal"),
@@ -784,6 +798,32 @@ class NfeRequest(TimeStampedModel):
             ("view_nferequest_payload", "Pode visualizar payload de NF-e normal"),
             ("view_nferequest_remote_response", "Pode visualizar resposta remota de NF-e normal"),
         ]
+
+
+class NfeRequestManualItem(TimeStampedModel):
+    request = models.ForeignKey(NfeRequest, verbose_name="Requisição de NF-e", on_delete=models.CASCADE, related_name="manual_items")
+    product = models.ForeignKey("catalog.Product", verbose_name="Produto", on_delete=models.PROTECT, related_name="manual_nfe_request_items")
+    quantity = models.DecimalField(verbose_name="Quantidade", max_digits=12, decimal_places=4, validators=[MinValueValidator(Decimal("0.0001"))])
+    unit_price = models.DecimalField(verbose_name="Valor unitário", max_digits=14, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["request", "product"], name="unique_product_per_manual_nfe_request"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.request_id and self.request.emission_origin != NfeEmissionOrigin.MANUAL:
+            raise ValidationError({"request": "Itens manuais exigem requisição de NF-e com origem manual."})
+        if self.request_id and self.product_id and self.request.workshop_id != self.product.workshop_id:
+            raise ValidationError({"product": "O produto pertence a outra oficina."})
+
+    def save(self, *args, **kwargs) -> None:
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfeRequestManualItem[{self.request_id}:{self.product_id}]"
 
 
 class NfseMunicipalCapability(TimeStampedModel):
@@ -1756,7 +1796,7 @@ class NfseExternalXmlInboxItem(TimeStampedModel):
 
 class NfeItem(models.Model):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
-    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE, null=True)
     request = models.ForeignKey(NfeRequest, verbose_name="Requisição de NF-e", related_name="items", on_delete=models.SET_NULL, null=True)
     uuid = models.UUIDField(db_index=True)
     model = models.CharField(max_length=255, default="nfe")
@@ -1779,6 +1819,7 @@ class NfeItem(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["workorder", "uuid"], name="unique_nfe_item_per_workorder"),
+            models.UniqueConstraint(fields=["request", "uuid"], condition=models.Q(workorder__isnull=True), name="unique_manual_nfe_item_per_request"),
         ]
 
         indexes = [

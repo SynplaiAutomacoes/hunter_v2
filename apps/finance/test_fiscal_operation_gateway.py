@@ -10,9 +10,10 @@ from django.test import RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
 
 from apps.core.presentation.navigation import NAVBAR_MENU_DEFINITIONS
-from apps.finance.forms.fiscal_gateway import FISCAL_OPERATION_CHOICES, FiscalOperation, FiscalOperationGatewayForm
+from apps.finance.forms.fiscal_gateway import FISCAL_OPERATION_CHOICES, FiscalOperation, FiscalOperationGatewayForm, NfeEmissionOriginGatewayForm
+from apps.finance.models import NfeEmissionOrigin
 from apps.finance.views.emission import EmissionRequestCreateView, NfeCreateRedirectView
-from apps.finance.views.fiscal_gateway import FiscalOperationGatewayView
+from apps.finance.views.fiscal_gateway import FiscalOperationGatewayView, NfeEmissionOriginGatewayView
 
 
 class FiscalOperationGatewayTests(SimpleTestCase):
@@ -53,7 +54,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         )
         self.assertNotIn("transport", [value for value, _label in FISCAL_OPERATION_CHOICES])
 
-    def test_normal_operation_redirects_to_unchanged_wizard_with_reset(self) -> None:
+    def test_normal_operation_redirects_to_origin_gateway(self) -> None:
         request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.NORMAL})
         view = self._build_view(request)
         form = FiscalOperationGatewayForm(request.POST)
@@ -61,7 +62,46 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
         response = view.form_valid(form)
 
+        self.assertRedirects(response, reverse("finance:emission_origin"), fetch_redirect_response=False)
+
+    def test_origin_gateway_exposes_work_order_and_manual_choices(self) -> None:
+        request = self.factory.get("/finance/emissao/normal/origem/")
+        self._prepare_request(request)
+        view = NfeEmissionOriginGatewayView()
+        view.setup(request)
+        view.workshop = SimpleNamespace(pk=20)
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.template_name, ["finance/nfe_emission_origin_gateway.html"])
+        self.assertEqual([card.value for card in response.context_data["origin_cards"]], [NfeEmissionOrigin.WORK_ORDER, NfeEmissionOrigin.MANUAL])
+
+    def test_work_order_origin_redirects_to_unchanged_wizard_with_reset(self) -> None:
+        request = self.factory.post("/finance/emissao/normal/origem/", {"origin": NfeEmissionOrigin.WORK_ORDER})
+        self._prepare_request(request)
+        view = NfeEmissionOriginGatewayView()
+        view.setup(request)
+        view.workshop = SimpleNamespace(pk=20)
+        form = NfeEmissionOriginGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        response = view.form_valid(form)
+
         self.assertRedirects(response, f"{reverse('finance:emission_normal')}?reset=1", fetch_redirect_response=False)
+
+    def test_manual_origin_redirects_to_manual_emission_using_existing_engine(self) -> None:
+        request = self.factory.post("/finance/emissao/normal/origem/", {"origin": NfeEmissionOrigin.MANUAL})
+        self._prepare_request(request)
+        view = NfeEmissionOriginGatewayView()
+        view.setup(request)
+        view.workshop = SimpleNamespace(pk=20)
+        form = NfeEmissionOriginGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        response = view.form_valid(form)
+
+        self.assertRedirects(response, reverse("finance:emission_manual"), fetch_redirect_response=False)
 
     def test_legacy_specific_nfe_link_redirects_to_normal_wizard_preserving_query(self) -> None:
         request = self.factory.get("/finance/emissao/", {"tipo": "nfe", "reset": "1"})
