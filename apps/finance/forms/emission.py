@@ -726,7 +726,7 @@ class EmissionStep4Form(CoreForm):
         slider_field = self.fields["pricing_slider"]
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
-                preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
+                preview_url=f"{reverse('finance:emission_normal')}?step=4&preview=1",
                 include_selector="#emission-form",
                 target_selector="#emission-preview-block",
                 swap="none",

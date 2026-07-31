@@ -14,6 +14,7 @@ from .nfe_credit import NfeCreditCancellationDownloadView, NfeCreditCancellation
 from .nfe_debit import NfeDebitCancellationDownloadView as NfeDebitCancellationDownloadView, NfeDebitCancellationPayloadView as NfeDebitCancellationPayloadView, NfeDebitCancellationView as NfeDebitCancellationView, NfeDebitDownloadView as NfeDebitDownloadView, NfeDebitEmissionFeatureToggleView as NfeDebitEmissionFeatureToggleView, NfeDebitIssueView as NfeDebitIssueView, NfeDebitPayloadView as NfeDebitPayloadView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
+from .fiscal_gateway import FiscalOperationGatewayView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportView, CommissionReportPdfView
 from .nfe import (
@@ -148,6 +149,7 @@ __all__ = [
     "DirectorWorkshopAccessMixin",
     "EmissionPreviewView",
     "EmissionRequestCreateView",
+    "FiscalOperationGatewayView",
     "EmissionWorkOrderKitComponentUpdateView",
     "EmissionWorkOrderItemUpdateView",
     "FinancialGroupCreateView",

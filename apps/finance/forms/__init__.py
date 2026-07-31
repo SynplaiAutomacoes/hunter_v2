@@ -14,6 +14,7 @@ from .emission import (
     EmissionStep5Form,
 )
 from .financial_group import FinancialGroupForm
+from .fiscal_gateway import FISCAL_OPERATION_CHOICES, FiscalOperation, FiscalOperationGatewayForm
 from .fiscal_referenced_basis import FiscalReferencedBasisCreateForm
 from .fiscal_credit_product_preview import FiscalCreditProductPreviewCreateForm
 from .nfe import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
@@ -58,6 +59,9 @@ from .webmania import (
 
 __all__ = [
     "FinancialGroupForm",
+    "FISCAL_OPERATION_CHOICES",
+    "FiscalOperation",
+    "FiscalOperationGatewayForm",
     "FiscalReferencedBasisCreateForm",
     "FiscalCreditProductPreviewCreateForm",
     "EMISSION_NOTE_MODE_CHOICES",
