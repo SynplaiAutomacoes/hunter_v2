@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
@@ -44,7 +45,8 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         request = self.factory.get("/finance/emissao/")
         view = self._build_view(request)
 
-        response = view.get(request)
+        with patch("apps.finance.views.fiscal_gateway.has_workshop_perm", return_value=True):
+            response = view.get(request)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.template_name, ["finance/fiscal_operation_gateway.html"])
@@ -141,6 +143,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
         with ExitStack() as stack:
             service_mocks = [stack.enter_context(patch(target)) for target in service_targets]
+            stack.enter_context(patch("apps.finance.views.fiscal_gateway.has_workshop_perm", return_value=True))
             for operation in operations:
                 request = self.factory.post("/finance/emissao/", {"operation": operation})
                 view = self._build_view(request)
@@ -154,6 +157,33 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
         for service_mock in service_mocks:
             service_mock.assert_not_called()
+
+    def test_gateway_only_exposes_operations_allowed_by_existing_permissions(self) -> None:
+        request = self.factory.get("/finance/emissao/")
+        view = self._build_view(request)
+
+        def permission_side_effect(*, codename: str, **_kwargs) -> bool:
+            return codename != "issue_nfe_correction"
+
+        with patch("apps.finance.views.fiscal_gateway.has_workshop_perm", side_effect=permission_side_effect):
+            response = view.get(request)
+
+        available_operations = [card.value for card in response.context_data["operation_cards"]]
+        self.assertNotIn(FiscalOperation.CORRECTION, available_operations)
+        self.assertIn(FiscalOperation.RETURN, available_operations)
+        self.assertIn(FiscalOperation.NORMAL, available_operations)
+
+    def test_gateway_rejects_forged_operation_without_existing_permission(self) -> None:
+        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.CORRECTION})
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        with (
+            patch("apps.finance.views.fiscal_gateway.has_workshop_perm", return_value=False),
+            self.assertRaises(PermissionDenied),
+        ):
+            view.form_valid(form)
 
     def test_transport_routes_to_existing_nfe_wizard_without_creating_cte_flow(self) -> None:
         request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.TRANSPORT})

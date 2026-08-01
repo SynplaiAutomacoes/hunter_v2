@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
 from django.views.generic import FormView
 
-from apps.finance.forms.fiscal_gateway import FiscalOperation, FiscalOperationGatewayForm, NfeEmissionOriginGatewayForm
+from apps.finance.forms.fiscal_gateway import FISCAL_OPERATION_CHOICES, FiscalOperation, FiscalOperationGatewayForm, NfeEmissionOriginGatewayForm
 from apps.finance.models import NfeEmissionOrigin
 from apps.finance.views.emission import EmissionRequestCreateView
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import has_workshop_perm
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,12 +38,12 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperationCard(
             value=FiscalOperation.NORMAL,
             label="NF-e Normal",
-            description="Continua no fluxo atual por Ordem de Serviço, sem alterar nenhuma etapa da emissão.",
+            description="Permite escolher emissão por Ordem de Serviço ou Manual, utilizando o mesmo motor fiscal existente.",
             icon="receipt_long",
         ),
         FiscalOperationCard(
             value=FiscalOperation.RETURN,
-            label="NF-e Devolução",
+            label="Devolução",
             description="Abre a Central de Notas para selecionar a NF-e e usar o fluxo existente de devolução ou estorno.",
             icon="assignment_return",
         ),
@@ -76,6 +78,40 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperation.COMPLEMENTARY: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota Complementar.",
         FiscalOperation.ADJUSTMENT: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota de Ajuste.",
     }
+    OPERATION_PERMISSIONS: ClassVar[dict[str, tuple[tuple[str, str, str], ...]]] = {
+        FiscalOperation.RETURN: (
+            ("finance", "fiscaldocument", "issue_nfe_return"),
+            ("finance", "fiscaldocument", "issue_nfe_reversal"),
+        ),
+        FiscalOperation.CORRECTION: (("finance", "fiscaldocumentevent", "issue_nfe_correction"),),
+        FiscalOperation.COMPLEMENTARY: (("finance", "fiscaldocument", "issue_nfe_complementary_price_quantity"),),
+        FiscalOperation.ADJUSTMENT: (("finance", "fiscaldocument", "issue_nfe_adjustment"),),
+    }
+
+    def _has_operation_permission(self, operation: str) -> bool:
+        permission_specs = self.OPERATION_PERMISSIONS.get(operation)
+        if permission_specs is None:
+            return True
+        return any(
+            has_workshop_perm(
+                user=self.request.user,
+                workshop=self.workshop,
+                app_label=app_label,
+                model=model,
+                codename=codename,
+                request=self.request,
+            )
+            for app_label, model, codename in permission_specs
+        )
+
+    def _available_operation_cards(self) -> tuple[FiscalOperationCard, ...]:
+        return tuple(card for card in self.OPERATION_CARDS if self._has_operation_permission(card.value))
+
+    def get_form(self, form_class: type[FiscalOperationGatewayForm] | None = None) -> FiscalOperationGatewayForm:
+        form = cast(FiscalOperationGatewayForm, super().get_form(form_class))
+        allowed_operations = {card.value for card in self._available_operation_cards()}
+        form.fields["operation"].choices = [(value, label) for value, label in FISCAL_OPERATION_CHOICES if value in allowed_operations]
+        return form
 
     def _is_legacy_wizard_request(self) -> bool:
         return any(key in self.request.GET for key in self.LEGACY_WIZARD_QUERY_KEYS)
@@ -98,11 +134,13 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
 
     def get_context_data(self, **kwargs: Any) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
-        context["operation_cards"] = self.OPERATION_CARDS
+        context["operation_cards"] = self._available_operation_cards()
         return context
 
     def form_valid(self, form: FiscalOperationGatewayForm) -> HttpResponse:
         operation = str(form.cleaned_data["operation"])
+        if not self._has_operation_permission(operation):
+            raise PermissionDenied("Usuário sem permissão para iniciar esta operação fiscal.")
         if operation == FiscalOperation.NORMAL:
             return HttpResponseRedirect(reverse("finance:emission_origin"))
 
