@@ -42,7 +42,7 @@ class Workshop(TimeStampedModel):
     certificate_file_name = models.CharField(max_length=255, blank=True, default="")
     certificate_content_type = models.CharField(max_length=100, blank=True, default="")
     certificate_uploaded_at = models.DateTimeField(null=True, blank=True)
-    certificate_password = models.CharField(verbose_name="Senha do Certificado", max_length=255, null=True, blank=True)
+    certificate_password = models.CharField(verbose_name="Senha do certificado", max_length=255, null=True, blank=True)
     last_nsu_sefaz = models.CharField(null=True, blank=True, default="0")
     last_sefaz_search_date = models.DateTimeField(null=True, blank=True)
     whatsapp_phone = CharField(

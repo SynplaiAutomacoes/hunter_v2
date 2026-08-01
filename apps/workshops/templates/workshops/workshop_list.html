@@ -1,7 +1,7 @@
 {% extends 'crud/list_page.html' %}
 
-{% block crud_title %}Gerenciar Oficinas{% endblock %}
-{% block crud_subtitle %}Unifique cadastro da oficina com dados fiscais e sincronizacao automatica.{% endblock %}
+{% block crud_title %}Gerenciar oficinas{% endblock %}
+{% block crud_subtitle %}Unifique o cadastro da oficina com dados fiscais e sincronização automática.{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex items-center gap-2">
@@ -15,7 +15,7 @@
             </form>
         {% endif %}
 
-        <a href="{% url 'workshops:create' %}" class="btn btn-primary">Cadastrar Oficina</a>
+        <a href="{% url 'workshops:create' %}" class="btn btn-primary">Cadastrar oficina</a>
     </div>
 {% endblock %}
 
@@ -25,22 +25,22 @@
 
 {% block crud_table %}
     <div class="mb-4 rounded-lg border border-base-300 bg-base-200/50 p-4">
-        <p class="text-sm text-base-content/70">Empresas locais vinculadas as oficinas</p>
+        <p class="text-sm text-base-content/70">Empresas locais vinculadas às oficinas</p>
         <p class="text-xl font-semibold">{{ webmania_company_count }}</p>
         <p class="mt-2 text-sm text-base-content/70">
-            Ultima sincronizacao:
+            Última sincronização:
             {% if webmania_last_sync_at %}
                 {{ webmania_last_sync_at|date:'d/m/Y H:i' }}
             {% else %}
-                ainda nao sincronizado
+                ainda não sincronizado
             {% endif %}
         </p>
         {% if webmania_last_sync_error %}
-            <p class="mt-2 text-sm text-error">Ultimo erro: {{ webmania_last_sync_error }}</p>
+            <p class="mt-2 text-sm text-error">Último erro: {{ webmania_last_sync_error }}</p>
         {% endif %}
 
         {% if not is_webmania_homolog_environment %}
-            <p class="mt-2 text-xs text-base-content/70">Sincronizacao manual disponivel apenas em ambiente de homologacao.</p>
+            <p class="mt-2 text-xs text-base-content/70">Sincronização manual disponível apenas em ambiente de homologação.</p>
         {% endif %}
     </div>
 
