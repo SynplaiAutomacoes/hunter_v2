@@ -29,13 +29,13 @@ class NfseMunicipalCapabilityListView(LoginRequiredMixin, WorkshopScopedMixin, L
     def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
         context["fields"] = [
-            TableColumn("Municipio", attr="city_name"),
+            TableColumn("Município", attr="city_name"),
             TableColumn("UF", attr="state"),
-            TableColumn("Codigo IBGE", attr="city_code"),
+            TableColumn("Código IBGE", attr="city_code"),
             TableColumn("Provedor", attr="provider"),
-            TableColumn("Emissao", attr="emission_enabled"),
+            TableColumn("Emissão", attr="emission_enabled"),
             TableColumn("Status remoto", attr="remote_status"),
-            TableColumn("Ultima consulta", attr="last_synced_at"),
+            TableColumn("Última consulta", attr="last_synced_at"),
             TableColumn("Ativa", attr="is_active"),
         ]
         context["actions"] = [TableActionDefaults.edit("finance:nfse_capability_update")]

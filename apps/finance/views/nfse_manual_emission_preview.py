@@ -72,7 +72,7 @@ class NfseManualEmissionPreviewCreateView(NfseManualEmissionPreviewPermissionMix
         except ValidationError as exc:
             form.add_error(None, exc)
             return self.form_invalid(form)
-        messages.success(self.request, "Preview validada localmente. Nenhuma NFS-e foi transmitida.")
+        messages.success(self.request, "Prévia validada localmente. Nenhuma NFS-e foi transmitida.")
         return redirect("finance:nfse_manual_emission_preview_detail", pk=preview.pk)
 
 
@@ -103,7 +103,7 @@ class NfseManualEmissionPreviewApproveView(NfseManualEmissionPreviewPermissionMi
         except ValidationError as exc:
             messages.error(request, "; ".join(exc.messages))
         else:
-            messages.success(request, "Preview aprovada e congelada. A emissao remota continua bloqueada.")
+            messages.success(request, "Prévia aprovada e congelada. A emissão remota continua bloqueada.")
         return redirect("finance:nfse_manual_emission_preview_detail", pk=preview.pk)
 
 

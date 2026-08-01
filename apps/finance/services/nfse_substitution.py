@@ -54,37 +54,37 @@ def _manual_emission_for_item(item: NfseItem) -> NfseManualEmission | None:
 def _validate_manual_substitution_capability(*, emission: NfseManualEmission) -> None:
     capability = emission.preview.municipal_capability
     if capability.workshop_id != emission.workshop_id or capability.company_id != emission.company_id:
-        raise NfseSubstitutionError("A capacidade municipal nao pertence a empresa/oficina da emissao manual.")
+        raise NfseSubstitutionError("A capacidade municipal não pertence a empresa/oficina da emissão manual.")
     if not capability.is_active or not capability.substitution_enabled:
-        raise NfseSubstitutionError("A substituicao NFS-e esta desabilitada para o municipio configurado.")
+        raise NfseSubstitutionError("A substituição NFS-e esta desabilitada para o município configurado.")
 
 
 def _validate_eligibility(*, preview: NfseSubstitutionPreview) -> None:
     if not preview.is_approved or preview.validation_status != FiscalProductPreviewStatus.APPROVED:
-        raise NfseSubstitutionError("A substituicao exige preview aprovada.")
+        raise NfseSubstitutionError("A substituição exige prévia aprovada.")
     if not WebmaniaCompany.objects.filter(workshop=preview.workshop, nfse_substitution_preview_enabled=True).exists():
-        raise NfseSubstitutionError("A substituicao NFS-e esta desabilitada para esta oficina.")
+        raise NfseSubstitutionError("A substituição NFS-e esta desabilitada para esta oficina.")
     original = preview.original_nfse
     if original.status == NfseItemStatus.cancelado:
-        raise NfseSubstitutionError("NFS-e cancelada nao pode ser substituida.")
+        raise NfseSubstitutionError("NFS-e cancelada não pode ser substituida.")
     if str(original.status).lower() == "uncertain":
-        raise NfseSubstitutionError("NFS-e incerta deve ser reconciliada antes da substituicao.")
+        raise NfseSubstitutionError("NFS-e incerta deve ser reconciliada antes da substituição.")
     if original.status != NfseItemStatus.aprovado:
-        raise NfseSubstitutionError("Substituicao permitida somente para NFS-e autorizada.")
+        raise NfseSubstitutionError("Substituição permitida somente para NFS-e autorizada.")
     if not original.uuid or not original.verification_code or not original.xml_url:
-        raise NfseSubstitutionError("A NFS-e original exige UUID, codigo de verificacao e XML preservado.")
+        raise NfseSubstitutionError("A NFS-e original exige UUID, código de verificacao e XML preservado.")
     if original.cancellations.exclude(status=FiscalEmissionAttemptStatus.FAILED).exists():
-        raise NfseSubstitutionError("NFS-e com cancelamento ativo, autorizado ou incerto nao pode ser substituida.")
+        raise NfseSubstitutionError("NFS-e com cancelamento ativo, autorizado ou incerto não pode ser substituida.")
     if preview.request_payload != {"ambiente": int(preview.environment), "codigo_verificacao": preview.original_verification_code, "motivo": preview.reason_code, "rps": preview.rps_payload}:
-        raise NfseSubstitutionError("O payload aprovado da preview esta inconsistente.")
+        raise NfseSubstitutionError("O payload aprovado da prévia esta inconsistente.")
     if "uuid" in preview.request_payload:
-        raise NfseSubstitutionError("O contrato validado nao permite payload hibrido com UUID.")
+        raise NfseSubstitutionError("O contrato validado não permite payload hibrido com UUID.")
     manual_emission = _manual_emission_for_item(original)
     if original.request_id is None and manual_emission is None:
-        raise NfseSubstitutionError("A NFS-e original nao esta vinculada a requisicao legada ou emissao manual valida.")
+        raise NfseSubstitutionError("A NFS-e original não esta vinculada a requisicao legada ou emissão manual válida.")
     if manual_emission is not None:
         if manual_emission.status == FiscalEmissionAttemptStatus.UNCERTAIN or manual_emission.is_uncertain:
-            raise NfseSubstitutionError("A emissao manual NFS-e esta incerta e deve ser reconciliada antes da substituicao.")
+            raise NfseSubstitutionError("A emissão manual NFS-e esta incerta e deve ser reconciliada antes da substituição.")
         _validate_manual_substitution_capability(emission=manual_emission)
     else:
         try:
@@ -116,8 +116,8 @@ def _create_intention(*, preview: NfseSubstitutionPreview, requested_by: Any | N
         existing = NfseSubstitution.objects.filter(preview=locked_preview).first() or NfseSubstitution.objects.filter(original_nfse=locked_original).exclude(status=FiscalEmissionAttemptStatus.FAILED).first()
         if existing is not None:
             if existing.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-                raise NfseSubstitutionError("Ja existe substituicao NFS-e incerta; reconcilie antes de qualquer nova acao.")
-            raise NfseSubstitutionError("Ja existe substituicao registrada para esta preview ou NFS-e original.")
+                raise NfseSubstitutionError("Já existe substituição NFS-e incerta; reconcilie antes de qualquer nova acao.")
+            raise NfseSubstitutionError("Já existe substituição registrada para esta preview ou NFS-e original.")
         payload = sanitize_fiscal_payload(locked_preview.request_payload)
         try:
             substitution = NfseSubstitution.objects.create(
@@ -132,7 +132,7 @@ def _create_intention(*, preview: NfseSubstitutionPreview, requested_by: Any | N
                 requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
             )
         except IntegrityError as exc:
-            raise NfseSubstitutionError("Ja existe substituicao ativa para esta preview ou NFS-e original.") from exc
+            raise NfseSubstitutionError("Já existe substituição ativa para esta preview ou NFS-e original.") from exc
         try:
             attempt = begin_emission_attempt(
                 workshop=locked_preview.workshop,
@@ -169,11 +169,11 @@ def _validate_original_reference(*, substitution: NfseSubstitution, payload: dic
     referenced = payload.get("nfse_substituida")
     if not isinstance(referenced, dict):
         if required:
-            raise NfseSubstitutionError("A resposta aprovada nao confirmou a NFS-e original substituida.")
+            raise NfseSubstitutionError("A resposta aprovada não confirmou a NFS-e original substituida.")
         return
     referenced_uuid = str(referenced.get("uuid") or "").strip().lower()
     if referenced_uuid != str(substitution.uuid_original).strip().lower():
-        raise NfseSubstitutionError("A resposta de substituicao referencia outra NFS-e original.")
+        raise NfseSubstitutionError("A resposta de substituição referencia outra NFS-e original.")
 
 
 @transaction.atomic
@@ -190,7 +190,7 @@ def apply_nfse_substitution_payload(*, substitution: NfseSubstitution, payload: 
     locked.replacement_pdf_url = str(sanitized.get("pdf") or sanitized.get("pdf_nfse") or locked.replacement_pdf_url or "").strip()
     if _is_success(sanitized):
         if not replacement_uuid:
-            raise NfseSubstitutionError("A resposta aprovada nao possui UUID da NFS-e substituta.")
+            raise NfseSubstitutionError("A resposta aprovada não possui UUID da NFS-e substituta.")
         _validate_original_reference(substitution=locked, payload=sanitized, required=require_original_reference)
         if NfseItem.objects.filter(uuid=replacement_uuid).exclude(pk=locked.replacement_nfse_id).exists():
             raise NfseSubstitutionError("UUID da NFS-e substituta esta ambiguo no Hunter.")
@@ -256,7 +256,7 @@ def substitute_nfse_from_preview(*, preview: NfseSubstitutionPreview, requested_
         _mark_uncertain(substitution=substitution, message=message)
         raise NfseSubstitutionError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao substituir Nota Fiscal de Servico", scope="nfse")
+        message = build_webmania_request_exception_message(exc, default="Falha ao substituir Nota Fiscal de Serviço", scope="nfse")
         mark_attempt_failed(attempt=attempt, error_message=message)
         substitution.status = FiscalEmissionAttemptStatus.FAILED
         substitution.response_payload = sanitize_fiscal_payload({"error": message})
@@ -266,12 +266,12 @@ def substitute_nfse_from_preview(*, preview: NfseSubstitutionPreview, requested_
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao substituir NFS-e; estado remoto incerto."
+        message = "Resposta inválida ao substituir NFS-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(substitution=substitution, message=message)
         raise NfseSubstitutionError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao substituir NFS-e; estado remoto incerto."
+        message = "Resposta inválida ao substituir NFS-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(substitution=substitution, message=message)
         raise NfseSubstitutionError(message)
@@ -282,7 +282,7 @@ def substitute_nfse_from_preview(*, preview: NfseSubstitutionPreview, requested_
         _mark_uncertain(substitution=substitution, message=str(exc))
         raise
     if substitution.status == FiscalEmissionAttemptStatus.FAILED:
-        message = extract_webmania_error_message(response_payload, scope="nfse") or "Substituicao NFS-e rejeitada."
+        message = extract_webmania_error_message(response_payload, scope="nfse") or "Substituição NFS-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfseSubstitutionError(message)
     if substitution.status == FiscalEmissionAttemptStatus.SUCCEEDED:
@@ -333,7 +333,7 @@ def reconcile_nfse_substitution(*, substitution: NfseSubstitution) -> NfseSubsti
     if substitution.status == FiscalEmissionAttemptStatus.SUCCEEDED:
         return substitution
     if not substitution.uuid_replacement:
-        raise NfseSubstitutionError("Substituicao incerta sem UUID remoto exige decisao administrativa; nenhum POST sera repetido.")
+        raise NfseSubstitutionError("Substituição incerta sem UUID remoto exige decisão administrativa; nenhum POST será repetido.")
     try:
         payload = consult_nfse_uuid(workshop=substitution.workshop, event_uuid=str(substitution.uuid_replacement))
     except NfseConsultaError as exc:

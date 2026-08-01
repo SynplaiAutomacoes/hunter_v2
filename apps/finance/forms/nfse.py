@@ -52,7 +52,7 @@ def _collect_service_rows(
 
 
 class NfseRequestStep1Form(SharedEmissionWorkorderSelectionForm):
-    step_title = "Selecionar Ordem de Serviço"
+    step_title = "Selecionar ordem de serviço"
     step_subtitle = "Selecione a ordem de serviço aprovada que será utilizada para emitir a Nota Fiscal de Serviço."
     workorder_label = "Ordem de Serviço"
     empty_customer_label = "Cliente não informado"
@@ -99,8 +99,8 @@ class NfseRequestStep3Form(CoreModelForm):
         )
 
         slider_field = self.fields["pricing_slider"]
-        slider_field.label = "Slider da emissao"
-        slider_field.help_text = "Ajuste a distribuicao do valor total para esta Nota Fiscal de Serviço sem alterar o orcamento."
+        slider_field.label = "Slider da emissão"
+        slider_field.help_text = "Ajuste a distribuição do valor total para esta Nota Fiscal de Serviço sem alterar o orçamento."
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
                 preview_url=f"{preview_url}&preview=1" if preview_url else "",
@@ -115,7 +115,7 @@ class NfseRequestStep3Form(CoreModelForm):
         dropdown_choices = [("", "Selecione a classe de imposto")]
         dropdown_choices.extend(self.tax_class_choices)
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe de imposto de servico (Nota Fiscal de Serviço)."
+        tax_class_field.help_text = "Classe de imposto de serviço (Nota Fiscal de Serviço)."
         self._valid_tax_class_refs = {value for value, _ in self.tax_class_choices if value}
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
@@ -143,7 +143,7 @@ class NfseRequestStep3Form(CoreModelForm):
                 slider_override=selected_slider,
             )
             if allocation.services_target <= 0:
-                warning_html = "<div class='alert alert-warning mb-4'>A configuracao atual do slider nao deixa saldo de servicos para emitir Nota Fiscal de Serviço.</div>"
+                warning_html = "<div class='alert alert-warning mb-4'>A configuração atual do slider não deixa saldo de serviços para emitir Nota Fiscal de Serviço.</div>"
 
         if not self.instance.service_description and "service_description" not in self.initial:
             self.initial["service_description"] = default_description
@@ -151,7 +151,7 @@ class NfseRequestStep3Form(CoreModelForm):
         additional_information_field = self.fields["additional_information"]
         additional_information_field.label = "Observacao da nota"
         additional_information_field.required = False
-        additional_information_field.help_text = "Enviada como informacao complementar quando o provedor da Nota Fiscal de Serviço suportar esse campo."
+        additional_information_field.help_text = "Enviada como informação complementar quando o provedor da Nota Fiscal de Serviço suportar esse campo."
 
         rows_html = "".join(
             f"""
@@ -224,7 +224,7 @@ class NfseRequestStep3Form(CoreModelForm):
     def clean_tax_class(self) -> str:
         tax_class = str(self.cleaned_data.get("tax_class") or "").strip()
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
-            raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
+            raise forms.ValidationError("Selecione uma classe de imposto válida da lista.")
         return tax_class
 
     def clean_service_description(self) -> str:

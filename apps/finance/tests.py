@@ -28,7 +28,7 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
         self.other_request = self._create_nfe_request(workshop=self.other_workshop, suffix=3, item_status="aprovado")
 
     def _create_nfe_request(self, *, workshop: Workshop, suffix: int, item_status: str) -> NfeRequest:
-        customer = Customer.objects.create(workshop=workshop, customer_type="PF", name=f"Cliente NF-e {suffix}", cpf_or_cnpj=f"1234567890{suffix}", email=f"nfe{suffix}@example.test", logradouro="Rua Teste", numero="123", bairro="Centro", cidade="Sao Paulo", estado="SP", cep="01001-000")
+        customer = Customer.objects.create(workshop=workshop, customer_type="PF", name=f"Cliente NF-e {suffix}", cpf_or_cnpj=f"1234567890{suffix}", email=f"nfe{suffix}@example.test", logradouro="Rua Teste", numero="123", bairro="Centro", cidade="São Paulo", estado="SP", cep="01001-000")
         budget = Budget.objects.create(workshop=workshop, entry_date="2026-07-08", status=BudgetStatus.APPROVED, customer=customer)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
         nfe_request = NfeRequest.objects.create(workshop=workshop, workorder=workorder, reserved_number=1000 + suffix, reserved_series=1)
@@ -75,9 +75,9 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
         self.assertContains(detail_response, "Cancelar Nota Fiscal de Produto")
 
         service = Mock()
-        service.cancel_nfe.return_value = {"motivo": "Cancelamento operacional valido", "xml": "https://example.test/cancel.xml"}
+        service.cancel_nfe.return_value = {"motivo": "Cancelamento operacional válido", "xml": "https://example.test/cancel.xml"}
         with patch("apps.finance.views.nfe.get_fiscal_service", return_value=service):
-            response = self.client.post(reverse("finance:nfe_cancel", args=[self.nfe_request.pk]), {"reason": "Cancelamento operacional valido"})
+            response = self.client.post(reverse("finance:nfe_cancel", args=[self.nfe_request.pk]), {"reason": "Cancelamento operacional válido"})
         self.assertEqual(response.status_code, 302)
         service.cancel_nfe.assert_called_once()
 
@@ -88,7 +88,7 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
         self.assertNotContains(detail_response, "Cancelar Nota Fiscal de Produto")
 
         with patch("apps.finance.views.nfe.get_fiscal_service") as service_factory:
-            response = self.client.post(reverse("finance:nfe_cancel", args=[self.nfe_request.pk]), {"reason": "Cancelamento operacional valido"})
+            response = self.client.post(reverse("finance:nfe_cancel", args=[self.nfe_request.pk]), {"reason": "Cancelamento operacional válido"})
         self.assertEqual(response.status_code, 403)
         service_factory.assert_not_called()
 
@@ -99,9 +99,9 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
                 user = self._user_with_permissions("view_nferequest", codename, suffix=codename)
                 self._login(user)
                 service = Mock()
-                service.cancel_nfe.return_value = {"motivo": "Cancelamento operacional valido"}
+                service.cancel_nfe.return_value = {"motivo": "Cancelamento operacional válido"}
                 with patch("apps.finance.views.nfe.get_fiscal_service", return_value=service):
-                    response = self.client.post(reverse("finance:nfe_cancel", args=[nfe_request.pk]), {"reason": "Cancelamento operacional valido"})
+                    response = self.client.post(reverse("finance:nfe_cancel", args=[nfe_request.pk]), {"reason": "Cancelamento operacional válido"})
                 self.assertEqual(response.status_code, 302)
                 service.cancel_nfe.assert_called_once()
 
@@ -109,7 +109,7 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
         user = self._user_with_permissions("view_nferequest", "invalidate_nferequest_numbering", suffix="invalidate-only")
         self._login(user)
         with patch("apps.finance.views.nfe.get_fiscal_service") as service_factory:
-            response = self.client.post(reverse("finance:nfe_cancel", args=[self.nfe_request.pk]), {"reason": "Cancelamento operacional valido"})
+            response = self.client.post(reverse("finance:nfe_cancel", args=[self.nfe_request.pk]), {"reason": "Cancelamento operacional válido"})
         self.assertEqual(response.status_code, 403)
         service_factory.assert_not_called()
 
@@ -117,12 +117,12 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
         user = self._user_with_permissions("view_nferequest", "invalidate_nferequest_numbering", suffix="invalidate")
         self._login(user)
         detail_response = self.client.get(reverse("finance:nfe_detail", args=[self.invalidatable_request.pk]))
-        self.assertContains(detail_response, "Inutilizar numeracao")
+        self.assertContains(detail_response, "Inutilizar numeração")
 
         service = Mock()
-        service.invalidate_nfe_number.return_value = {"motivo": "Inutilizacao operacional valida", "xml": "https://example.test/inutilizacao.xml", "log": {"ok": True}}
+        service.invalidate_nfe_number.return_value = {"motivo": "Inutilização operacional válida", "xml": "https://example.test/inutilizacao.xml", "log": {"ok": True}}
         with patch("apps.finance.views.nfe.get_fiscal_service", return_value=service):
-            response = self.client.post(reverse("finance:nfe_invalidate", args=[self.invalidatable_request.pk]), {"reason": "Inutilizacao operacional valida"})
+            response = self.client.post(reverse("finance:nfe_invalidate", args=[self.invalidatable_request.pk]), {"reason": "Inutilização operacional válida"})
         self.assertEqual(response.status_code, 302)
         service.invalidate_nfe_number.assert_called_once()
 
@@ -130,10 +130,10 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
         user = self._user_with_permissions("view_nferequest", suffix="view-only-invalidate")
         self._login(user)
         detail_response = self.client.get(reverse("finance:nfe_detail", args=[self.invalidatable_request.pk]))
-        self.assertNotContains(detail_response, "Inutilizar numeracao")
+        self.assertNotContains(detail_response, "Inutilizar numeração")
 
         with patch("apps.finance.views.nfe.get_fiscal_service") as service_factory:
-            response = self.client.post(reverse("finance:nfe_invalidate", args=[self.invalidatable_request.pk]), {"reason": "Inutilizacao operacional valida"})
+            response = self.client.post(reverse("finance:nfe_invalidate", args=[self.invalidatable_request.pk]), {"reason": "Inutilização operacional válida"})
         self.assertEqual(response.status_code, 403)
         service_factory.assert_not_called()
 
@@ -144,9 +144,9 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
                 user = self._user_with_permissions("view_nferequest", codename, suffix=f"invalidate-{codename}")
                 self._login(user)
                 service = Mock()
-                service.invalidate_nfe_number.return_value = {"motivo": "Inutilizacao operacional valida"}
+                service.invalidate_nfe_number.return_value = {"motivo": "Inutilização operacional válida"}
                 with patch("apps.finance.views.nfe.get_fiscal_service", return_value=service):
-                    response = self.client.post(reverse("finance:nfe_invalidate", args=[nfe_request.pk]), {"reason": "Inutilizacao operacional valida"})
+                    response = self.client.post(reverse("finance:nfe_invalidate", args=[nfe_request.pk]), {"reason": "Inutilização operacional válida"})
                 self.assertEqual(response.status_code, 302)
                 service.invalidate_nfe_number.assert_called_once()
 
@@ -154,7 +154,7 @@ class FiscalPhaseFourNfeDedicatedPermissionTests(TestCase):
         user = self._user_with_permissions("view_nferequest", "cancel_nferequest", suffix="cancel-only")
         self._login(user)
         with patch("apps.finance.views.nfe.get_fiscal_service") as service_factory:
-            response = self.client.post(reverse("finance:nfe_invalidate", args=[self.invalidatable_request.pk]), {"reason": "Inutilizacao operacional valida"})
+            response = self.client.post(reverse("finance:nfe_invalidate", args=[self.invalidatable_request.pk]), {"reason": "Inutilização operacional válida"})
         self.assertEqual(response.status_code, 403)
         service_factory.assert_not_called()
 

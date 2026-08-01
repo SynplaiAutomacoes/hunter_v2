@@ -99,7 +99,7 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
 
     def post(self, request, *args, **kwargs):
         if not _is_webmania_homolog_environment():
-            messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
+            messages.error(request, "A sincronização manual esta disponível apenas em ambiente de homologação.")
             return redirect("finance:webmania_company_list")
 
         try:
@@ -113,11 +113,11 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
         else:
             synced_count = len(synced_companies)
             if synced_count <= 0:
-                messages.warning(request, "Sincronizacao concluida, mas nenhuma empresa foi retornada.")
+                messages.warning(request, "Sincronização concluída, mas nenhuma empresa foi retornada.")
             elif synced_count == 1:
-                messages.success(request, "Sincronizacao concluida com sucesso. 1 empresa atualizada.")
+                messages.success(request, "Sincronização concluída com sucesso. 1 empresa atualizada.")
             else:
-                messages.success(request, f"Sincronizacao concluida com sucesso. {synced_count} empresas atualizadas.")
+                messages.success(request, f"Sincronização concluída com sucesso. {synced_count} empresas atualizadas.")
 
         return redirect("finance:webmania_company_list")
 
@@ -280,7 +280,7 @@ class WebmaniaCompanyUpdateView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
     def form_valid(self, form: WebmaniaCompanyUpdateForm):
         payload = form.build_api_payload()
         if not payload:
-            messages.info(self.request, "Nenhuma alteracao detectada para sincronizar.")
+            messages.info(self.request, "Nenhuma alteração detectada para sincronizar.")
             return redirect("finance:webmania_company_detail", pk=self.object.pk)
 
         try:

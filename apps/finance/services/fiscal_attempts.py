@@ -73,10 +73,10 @@ def build_payload_hash(payload: dict[str, Any]) -> str:
 
 def _blocked_message(attempt: FiscalEmissionAttempt) -> str:
     if attempt.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-        return "Ja existe uma tentativa fiscal em estado incerto para esta emissao. Consulte ou reconcilie o documento remoto antes de tentar novamente."
+        return "Já existe uma tentativa fiscal em estado incerto para esta emissão. Consulte ou reconcilie o documento remoto antes de tentar novamente."
     if attempt.status == FiscalEmissionAttemptStatus.SUCCEEDED:
-        return "Esta emissao fiscal ja possui uma tentativa remota concluida."
-    return "Ja existe uma tentativa fiscal remota registrada para esta emissao."
+        return "Esta emissão fiscal já possui uma tentativa remota concluída."
+    return "Já existe uma tentativa fiscal remota registrada para esta emissão."
 
 
 def begin_emission_attempt(

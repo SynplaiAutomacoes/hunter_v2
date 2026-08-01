@@ -86,15 +86,15 @@ def _build_consulta_url() -> str:
 def _decimal(value: Any, *, field_name: str, required_positive: bool = False) -> Decimal:
     raw_value = str(value if value is not None else "").strip()
     if not raw_value:
-        raise NfeAdjustmentError(f"Informe valor valido para {field_name}.")
+        raise NfeAdjustmentError(f"Informe valor válido para {field_name}.")
     try:
         decimal_value = Decimal(raw_value.replace(",", "."))
     except InvalidOperation as exc:
-        raise NfeAdjustmentError(f"Informe valor valido para {field_name}.") from exc
+        raise NfeAdjustmentError(f"Informe valor válido para {field_name}.") from exc
     if required_positive and decimal_value <= 0:
         raise NfeAdjustmentError(f"{field_name} deve ser maior que zero.")
     if decimal_value < 0:
-        raise NfeAdjustmentError(f"{field_name} nao pode ser negativo.")
+        raise NfeAdjustmentError(f"{field_name} não pode ser negativo.")
     return decimal_value
 
 
@@ -105,14 +105,14 @@ def _decimal_to_payload(value: Decimal) -> str:
 def _normalize_operation(value: Any) -> int:
     raw_value = str(value if value is not None else "").strip()
     if raw_value not in {"0", "1"}:
-        raise NfeAdjustmentError("Operacao da Nota Fiscal de Ajuste deve ser 0 para entrada ou 1 para saida.")
+        raise NfeAdjustmentError("Operação da Nota Fiscal de Ajuste deve ser 0 para entrada ou 1 para saida.")
     return int(raw_value)
 
 
 def _normalize_required_text(value: Any, *, field_name: str, max_length: int) -> str:
     normalized = str(value or "").strip()
     if not normalized:
-        raise NfeAdjustmentError(f"{field_name} e obrigatorio.")
+        raise NfeAdjustmentError(f"{field_name} e obrigatório.")
     if len(normalized) > max_length:
         raise NfeAdjustmentError(f"{field_name} excede {max_length} caracteres.")
     return normalized
@@ -143,15 +143,15 @@ def _assert_adjustment_scope(payload: dict[str, Any], *, source: str = "payload"
     forbidden_keys = sorted(str(key) for key in payload if str(key) in FORBIDDEN_ADJUSTMENT_PAYLOAD_KEYS)
     if forbidden_keys:
         if "finalidade" in forbidden_keys and str(payload.get("finalidade") or "").strip() in {"5", "6"}:
-            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao pode ser usada para Nota Fiscal de Credito ou Debito. Use a fase propria de IBS/CBS quando aprovada.")
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste não pode ser usada para Nota Fiscal de Crédito ou Débito. Use a fase propria de IBS/CBS quando aprovada.")
         if any(key in forbidden_keys for key in ("evento", "evento_ibs_cbs", "cod_evento")):
-            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao pode registrar eventos IBS/CBS. Use o fluxo proprio de eventos quando aprovado.")
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste não pode registrar eventos IBS/CBS. Use o fluxo proprio de eventos quando aprovado.")
         if "produtos" in forbidden_keys:
-            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao pode conter produtos. Estorno deve usar o fluxo de devolucao/estorno.")
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste não pode conter produtos. Estorno deve usar o fluxo de devolução/estorno.")
         if any(key in forbidden_keys for key in ("ibs", "cbs", "ibs_cbs", "impostos")):
-            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao aceita IBS/CBS ou impostos de produto sem contrato oficial.")
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste não aceita IBS/CBS ou impostos de produto sem contrato oficial.")
         if any(key in forbidden_keys for key in ("tipo_credito", "tipo_debito", "dfe_referenciado")):
-            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao pode ser usada para credito/debito fiscal.")
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste não pode ser usada para crédito/débito fiscal.")
         raise NfeAdjustmentError(f"Campo fora do contrato de ajuste em {source}: {', '.join(forbidden_keys)}.")
 
 
@@ -171,14 +171,14 @@ def _build_adjustment_payload(
     request: HttpRequest | None = None,
 ) -> dict[str, Any]:
     if not isinstance(cliente, dict) or not cliente:
-        raise NfeAdjustmentError("Cliente e obrigatorio para Nota Fiscal de Ajuste.")
+        raise NfeAdjustmentError("Cliente e obrigatório para Nota Fiscal de Ajuste.")
     if extra_payload is not None:
         if not isinstance(extra_payload, dict):
             raise NfeAdjustmentError("Campos adicionais da Nota Fiscal de Ajuste devem ser informados como objeto.")
         _assert_adjustment_scope(extra_payload, source="campos adicionais")
     payload: dict[str, Any] = {
         "operacao": _normalize_operation(operacao),
-        "natureza_operacao": _normalize_required_text(natureza_operacao, field_name="Natureza da operacao", max_length=60),
+        "natureza_operacao": _normalize_required_text(natureza_operacao, field_name="Natureza da operação", max_length=60),
         "codigo_cfop": _normalize_required_text(codigo_cfop, field_name="CFOP de ajuste", max_length=10),
         "valor_icms": _decimal_to_payload(_decimal(valor_icms, field_name="valor_icms", required_positive=True)),
         "ambiente": int(str(getattr(settings, "WEBMANIA_AMBIENT", "2") or "2")),
@@ -187,10 +187,10 @@ def _build_adjustment_payload(
     }
     if valor_icms_st not in (None, ""):
         payload["valor_icms_st"] = _decimal_to_payload(_decimal(valor_icms_st, field_name="valor_icms_st"))
-    fiscal_info = _normalize_optional_text(informacoes_fisco, field_name="Informacoes ao fisco", max_length=2000)
+    fiscal_info = _normalize_optional_text(informacoes_fisco, field_name="Informações ao fisco", max_length=2000)
     if fiscal_info:
         payload["informacoes_fisco"] = fiscal_info
-    complementary_info = _normalize_optional_text(informacoes_complementares, field_name="Informacoes complementares", max_length=5000)
+    complementary_info = _normalize_optional_text(informacoes_complementares, field_name="Informações complementares", max_length=5000)
     if complementary_info:
         payload["informacoes_complementares"] = complementary_info
     notification_url = build_webmania_webhook_url(request=request)
@@ -220,9 +220,9 @@ def create_nfe_adjustment_draft(
     request: HttpRequest | None = None,
 ) -> FiscalDocument:
     if not legal_confirmation:
-        raise NfeAdjustmentError("Confirme explicitamente a emissao da Nota Fiscal de Ajuste.")
+        raise NfeAdjustmentError("Confirme explicitamente a emissão da Nota Fiscal de Ajuste.")
     if not estorno_sc_es_confirmation:
-        raise NfeAdjustmentError("Confirme que este caso nao e estorno SC/ES que deve usar devolucao/estorno.")
+        raise NfeAdjustmentError("Confirme que este caso não e estorno SC/ES que deve usar devolução/estorno.")
     tax_regime = validate_adjustment_tax_regime(workshop=workshop)
     payload = _build_adjustment_payload(
         workshop=workshop,
@@ -298,15 +298,15 @@ def _mark_document_uncertain(*, document: FiscalDocument, error_message: str) ->
 
 def _assert_transmittable(*, document: FiscalDocument) -> None:
     if document.origin != FiscalDocumentOrigin.MANUAL or document.purpose != FiscalDocumentPurpose.ADJUSTMENT:
-        raise NfeAdjustmentError("Documento fiscal invalido para transmissao de ajuste.")
+        raise NfeAdjustmentError("Documento fiscal inválido para transmissão de ajuste.")
     existing_attempt = document.emission_attempts.filter(operation_type=FiscalEmissionOperationType.ADJUSTMENT).order_by("-pk").first()
     if existing_attempt is None:
         return
     if existing_attempt.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-        raise NfeAdjustmentError("Ja existe tentativa de ajuste em estado remoto incerto. Reconcilie antes de tentar novamente.")
+        raise NfeAdjustmentError("Já existe tentativa de ajuste em estado remoto incerto. Reconcilie antes de tentar novamente.")
     if existing_attempt.status in {FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED}:
-        raise NfeAdjustmentError("Esta intencao de ajuste ja possui envio remoto registrado.")
-    raise NfeAdjustmentError("Esta intencao de ajuste ja possui tentativa fiscal registrada.")
+        raise NfeAdjustmentError("Esta intencao de ajuste já possui envio remoto registrado.")
+    raise NfeAdjustmentError("Esta intencao de ajuste já possui tentativa fiscal registrada.")
 
 
 def transmit_nfe_adjustment_document(*, document: FiscalDocument) -> FiscalDocument:
@@ -355,12 +355,12 @@ def transmit_nfe_adjustment_document(*, document: FiscalDocument) -> FiscalDocum
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao emitir Nota Fiscal de Ajuste; estado remoto incerto."
+        message = "Resposta inválida ao emitir Nota Fiscal de Ajuste; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeAdjustmentError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao emitir Nota Fiscal de Ajuste; estado remoto incerto."
+        message = "Resposta inválida ao emitir Nota Fiscal de Ajuste; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeAdjustmentError(message)
@@ -390,7 +390,7 @@ def consult_nfe_adjustment_document(*, document: FiscalDocument) -> dict[str, An
         if attempt is not None:
             params["uuid"] = str(attempt.remote_uuid).strip()
     if not params:
-        raise NfeAdjustmentError("Nao foi possivel consultar a Nota Fiscal de Ajuste sem UUID ou chave de acesso.")
+        raise NfeAdjustmentError("Não foi possível consultar a Nota Fiscal de Ajuste sem UUID ou chave de acesso.")
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
@@ -400,9 +400,9 @@ def consult_nfe_adjustment_document(*, document: FiscalDocument) -> dict[str, An
     try:
         payload = response.json()
     except ValueError as exc:
-        raise NfeAdjustmentError("Resposta invalida da API de consulta da Nota Fiscal de Ajuste.") from exc
+        raise NfeAdjustmentError("Resposta inválida da API de consulta da Nota Fiscal de Ajuste.") from exc
     if not isinstance(payload, dict):
-        raise NfeAdjustmentError("Resposta invalida da API de consulta da Nota Fiscal de Ajuste.")
+        raise NfeAdjustmentError("Resposta inválida da API de consulta da Nota Fiscal de Ajuste.")
     error_message = extract_webmania_error_message(payload.get("error") or payload.get("msg") or payload.get("message"), scope="nfe")
     if error_message:
         raise NfeAdjustmentError(error_message)

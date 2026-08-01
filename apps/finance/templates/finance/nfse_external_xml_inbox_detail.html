@@ -14,7 +14,7 @@
         <div class="stat"><div class="stat-title">Processados</div><div class="stat-value">{{ inbox.processed_count }}</div></div>
         <div class="stat"><div class="stat-title">Erros</div><div class="stat-value">{{ inbox.error_count }}</div></div>
     </div>
-    <div class="alert alert-info">A inbox e operacional: nao importa automaticamente, nao consulta, nao manifesta e nao cria documento fiscal fora do lote XML validado.</div>
+    <div class="alert alert-info">A inbox e operacional: não importa automaticamente, não consulta, não manifesta e não cria documento fiscal fora do lote XML validado.</div>
     <form id="bulk-inbox-form" method="post" action="{% url 'finance:nfse_external_xml_inbox_bulk_action' inbox.pk %}">{% csrf_token %}</form>
     <form method="get" class="grid gap-3 md:grid-cols-4">
         <input class="input input-bordered input-sm" type="search" name="q" value="{{ filters.q }}" placeholder="Arquivo, hash, UUID, CNPJ, erro">
@@ -26,12 +26,12 @@
             <div class="flex flex-wrap items-end gap-2">
                 <button class="btn btn-secondary btn-sm" form="bulk-inbox-form" name="action" value="approve" type="submit">Aprovar selecionados</button>
                 <button class="btn btn-primary btn-sm" form="bulk-inbox-form" name="action" value="process" type="submit">Processar selecionados</button>
-                <input class="input input-bordered input-sm min-w-72" form="bulk-inbox-form" name="discard_reason" placeholder="Motivo obrigatorio para descarte em massa">
+                <input class="input input-bordered input-sm min-w-72" form="bulk-inbox-form" name="discard_reason" placeholder="Motivo obrigatório para descarte em massa">
                 <button class="btn btn-ghost btn-sm" form="bulk-inbox-form" name="action" value="discard" type="submit">Descartar selecionados</button>
             </div>
         </div>
     {% endif %}
-    <div class="overflow-x-auto"><table class="table table-zebra"><thead><tr><th>{% if can_bulk_manage_external_inbox %}Sel.{% endif %}</th><th>Arquivo</th><th>Status</th><th>Hash</th><th>Resumo</th><th>Auditoria</th><th>Erros</th><th>Vinculos</th><th>Acoes</th></tr></thead><tbody>
+    <div class="overflow-x-auto"><table class="table table-zebra"><thead><tr><th>{% if can_bulk_manage_external_inbox %}Sel.{% endif %}</th><th>Arquivo</th><th>Status</th><th>Hash</th><th>Resumo</th><th>Auditoria</th><th>Erros</th><th>Vínculos</th><th>Ações</th></tr></thead><tbody>
     {% for item in filtered_items %}
         <tr>
             <td>{% if can_bulk_manage_external_inbox %}<input class="checkbox checkbox-sm" form="bulk-inbox-form" type="checkbox" name="item_ids" value="{{ item.pk }}">{% endif %}</td>

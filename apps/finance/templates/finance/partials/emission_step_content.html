@@ -18,7 +18,7 @@
         {% for action in created_request_actions %}
             <a href="{{ action.url }}" class="btn btn-outline">{{ action.label }}</a>
         {% endfor %}
-        <a href="{{ close_emission_url }}" class="btn btn-ghost">Fechar emissao</a>
+        <a href="{{ close_emission_url }}" class="btn btn-ghost">Fechar emissão</a>
         <button type="submit" form="emission-form" class="btn btn-primary" id="emission-submit-btn" {% if submit_button_intent %}name="intent" value="{{ submit_button_intent }}"{% endif %}>
             <span class="loading loading-spinner loading-sm hidden" id="emission-submit-spinner"></span>
             <span id="emission-submit-label">{{ submit_button_label }}</span>

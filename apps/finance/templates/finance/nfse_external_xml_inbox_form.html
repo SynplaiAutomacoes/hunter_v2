@@ -2,9 +2,9 @@
 {% load crispy_forms_tags %}
 {% block content %}
 <div class="mx-auto max-w-5xl space-y-5 p-4">
-    <div><h1 class="text-2xl font-bold">Enviar XMLs candidatos para inbox</h1><p class="text-base-content/70">Entrada manual/assistida. Nenhum conector real de e-mail, ERP, pasta monitorada ou webhook externo e executado.</p></div>
-    <div class="alert alert-warning">A inbox nao importa automaticamente, nao consulta e nao manifesta documentos.</div>
-    <div class="alert alert-info">Limites: ate 20 arquivos, 2 MB por XML e 20 MB no total. O documento fiscal so nasce apos aprovacao humana e processamento pelo lote XML.</div>
+    <div><h1 class="text-2xl font-bold">Enviar XMLs candidatos para inbox</h1><p class="text-base-content/70">Entrada manual/assistida. Nenhum conector real de e-mail, ERP, pasta monitorada ou webhook externo é executado.</p></div>
+    <div class="alert alert-warning">A inbox não importa automaticamente, não consulta e não manifesta documentos.</div>
+    <div class="alert alert-info">Limites: ate 20 arquivos, 2 MB por XML e 20 MB no total. O documento fiscal so nasce apos aprovação humana e processamento pelo lote XML.</div>
     <form method="post" enctype="multipart/form-data" class="space-y-4">
         {% csrf_token %}{{ form|crispy }}
         <div class="flex justify-end gap-2"><a class="btn btn-ghost" href="{% url 'finance:nfse_external_xml_inbox_list' %}">Cancelar</a><button class="btn btn-primary" type="submit">Registrar candidatos</button></div>

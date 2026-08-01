@@ -61,7 +61,7 @@ class NfseSubstitutionPreviewCreateView(NfseSubstitutionPreviewPermissionMixin, 
 
     def form_valid(self, form):
         if not is_nfse_substitution_preview_enabled(workshop=self.workshop):
-            form.add_error(None, "A preview de substituicao NFS-e esta desabilitada para esta oficina.")
+            form.add_error(None, "A prévia de substituição NFS-e esta desabilitada para esta oficina.")
             return self.form_invalid(form)
         try:
             preview = create_nfse_substitution_preview(
@@ -78,7 +78,7 @@ class NfseSubstitutionPreviewCreateView(NfseSubstitutionPreviewPermissionMixin, 
         except ValidationError as exc:
             form.add_error(None, exc)
             return self.form_invalid(form)
-        messages.success(self.request, "Preview validada localmente. Nenhuma substituicao foi transmitida.")
+        messages.success(self.request, "Prévia validada localmente. Nenhuma substituição foi transmitida.")
         return redirect("finance:nfse_substitution_preview_detail", pk=preview.pk)
 
 
@@ -112,7 +112,7 @@ class NfseSubstitutionPreviewApproveView(NfseSubstitutionPreviewPermissionMixin,
         except ValidationError as exc:
             messages.error(request, "; ".join(exc.messages))
         else:
-            messages.success(request, "Preview aprovada e congelada. A substituicao remota continua indisponivel.")
+            messages.success(request, "Prévia aprovada e congelada. A substituição remota continua indisponível.")
         return redirect("finance:nfse_substitution_preview_detail", pk=preview.pk)
 
 
@@ -141,7 +141,7 @@ class NfseSubstitutionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, *args, **kwargs):
         preview = get_object_or_404(NfseSubstitutionPreview.objects.select_related("original_nfse", "original_nfse__request", "original_nfse__manual_emission"), pk=kwargs["pk"], workshop=self.workshop)
         if request.POST.get("confirmed") != "1":
-            messages.error(request, "Confirme explicitamente a substituicao remota da NFS-e.")
+            messages.error(request, "Confirme explicitamente a substituição remota da NFS-e.")
             return redirect("finance:nfse_substitution_preview_detail", pk=preview.pk)
         try:
             substitution = substitute_nfse_from_preview(preview=preview, requested_by=request.user)
@@ -149,9 +149,9 @@ class NfseSubstitutionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, str(exc))
         else:
             if substitution.status == FiscalEmissionAttemptStatus.SUCCEEDED:
-                messages.success(request, "NFS-e substituida com confirmacao remota valida.")
+                messages.success(request, "NFS-e substituida com confirmação remota válida.")
             else:
-                messages.info(request, "Substituicao enviada e aguardando confirmacao remota.")
+                messages.info(request, "Substituição enviada e aguardando confirmação remota.")
         return redirect("finance:nfse_substitution_preview_detail", pk=preview.pk)
 
 
@@ -180,12 +180,12 @@ class NfseSubstitutionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View
         }
         url = urls.get(document, "")
         if not url:
-            raise Http404("Documento da substituicao indisponivel")
+            raise Http404("Documento da substituição indisponível")
         try:
             downloaded = download_webmania_document(workshop=self.workshop, url=url)
         except WebmaniaDocumentDownloadError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         extension = "pdf" if document.endswith("pdf") else "xml"
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
-        response["Content-Disposition"] = f'attachment; filename="nfse-substituicao-{substitution.pk}-{document}.{extension}"'
+        response["Content-Disposition"] = f'attachment; filename="nfse-substituição-{substitution.pk}-{document}.{extension}"'
         return response

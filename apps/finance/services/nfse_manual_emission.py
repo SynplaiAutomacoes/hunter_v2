@@ -72,13 +72,13 @@ def _is_failure(payload: dict[str, Any]) -> bool:
 
 def _assert_company_configured(company: WebmaniaCompany) -> None:
     if not str(company.webmania_company_id or company.bearer_access_token or company.consumer_key or "").strip():
-        raise NfseManualEmissionError("Empresa emissora nao esta configurada.")
+        raise NfseManualEmissionError("Empresa emissora não esta configurada.")
 
 
 def _assert_payload_contract(preview: NfseManualEmissionPreview) -> None:
     payload = preview.request_payload
     if not isinstance(payload, dict) or not payload:
-        raise NfseManualEmissionError("Preview aprovada sem payload.")
+        raise NfseManualEmissionError("Prévia aprovada sem payload.")
     if payload.get("ambiente") != int(preview.environment):
         raise NfseManualEmissionError("Payload aprovado diverge do ambiente da preview.")
     rps_list = payload.get("rps")
@@ -86,9 +86,9 @@ def _assert_payload_contract(preview: NfseManualEmissionPreview) -> None:
         raise NfseManualEmissionError("Payload aprovado deve conter exatamente um RPS congelado.")
     rps = rps_list[0]
     if rps.get("numero") != preview.rps_number or rps.get("serie") != preview.rps_series:
-        raise NfseManualEmissionError("Payload aprovado diverge do numero/serie do RPS.")
+        raise NfseManualEmissionError("Payload aprovado diverge do número/série do RPS.")
     if not isinstance(rps.get("servico"), dict) or not rps["servico"]:
-        raise NfseManualEmissionError("Payload aprovado sem servico.")
+        raise NfseManualEmissionError("Payload aprovado sem serviço.")
     if not isinstance(rps.get("tomador"), dict) or not rps["tomador"]:
         raise NfseManualEmissionError("Payload aprovado sem tomador.")
 
@@ -111,22 +111,22 @@ def _assert_rps_available(*, preview: NfseManualEmissionPreview) -> None:
         rps_series=preview.rps_series,
     ).exclude(status=FiscalEmissionAttemptStatus.FAILED).exists()
     if reserved_request or existing_item or existing_emission:
-        raise NfseManualEmissionError("Ja existe NFS-e manual ou RPS local conhecido para esta empresa/oficina/ambiente.")
+        raise NfseManualEmissionError("Já existe NFS-e manual ou RPS local conhecido para esta empresa/oficina/ambiente.")
 
 
 def _validate_eligibility(*, preview: NfseManualEmissionPreview) -> None:
     if not preview.is_approved or preview.validation_status != FiscalProductPreviewStatus.APPROVED:
-        raise NfseManualEmissionError("A emissao manual exige preview aprovada.")
+        raise NfseManualEmissionError("A emissão manual exige prévia aprovada.")
     if not is_nfse_manual_emission_enabled(workshop=preview.workshop):
-        raise NfseManualEmissionError("A emissao manual NFS-e esta desabilitada para esta oficina.")
+        raise NfseManualEmissionError("A emissão manual NFS-e esta desabilitada para esta oficina.")
     _assert_company_configured(preview.company)
     capability = preview.municipal_capability
     if not capability.is_active or not capability.emission_enabled or not capability.manual_emission_enabled:
-        raise NfseManualEmissionError("A capacidade municipal nao permite emissao manual NFS-e.")
+        raise NfseManualEmissionError("A capacidade municipal não permite emissão manual NFS-e.")
     if capability.workshop_id != preview.workshop_id or capability.company_id != preview.company_id:
-        raise NfseManualEmissionError("A capacidade municipal nao pertence a empresa/oficina da preview.")
+        raise NfseManualEmissionError("A capacidade municipal não pertence a empresa/oficina da preview.")
     if preview.environment not in {"1", "2"} or preview.rps_number <= 0 or not preview.rps_series.strip():
-        raise NfseManualEmissionError("Ambiente, numero e serie do RPS sao obrigatorios.")
+        raise NfseManualEmissionError("Ambiente, número e série do RPS são obrigatórios.")
     _assert_payload_contract(preview)
 
 
@@ -162,7 +162,7 @@ def _create_intention(*, preview: NfseManualEmissionPreview, created_by: Any | N
                 created_by=created_by if getattr(created_by, "is_authenticated", False) else None,
             )
         except IntegrityError as exc:
-            raise NfseManualEmissionError("Ja existe emissao manual registrada para esta preview ou RPS.") from exc
+            raise NfseManualEmissionError("Já existe emissão manual registrada para esta preview ou RPS.") from exc
         try:
             attempt = begin_emission_attempt(
                 workshop=locked_preview.workshop,
@@ -201,11 +201,11 @@ def apply_nfse_manual_emission_payload(*, emission: NfseManualEmission, payload:
     locked.danfse_pdf = str(sanitized.get("pdf_nfse") or sanitized.get("pdf") or locked.danfse_pdf or "").strip()
     if _is_success(sanitized):
         if str(sanitized.get("modelo") or "").strip().lower() != "nfse" or not remote_uuid:
-            raise NfseManualEmissionError("A resposta aprovada nao possui modelo NFS-e e UUID validos.")
+            raise NfseManualEmissionError("A resposta aprovada não possui modelo NFS-e e UUID validos.")
         response_rps_number = str(sanitized.get("numero_rps") or sanitized.get("rps_numero") or "").strip()
         response_rps_series = str(sanitized.get("serie_rps") or sanitized.get("rps_serie") or "").strip()
         if response_rps_number and response_rps_number != str(locked.rps_number):
-            raise NfseManualEmissionError("A resposta aprovada referencia outro numero de RPS.")
+            raise NfseManualEmissionError("A resposta aprovada referencia outro número de RPS.")
         if response_rps_series and response_rps_series != locked.rps_series:
             raise NfseManualEmissionError("A resposta aprovada referencia outra serie de RPS.")
         if NfseItem.objects.filter(uuid=remote_uuid).exclude(pk=locked.nfse_item_id).exists():
@@ -274,12 +274,12 @@ def emit_nfse_manual_from_preview(*, preview: NfseManualEmissionPreview, request
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao emitir NFS-e manual; estado remoto incerto."
+        message = "Resposta inválida ao emitir NFS-e manual; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(emission=emission, message=message)
         raise NfseManualEmissionError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao emitir NFS-e manual; estado remoto incerto."
+        message = "Resposta inválida ao emitir NFS-e manual; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(emission=emission, message=message)
         raise NfseManualEmissionError(message)
@@ -290,7 +290,7 @@ def emit_nfse_manual_from_preview(*, preview: NfseManualEmissionPreview, request
         _mark_uncertain(emission=emission, message=str(exc))
         raise
     if emission.status == FiscalEmissionAttemptStatus.FAILED:
-        message = extract_webmania_error_message(response_payload, scope="nfse") or "Emissao manual NFS-e rejeitada."
+        message = extract_webmania_error_message(response_payload, scope="nfse") or "Emissão manual NFS-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfseManualEmissionError(message)
     if emission.status == FiscalEmissionAttemptStatus.SUCCEEDED:
@@ -338,7 +338,7 @@ def confirm_nfse_manual_emission_from_payload(*, emission: NfseManualEmission, p
         if applied.status == FiscalEmissionAttemptStatus.SUCCEEDED and attempt.status != FiscalEmissionAttemptStatus.SUCCEEDED:
             mark_attempt_succeeded(attempt=attempt, response_payload=payload)
         elif applied.status == FiscalEmissionAttemptStatus.FAILED and attempt.status != FiscalEmissionAttemptStatus.FAILED:
-            mark_attempt_failed(attempt=attempt, error_message=extract_webmania_error_message(payload, scope="nfse") or "Emissao manual NFS-e rejeitada.", response_payload=payload)
+            mark_attempt_failed(attempt=attempt, error_message=extract_webmania_error_message(payload, scope="nfse") or "Emissão manual NFS-e rejeitada.", response_payload=payload)
     return applied
 
 
@@ -346,7 +346,7 @@ def reconcile_nfse_manual_emission(*, emission: NfseManualEmission) -> NfseManua
     if emission.status == FiscalEmissionAttemptStatus.SUCCEEDED:
         return emission
     if not emission.remote_uuid:
-        raise NfseManualEmissionError("Emissao manual incerta sem UUID remoto exige decisao administrativa; nenhum POST sera repetido.")
+        raise NfseManualEmissionError("Emissão manual incerta sem UUID remoto exige decisão administrativa; nenhum POST será repetido.")
     try:
         payload = consult_nfse_uuid(workshop=emission.workshop, event_uuid=str(emission.remote_uuid))
     except NfseConsultaError as exc:

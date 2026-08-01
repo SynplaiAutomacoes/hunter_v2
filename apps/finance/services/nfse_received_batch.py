@@ -30,7 +30,7 @@ def import_nfse_received_xml_batch(*, workshop, company: WebmaniaCompany, files:
     if company.workshop_id != workshop.pk:
         raise NfseReceivedBatchImportError("A empresa emissora pertence a outra oficina.")
     if not company.nfse_received_import_enabled:
-        raise NfseReceivedBatchImportError("Importacao de NFS-e recebida nao esta habilitada para esta empresa.")
+        raise NfseReceivedBatchImportError("Importacao de NFS-e recebida não esta habilitada para esta empresa.")
     if not files:
         raise NfseReceivedBatchImportError("Envie ao menos um XML.")
     if len(files) > MAX_NFSE_RECEIVED_BATCH_FILES:
@@ -92,14 +92,14 @@ def _process_batch_file(*, batch: NfseReceivedImportBatch, batch_file: NfseRecei
 
 def _validate_file_structure(*, filename: str, content: bytes) -> tuple[str, str, str] | None:
     if not filename.lower().endswith(".xml"):
-        return NfseReceivedImportBatchItem.Status.INVALID_XML, "invalid_extension", "Arquivo deve ter extensao .xml."
+        return NfseReceivedImportBatchItem.Status.INVALID_XML, "invalid_extension", "Arquivo deve ter extensão .xml."
     if not content:
         return NfseReceivedImportBatchItem.Status.INVALID_XML, "empty_file", "Arquivo XML vazio."
     if len(content) > MAX_NFSE_RECEIVED_BATCH_FILE_SIZE:
         return NfseReceivedImportBatchItem.Status.REJECTED, "file_too_large", "Arquivo XML excede o limite de 2 MB."
     stripped = content.lstrip()
     if not stripped.startswith(b"<"):
-        return NfseReceivedImportBatchItem.Status.INVALID_XML, "invalid_content", "Arquivo nao contem XML."
+        return NfseReceivedImportBatchItem.Status.INVALID_XML, "invalid_content", "Arquivo não contem XML."
     return None
 
 
@@ -137,7 +137,7 @@ def _summary_from_parsed(parsed) -> dict[str, Any]:
 
 def _classify_import_error(message: str) -> tuple[str, str]:
     normalized = message.lower()
-    if "ja importado" in normalized or "já importado" in normalized or "duplic" in normalized or "uuid de nfs-e recebida" in normalized or "identificador de nfs-e recebida" in normalized:
+    if "já importado" in normalized or "já importado" in normalized or "duplic" in normalized or "uuid de nfs-e recebida" in normalized or "identificador de nfs-e recebida" in normalized:
         return NfseReceivedImportBatchItem.Status.DUPLICATE, "duplicate_existing"
     if "papel fiscal" in normalized or "cpf/cnpj" in normalized or "outra oficina" in normalized or "empresa emissora" in normalized or "empresa webmania" in normalized or "emitida localmente" in normalized:
         return NfseReceivedImportBatchItem.Status.INVALID_TENANT, "invalid_tenant"

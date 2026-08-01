@@ -1,11 +1,11 @@
 {% extends 'crud/list.html' %}
 
-{% block crud_title %}Previews de substituicao NFS-e{% endblock %}
-{% block crud_subtitle %}Novo RPS validado localmente, sem transmissao.{% endblock %}
+{% block crud_title %}Prévias de substituição NFS-e{% endblock %}
+{% block crud_subtitle %}Novo RPS validado localmente, sem transmissão.{% endblock %}
 {% block crud_header_actions %}{% if can_prepare and preview_enabled %}<a class="btn btn-primary btn-sm" href="{% url 'finance:nfse_substitution_preview_create' %}">Nova preview</a>{% endif %}{% endblock %}
 {% block crud_list_content %}
 <div class="overflow-x-auto"><table class="table table-zebra"><thead><tr><th>Original</th><th>RPS novo</th><th>Status</th><th></th></tr></thead><tbody>
-{% for preview in previews %}<tr><td>{{ preview.original_nfse.number|default:preview.original_uuid }}</td><td>{{ preview.rps_payload.numero }}/{{ preview.rps_payload.serie }}</td><td>{{ preview.get_validation_status_display }}</td><td><a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_substitution_preview_detail' preview.pk %}">Abrir</a></td></tr>{% empty %}<tr><td colspan="4">Nenhuma preview cadastrada.</td></tr>{% endfor %}
+{% for preview in previews %}<tr><td>{{ preview.original_nfse.number|default:preview.original_uuid }}</td><td>{{ preview.rps_payload.número }}/{{ preview.rps_payload.serie }}</td><td>{{ preview.get_validation_status_display }}</td><td><a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_substitution_preview_detail' preview.pk %}">Abrir</a></td></tr>{% empty %}<tr><td colspan="4">Nenhuma prévia cadastrada.</td></tr>{% endfor %}
 </tbody></table></div>
 {% if not preview_enabled %}<div class="alert alert-warning mt-4">A feature flag preparatoria esta desabilitada para esta oficina.</div>{% endif %}
 {% endblock %}

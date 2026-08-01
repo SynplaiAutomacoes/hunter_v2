@@ -133,7 +133,7 @@ def _decimal(value: Any) -> Decimal:
     try:
         return Decimal(str(value or "0").replace(",", "."))
     except InvalidOperation as exc:
-        raise NfeReturnError("Informe quantidades validas para os produtos da devolucao.") from exc
+        raise NfeReturnError("Informe quantidades válidas para os produtos da devolução.") from exc
 
 
 def _product_sequence(product: dict[str, Any], *, fallback_index: int | None = None) -> int:
@@ -143,7 +143,7 @@ def _product_sequence(product: dict[str, Any], *, fallback_index: int | None = N
             return int(value)
     if fallback_index is not None:
         return fallback_index
-    raise NfeReturnError("Cada produto da devolucao parcial deve informar o sequencial fiscal do item na NF-e original.")
+    raise NfeReturnError("Cada produto da devolução parcial deve informar o sequencial fiscal do item na NF-e original.")
 
 
 def _normalized_partial_products(products: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -151,13 +151,13 @@ def _normalized_partial_products(products: list[dict[str, Any]] | None) -> list[
     seen_sequences: set[int] = set()
     for product in products or []:
         if not isinstance(product, dict):
-            raise NfeReturnError("Produtos da devolucao devem ser objetos.")
+            raise NfeReturnError("Produtos da devolução devem ser objetos.")
         quantity = _decimal(product.get("quantidade"))
         if quantity <= 0:
             raise NfeReturnError("A quantidade de cada produto deve ser maior que zero.")
         sequence = _product_sequence(product)
         if sequence in seen_sequences:
-            raise NfeReturnError(f"Item fiscal {sequence} foi informado mais de uma vez na devolucao parcial.")
+            raise NfeReturnError(f"Item fiscal {sequence} foi informado mais de uma vez na devolução parcial.")
         seen_sequences.add(sequence)
         normalized.append({"sequencial": sequence, "quantidade": str(quantity.normalize())})
     return normalized
@@ -188,7 +188,7 @@ def _extract_ibs_cbs_payload_from_product(product: dict[str, Any], *, sequence: 
     if raw_ibs_cbs in (None, "", {}) and isinstance(taxes, dict):
         raw_ibs_cbs = taxes.get("ibs_cbs")
     if not isinstance(raw_ibs_cbs, dict):
-        raise NfeReturnError(f"Item fiscal {sequence} nao possui snapshot IBS/CBS confiavel para devolucao ou estorno.")
+        raise NfeReturnError(f"Item fiscal {sequence} não possui snapshot IBS/CBS confiavel para devolução ou estorno.")
 
     details = {key: value for key, value in raw_ibs_cbs.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular"}}
     try:
@@ -240,12 +240,12 @@ def _build_products_with_ibs_cbs(
         sequence = _product_sequence(product)
         original_product = original_products.get(sequence)
         if original_product is None:
-            raise NfeReturnError(f"Item fiscal {sequence} nao foi encontrado no snapshot da NF-e original.")
+            raise NfeReturnError(f"Item fiscal {sequence} não foi encontrado no snapshot da NF-e original.")
         ibs_cbs = _extract_ibs_cbs_payload_from_product(original_product, sequence=sequence)
         enriched_products.append({"sequencial": sequence, "impostos": {"ibs_cbs": ibs_cbs}})
         quantities.append(str(_decimal(product.get("quantidade")).normalize()))
     if include_all_original_items and not enriched_products:
-        raise NfeReturnError("Documento original nao possui itens fiscais no snapshot para montar devolucao ou estorno com IBS/CBS.")
+        raise NfeReturnError("Documento original não possui itens fiscais no snapshot para montar devolução ou estorno com IBS/CBS.")
     return enriched_products, quantities
 
 
@@ -320,23 +320,23 @@ def _validate_available_quantities(*, original_document: FiscalDocument, purpose
     original_quantities = _original_quantities(original_document)
     if not original_quantities:
         if products:
-            raise NfeReturnError("Documento original nao possui snapshot de itens para validar a devolucao parcial.")
+            raise NfeReturnError("Documento original não possui snapshot de itens para validar a devolução parcial.")
         return
     available_quantities = calculate_available_return_quantities(original_document=original_document)
     if not products:
         if any(available_quantities.get(sequence, Decimal("0")) < quantity for sequence, quantity in original_quantities.items()):
-            operation = "estorno" if purpose == FiscalDocumentPurpose.REVERSAL else "devolucao total"
-            raise NfeReturnError(f"O saldo disponivel nao permite novo {operation} da NF-e original.")
+            operation = "estorno" if purpose == FiscalDocumentPurpose.REVERSAL else "devolução total"
+            raise NfeReturnError(f"O saldo disponível não permite novo {operation} da NF-e original.")
         return
 
     for product in products:
         sequence = _product_sequence(product)
         if sequence not in original_quantities:
-            raise NfeReturnError(f"Item fiscal {sequence} nao foi encontrado no snapshot da NF-e original.")
+            raise NfeReturnError(f"Item fiscal {sequence} não foi encontrado no snapshot da NF-e original.")
         requested = _decimal(product.get("quantidade"))
         available = available_quantities.get(sequence, Decimal("0"))
         if requested > available:
-            raise NfeReturnError(f"Quantidade solicitada para devolucao do item fiscal {sequence} excede o saldo disponivel.")
+            raise NfeReturnError(f"Quantidade solicitada para devolução do item fiscal {sequence} excede o saldo disponível.")
 
 
 def is_local_nfe_eligible_for_return(item: NfeItem | None) -> bool:
@@ -350,7 +350,7 @@ def is_local_nfe_eligible_for_return(item: NfeItem | None) -> bool:
 def ensure_external_original_document(*, workshop: Any, access_key: str, requested_by: Any | None = None, confirmed_external: bool = False) -> FiscalDocument:
     access_key = validate_access_key(access_key)
     if not confirmed_external:
-        raise NfeReturnError("Confirme explicitamente que a NF-e externa nao foi validada remotamente pelo Hunter.")
+        raise NfeReturnError("Confirme explicitamente que a NF-e externa não foi validada remotamente pelo Hunter.")
 
     existing = FiscalDocument.objects.filter(workshop=workshop, document_type=FiscalDocumentType.NFE, access_key=access_key).first()
     if existing is not None:
@@ -378,7 +378,7 @@ def _operation_type_for_purpose(purpose: str) -> str:
         return FiscalEmissionOperationType.REVERSAL
     if purpose == FiscalDocumentPurpose.RETURN:
         return FiscalEmissionOperationType.RETURN
-    raise NfeReturnError("Finalidade de documento derivado nao suportada nesta fase.")
+    raise NfeReturnError("Finalidade de documento derivado não suportada nesta fase.")
 
 
 def _role_for_purpose(purpose: str) -> str:
@@ -401,7 +401,7 @@ def _build_return_payload(
     requires_ibs_cbs = _return_requires_ibs_cbs(original_document=original_document)
     payload: dict[str, Any] = {
         "chave": validate_access_key(original_document.access_key),
-        "natureza_operacao": str(natureza_operacao or ("Estorno de NF-e" if purpose == FiscalDocumentPurpose.REVERSAL else "Devolucao de mercadoria")).strip(),
+        "natureza_operacao": str(natureza_operacao or ("Estorno de NF-e" if purpose == FiscalDocumentPurpose.REVERSAL else "Devolução de mercadoria")).strip(),
         "ambiente": int(str(original_document.environment or getattr(settings, "WEBMANIA_AMBIENT", "2") or "2")),
         "codigo_cfop": str(codigo_cfop or "").strip(),
     }
@@ -456,13 +456,13 @@ def create_nfe_return_draft(
     with transaction.atomic():
         locked_original = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=original_document.pk)
         if locked_original.workshop_id != original_document.workshop_id:
-            raise NfeReturnError("Documento original invalido para a oficina atual.")
+            raise NfeReturnError("Documento original inválido para a oficina atual.")
         if not locked_original.access_key:
-            raise NfeReturnError("Documento original precisa possuir chave de acesso valida.")
+            raise NfeReturnError("Documento original precisa possuir chave de acesso válida.")
         if locked_original.origin == FiscalDocumentOrigin.LOCAL and locked_original.legacy_nfe_item_id and not is_local_nfe_eligible_for_return(locked_original.legacy_nfe_item):
-            raise NfeReturnError("Devolucao ou estorno permitidos somente para NF-e local autorizada.")
+            raise NfeReturnError("Devolução ou estorno permitidos somente para NF-e local autorizada.")
         if locked_original.origin == FiscalDocumentOrigin.EXTERNAL and products:
-            raise NfeReturnError("NF-e externa minima sem itens importados permite somente devolucao total ou estorno; devolucao parcial exige XML/importacao validada.")
+            raise NfeReturnError("NF-e externa minima sem itens importados permite somente devolução total ou estorno; devolução parcial exige XML/importacao validada.")
         if purpose == FiscalDocumentPurpose.REVERSAL:
             products = []
         _validate_available_quantities(original_document=locked_original, purpose=purpose, products=products)
@@ -515,7 +515,7 @@ def create_nfe_return_draft_from_item(
     request: HttpRequest | None = None,
 ) -> FiscalDocument:
     if not is_local_nfe_eligible_for_return(item):
-        raise NfeReturnError("Devolucao ou estorno permitidos somente para NF-e autorizada com chave de acesso valida.")
+        raise NfeReturnError("Devolução ou estorno permitidos somente para NF-e autorizada com chave de acesso válida.")
     original_document = ensure_fiscal_document_for_nfe_item(item=item)
     return create_nfe_return_draft(
         original_document=original_document,
@@ -621,7 +621,7 @@ def confirm_nfe_return_document_from_payload(*, document: FiscalDocument, respon
     if document.status == FiscalDocumentStatus.APPROVED:
         mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
     elif document.status in {FiscalDocumentStatus.REPROVED, FiscalDocumentStatus.DENIED}:
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolução ou estorno rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
     return document
 
@@ -636,51 +636,51 @@ def validate_nfe_return_payload_identity(
     require_safe_identifier: bool = False,
 ) -> None:
     if document.origin != FiscalDocumentOrigin.DERIVED or document.purpose not in {FiscalDocumentPurpose.RETURN, FiscalDocumentPurpose.REVERSAL}:
-        raise NfeReturnError("Documento local nao representa uma devolucao ou estorno derivado.")
+        raise NfeReturnError("Documento local não representa uma devolução ou estorno derivado.")
 
     payload_model = str(payload.get("modelo") or payload.get("model") or "").strip().lower()
     if require_model and payload_model != "nfe":
-        raise NfeReturnError("A resposta remota nao identifica uma NF-e de devolucao ou estorno.")
+        raise NfeReturnError("A resposta remota não identifica uma NF-e de devolução ou estorno.")
     if payload_model and payload_model != "nfe":
-        raise NfeReturnError("A resposta remota pertence a um modelo fiscal diferente da devolucao ou estorno.")
+        raise NfeReturnError("A resposta remota pertence a um modelo fiscal diferente da devolução ou estorno.")
 
     payload_uuid = str(payload.get("uuid") or "").strip()
     payload_access_key = str(payload.get("chave") or "").strip()
-    normalized_payload_uuid = _validate_remote_uuid(payload_uuid, error_message="A resposta remota possui UUID invalido para a devolucao ou estorno.") if payload_uuid else ""
+    normalized_payload_uuid = _validate_remote_uuid(payload_uuid, error_message="A resposta remota possui UUID inválido para a devolução ou estorno.") if payload_uuid else ""
     normalized_payload_key = (
-        _validate_remote_access_key(payload_access_key, error_message="A resposta remota possui chave de acesso invalida para a devolucao ou estorno.") if payload_access_key else ""
+        _validate_remote_access_key(payload_access_key, error_message="A resposta remota possui chave de acesso inválida para a devolução ou estorno.") if payload_access_key else ""
     )
     if require_safe_identifier and not normalized_payload_uuid and not normalized_payload_key:
-        raise NfeReturnError("A resposta remota nao possui identificador seguro para a devolucao ou estorno.")
+        raise NfeReturnError("A resposta remota não possui identificador seguro para a devolução ou estorno.")
 
     if expected_uuid:
-        normalized_expected_uuid = _validate_remote_uuid(expected_uuid, error_message="A devolucao ou estorno local possui UUID remoto invalido.")
+        normalized_expected_uuid = _validate_remote_uuid(expected_uuid, error_message="A devolução ou estorno local possui UUID remoto inválido.")
         if not normalized_payload_uuid or normalized_payload_uuid != normalized_expected_uuid:
-            raise NfeReturnError("A resposta remota pertence a uma NF-e diferente da devolucao ou estorno esperado.")
+            raise NfeReturnError("A resposta remota pertence a uma NF-e diferente da devolução ou estorno esperado.")
     if expected_access_key:
-        normalized_expected_key = _validate_remote_access_key(expected_access_key, error_message="A devolucao ou estorno local possui chave de acesso remota invalida.")
+        normalized_expected_key = _validate_remote_access_key(expected_access_key, error_message="A devolução ou estorno local possui chave de acesso remota inválida.")
         if not normalized_payload_key or normalized_payload_key != normalized_expected_key:
-            raise NfeReturnError("A resposta remota pertence a uma NF-e diferente da devolucao ou estorno esperado.")
+            raise NfeReturnError("A resposta remota pertence a uma NF-e diferente da devolução ou estorno esperado.")
 
 
 def validate_nfe_return_document_link(*, document: FiscalDocument) -> None:
     expected_role = _role_for_purpose(document.purpose)
     links = list(document.links_from.select_related("related_document").filter(role=expected_role)[:2])
     if len(links) != 1 or links[0].related_document.workshop_id != document.workshop_id:
-        raise NfeReturnError("Vinculo da devolucao ou estorno com a NF-e original nao e seguro para atualizacao.")
+        raise NfeReturnError("Vinculo da devolução ou estorno com a NF-e original não e seguro para atualizacao.")
 
 
 def _assert_transmittable(*, document: FiscalDocument) -> None:
     if document.origin != FiscalDocumentOrigin.DERIVED or document.purpose not in {FiscalDocumentPurpose.RETURN, FiscalDocumentPurpose.REVERSAL}:
-        raise NfeReturnError("Documento fiscal derivado invalido para transmissao de devolucao ou estorno.")
+        raise NfeReturnError("Documento fiscal derivado inválido para transmissão de devolução ou estorno.")
     existing_attempt = document.emission_attempts.filter(operation_type__in=[FiscalEmissionOperationType.RETURN, FiscalEmissionOperationType.REVERSAL]).order_by("-pk").first()
     if existing_attempt is None:
         return
     if existing_attempt.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-        raise NfeReturnError("Ja existe tentativa de devolucao ou estorno em estado remoto incerto. Reconcilie antes de tentar novamente.")
+        raise NfeReturnError("Já existe tentativa de devolução ou estorno em estado remoto incerto. Reconcilie antes de tentar novamente.")
     if existing_attempt.status in {FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED}:
-        raise NfeReturnError("Esta intencao de devolucao ou estorno ja possui envio remoto registrado.")
-    raise NfeReturnError("Esta intencao de devolucao ou estorno ja possui tentativa fiscal registrada.")
+        raise NfeReturnError("Esta intencao de devolução ou estorno já possui envio remoto registrado.")
+    raise NfeReturnError("Esta intencao de devolução ou estorno já possui tentativa fiscal registrada.")
 
 
 def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
@@ -717,13 +717,13 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
         response = requests.post(_build_return_url(), json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
-        message = "Timeout ao emitir devolucao ou estorno; estado remoto incerto."
+        message = "Timeout ao emitir devolução ou estorno; estado remoto incerto."
         logger.warning("nfe_return_timeout", extra={"fiscal_document_id": locked_document.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeReturnError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao emitir devolucao ou estorno", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao emitir devolução ou estorno", scope="nfe")
         logger.warning("nfe_return_request_failed", extra={"fiscal_document_id": locked_document.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_failed(attempt=attempt, error_message=message)
         locked_document.status = FiscalDocumentStatus.REPROVED
@@ -734,27 +734,27 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao emitir devolucao ou estorno; estado remoto incerto."
+        message = "Resposta inválida ao emitir devolução ou estorno; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeReturnError(message) from exc
 
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao emitir devolucao ou estorno; estado remoto incerto."
+        message = "Resposta inválida ao emitir devolução ou estorno; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeReturnError(message)
 
     if _is_failed_response(response_payload):
         locked_document = apply_nfe_return_document_payload(document=locked_document, response_payload=response_payload)
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolução ou estorno rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeReturnError(message)
 
     try:
         validate_nfe_return_payload_identity(document=locked_document, payload=response_payload, require_safe_identifier=True)
     except NfeReturnError as exc:
-        message = f"Resposta inconclusiva ao emitir devolucao ou estorno; estado remoto incerto. {exc}"
+        message = f"Resposta inconclusiva ao emitir devolução ou estorno; estado remoto incerto. {exc}"
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message, response_payload=response_payload)
         raise NfeReturnError(message) from exc
@@ -778,29 +778,29 @@ def create_and_emit_nfe_return_from_external(**kwargs: Any) -> FiscalDocument:
 def consult_nfe_return_document(*, document: FiscalDocument) -> dict[str, Any]:
     params: dict[str, str] = {}
     if str(document.remote_uuid or "").strip():
-        params["uuid"] = _validate_remote_uuid(str(document.remote_uuid), error_message="A devolucao ou estorno local possui UUID remoto invalido.")
+        params["uuid"] = _validate_remote_uuid(str(document.remote_uuid), error_message="A devolução ou estorno local possui UUID remoto inválido.")
     elif str(document.access_key or "").strip():
-        params["chave"] = _validate_remote_access_key(str(document.access_key), error_message="A devolucao ou estorno local possui chave de acesso remota invalida.")
+        params["chave"] = _validate_remote_access_key(str(document.access_key), error_message="A devolução ou estorno local possui chave de acesso remota inválida.")
     else:
         attempt = document.emission_attempts.exclude(remote_uuid="").order_by("-pk").first()
         if attempt is not None:
-            params["uuid"] = _validate_remote_uuid(str(attempt.remote_uuid), error_message="A tentativa da devolucao ou estorno possui UUID remoto invalido.")
+            params["uuid"] = _validate_remote_uuid(str(attempt.remote_uuid), error_message="A tentativa da devolução ou estorno possui UUID remoto inválido.")
     if not params:
-        raise NfeReturnError("Nao foi possivel consultar a devolucao ou estorno sem UUID ou chave de acesso.")
+        raise NfeReturnError("Não foi possível consultar a devolução ou estorno sem UUID ou chave de acesso.")
 
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao consultar devolucao ou estorno", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao consultar devolução ou estorno", scope="nfe")
         raise NfeReturnError(message) from exc
 
     try:
         payload = response.json()
     except ValueError as exc:
-        raise NfeReturnError("Resposta invalida da API de consulta de devolucao ou estorno.") from exc
+        raise NfeReturnError("Resposta inválida da API de consulta de devolução ou estorno.") from exc
     if not isinstance(payload, dict):
-        raise NfeReturnError("Resposta invalida da API de consulta de devolucao ou estorno.")
+        raise NfeReturnError("Resposta inválida da API de consulta de devolução ou estorno.")
     error_message = extract_webmania_error_message(payload.get("error") or payload.get("msg") or payload.get("message"), scope="nfe")
     if error_message:
         raise NfeReturnError(error_message)

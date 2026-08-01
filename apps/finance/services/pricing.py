@@ -211,7 +211,7 @@ def distribute_total_proportionally(*, base_values: Iterable[Decimal], target_to
     if target <= 0:
         return [Decimal("0.00") for _ in bases]
     if base_sum <= 0:
-        raise ValueError("Nao e possivel distribuir total sem base proporcional.")
+        raise ValueError("Não e possível distribuir total sem base proporcional.")
 
     allocated: list[Decimal] = []
     running_total = Decimal("0.00")

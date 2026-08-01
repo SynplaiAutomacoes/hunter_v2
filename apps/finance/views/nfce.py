@@ -23,11 +23,11 @@ from apps.workshops.util.workshops import has_workshop_perm
 
 
 class NfceManualEmissionForm(CoreForm):
-    environment = forms.ChoiceField(choices=(("2", "Homologacao"), ("1", "Producao")))
+    environment = forms.ChoiceField(choices=(("2", "Homologação"), ("1", "Producao")))
     natureza_operacao = forms.CharField(max_length=120, initial="Venda ao consumidor")
     cliente_json = forms.CharField(required=False, widget=forms.Textarea)
     produtos_json = forms.CharField(widget=forms.Textarea)
-    payment_method = forms.ChoiceField(choices=(("01", "Dinheiro"), ("03", "Cartao de credito"), ("04", "Cartao de debito"), ("17", "PIX"), ("99", "Outros")))
+    payment_method = forms.ChoiceField(choices=(("01", "Dinheiro"), ("03", "Cartao de crédito"), ("04", "Cartao de débito"), ("17", "PIX"), ("99", "Outros")))
     confirm_nfce = forms.BooleanField(required=True)
 
     def clean_cliente_json(self):
@@ -37,7 +37,7 @@ class NfceManualEmissionForm(CoreForm):
         try:
             customer = json.loads(raw_value)
         except ValueError as exc:
-            raise forms.ValidationError("Informe consumidor/cliente em JSON valido.") from exc
+            raise forms.ValidationError("Informe consumidor/cliente em JSON válido.") from exc
         if not isinstance(customer, dict):
             raise forms.ValidationError("Consumidor/cliente deve ser um objeto JSON.")
         return customer
@@ -47,7 +47,7 @@ class NfceManualEmissionForm(CoreForm):
         try:
             products = json.loads(raw_value)
         except ValueError as exc:
-            raise forms.ValidationError("Informe produtos em JSON valido.") from exc
+            raise forms.ValidationError("Informe produtos em JSON válido.") from exc
         if not isinstance(products, list):
             raise forms.ValidationError("Produtos devem ser uma lista JSON.")
         return products
@@ -59,7 +59,7 @@ class NfceCancellationForm(CoreForm):
 
 
 class NfceInutilizationForm(CoreForm):
-    environment = forms.ChoiceField(choices=(("2", "Homologacao"), ("1", "Producao")))
+    environment = forms.ChoiceField(choices=(("2", "Homologação"), ("1", "Producao")))
     series = forms.CharField(max_length=10)
     sequence_start = forms.IntegerField(min_value=1)
     sequence_end = forms.IntegerField(min_value=1, required=False)
@@ -71,7 +71,7 @@ class NfceInutilizationForm(CoreForm):
         start = cleaned_data.get("sequence_start")
         end = cleaned_data.get("sequence_end") or start
         if start is not None and end is not None and int(start) > int(end):
-            raise forms.ValidationError("A sequencia inicial nao pode ser maior que a final.")
+            raise forms.ValidationError("A sequencia inicial não pode ser maior que a final.")
         cleaned_data["sequence_end"] = end
         return cleaned_data
 
@@ -230,7 +230,7 @@ class NfceInutilizationView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
         except NfceInutilizationError as exc:
             messages.error(self.request, str(exc))
             return self.form_invalid(form)
-        messages.success(self.request, "Inutilizacao de numeracao NFC-e enviada com sucesso.")
+        messages.success(self.request, "Inutilização de numeração NFC-e enviada com sucesso.")
         return redirect(self.get_success_url())
 
 
@@ -247,7 +247,7 @@ class NfceDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, *args, **kwargs):
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
         document = get_object_or_404(
             FiscalDocument,
             pk=kwargs.get("pk"),
@@ -329,7 +329,7 @@ class NfceInutilizationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, Vie
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         sequence = str(inutilization.sequence_start) if inutilization.sequence_start == inutilization.sequence_end else f"{inutilization.sequence_start}-{inutilization.sequence_end}"
-        response["Content-Disposition"] = f'attachment; filename="nfce-inutilizacao-{inutilization.series}-{sequence}.xml"'
+        response["Content-Disposition"] = f'attachment; filename="nfce-inutilização-{inutilization.series}-{sequence}.xml"'
         return response
 
 

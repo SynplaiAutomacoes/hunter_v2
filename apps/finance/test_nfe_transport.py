@@ -23,7 +23,7 @@ TRANSPORT_SNAPSHOT = {
         "ie": "123456789",
         "endereco": "Rua do transporte, 10",
         "uf": "SP",
-        "cidade": "Sao paulo",
+        "cidade": "São paulo",
         "cep": "01001000",
         "placa": "ABC1D23",
         "uf_veiculo": "SP",
@@ -71,7 +71,7 @@ class NfeTransportFormTests(SimpleTestCase):
             "transport_state_registration": "123456789",
             "transport_address": "Rua do Transporte, 10",
             "transport_state": "SP",
-            "transport_city": "Sao Paulo",
+            "transport_city": "São Paulo",
             "transport_postal_code": "01001-000",
             "transport_vehicle_plate": "ABC1D23",
             "transport_vehicle_state": "SP",
@@ -155,7 +155,7 @@ class NfeTransportFormTests(SimpleTestCase):
                 "nome_completo": "Transportador autonomo",
                 "endereco": "Rua do transporte, 10",
                 "uf": "SP",
-                "cidade": "Sao paulo",
+                "cidade": "São paulo",
                 "cep": "01001000",
                 "rntc": "12345678",
                 "placa": "ABC1D23",
@@ -244,7 +244,7 @@ class NfeTransportFormTests(SimpleTestCase):
         form = EmissionNfeConfigForm(data=data, tax_class_choices=[("REF-NFE", "Classe NF-e")])
 
         self.assertFalse(form.is_valid())
-        self.assertIn("campos nao permitidos", form.non_field_errors()[0])
+        self.assertIn("campos não permitidos", form.non_field_errors()[0])
 
 
 @override_settings(WEBMANIA_NFE_NATUREZA_OPERACAO="Venda de mercadoria", WEBMANIA_AMBIENT="2")
@@ -319,7 +319,7 @@ class NfeTransportPayloadTests(SimpleTestCase):
                 "ie": "123456789",
                 "endereco": "Rua do transporte, 10",
                 "uf": "SP",
-                "cidade": "Sao paulo",
+                "cidade": "São paulo",
                 "cep": "01001000",
                 "placa": "ABC1D23",
                 "uf_veiculo": "SP",

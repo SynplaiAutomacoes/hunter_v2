@@ -65,7 +65,7 @@ def create_nfse_external_xml_inbox(
     if company.workshop_id != workshop.pk:
         raise NfseExternalXmlInboxError("A empresa emissora pertence a outra oficina.")
     if not company.nfse_external_xml_inbox_enabled:
-        raise NfseExternalXmlInboxError("Inbox externa de XML NFS-e nao esta habilitada para esta empresa.")
+        raise NfseExternalXmlInboxError("Inbox externa de XML NFS-e não esta habilitada para esta empresa.")
     if not files:
         raise NfseExternalXmlInboxError("Envie ao menos um XML candidato.")
     if len(files) > MAX_NFSE_RECEIVED_BATCH_FILES:
@@ -97,7 +97,7 @@ def approve_nfse_external_xml_inbox_item(*, item: NfseExternalXmlInboxItem, appr
     if locked.status != NfseExternalXmlInboxItem.Status.PENDING:
         raise NfseExternalXmlInboxError("Somente item pendente pode ser aprovado.")
     if not locked.xml_snapshot.strip() or not locked.xml_hash:
-        raise NfseExternalXmlInboxError("Item sem XML valido nao pode ser aprovado.")
+        raise NfseExternalXmlInboxError("Item sem XML válido não pode ser aprovado.")
     if _active_duplicate_exists(item=locked):
         locked.status = NfseExternalXmlInboxItem.Status.DUPLICATE
         locked.validation_errors = ["XML duplicado em item ativo da inbox."]
@@ -116,7 +116,7 @@ def approve_nfse_external_xml_inbox_item(*, item: NfseExternalXmlInboxItem, appr
 def discard_nfse_external_xml_inbox_item(*, item: NfseExternalXmlInboxItem, reason: str, discarded_by: Any | None = None) -> NfseExternalXmlInboxItem:
     locked = NfseExternalXmlInboxItem.objects.select_for_update().select_related("inbox").get(pk=item.pk)
     if locked.status == NfseExternalXmlInboxItem.Status.PROCESSED:
-        raise NfseExternalXmlInboxError("Item processado nao pode ser descartado.")
+        raise NfseExternalXmlInboxError("Item processado não pode ser descartado.")
     reason = reason.strip()
     if not reason:
         raise NfseExternalXmlInboxError("Informe o motivo do descarte.")
@@ -137,7 +137,7 @@ def process_nfse_external_xml_inbox(*, inbox: NfseExternalXmlInbox, processed_by
         approved_queryset = approved_queryset.filter(pk__in=item_ids)
     approved_items = list(approved_queryset.order_by("pk"))
     if not approved_items:
-        raise NfseExternalXmlInboxError("Nao ha itens aprovados para processar.")
+        raise NfseExternalXmlInboxError("Não ha itens aprovados para processar.")
     files = [NfseReceivedBatchFile(filename=item.safe_filename, content=item.xml_snapshot.encode("utf-8")) for item in approved_items]
     batch = import_nfse_received_xml_batch(workshop=locked_inbox.workshop, company=locked_inbox.company, files=files, created_by=processed_by)
 
@@ -155,7 +155,7 @@ def process_nfse_external_xml_inbox(*, inbox: NfseExternalXmlInbox, processed_by
             item.validation_errors = []
         else:
             item.status = NfseExternalXmlInboxItem.Status.ERROR
-            item.validation_errors = linked_batch_item.validation_errors if linked_batch_item else ["Item nao localizado no lote processado."]
+            item.validation_errors = linked_batch_item.validation_errors if linked_batch_item else ["Item não localizado no lote processado."]
         item.save(
             update_fields=[
                 "status",
@@ -213,10 +213,10 @@ def bulk_process_nfse_external_xml_inbox_items(*, inbox: NfseExternalXmlInbox, i
             results.append(_bulk_result(item=item, success=False, message="Somente item aprovado pode ser processado."))
             continue
         if item.linked_batch_id or item.linked_received_document_id:
-            results.append(_bulk_result(item=item, success=False, message="Item ja possui vinculo de processamento."))
+            results.append(_bulk_result(item=item, success=False, message="Item já possui vinculo de processamento."))
             continue
         if not item.xml_snapshot.strip() or not item.xml_hash:
-            results.append(_bulk_result(item=item, success=False, message="Item sem XML valido nao pode ser processado."))
+            results.append(_bulk_result(item=item, success=False, message="Item sem XML válido não pode ser processado."))
             continue
         eligible_ids.append(item.pk)
 
@@ -317,7 +317,7 @@ def _create_candidate_item(*, inbox: NfseExternalXmlInbox, upload_file: NfseExte
             parsed_summary=summary,
         )
     if validation_errors:
-        status = NfseExternalXmlInboxItem.Status.DUPLICATE if any("ja importado" in error.lower() or "duplic" in error.lower() for error in validation_errors) else NfseExternalXmlInboxItem.Status.INVALID
+        status = NfseExternalXmlInboxItem.Status.DUPLICATE if any("já importado" in error.lower() or "duplic" in error.lower() for error in validation_errors) else NfseExternalXmlInboxItem.Status.INVALID
         return _create_item(
             inbox=inbox,
             original_filename=original_filename,
@@ -345,13 +345,13 @@ def _create_candidate_item(*, inbox: NfseExternalXmlInbox, upload_file: NfseExte
 
 def _validate_file_structure(*, filename: str, content: bytes) -> str:
     if not filename.lower().endswith(".xml"):
-        return "Arquivo deve ter extensao .xml."
+        return "Arquivo deve ter extensão .xml."
     if not content:
         return "Arquivo XML vazio."
     if len(content) > MAX_NFSE_RECEIVED_BATCH_FILE_SIZE:
         return "Arquivo XML excede o limite de 2 MB."
     if not content.lstrip().startswith(b"<"):
-        return "Arquivo nao contem XML."
+        return "Arquivo não contem XML."
     return ""
 
 
@@ -365,9 +365,9 @@ def _find_inbox_duplicate_errors(*, inbox: NfseExternalXmlInbox, parsed, seen_ha
         errors.append("Identificador duplicado dentro do envio.")
     active_items = NfseExternalXmlInboxItem.objects.filter(inbox__workshop=inbox.workshop, status__in=ACTIVE_INBOX_STATUSES)
     if active_items.filter(xml_hash=parsed.xml_hash).exists():
-        errors.append("XML ja existe em item ativo da inbox.")
+        errors.append("XML já existe em item ativo da inbox.")
     if parsed.xml_hash and NfseReceivedDocument.objects.filter(workshop=inbox.workshop, xml_hash=parsed.xml_hash).exists():
-        errors.append("XML ja importado como NFS-e recebida.")
+        errors.append("XML já importado como NFS-e recebida.")
     return errors
 
 

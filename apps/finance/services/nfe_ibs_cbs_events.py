@@ -133,15 +133,15 @@ def _assert_document_eligible_for_112110(*, document: FiscalDocument) -> None:
         raise NfeIbsCbsEventError("Evento IBS/CBS 112110 permitido somente para NF-e ou NFC-e.")
 
     if document.status == FiscalDocumentStatus.CANCELED:
-        raise NfeIbsCbsEventError("Documento cancelado nao pode receber evento IBS/CBS 112110.")
+        raise NfeIbsCbsEventError("Documento cancelado não pode receber evento IBS/CBS 112110.")
     if document.status == FiscalDocumentStatus.DENIED:
-        raise NfeIbsCbsEventError("Documento denegado nao pode receber evento IBS/CBS 112110.")
+        raise NfeIbsCbsEventError("Documento denegado não pode receber evento IBS/CBS 112110.")
     if document.status == FiscalDocumentStatus.UNCERTAIN:
         raise NfeIbsCbsEventError("Documento em estado incerto deve ser reconciliado antes do evento IBS/CBS.")
     if document.status != FiscalDocumentStatus.APPROVED:
         raise NfeIbsCbsEventError("Evento IBS/CBS 112110 permitido somente para documento autorizado.")
     if not str(document.access_key or "").strip():
-        raise NfeIbsCbsEventError("Evento IBS/CBS 112110 exige chave de acesso valida.")
+        raise NfeIbsCbsEventError("Evento IBS/CBS 112110 exige chave de acesso válida.")
 
 
 def _assert_document_eligible_for_112150(*, document: FiscalDocument) -> None:
@@ -150,15 +150,15 @@ def _assert_document_eligible_for_112150(*, document: FiscalDocument) -> None:
     if document.origin != FiscalDocumentOrigin.LOCAL or document.purpose != FiscalDocumentPurpose.NORMAL:
         raise NfeIbsCbsEventError("Evento IBS/CBS 112150 permitido somente para NF-e normal local nesta fase.")
     if document.status == FiscalDocumentStatus.CANCELED:
-        raise NfeIbsCbsEventError("Documento cancelado nao pode receber evento IBS/CBS 112150.")
+        raise NfeIbsCbsEventError("Documento cancelado não pode receber evento IBS/CBS 112150.")
     if document.status == FiscalDocumentStatus.DENIED:
-        raise NfeIbsCbsEventError("Documento denegado nao pode receber evento IBS/CBS 112150.")
+        raise NfeIbsCbsEventError("Documento denegado não pode receber evento IBS/CBS 112150.")
     if document.status == FiscalDocumentStatus.UNCERTAIN:
         raise NfeIbsCbsEventError("Documento em estado incerto deve ser reconciliado antes do evento IBS/CBS.")
     if document.status != FiscalDocumentStatus.APPROVED:
         raise NfeIbsCbsEventError("Evento IBS/CBS 112150 permitido somente para documento autorizado.")
     if not str(document.access_key or "").strip():
-        raise NfeIbsCbsEventError("Evento IBS/CBS 112150 exige chave de acesso valida.")
+        raise NfeIbsCbsEventError("Evento IBS/CBS 112150 exige chave de acesso válida.")
 
 
 def _assert_document_eligible_for_112130(*, document: FiscalDocument) -> None:
@@ -167,15 +167,15 @@ def _assert_document_eligible_for_112130(*, document: FiscalDocument) -> None:
     if document.origin != FiscalDocumentOrigin.LOCAL or document.purpose != FiscalDocumentPurpose.NORMAL:
         raise NfeIbsCbsEventError("Evento IBS/CBS 112130 permitido somente para NF-e normal local nesta fase.")
     if document.status == FiscalDocumentStatus.CANCELED:
-        raise NfeIbsCbsEventError("Documento cancelado nao pode receber evento IBS/CBS 112130.")
+        raise NfeIbsCbsEventError("Documento cancelado não pode receber evento IBS/CBS 112130.")
     if document.status == FiscalDocumentStatus.DENIED:
-        raise NfeIbsCbsEventError("Documento denegado nao pode receber evento IBS/CBS 112130.")
+        raise NfeIbsCbsEventError("Documento denegado não pode receber evento IBS/CBS 112130.")
     if document.status == FiscalDocumentStatus.UNCERTAIN:
         raise NfeIbsCbsEventError("Documento em estado incerto deve ser reconciliado antes do evento IBS/CBS.")
     if document.status != FiscalDocumentStatus.APPROVED:
         raise NfeIbsCbsEventError("Evento IBS/CBS 112130 permitido somente para documento autorizado.")
     if not str(document.access_key or "").strip():
-        raise NfeIbsCbsEventError("Evento IBS/CBS 112130 exige chave de acesso valida.")
+        raise NfeIbsCbsEventError("Evento IBS/CBS 112130 exige chave de acesso válida.")
 
 
 def _assert_no_existing_112110(*, document: FiscalDocument) -> None:
@@ -188,7 +188,7 @@ def _assert_no_existing_112110(*, document: FiscalDocument) -> None:
         FiscalDocumentEventStatus.UNCERTAIN,
     ]
     if document.events.filter(event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112110, status__in=blocking_statuses).exists():
-        raise NfeIbsCbsEventError("Ja existe evento IBS/CBS 112110 ativo, aprovado ou incerto para este documento.")
+        raise NfeIbsCbsEventError("Já existe evento IBS/CBS 112110 ativo, aprovado ou incerto para este documento.")
 
 
 def _assert_no_incompatible_112150(*, document: FiscalDocument, delivery_date: date) -> None:
@@ -201,7 +201,7 @@ def _assert_no_incompatible_112150(*, document: FiscalDocument, delivery_date: d
         FiscalDocumentEventStatus.UNCERTAIN,
     ]
     if document.events.filter(event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112150, status__in=blocking_statuses, request_payload__data_previsao_entrega=delivery_date.isoformat()).exists():
-        raise NfeIbsCbsEventError("Ja existe evento IBS/CBS 112150 ativo, aprovado ou incerto para esta data de previsao de entrega.")
+        raise NfeIbsCbsEventError("Já existe evento IBS/CBS 112150 ativo, aprovado ou incerto para esta data de previsão de entrega.")
 
 
 def _assert_no_incompatible_112130(*, document: FiscalDocument, items_payload: list[dict[str, Any]]) -> None:
@@ -214,14 +214,14 @@ def _assert_no_incompatible_112130(*, document: FiscalDocument, items_payload: l
         FiscalDocumentEventStatus.UNCERTAIN,
     ]
     if document.events.filter(event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112130, status__in=blocking_statuses, request_payload__itens=items_payload).exists():
-        raise NfeIbsCbsEventError("Ja existe evento IBS/CBS 112130 ativo, aprovado ou incerto com os mesmos itens e valores.")
+        raise NfeIbsCbsEventError("Já existe evento IBS/CBS 112130 ativo, aprovado ou incerto com os mesmos itens e valores.")
 
 
 def _next_event_sequence(*, document: FiscalDocument, event_code: str) -> int:
     latest = document.events.filter(event_type=FiscalDocumentEventType.IBS_CBS).order_by("-event_sequence").first()
     next_sequence = int(latest.event_sequence if latest is not None else 0) + 1
     if next_sequence > IBS_CBS_EVENT_MAX_SEQUENCE:
-        raise NfeIbsCbsEventError("Limite de 20 eventos IBS/CBS atingido para este documento e codigo.")
+        raise NfeIbsCbsEventError("Limite de 20 eventos IBS/CBS atingido para este documento e código.")
     return next_sequence
 
 
@@ -245,7 +245,7 @@ def _coerce_delivery_forecast_date(value: date | str) -> date:
     try:
         return date.fromisoformat(normalized)
     except ValueError as exc:
-        raise NfeIbsCbsEventError("Data de previsao de entrega invalida. Use o formato YYYY-MM-DD.") from exc
+        raise NfeIbsCbsEventError("Data de previsão de entrega inválida. Use o formato YYYY-MM-DD.") from exc
 
 
 def _build_112150_payload(*, document: FiscalDocument, event_sequence: int, delivery_date: date, request: HttpRequest | None = None) -> dict[str, Any]:
@@ -266,7 +266,7 @@ def _coerce_positive_decimal(*, value: Any, label: str, places: Decimal) -> Deci
     try:
         normalized = Decimal(str(value).replace(",", ".").strip())
     except (InvalidOperation, ValueError) as exc:
-        raise NfeIbsCbsEventError(f"{label} invalido para evento IBS/CBS 112130.") from exc
+        raise NfeIbsCbsEventError(f"{label} inválido para evento IBS/CBS 112130.") from exc
     if normalized <= 0:
         raise NfeIbsCbsEventError(f"{label} deve ser positivo para evento IBS/CBS 112130.")
     return normalized.quantize(places, rounding=ROUND_HALF_UP)
@@ -280,7 +280,7 @@ def _event_item_sequence(value: Any) -> int:
     try:
         sequence = int(str(value).strip())
     except (TypeError, ValueError) as exc:
-        raise NfeIbsCbsEventError("Item do evento IBS/CBS 112130 deve informar sequencial fiscal valido.") from exc
+        raise NfeIbsCbsEventError("Item do evento IBS/CBS 112130 deve informar sequencial fiscal válido.") from exc
     if sequence <= 0 or sequence > 999:
         raise NfeIbsCbsEventError("Item do evento IBS/CBS 112130 deve estar entre 1 e 999.")
     return sequence
@@ -342,9 +342,9 @@ def _find_product_snapshot_for_sequence(*, document: FiscalDocument, sequence: i
 def _assert_product_has_ibs_cbs_snapshot(*, product: dict[str, Any], sequence: int) -> None:
     ibs_cbs_payload = _product_ibs_cbs_payload(product)
     if not ibs_cbs_payload:
-        raise NfeIbsCbsEventError(f"Item fiscal {sequence} nao possui snapshot IBS/CBS no documento original.")
+        raise NfeIbsCbsEventError(f"Item fiscal {sequence} não possui snapshot IBS/CBS no documento original.")
     if not str(ibs_cbs_payload.get("situacao_tributaria") or "").strip() or not str(ibs_cbs_payload.get("classificacao_tributaria") or "").strip():
-        raise NfeIbsCbsEventError(f"Item fiscal {sequence} nao possui situacao/classificacao IBS/CBS no snapshot original.")
+        raise NfeIbsCbsEventError(f"Item fiscal {sequence} não possui situacao/classificacao IBS/CBS no snapshot original.")
 
 
 def _normalize_112130_items(*, document: FiscalDocument, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -357,10 +357,10 @@ def _normalize_112130_items(*, document: FiscalDocument, items: list[dict[str, A
             raise NfeIbsCbsEventError("Itens do evento IBS/CBS 112130 devem ser objetos.")
         sequence = _event_item_sequence(item.get("item"))
         if sequence in seen_sequences:
-            raise NfeIbsCbsEventError("Evento IBS/CBS 112130 nao permite item fiscal duplicado no mesmo payload.")
+            raise NfeIbsCbsEventError("Evento IBS/CBS 112130 não permite item fiscal duplicado no mesmo payload.")
         snapshot_product = _find_product_snapshot_for_sequence(document=document, sequence=sequence)
         if snapshot_product is None:
-            raise NfeIbsCbsEventError(f"Item fiscal {sequence} nao encontrado no snapshot da NF-e original.")
+            raise NfeIbsCbsEventError(f"Item fiscal {sequence} não encontrado no snapshot da NF-e original.")
         _assert_product_has_ibs_cbs_snapshot(product=snapshot_product, sequence=sequence)
         unit = str(item.get("unidade_perecimento") or "").strip().upper()
         if not 1 <= len(unit) <= 6:
@@ -598,12 +598,12 @@ def _transmit_ibs_cbs_event(*, event: FiscalDocumentEvent, attempt: FiscalEmissi
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = f"Resposta invalida ao registrar evento IBS/CBS {event_code}; estado remoto incerto."
+        message = f"Resposta inválida ao registrar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_uncertain(event=event, error_message=message)
         raise NfeIbsCbsEventError(message) from exc
     if not isinstance(response_payload, dict):
-        message = f"Resposta invalida ao registrar evento IBS/CBS {event_code}; estado remoto incerto."
+        message = f"Resposta inválida ao registrar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_uncertain(event=event, error_message=message)
         raise NfeIbsCbsEventError(message)
@@ -724,7 +724,7 @@ def _assert_event_cancelable(*, event: FiscalDocumentEvent, event_code: str) -> 
     if event.event_type != FiscalDocumentEventType.IBS_CBS or event.event_code != event_code:
         raise NfeIbsCbsEventError(f"Cancelamento permitido somente para evento IBS/CBS {event_code} nesta fase.")
     if event.status == FiscalDocumentEventStatus.CANCELED:
-        raise NfeIbsCbsEventError(f"Evento IBS/CBS {event_code} ja esta cancelado.")
+        raise NfeIbsCbsEventError(f"Evento IBS/CBS {event_code} já esta cancelado.")
     if event.status == FiscalDocumentEventStatus.UNCERTAIN:
         raise NfeIbsCbsEventError(f"Evento IBS/CBS {event_code} incerto deve ser reconciliado antes do cancelamento.")
     if event.status not in {FiscalDocumentEventStatus.APPROVED, FiscalDocumentEventStatus.SUCCEEDED}:
@@ -734,7 +734,7 @@ def _assert_event_cancelable(*, event: FiscalDocumentEvent, event_code: str) -> 
 
     document = event.document
     if document.status in {FiscalDocumentStatus.CANCELED, FiscalDocumentStatus.DENIED, FiscalDocumentStatus.REPROVED}:
-        raise NfeIbsCbsEventError("Documento fiscal base em estado final invalido nao permite cancelar evento IBS/CBS nesta fase.")
+        raise NfeIbsCbsEventError("Documento fiscal base em estado final inválido não permite cancelar evento IBS/CBS nesta fase.")
 
     blocking_statuses = [
         FiscalDocumentEventStatus.STARTED,
@@ -746,7 +746,7 @@ def _assert_event_cancelable(*, event: FiscalDocumentEvent, event_code: str) -> 
         FiscalDocumentEventStatus.UNCERTAIN,
     ]
     if event.related_cancellations.filter(event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION, status__in=blocking_statuses).exists():
-        raise NfeIbsCbsEventError(f"Ja existe cancelamento ativo, aprovado ou incerto para este evento IBS/CBS {event_code}.")
+        raise NfeIbsCbsEventError(f"Já existe cancelamento ativo, aprovado ou incerto para este evento IBS/CBS {event_code}.")
 
 
 def _assert_event_cancelable_112110(*, event: FiscalDocumentEvent) -> None:
@@ -958,12 +958,12 @@ def _transmit_ibs_cbs_event_cancellation(*, cancellation_event: FiscalDocumentEv
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = f"Resposta invalida ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
+        message = f"Resposta inválida ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_cancellation_uncertain(event=cancellation_event, error_message=message)
         raise NfeIbsCbsEventError(message) from exc
     if not isinstance(response_payload, dict):
-        message = f"Resposta invalida ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
+        message = f"Resposta inválida ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_cancellation_uncertain(event=cancellation_event, error_message=message)
         raise NfeIbsCbsEventError(message)

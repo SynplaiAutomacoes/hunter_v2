@@ -23,7 +23,7 @@
     {% if can_invalidate %}
         <button type="button" class="btn btn-sm btn-warning gap-2" onclick="invalidate_nfe_modal.showModal()">
             <span class="material-icons text-sm">block</span>
-            Inutilizar numeracao
+            Inutilizar numeração
         </button>
     {% endif %}
     {% if can_cancel %}
@@ -56,7 +56,7 @@
                     <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112110_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="mt-4 rounded-lg border border-base-200 p-4">
                         {% csrf_token %}
                         <h4 class="text-sm font-semibold text-base-content">Evento {{ ibs_cbs_event_code_112110 }}</h4>
-                        <p class="mt-2 text-sm text-base-content/70">Serao enviados somente chave da NF-e, ambiente, código do evento, sequência e URL de notificação quando disponível.</p>
+                        <p class="mt-2 text-sm text-base-content/70">Serão enviados somente chave da NF-e, ambiente, código do evento, sequência e URL de notificação quando disponível.</p>
 
                         <label class="label cursor-pointer justify-start gap-3 mt-3">
                             <input type="checkbox" name="confirm_ibs_cbs_event_112110" class="checkbox checkbox-sm" required>
@@ -73,7 +73,7 @@
                     <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112130_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="mt-4 rounded-lg border border-base-200 p-4">
                         {% csrf_token %}
                         <h4 class="text-sm font-semibold text-base-content">Evento {{ ibs_cbs_event_code_112130 }} - Perecimento/perda no transporte</h4>
-                        <p class="mt-2 text-sm text-base-content/70">Informe o sequencial fiscal do item na NF-e original e os valores oficiais de IBS/CBS e estorno. Sera enviado `itens[]`; não será enviado bloco top-level `ibs_cbs`.</p>
+                        <p class="mt-2 text-sm text-base-content/70">Informe o sequencial fiscal do item na NF-e original e os valores oficiais de IBS/CBS e estorno. Será enviado `itens[]`; não será enviado bloco top-level `ibs_cbs`.</p>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                             <div>
                                 <label for="ibs-cbs-112130-item" class="label"><span class="label-text">Item fiscal</span></label>
@@ -120,7 +120,7 @@
                     <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112150_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="mt-4 rounded-lg border border-base-200 p-4">
                         {% csrf_token %}
                         <h4 class="text-sm font-semibold text-base-content">Evento {{ ibs_cbs_event_code_112150 }} - Data de entrega</h4>
-                        <p class="mt-2 text-sm text-base-content/70">Serao enviados chave da NF-e, ambiente, código do evento, sequência e data de previsão de entrega no formato YYYY-MM-DD.</p>
+                        <p class="mt-2 text-sm text-base-content/70">Serão enviados chave da NF-e, ambiente, código do evento, sequência e data de previsão de entrega no formato YYYY-MM-DD.</p>
                         <div class="mt-3">
                             <label for="ibs-cbs-112150-delivery-date" class="label">
                                 <span class="label-text">Data de previsão de entrega</span>
@@ -199,11 +199,11 @@
                 {% endfor %}
                 {% if nfe_request.invalidated_at %}
                     <div>
-                        <p class="text-xs text-base-content/70 mb-1">Numeracao inutilizada em</p>
+                        <p class="text-xs text-base-content/70 mb-1">Numeração inutilizada em</p>
                         <p class="font-medium">{{ nfe_request.invalidated_at|date:'d/m/Y H:i' }}</p>
                     </div>
                     <div class="md:col-span-2">
-                        <p class="text-xs text-base-content/70 mb-1">Motivo da inutilizacao</p>
+                        <p class="text-xs text-base-content/70 mb-1">Motivo da inutilização</p>
                         <p class="font-medium break-all">{{ nfe_request.invalidation_reason|default:'-' }}</p>
                     </div>
                 {% endif %}
@@ -278,7 +278,7 @@
                         <span class="btn btn-outline btn-sm btn-disabled">DANFE etiqueta</span>
                     {% endif %}
                     {% if nfe_request.invalidation_xml_url and can_download_nferequest_xml %}
-                        <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilizacao</a>
+                        <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilização</a>
                     {% endif %}
                 </div>
 
@@ -635,11 +635,11 @@
                 {% endif %}
             {% else %}
                 <div class="alert alert-warning">
-                    <span>A Nota Fiscal de Produto ainda nao possui item sincronizado. Reenvie a consulta quando o processamento for concluido.</span>
+                    <span>A Nota Fiscal de Produto ainda não possui item sincronizado. Reenvie a consulta quando o processamento for concluído.</span>
                 </div>
                 {% if nfe_request.invalidation_xml_url and can_download_nferequest_xml %}
                     <div class="mt-4">
-                        <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilizacao</a>
+                        <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilização</a>
                     </div>
                 {% endif %}
             {% endif %}
@@ -650,19 +650,19 @@
             <div class="modal-box w-11/12 max-w-xl border border-base-300 bg-base-100 shadow-2xl">
                 <form method="post" action="{% url 'finance:nfe_invalidate' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
                     {% csrf_token %}
-                    <h3 class="text-base font-semibold text-base-content">Inutilizar numeracao</h3>
-                    <p class="text-sm text-base-content/70 mt-2">A numeracao reservada {{ nfe_request.reserved_number|default:'-' }}/{{ nfe_request.reserved_series|default:'-' }} sera marcada como inutilizada na SEFAZ. Informe o motivo entre 15 e 255 caracteres.</p>
+                    <h3 class="text-base font-semibold text-base-content">Inutilizar numeração</h3>
+                    <p class="text-sm text-base-content/70 mt-2">A numeração reservada {{ nfe_request.reserved_number|default:'-' }}/{{ nfe_request.reserved_series|default:'-' }} será marcada como inutilizada na SEFAZ. Informe o motivo entre 15 e 255 caracteres.</p>
 
                     <div class="mt-4">
                         <label for="nfe-invalidate-reason" class="label">
-                            <span class="label-text">Motivo da inutilizacao</span>
+                            <span class="label-text">Motivo da inutilização</span>
                         </label>
                         <textarea id="nfe-invalidate-reason" name="reason" class="textarea textarea-bordered w-full" rows="4" minlength="15" maxlength="255" required></textarea>
                     </div>
 
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="invalidate_nfe_modal.close()">Cancelar</button>
-                        <button type="submit" class="btn btn-warning">Confirmar inutilizacao</button>
+                        <button type="submit" class="btn btn-warning">Confirmar inutilização</button>
                     </div>
                 </form>
             </div>
@@ -794,7 +794,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <div>
                             <label for="nfe-complementary-operation" class="label"><span class="label-text">Operação</span></label>
-                            <input id="nfe-complementary-operation" name="operacao" class="input input-bordered w-full" value="1" maxlength="20" required>
+                            <input id="nfe-complementary-operation" name="operação" class="input input-bordered w-full" value="1" maxlength="20" required>
                         </div>
                         <div>
                             <label for="nfe-complementary-cfop" class="label"><span class="label-text">CFOP geral</span></label>
@@ -849,12 +849,12 @@
                     {% csrf_token %}
                     <h3 class="text-base font-semibold text-base-content">Emitir Nota de Ajuste</h3>
                     <div class="alert alert-warning mt-4 text-sm">
-                        <span>A Nota de Ajuste e destinada a escrituracao contabil, somente para Lucro Real/Normal ou Lucro Presumido, e nao representa entrada ou saida de produtos. Nao use este fluxo para credito/debito fiscal ou eventos IBS/CBS. Estorno SC/ES deve usar o fluxo de devolucao/estorno.</span>
+                        <span>A Nota de Ajuste é destinada a escrituração contabil, somente para Lucro Real/Normal ou Lucro Presumido, e não representa entrada ou saida de produtos. Não use este fluxo para crédito/débito fiscal ou eventos IBS/CBS. Estorno SC/ES deve usar o fluxo de devolução/estorno.</span>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <div>
                             <label for="nfe-adjustment-operation" class="label"><span class="label-text">Operação</span></label>
-                            <select id="nfe-adjustment-operation" name="operacao" class="select select-bordered w-full" required>
+                            <select id="nfe-adjustment-operation" name="operação" class="select select-bordered w-full" required>
                                 <option value="1">Saída</option>
                                 <option value="0">Entrada</option>
                             </select>
@@ -912,11 +912,11 @@
                     <p class="mt-1 text-xs text-base-content/60">Revise os valores fiscais e os dados do destinatário antes de confirmar.</p>
                     <label class="label cursor-pointer justify-start gap-3 mt-2">
                         <input type="checkbox" name="confirm_adjustment" class="checkbox checkbox-sm" required>
-                        <span class="label-text">Confirmo que esta Nota de Ajuste e fiscalmente aplicavel e nao representa movimento de produtos.</span>
+                        <span class="label-text">Confirmo que esta Nota de Ajuste e fiscalmente aplicável e não representa movimento de produtos.</span>
                     </label>
                     <label class="label cursor-pointer justify-start gap-3 mt-1">
                         <input type="checkbox" name="confirm_not_sc_es_reversal" class="checkbox checkbox-sm" required>
-                        <span class="label-text">Confirmo que nao se trata de estorno SC/ES que deve usar devolucao/estorno.</span>
+                        <span class="label-text">Confirmo que não se trata de estorno SC/ES que deve usar devolução/estorno.</span>
                     </label>
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="adjustment_nfe_modal.close()">Cancelar</button>

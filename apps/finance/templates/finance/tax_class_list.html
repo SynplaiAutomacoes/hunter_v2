@@ -25,7 +25,7 @@
     <div class="alert alert-info mb-6">
         <span>
             {% if tax_class_last_sync_at %}
-                Ultima sincronizacao em {{ tax_class_last_sync_at|date:'d/m/Y H:i' }}. Clique em Sincronizar para atualizar a lista.
+                Última sincronização em {{ tax_class_last_sync_at|date:'d/m/Y H:i' }}. Clique em Sincronizar para atualizar a lista.
             {% elif tax_class_has_synced_once %}
                 Nenhuma classe de imposto encontrada na base local. Use Sincronizar para consultar novamente.
             {% else %}
@@ -39,9 +39,9 @@
             <thead>
                 <tr>
                     <th>Referencia</th>
-                    <th>Descricao</th>
+                    <th>Descrição</th>
                     <th>Data</th>
-                    <th class="text-center">Acoes</th>
+                    <th class="text-center">Ações</th>
                 </tr>
             </thead>
             <tbody>
@@ -49,7 +49,7 @@
                     {% for tax_class in nfe_tax_classes %}
                         <tr>
                             <td class="font-mono">{{ tax_class.referencia|default:'-' }}</td>
-                            <td>{{ tax_class.descricao|default:'-' }}</td>
+                            <td>{{ tax_class.descrição|default:'-' }}</td>
                             <td>{{ tax_class.data|default:'-' }}</td>
                             <td class="text-center">
                                 {% if tax_class.referencia %}
@@ -84,7 +84,7 @@
                     {% for tax_class in nfse_tax_classes %}
                         <tr>
                             <td class="font-mono">{{ tax_class.referencia|default:'-' }}</td>
-                            <td>{{ tax_class.descricao|default:'-' }}</td>
+                            <td>{{ tax_class.descrição|default:'-' }}</td>
                             <td>{{ tax_class.data|default:'-' }}</td>
                             <td class="text-center">
                                 {% if tax_class.referencia %}

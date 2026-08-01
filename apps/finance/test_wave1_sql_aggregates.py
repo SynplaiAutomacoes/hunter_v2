@@ -38,7 +38,7 @@ class FinancialOverviewSqlAggregateTests(TestCase):
         FinancialMovement.objects.create(
             workshop=workshop,
             direction=FinancialMovement.MovementDirection.CREDIT,
-            description="Credito avulso",
+            description="Crédito avulso",
             amount=Money(50, "BRL"),
             due_date=date(2026, 6, 10),
             is_paid=True,
@@ -46,7 +46,7 @@ class FinancialOverviewSqlAggregateTests(TestCase):
         FinancialMovement.objects.create(
             workshop=workshop,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Debito avulso",
+            description="Débito avulso",
             amount=Money(20, "BRL"),
             due_date=date(2026, 6, 10),
             is_paid=True,

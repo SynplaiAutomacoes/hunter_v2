@@ -73,7 +73,7 @@ def _decimal(value: Any, *, field_name: str) -> Decimal:
     try:
         return Decimal(str(value or "0").replace(",", "."))
     except InvalidOperation as exc:
-        raise NfeComplementaryError(f"Informe valor valido para {field_name}.") from exc
+        raise NfeComplementaryError(f"Informe valor válido para {field_name}.") from exc
 
 
 def _decimal_to_payload(value: Decimal) -> str:
@@ -126,7 +126,7 @@ def _original_product_by_sequence(document: FiscalDocument, sequence: int) -> di
                 continue
             if product_sequence == sequence:
                 return dict(product)
-    raise NfeComplementaryError("NF-e original nao possui itens fiscais conhecidos para complementar preco/quantidade.")
+    raise NfeComplementaryError("NF-e original não possui itens fiscais conhecidos para complementar preço/quantidade.")
 
 
 def _normalize_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -144,7 +144,7 @@ def _normalize_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         cfop = str(item.get("codigo_cfop") or "").strip()
         tax_situation = str(item.get("situacao_tributaria") or "").strip()
         if not cfop or not tax_situation:
-            raise NfeComplementaryError("CFOP e situacao tributaria sao obrigatorios para cada item complementar.")
+            raise NfeComplementaryError("CFOP e situacao tributaria são obrigatórios para cada item complementar.")
         normalized_item: dict[str, Any] = {
             "sequencial": int(sequence_value),
             "codigo_cfop": cfop,
@@ -170,15 +170,15 @@ def _extract_ibs_cbs_payload_from_product(product: dict[str, Any], *, sequence: 
     if raw_ibs_cbs in (None, "", {}) and isinstance(taxes, dict):
         raw_ibs_cbs = taxes.get("ibs_cbs")
     if not isinstance(raw_ibs_cbs, dict):
-        raise NfeComplementaryError(f"Item fiscal {sequence} nao possui snapshot IBS/CBS confiavel para Nota Fiscal Complementar.")
+        raise NfeComplementaryError(f"Item fiscal {sequence} não possui snapshot IBS/CBS confiavel para Nota Fiscal Complementar.")
 
     base_calculo = raw_ibs_cbs.get("base_calculo")
     if base_calculo in (None, ""):
-        raise NfeComplementaryError(f"Item fiscal {sequence} possui snapshot IBS/CBS incompleto: base_calculo e obrigatorio na Nota Fiscal Complementar.")
+        raise NfeComplementaryError(f"Item fiscal {sequence} possui snapshot IBS/CBS incompleto: base_calculo e obrigatório na Nota Fiscal Complementar.")
     try:
         formatted_base_calculo = _decimal_to_payload(Decimal(str(base_calculo).replace(",", ".")))
     except InvalidOperation as exc:
-        raise NfeComplementaryError(f"Item fiscal {sequence} possui snapshot IBS/CBS incompleto: base_calculo invalido.") from exc
+        raise NfeComplementaryError(f"Item fiscal {sequence} possui snapshot IBS/CBS incompleto: base_calculo inválido.") from exc
 
     details = {key: value for key, value in raw_ibs_cbs.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular", "base_calculo"}}
     try:
@@ -240,7 +240,7 @@ def _build_complementary_payload(*, original_document: FiscalDocument, items: li
     elif str(original_document.remote_uuid or "").strip():
         payload["uuid"] = str(original_document.remote_uuid).strip()
     else:
-        raise NfeComplementaryError("NF-e original precisa possuir chave ou UUID valido.")
+        raise NfeComplementaryError("NF-e original precisa possuir chave ou UUID válido.")
     for item in items:
         original_product = _original_product_by_sequence(original_document, int(item["sequencial"]))
         payload["produtos"].append(_build_product_payload(original_product=original_product, complementary_item=item, include_ibs_cbs=requires_ibs_cbs))
@@ -262,12 +262,12 @@ def create_nfe_complementary_price_quantity_draft(
     request: HttpRequest | None = None,
 ) -> FiscalDocument:
     if not legal_confirmation:
-        raise NfeComplementaryError("Confirme explicitamente a emissao da Nota Fiscal Complementar.")
+        raise NfeComplementaryError("Confirme explicitamente a emissão da Nota Fiscal Complementar.")
     items = _normalize_items(items)
     with transaction.atomic():
         locked_original = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=original_document.pk)
         if locked_original.origin != FiscalDocumentOrigin.LOCAL or not locked_original.legacy_nfe_item_id:
-            raise NfeComplementaryError("Complementar de preco/quantidade permitida somente para NF-e original local com itens fiscais conhecidos.")
+            raise NfeComplementaryError("Complementar de preço/quantidade permitida somente para NF-e original local com itens fiscais conhecidos.")
         if not is_local_nfe_eligible_for_complementary(locked_original.legacy_nfe_item):
             raise NfeComplementaryError("Complementar permitida somente para NF-e autorizada/elegivel.")
         payload = _build_complementary_payload(original_document=locked_original, items=items, operacao=operacao, natureza_operacao=natureza_operacao, codigo_cfop=codigo_cfop, request=request)
@@ -335,15 +335,15 @@ def _mark_document_uncertain(*, document: FiscalDocument, error_message: str) ->
 
 def _assert_transmittable(*, document: FiscalDocument) -> None:
     if document.origin != FiscalDocumentOrigin.LOCAL or document.purpose != FiscalDocumentPurpose.COMPLEMENTARY or document.complementary_type != FiscalDocumentComplementaryType.PRICE_QUANTITY:
-        raise NfeComplementaryError("Documento complementar invalido para transmissao de preco/quantidade.")
+        raise NfeComplementaryError("Documento complementar inválido para transmissão de preço/quantidade.")
     existing_attempt = document.emission_attempts.filter(operation_type=FiscalEmissionOperationType.COMPLEMENTARY_PRICE_QUANTITY).order_by("-pk").first()
     if existing_attempt is None:
         return
     if existing_attempt.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-        raise NfeComplementaryError("Ja existe tentativa complementar em estado remoto incerto. Reconcilie antes de tentar novamente.")
+        raise NfeComplementaryError("Já existe tentativa complementar em estado remoto incerto. Reconcilie antes de tentar novamente.")
     if existing_attempt.status in {FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED}:
-        raise NfeComplementaryError("Esta intencao complementar ja possui envio remoto registrado.")
-    raise NfeComplementaryError("Esta intencao complementar ja possui tentativa fiscal registrada.")
+        raise NfeComplementaryError("Esta intencao complementar já possui envio remoto registrado.")
+    raise NfeComplementaryError("Esta intencao complementar já possui tentativa fiscal registrada.")
 
 
 def transmit_nfe_complementary_document(*, document: FiscalDocument) -> FiscalDocument:
@@ -389,12 +389,12 @@ def transmit_nfe_complementary_document(*, document: FiscalDocument) -> FiscalDo
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao emitir Nota Fiscal Complementar; estado remoto incerto."
+        message = "Resposta inválida ao emitir Nota Fiscal Complementar; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeComplementaryError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao emitir Nota Fiscal Complementar; estado remoto incerto."
+        message = "Resposta inválida ao emitir Nota Fiscal Complementar; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeComplementaryError(message)
@@ -424,7 +424,7 @@ def consult_nfe_complementary_document(*, document: FiscalDocument) -> dict[str,
         if attempt is not None:
             params["uuid"] = str(attempt.remote_uuid).strip()
     if not params:
-        raise NfeComplementaryError("Nao foi possivel consultar a Nota Fiscal Complementar sem UUID ou chave de acesso.")
+        raise NfeComplementaryError("Não foi possível consultar a Nota Fiscal Complementar sem UUID ou chave de acesso.")
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
@@ -434,9 +434,9 @@ def consult_nfe_complementary_document(*, document: FiscalDocument) -> dict[str,
     try:
         payload = response.json()
     except ValueError as exc:
-        raise NfeComplementaryError("Resposta invalida da API de consulta da Nota Fiscal Complementar.") from exc
+        raise NfeComplementaryError("Resposta inválida da API de consulta da Nota Fiscal Complementar.") from exc
     if not isinstance(payload, dict):
-        raise NfeComplementaryError("Resposta invalida da API de consulta da Nota Fiscal Complementar.")
+        raise NfeComplementaryError("Resposta inválida da API de consulta da Nota Fiscal Complementar.")
     error_message = extract_webmania_error_message(payload.get("error") or payload.get("msg") or payload.get("message"), scope="nfe")
     if error_message:
         raise NfeComplementaryError(error_message)

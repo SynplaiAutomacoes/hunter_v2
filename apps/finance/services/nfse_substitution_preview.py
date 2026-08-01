@@ -27,15 +27,15 @@ def _validate_taker(taker: dict[str, Any]) -> None:
 
 def _validate_service(service: dict[str, Any]) -> None:
     if not str(service.get("discriminacao") or "").strip():
-        raise ValidationError("O novo RPS exige discriminacao do servico.")
+        raise ValidationError("O novo RPS exige discriminacao do serviço.")
     try:
         value = Decimal(str(service.get("valor_servicos") or "0"))
     except InvalidOperation as exc:
-        raise ValidationError("Valor de servicos invalido no novo RPS.") from exc
+        raise ValidationError("Valor de serviços inválido no novo RPS.") from exc
     if value <= 0:
-        raise ValidationError("O valor de servicos do novo RPS deve ser positivo.")
+        raise ValidationError("O valor de serviços do novo RPS deve ser positivo.")
     if not str(service.get("classe_imposto") or "").strip() and not isinstance(service.get("impostos"), dict):
-        raise ValidationError("O novo RPS exige classe de imposto ou tributacao/retenções explicitas.")
+        raise ValidationError("O novo RPS exige classe de imposto ou tributação/retenções explicitas.")
 
 
 def _manual_emission_for_item(item: NfseItem) -> NfseManualEmission | None:
@@ -48,15 +48,15 @@ def _manual_emission_for_item(item: NfseItem) -> NfseManualEmission | None:
 def _validate_capability(*, workshop: Any) -> None:
     capabilities = NfseMunicipalCapability.objects.filter(workshop=workshop, is_active=True)
     if capabilities.exists() and not capabilities.filter(substitution_enabled=True).exists():
-        raise ValidationError("A capacidade municipal ativa nao permite preparar substituicao NFS-e.")
+        raise ValidationError("A capacidade municipal ativa não permite preparar substituição NFS-e.")
 
 
 def _validate_manual_capability(*, emission: NfseManualEmission) -> None:
     capability = emission.preview.municipal_capability
     if capability.workshop_id != emission.workshop_id or capability.company_id != emission.company_id:
-        raise ValidationError("A capacidade municipal nao pertence a empresa/oficina da emissao manual.")
+        raise ValidationError("A capacidade municipal não pertence a empresa/oficina da emissão manual.")
     if not capability.is_active or not capability.substitution_enabled:
-        raise ValidationError("A capacidade municipal ativa nao permite preparar substituicao NFS-e.")
+        raise ValidationError("A capacidade municipal ativa não permite preparar substituição NFS-e.")
 
 
 def validate_nfse_substitution_original(original_nfse: NfseItem, *, workshop: Any) -> NfseManualEmission | None:
@@ -65,21 +65,21 @@ def validate_nfse_substitution_original(original_nfse: NfseItem, *, workshop: An
     if original_nfse.status != NfseItemStatus.aprovado:
         raise ValidationError("A preview exige NFS-e original autorizada.")
     if not original_nfse.uuid:
-        raise ValidationError("A NFS-e original nao possui UUID remoto.")
+        raise ValidationError("A NFS-e original não possui UUID remoto.")
     verification_code = str(original_nfse.verification_code or "").strip()
     if not verification_code:
-        raise ValidationError("A NFS-e original nao possui codigo de verificacao.")
+        raise ValidationError("A NFS-e original não possui código de verificacao.")
     xml_url = str(original_nfse.xml_url or "").strip()
     if not xml_url:
-        raise ValidationError("A NFS-e original nao possui XML disponivel para snapshot.")
+        raise ValidationError("A NFS-e original não possui XML disponível para snapshot.")
     if original_nfse.cancellations.exclude(status=FiscalEmissionAttemptStatus.FAILED).exists():
-        raise ValidationError("NFS-e com cancelamento ativo, autorizado ou incerto nao pode ser substituida.")
+        raise ValidationError("NFS-e com cancelamento ativo, autorizado ou incerto não pode ser substituida.")
     if NfseSubstitution.objects.filter(original_nfse=original_nfse).exclude(status=FiscalEmissionAttemptStatus.FAILED).exists():
-        raise ValidationError("Ja existe substituicao ativa, autorizada ou incerta para esta NFS-e original.")
+        raise ValidationError("Já existe substituição ativa, autorizada ou incerta para esta NFS-e original.")
     manual_emission = _manual_emission_for_item(original_nfse)
     if manual_emission is not None:
         if manual_emission.status == FiscalEmissionAttemptStatus.UNCERTAIN or manual_emission.is_uncertain:
-            raise ValidationError("A emissao manual NFS-e esta incerta e deve ser reconciliada antes da substituicao.")
+            raise ValidationError("A emissão manual NFS-e esta incerta e deve ser reconciliada antes da substituição.")
         _validate_manual_capability(emission=manual_emission)
         return manual_emission
     _validate_capability(workshop=workshop)
@@ -110,21 +110,21 @@ def create_nfse_substitution_preview(
     created_by: Any,
 ) -> NfseSubstitutionPreview:
     if not is_nfse_substitution_preview_enabled(workshop=workshop):
-        raise ValidationError("A preview de substituicao NFS-e esta desabilitada para esta oficina.")
+        raise ValidationError("A prévia de substituição NFS-e esta desabilitada para esta oficina.")
     locked = NfseItem.objects.select_for_update(of=("self",)).get(pk=original_nfse.pk, workshop=workshop)
     validate_nfse_substitution_original(original_nfse=locked, workshop=workshop)
     verification_code = str(locked.verification_code or "").strip()
     xml_url = str(locked.xml_url or "").strip()
     if environment not in {"1", "2"}:
-        raise ValidationError("Ambiente invalido para a preview de substituicao.")
+        raise ValidationError("Ambiente inválido para a prévia de substituição.")
     if reason_code not in {1, 2, 4}:
-        raise ValidationError("Motivo invalido para a preview de substituicao.")
+        raise ValidationError("Motivo inválido para a prévia de substituição.")
     if rps_number <= 0 or not str(rps_series or "").strip():
-        raise ValidationError("Numero e serie do novo RPS sao obrigatorios.")
+        raise ValidationError("Número e série do novo RPS são obrigatórios.")
     if not isinstance(service_payload, dict) or not service_payload:
-        raise ValidationError("Servico do novo RPS e obrigatorio.")
+        raise ValidationError("Serviço do novo RPS e obrigatório.")
     if not isinstance(taker_payload, dict) or not taker_payload:
-        raise ValidationError("Tomador do novo RPS e obrigatorio.")
+        raise ValidationError("Tomador do novo RPS e obrigatório.")
     _validate_service(service_payload)
     _validate_taker(taker_payload)
     rps_payload = sanitize_fiscal_payload({"numero": rps_number, "serie": str(rps_series).strip(), "servico": service_payload, "tomador": taker_payload})
@@ -165,12 +165,12 @@ def create_nfse_substitution_preview(
 def approve_nfse_substitution_preview(*, preview: NfseSubstitutionPreview, approved_by: Any) -> NfseSubstitutionPreview:
     locked = NfseSubstitutionPreview.objects.select_for_update(of=("self",)).select_related("original_nfse").get(pk=preview.pk, workshop=preview.workshop)
     if not is_nfse_substitution_preview_enabled(workshop=locked.workshop):
-        raise ValidationError("A preview de substituicao NFS-e esta desabilitada para esta oficina.")
+        raise ValidationError("A prévia de substituição NFS-e esta desabilitada para esta oficina.")
     if locked.validation_status != FiscalProductPreviewStatus.VALIDATED:
         raise ValidationError("Somente preview validada pode ser aprovada.")
     validate_nfse_substitution_original(original_nfse=locked.original_nfse, workshop=locked.workshop)
     if NfseSubstitutionPreview.objects.filter(original_nfse=locked.original_nfse, is_approved=True).exclude(pk=locked.pk).exists():
-        raise ValidationError("Ja existe preview aprovada para esta NFS-e original.")
+        raise ValidationError("Já existe prévia aprovada para esta NFS-e original.")
     locked.validation_status = FiscalProductPreviewStatus.APPROVED
     locked.is_approved = True
     locked.approved_by = approved_by
