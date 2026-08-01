@@ -54,7 +54,7 @@ class NfseReceivedManifestationForm(CoreForm):
 
 
 class NfseReceivedConsultationForm(CoreForm):
-    confirmed = forms.BooleanField(label="Confirmo que a consulta Webmania e apenas auxiliar e nao substitui o XML validado.", required=True)
+    confirmed = forms.BooleanField(label="Confirmo que a consulta e apenas auxiliar e nao substitui o XML validado.", required=True)
 
 
 class NfseReceivedDocumentPermissionMixin(LoginRequiredMixin, WorkshopScopedMixin):
@@ -523,9 +523,9 @@ class NfseReceivedDocumentConsultationIssueView(LoginRequiredMixin, WorkshopScop
             messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
             return redirect("finance:nfse_received_document_detail", pk=document.pk)
         if consultation.divergences:
-            messages.warning(request, "Consulta Webmania concluida com divergencias consultivas. O XML validado nao foi alterado.")
+            messages.warning(request, "Consulta concluida com divergencias consultivas. O XML validado nao foi alterado.")
         else:
-            messages.success(request, "Consulta Webmania concluida sem substituir o XML validado.")
+            messages.success(request, "Consulta concluida sem substituir o XML validado.")
         return redirect("finance:nfse_received_document_detail", pk=document.pk)
 
 

@@ -28,7 +28,7 @@ class NfseReceivedBatchImportError(ValidationError):
 
 def import_nfse_received_xml_batch(*, workshop, company: WebmaniaCompany, files: list[NfseReceivedBatchFile], created_by) -> NfseReceivedImportBatch:
     if company.workshop_id != workshop.pk:
-        raise NfseReceivedBatchImportError("A empresa Webmania pertence a outra oficina.")
+        raise NfseReceivedBatchImportError("A empresa emissora pertence a outra oficina.")
     if not company.nfse_received_import_enabled:
         raise NfseReceivedBatchImportError("Importacao de NFS-e recebida nao esta habilitada para esta empresa.")
     if not files:
@@ -139,7 +139,7 @@ def _classify_import_error(message: str) -> tuple[str, str]:
     normalized = message.lower()
     if "ja importado" in normalized or "já importado" in normalized or "duplic" in normalized or "uuid de nfs-e recebida" in normalized or "identificador de nfs-e recebida" in normalized:
         return NfseReceivedImportBatchItem.Status.DUPLICATE, "duplicate_existing"
-    if "papel fiscal" in normalized or "cpf/cnpj" in normalized or "outra oficina" in normalized or "empresa webmania" in normalized or "emitida localmente" in normalized:
+    if "papel fiscal" in normalized or "cpf/cnpj" in normalized or "outra oficina" in normalized or "empresa emissora" in normalized or "empresa webmania" in normalized or "emitida localmente" in normalized:
         return NfseReceivedImportBatchItem.Status.INVALID_TENANT, "invalid_tenant"
     if "xml" in normalized and ("invalido" in normalized or "ilegivel" in normalized or "dtd" in normalized or "entidade" in normalized):
         return NfseReceivedImportBatchItem.Status.INVALID_XML, "invalid_xml"

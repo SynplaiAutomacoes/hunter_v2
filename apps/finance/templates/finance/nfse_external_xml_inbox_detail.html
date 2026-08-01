@@ -14,7 +14,7 @@
         <div class="stat"><div class="stat-title">Processados</div><div class="stat-value">{{ inbox.processed_count }}</div></div>
         <div class="stat"><div class="stat-title">Erros</div><div class="stat-value">{{ inbox.error_count }}</div></div>
     </div>
-    <div class="alert alert-info">A inbox e operacional: nao importa automaticamente, nao consulta Webmania, nao manifesta e nao cria documento fiscal fora do lote XML validado.</div>
+    <div class="alert alert-info">A inbox e operacional: nao importa automaticamente, nao consulta, nao manifesta e nao cria documento fiscal fora do lote XML validado.</div>
     <form id="bulk-inbox-form" method="post" action="{% url 'finance:nfse_external_xml_inbox_bulk_action' inbox.pk %}">{% csrf_token %}</form>
     <form method="get" class="grid gap-3 md:grid-cols-4">
         <input class="input input-bordered input-sm" type="search" name="q" value="{{ filters.q }}" placeholder="Arquivo, hash, UUID, CNPJ, erro">

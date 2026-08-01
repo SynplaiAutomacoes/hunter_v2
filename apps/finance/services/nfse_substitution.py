@@ -282,7 +282,7 @@ def substitute_nfse_from_preview(*, preview: NfseSubstitutionPreview, requested_
         _mark_uncertain(substitution=substitution, message=str(exc))
         raise
     if substitution.status == FiscalEmissionAttemptStatus.FAILED:
-        message = extract_webmania_error_message(response_payload, scope="nfse") or "Substituicao NFS-e rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfse") or "Substituicao NFS-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfseSubstitutionError(message)
     if substitution.status == FiscalEmissionAttemptStatus.SUCCEEDED:

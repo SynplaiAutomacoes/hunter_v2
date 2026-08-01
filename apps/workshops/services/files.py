@@ -273,7 +273,7 @@ def build_workshop_logo_public_url(*, workshop: Workshop, request=None) -> str:
     path = reverse("workshops:logo_public", kwargs={"token": workshop.logo_public_token})
     public_url = build_absolute_app_url(path=path, request=None)
     if not _is_public_url(public_url):
-        raise WorkshopFileStorageError("Configure APP_BASE_URL com uma URL publica para sincronizar a logomarca com a Webmania.")
+        raise WorkshopFileStorageError("Configure APP_BASE_URL com uma URL publica para sincronizar a logomarca.")
     return public_url
 
 
@@ -430,7 +430,7 @@ def save_workshop_logo_atomic(
             try:
                     _get_fiscal_service().update_webmania_company(company=company, payload={"logomarca": previous_company_logo_url})
             except Exception as restore_exc:
-                raise WorkshopFileSyncError("Falha ao salvar a logo localmente e ao restaurar a logo anterior na Webmania.") from restore_exc
+                raise WorkshopFileSyncError("Falha ao salvar a logo localmente e ao restaurar a logo anterior.") from restore_exc
         _safe_delete_file(kind="logo", file_id=staged_file.file_id)
         raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteracao foi mantida.") from exc
 
@@ -466,7 +466,7 @@ def clear_workshop_logo_atomic(*, workshop: Workshop, company: WebmaniaCompany, 
             try:
                 _get_fiscal_service().update_webmania_company(company=company, payload={"logomarca": restore_url})
             except Exception as restore_exc:
-                raise WorkshopFileSyncError("Falha ao remover a logo localmente e ao restaurar a URL anterior na Webmania.") from restore_exc
+                raise WorkshopFileSyncError("Falha ao remover a logo localmente e ao restaurar a URL anterior.") from restore_exc
         raise WorkshopFileSyncError("Falha ao concluir a remocao da logo. Nenhuma alteracao foi mantida.") from exc
 
 
@@ -553,7 +553,7 @@ def save_workshop_certificate_atomic(
             try:
                 _get_fiscal_service().update_webmania_company(company=company, payload=restore_payload)
             except Exception as restore_exc:
-                raise WorkshopFileSyncError("Falha ao salvar o certificado localmente e ao restaurar o certificado anterior na Webmania.") from restore_exc
+                raise WorkshopFileSyncError("Falha ao salvar o certificado localmente e ao restaurar o certificado anterior.") from restore_exc
 
         raise WorkshopFileSyncError("Falha ao concluir o salvamento atomico do certificado. Nenhuma alteracao foi mantida.") from exc
 

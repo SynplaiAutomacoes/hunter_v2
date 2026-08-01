@@ -454,7 +454,7 @@ class WebmaniaCompanyTaxType(models.TextChoices):
 class WebmaniaCompany(TimeStampedModel):
     workshop = models.OneToOneField("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="webmania_company", null=True, blank=True)
 
-    webmania_company_id = models.CharField(verbose_name="ID da empresa na Webmania", max_length=32, blank=True, default="")
+    webmania_company_id = models.CharField(verbose_name="ID da empresa", max_length=32, blank=True, default="")
     consumer_key = models.CharField(verbose_name="Consumer Key", max_length=255, blank=True, default="")
     consumer_secret = models.CharField(verbose_name="Consumer Secret", max_length=255, blank=True, default="")
     access_token = models.CharField(verbose_name="Access Token", max_length=255, blank=True, default="")
@@ -828,7 +828,7 @@ class NfeRequestManualItem(TimeStampedModel):
 
 class NfseMunicipalCapability(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_municipal_capabilities")
-    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_municipal_capabilities")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa emissora", on_delete=models.PROTECT, related_name="nfse_municipal_capabilities")
     city_code = models.CharField(verbose_name="Codigo IBGE do municipio", max_length=7)
     city_name = models.CharField(verbose_name="Municipio", max_length=120)
     state = models.CharField(verbose_name="UF", max_length=2)
@@ -882,7 +882,7 @@ class NfseMunicipalCapability(TimeStampedModel):
         if len(self.state) != 2:
             raise ValidationError({"state": "Informe a UF com 2 caracteres."})
         if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
-            raise ValidationError({"company": "A empresa Webmania deve pertencer a oficina informada."})
+            raise ValidationError({"company": "A empresa emissora deve pertencer a oficina informada."})
 
     def __str__(self) -> str:
         return f"NFS-e {self.city_name}/{self.state} [{self.workshop_id}]"
@@ -1092,7 +1092,7 @@ class NfseSubstitutionPreview(TimeStampedModel):
 
 class NfseManualEmissionPreview(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_manual_emission_previews")
-    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_manual_emission_previews")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa emissora", on_delete=models.PROTECT, related_name="nfse_manual_emission_previews")
     municipal_capability = models.ForeignKey(NfseMunicipalCapability, verbose_name="Capacidade municipal", on_delete=models.PROTECT, related_name="manual_emission_previews")
     environment = models.CharField(verbose_name="Ambiente", max_length=1, choices=(("1", "Producao"), ("2", "Homologacao")))
     rps_number = models.PositiveIntegerField(verbose_name="Numero RPS")
@@ -1135,7 +1135,7 @@ class NfseManualEmissionPreview(TimeStampedModel):
     def clean(self) -> None:
         super().clean()
         if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
-            raise ValidationError({"company": "A empresa Webmania deve pertencer a oficina."})
+            raise ValidationError({"company": "A empresa emissora deve pertencer a oficina."})
         if self.municipal_capability_id and self.workshop_id and self.municipal_capability.workshop_id != self.workshop_id:
             raise ValidationError({"municipal_capability": "A capacidade municipal deve pertencer a oficina."})
         if self.municipal_capability_id and self.company_id and self.municipal_capability.company_id != self.company_id:
@@ -1196,7 +1196,7 @@ class NfseManualEmissionPreview(TimeStampedModel):
 
 class NfseManualEmission(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_manual_emissions")
-    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_manual_emissions")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa emissora", on_delete=models.PROTECT, related_name="nfse_manual_emissions")
     preview = models.OneToOneField(NfseManualEmissionPreview, verbose_name="Preview aprovada", on_delete=models.PROTECT, related_name="manual_emission")
     nfse_item = models.OneToOneField(NfseItem, verbose_name="NFS-e emitida", on_delete=models.PROTECT, null=True, blank=True, related_name="manual_emission")
     environment = models.CharField(verbose_name="Ambiente", max_length=1, choices=(("1", "Producao"), ("2", "Homologacao")))
@@ -1236,7 +1236,7 @@ class NfseManualEmission(TimeStampedModel):
     def clean(self) -> None:
         super().clean()
         if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
-            raise ValidationError({"company": "A empresa Webmania deve pertencer a oficina."})
+            raise ValidationError({"company": "A empresa emissora deve pertencer a oficina."})
         if self.preview_id:
             if self.preview.workshop_id != self.workshop_id:
                 raise ValidationError({"preview": "A preview pertence a outra oficina."})
@@ -1443,7 +1443,7 @@ class NfseReceivedDocument(TimeStampedModel):
         REJECTED = "rejected", "Rejeitado"
 
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_received_documents")
-    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_received_documents")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa emissora", on_delete=models.PROTECT, related_name="nfse_received_documents")
     source = models.CharField(verbose_name="Origem", max_length=24, choices=Source.choices, default=Source.XML_UPLOAD, db_index=True)
     xml_snapshot = models.TextField(verbose_name="XML original")
     xml_hash = models.CharField(verbose_name="Hash do XML", max_length=64, db_index=True)
@@ -1501,7 +1501,7 @@ class NfseReceivedDocument(TimeStampedModel):
     def clean(self) -> None:
         super().clean()
         if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
-            raise ValidationError({"company": "A empresa Webmania pertence a outra oficina."})
+            raise ValidationError({"company": "A empresa emissora pertence a outra oficina."})
         if self.source != self.Source.XML_UPLOAD:
             raise ValidationError({"source": "Nesta fase, somente upload manual de XML e permitido."})
         if not self.xml_snapshot.strip():
@@ -1570,7 +1570,7 @@ class NfseReceivedDocumentConsultation(TimeStampedModel):
             models.Index(fields=["workshop", "remote_uuid"], name="nfse_recv_cons_uuid_idx"),
         ]
         permissions = [
-            ("consult_nfse_received", "Pode consultar NFS-e recebida na Webmania"),
+            ("consult_nfse_received", "Pode consultar NFS-e recebida"),
             ("view_nfse_received_consultation", "Pode visualizar consultas de NFS-e recebida"),
             ("view_nfse_received_consultation_payload", "Pode visualizar payload de consulta de NFS-e recebida"),
         ]
@@ -1601,7 +1601,7 @@ class NfseReceivedImportBatch(TimeStampedModel):
         FAILED = "failed", "Falhou"
 
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_received_import_batches")
-    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_received_import_batches")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa emissora", on_delete=models.PROTECT, related_name="nfse_received_import_batches")
     source = models.CharField(verbose_name="Origem", max_length=24, choices=Source.choices, default=Source.XML_UPLOAD, db_index=True)
     status = models.CharField(verbose_name="Status", max_length=32, choices=Status.choices, default=Status.PROCESSING, db_index=True)
     total_files = models.PositiveIntegerField(verbose_name="Total de arquivos", default=0)
@@ -1623,7 +1623,7 @@ class NfseReceivedImportBatch(TimeStampedModel):
     def clean(self) -> None:
         super().clean()
         if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
-            raise ValidationError({"company": "A empresa Webmania pertence a outra oficina."})
+            raise ValidationError({"company": "A empresa emissora pertence a outra oficina."})
         if self.source != self.Source.XML_UPLOAD:
             raise ValidationError({"source": "Nesta fase, somente lote local de XML e permitido."})
 
@@ -1687,7 +1687,7 @@ class NfseExternalXmlInbox(TimeStampedModel):
         FAILED = "failed", "Falhou"
 
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_external_xml_inboxes")
-    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_external_xml_inboxes")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa emissora", on_delete=models.PROTECT, related_name="nfse_external_xml_inboxes")
     source_type = models.CharField(verbose_name="Tipo de origem", max_length=32, choices=SourceType.choices, default=SourceType.MANUAL_UPLOAD, db_index=True)
     source_label = models.CharField(verbose_name="Origem declarada", max_length=120, blank=True, default="")
     status = models.CharField(verbose_name="Status", max_length=32, choices=Status.choices, default=Status.OPEN, db_index=True)
@@ -1720,7 +1720,7 @@ class NfseExternalXmlInbox(TimeStampedModel):
     def clean(self) -> None:
         super().clean()
         if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
-            raise ValidationError({"company": "A empresa Webmania pertence a outra oficina."})
+            raise ValidationError({"company": "A empresa emissora pertence a outra oficina."})
         if self.source_type != self.SourceType.MANUAL_UPLOAD:
             raise ValidationError({"source_type": "Nesta fase, somente upload manual/assistido e permitido."})
 

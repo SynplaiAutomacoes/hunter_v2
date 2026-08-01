@@ -372,7 +372,7 @@ def _send_manifestation(*, manifestation: NfseManifestation, attempt: FiscalEmis
         raise NfseManifestationError(message)
     manifestation = apply_nfse_manifestation_payload(manifestation=manifestation, payload=response_payload, update_source="manifestation")
     if manifestation.status == FiscalEmissionAttemptStatus.FAILED:
-        message = extract_webmania_error_message(response_payload, scope="nfse") or "Manifestacao NFS-e rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfse") or "Manifestacao NFS-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfseManifestationError(message)
     if manifestation.status != FiscalEmissionAttemptStatus.SUCCEEDED:

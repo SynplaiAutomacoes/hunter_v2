@@ -97,7 +97,7 @@ def _assert_company_configured(company: WebmaniaCompany) -> None:
     if not company.pk:
         raise ValidationError("Empresa emissora obrigatoria.")
     if not str(company.webmania_company_id or company.bearer_access_token or company.consumer_key or "").strip():
-        raise ValidationError("Empresa emissora Webmania nao esta configurada.")
+        raise ValidationError("Empresa emissora nao esta configurada.")
 
 
 def _assert_capability_enabled(capability: NfseMunicipalCapability) -> None:

@@ -56,7 +56,7 @@
                     <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112110_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="mt-4 rounded-lg border border-base-200 p-4">
                         {% csrf_token %}
                         <h4 class="text-sm font-semibold text-base-content">Evento {{ ibs_cbs_event_code_112110 }}</h4>
-                        <p class="mt-2 text-sm text-base-content/70">A Webmania receberá somente chave da NF-e, ambiente, código do evento, sequência e URL de notificação quando disponível.</p>
+                        <p class="mt-2 text-sm text-base-content/70">Serao enviados somente chave da NF-e, ambiente, código do evento, sequência e URL de notificação quando disponível.</p>
 
                         <label class="label cursor-pointer justify-start gap-3 mt-3">
                             <input type="checkbox" name="confirm_ibs_cbs_event_112110" class="checkbox checkbox-sm" required>
@@ -73,7 +73,7 @@
                     <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112130_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="mt-4 rounded-lg border border-base-200 p-4">
                         {% csrf_token %}
                         <h4 class="text-sm font-semibold text-base-content">Evento {{ ibs_cbs_event_code_112130 }} - Perecimento/perda no transporte</h4>
-                        <p class="mt-2 text-sm text-base-content/70">Informe o sequencial fiscal do item na NF-e original e os valores oficiais de IBS/CBS e estorno. A Webmania receberá `itens[]`; não será enviado bloco top-level `ibs_cbs`.</p>
+                        <p class="mt-2 text-sm text-base-content/70">Informe o sequencial fiscal do item na NF-e original e os valores oficiais de IBS/CBS e estorno. Sera enviado `itens[]`; não será enviado bloco top-level `ibs_cbs`.</p>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                             <div>
                                 <label for="ibs-cbs-112130-item" class="label"><span class="label-text">Item fiscal</span></label>
@@ -120,7 +120,7 @@
                     <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112150_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="mt-4 rounded-lg border border-base-200 p-4">
                         {% csrf_token %}
                         <h4 class="text-sm font-semibold text-base-content">Evento {{ ibs_cbs_event_code_112150 }} - Data de entrega</h4>
-                        <p class="mt-2 text-sm text-base-content/70">A Webmania receberá chave da NF-e, ambiente, código do evento, sequência e data de previsão de entrega no formato YYYY-MM-DD.</p>
+                        <p class="mt-2 text-sm text-base-content/70">Serao enviados chave da NF-e, ambiente, código do evento, sequência e data de previsão de entrega no formato YYYY-MM-DD.</p>
                         <div class="mt-3">
                             <label for="ibs-cbs-112150-delivery-date" class="label">
                                 <span class="label-text">Data de previsão de entrega</span>
@@ -635,7 +635,7 @@
                 {% endif %}
             {% else %}
                 <div class="alert alert-warning">
-                    <span>A Nota Fiscal de Produto ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
+                    <span>A Nota Fiscal de Produto ainda nao possui item sincronizado. Reenvie a consulta quando o processamento for concluido.</span>
                 </div>
                 {% if nfe_request.invalidation_xml_url and can_download_nferequest_xml %}
                     <div class="mt-4">

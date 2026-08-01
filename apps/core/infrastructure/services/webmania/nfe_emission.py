@@ -237,7 +237,7 @@ def _validate_nfe_tax_class(*, nfe_request: NfeRequest, headers: dict[str, str])
             raise NfeEmissionError("A classe de imposto selecionada nao e do tipo Nota Fiscal.")
         return item
 
-    raise NfeEmissionError("A classe de imposto selecionada nao esta disponivel para estas credenciais da Webmania.")
+    raise NfeEmissionError("A classe de imposto selecionada nao esta disponivel para estas credenciais.")
 
 
 def _validate_local_ibs_cbs_tax_class(*, nfe_request: NfeRequest) -> None:
@@ -672,7 +672,7 @@ def preview_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None 
 
     preview_url = _extract_nfe_preview_url(data)
     if not preview_url:
-        raise NfeEmissionError("A API da Webmania nao retornou a URL da previa da Nota Fiscal.")
+        raise NfeEmissionError("A API nao retornou a URL da previa da Nota Fiscal.")
 
     return {**data, "preview_url": preview_url}
 
@@ -716,7 +716,7 @@ def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpReque
 
     preview_url = _extract_nfe_preview_url(data)
     if not preview_url:
-        raise NfeEmissionError("A API da Webmania nao retornou o PDF da previa da Nota Fiscal.")
+        raise NfeEmissionError("A API nao retornou o PDF da previa da Nota Fiscal.")
 
     try:
         return download_webmania_document(workshop=nfe_request.workshop, url=preview_url)

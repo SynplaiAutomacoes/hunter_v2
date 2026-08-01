@@ -208,19 +208,19 @@ def cancel_nfce_document(*, document: FiscalDocument, reason: str, requested_by:
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao cancelar NFC-e; estado remoto incerto."
+        message = "Resposta invalida ao cancelar NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_nfce_cancellation_uncertain(event=event, error_message=message)
         raise NfceCancellationError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao cancelar NFC-e; estado remoto incerto."
+        message = "Resposta invalida ao cancelar NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_nfce_cancellation_uncertain(event=event, error_message=message)
         raise NfceCancellationError(message)
 
     event = apply_nfce_cancellation_event_payload(event=event, response_payload=response_payload)
     if _is_failed_cancellation_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento de NFC-e rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento de NFC-e rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfceCancellationError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)

@@ -18,7 +18,7 @@ class NfseCapabilityResolution:
 def _resolve_company(*, nfse_request: NfseRequest) -> WebmaniaCompany:
     company = WebmaniaCompany.objects.filter(workshop=nfse_request.workshop).first()
     if company is None:
-        raise NfseCapabilityError("Configure a empresa Webmania da oficina antes de emitir Nota Fiscal de Servico.")
+        raise NfseCapabilityError("Configure a empresa emissora da oficina antes de emitir Nota Fiscal de Servico.")
     return company
 
 

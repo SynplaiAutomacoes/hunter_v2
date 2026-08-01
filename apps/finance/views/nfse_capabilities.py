@@ -68,7 +68,7 @@ class NfseMunicipalCapabilityCreateView(LoginRequiredMixin, WorkshopScopedMixin,
     def _company(self) -> WebmaniaCompany:
         company = WebmaniaCompany.objects.filter(workshop=self.workshop).first()
         if company is None:
-            raise ImproperlyConfigured("Configure a empresa Webmania da oficina antes das capacidades NFS-e.")
+            raise ImproperlyConfigured("Configure a empresa emissora da oficina antes das capacidades NFS-e.")
         return company
 
 
@@ -95,7 +95,7 @@ class NfseMunicipalCapabilityUpdateView(LoginRequiredMixin, WorkshopScopedMixin,
         kwargs = super().get_form_kwargs()
         company = WebmaniaCompany.objects.filter(workshop=self.workshop).first()
         if company is None:
-            raise ImproperlyConfigured("Configure a empresa Webmania da oficina antes das capacidades NFS-e.")
+            raise ImproperlyConfigured("Configure a empresa emissora da oficina antes das capacidades NFS-e.")
         kwargs.update({"workshop": self.workshop, "company": company})
         return kwargs
 

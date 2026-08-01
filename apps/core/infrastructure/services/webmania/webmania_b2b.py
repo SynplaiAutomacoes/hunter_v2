@@ -75,7 +75,7 @@ def _build_headers(*, workshop: Workshop | None = None, force_global: bool = Fal
         if force_global or should_use_global_webmania_auth():
             return build_webmania_b2b_headers()
         if workshop is None:
-            raise WebmaniaB2BServiceError("A oficina ativa é obrigatória para autenticação da Webmania fora do ambiente 2.")
+            raise WebmaniaB2BServiceError("A oficina ativa é obrigatória para autenticação fora do ambiente 2.")
         return build_webmania_headers(workshop=workshop)
     except WebmaniaAuthError as exc:
         raise WebmaniaB2BServiceError(str(exc)) from exc
@@ -124,7 +124,7 @@ def _normalize_workshop_phone(value: object) -> str:
 
 
 def _build_workshop_name(payload: dict[str, Any]) -> str:
-    return _clean_string(payload.get("razao_social")) or _clean_string(payload.get("nome_fantasia")) or _clean_string(payload.get("nome_completo")) or f"Oficina Webmania {(_clean_string(payload.get('id')) or '-')}"
+    return _clean_string(payload.get("razao_social")) or _clean_string(payload.get("nome_fantasia")) or _clean_string(payload.get("nome_completo")) or f"Oficina {(_clean_string(payload.get('id')) or '-')}"
 
 
 def _build_workshop_address(payload: dict[str, Any]) -> str:
@@ -280,7 +280,7 @@ def create_b2b_companies(*, quantity: int, workshop: Workshop | None = None, for
         response = requests.post(url, json={"quantidade": quantity}, headers=_build_headers(workshop=workshop, force_global=force_global), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = _request_exception_message(exc, default="Falha ao criar empresas na Webmania")
+        message = _request_exception_message(exc, default="Falha ao criar empresas")
         raise WebmaniaB2BServiceError(message) from exc
 
     data = _parse_json_response(response, error_message="Resposta inválida da API de criação de empresas.")
@@ -293,7 +293,7 @@ def create_b2b_companies(*, quantity: int, workshop: Workshop | None = None, for
 
     companies = [item for item in data if isinstance(item, dict)]
     if not companies:
-        raise WebmaniaB2BServiceError("A API da Webmania não retornou as credenciais da nova empresa.")
+        raise WebmaniaB2BServiceError("A API nao retornou as credenciais da nova empresa.")
     return companies
 
 
@@ -304,7 +304,7 @@ def list_b2b_companies(*, workshop: Workshop | None = None, force_global_auth: b
         response = requests.get(url, headers=_build_headers(workshop=workshop, force_global=force_global_auth), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = _request_exception_message(exc, default="Falha ao listar empresas na Webmania")
+        message = _request_exception_message(exc, default="Falha ao listar empresas")
         raise WebmaniaB2BServiceError(message) from exc
 
     data = _parse_json_response(response, error_message="Resposta inválida da API de listagem de empresas.")
@@ -363,7 +363,7 @@ def get_b2b_requests(*, month: int | None = None, year: int | None = None, works
         response = requests.get(_build_requests_url(), params=query_params, headers=_build_headers(workshop=workshop), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = _request_exception_message(exc, default="Falha ao consultar requisições na Webmania")
+        message = _request_exception_message(exc, default="Falha ao consultar requisicoes")
         raise WebmaniaB2BServiceError(message) from exc
 
     data = _parse_json_response(response, error_message="Resposta inválida da API de requisições.")
@@ -382,7 +382,7 @@ def provision_webmania_company_for_workshop(*, workshop: Workshop) -> WebmaniaCo
     company_payload = companies[0]
     company = _upsert_company_from_payload(payload=company_payload, workshop=workshop)
     if company is None:
-        raise WebmaniaB2BServiceError("Não foi possível vincular a empresa criada na Webmania à oficina.")
+        raise WebmaniaB2BServiceError("Nao foi possivel vincular a empresa criada à oficina.")
 
     if not company.cnpj:
         company.cnpj = _clean_string(workshop.cnpj)
@@ -407,7 +407,7 @@ def update_webmania_company(*, company: WebmaniaCompany, payload: dict[str, Any]
         response = requests.post(_build_nfe_company_url(), json=payload, headers=_build_company_headers(company), timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = _request_exception_message(exc, default="Falha ao atualizar empresa na Webmania")
+        message = _request_exception_message(exc, default="Falha ao atualizar empresa")
         raise WebmaniaB2BServiceError(message) from exc
 
     data = _parse_json_response(response, error_message="Resposta inválida da API de atualização da empresa.")

@@ -598,19 +598,19 @@ def _transmit_ibs_cbs_event(*, event: FiscalDocumentEvent, attempt: FiscalEmissi
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = f"Resposta invalida da Webmania ao registrar evento IBS/CBS {event_code}; estado remoto incerto."
+        message = f"Resposta invalida ao registrar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_uncertain(event=event, error_message=message)
         raise NfeIbsCbsEventError(message) from exc
     if not isinstance(response_payload, dict):
-        message = f"Resposta invalida da Webmania ao registrar evento IBS/CBS {event_code}; estado remoto incerto."
+        message = f"Resposta invalida ao registrar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_uncertain(event=event, error_message=message)
         raise NfeIbsCbsEventError(message)
 
     event = apply_ibs_cbs_event_payload(event=event, response_payload=response_payload)
     if _is_failed_event_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or f"Evento IBS/CBS {event_code} rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or f"Evento IBS/CBS {event_code} rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeIbsCbsEventError(message)
 
@@ -958,19 +958,19 @@ def _transmit_ibs_cbs_event_cancellation(*, cancellation_event: FiscalDocumentEv
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = f"Resposta invalida da Webmania ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
+        message = f"Resposta invalida ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_cancellation_uncertain(event=cancellation_event, error_message=message)
         raise NfeIbsCbsEventError(message) from exc
     if not isinstance(response_payload, dict):
-        message = f"Resposta invalida da Webmania ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
+        message = f"Resposta invalida ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_cancellation_uncertain(event=cancellation_event, error_message=message)
         raise NfeIbsCbsEventError(message)
 
     cancellation_event = apply_ibs_cbs_event_cancellation_payload(event=cancellation_event, response_payload=response_payload)
     if _is_failed_event_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or f"Cancelamento do evento IBS/CBS {event_code} rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or f"Cancelamento do evento IBS/CBS {event_code} rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         cancellation_event.status = FiscalDocumentEventStatus.FAILED
         cancellation_event.save(update_fields=["status", "atualizado_em"])

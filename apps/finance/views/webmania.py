@@ -24,11 +24,9 @@ def _is_webmania_homolog_environment() -> bool:
 
 
 def _to_public_integration_message(raw_message: object) -> str:
-    normalized_message = str(raw_message or "").strip()
-    if not normalized_message:
-        return "Nao foi possivel concluir a operacao de integracao."
+    from apps.core.infrastructure.services.webmania.webmania import to_public_integration_message
 
-    return normalized_message.replace("WEBMANIA", "integracao").replace("Webmania", "integracao").replace("webmania", "integracao")
+    return to_public_integration_message(raw_message)
 
 
 class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):
@@ -213,7 +211,7 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             {
                 "company": company,
                 "identity_fields": [
-                    self._regular_field("ID da integracao", company.webmania_company_id),
+                    self._regular_field("ID da empresa", company.webmania_company_id),
                     self._regular_field("Razão Social", company.razao_social),
                     self._regular_field("CNPJ", _format_cnpj(company.cnpj)),
                     self._regular_field("CPF", _format_cpf(company.cpf)),

@@ -173,7 +173,7 @@ def create_nfce_inutilization_draft(
     with transaction.atomic():
         company = WebmaniaCompany.objects.select_for_update().filter(workshop=workshop).first()
         if company is None:
-            raise NfceInutilizationError("Configure a empresa Webmania da oficina antes de inutilizar numeracao NFC-e.")
+            raise NfceInutilizationError("Configure a empresa emissora da oficina antes de inutilizar numeracao NFC-e.")
         validate_nfce_inutilization_configuration(workshop=workshop, environment=int(environment), series=series)
         normalized_series = str(series or "").strip()
         assert_nfce_inutilization_range_available(workshop=workshop, environment=int(environment), series=normalized_series, sequence_start=start, sequence_end=end)
@@ -294,19 +294,19 @@ def transmit_nfce_inutilization(*, inutilization: FiscalNumberInutilization) -> 
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao inutilizar numeracao NFC-e; estado remoto incerto."
+        message = "Resposta invalida ao inutilizar numeracao NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_inutilization_uncertain(inutilization=locked, error_message=message)
         raise NfceInutilizationError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao inutilizar numeracao NFC-e; estado remoto incerto."
+        message = "Resposta invalida ao inutilizar numeracao NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_inutilization_uncertain(inutilization=locked, error_message=message)
         raise NfceInutilizationError(message)
 
     locked = apply_nfce_inutilization_payload(inutilization=locked, response_payload=response_payload)
     if _is_failed_inutilization_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Inutilizacao NFC-e rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Inutilizacao NFC-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfceInutilizationError(message)
     if locked.status == FiscalNumberInutilizationStatus.SUCCEEDED:

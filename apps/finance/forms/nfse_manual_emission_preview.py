@@ -21,7 +21,7 @@ class NfseManualEmissionPreviewCreateForm(CoreForm):
     taxation_payload = forms.JSONField(label="Tributacao", widget=TextareaInput(rows=5), help_text="JSON com classe/regras fiscais; use ibs_cbs_required=true quando aplicavel.")
     retention_payload = forms.JSONField(label="Retencoes", required=False, widget=TextareaInput(rows=4))
     ibs_cbs_payload = forms.JSONField(label="IBS/CBS", required=False, widget=TextareaInput(rows=4))
-    explicit_confirmation = forms.BooleanField(label="Confirmo que esta preview nao emite NFS-e nem transmite para a Webmania", required=True, widget=CheckboxInput())
+    explicit_confirmation = forms.BooleanField(label="Confirmo que esta preview nao emite NFS-e nem transmite o documento", required=True, widget=CheckboxInput())
 
     def __init__(self, *args: object, workshop=None, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)

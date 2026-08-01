@@ -63,7 +63,7 @@ def create_nfse_external_xml_inbox(
     created_by: Any | None = None,
 ) -> NfseExternalXmlInbox:
     if company.workshop_id != workshop.pk:
-        raise NfseExternalXmlInboxError("A empresa Webmania pertence a outra oficina.")
+        raise NfseExternalXmlInboxError("A empresa emissora pertence a outra oficina.")
     if not company.nfse_external_xml_inbox_enabled:
         raise NfseExternalXmlInboxError("Inbox externa de XML NFS-e nao esta habilitada para esta empresa.")
     if not files:

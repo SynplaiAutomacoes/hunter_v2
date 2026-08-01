@@ -15,7 +15,7 @@ class NfeManualEmissionForm(CoreForm):
     recipient = forms.ModelChoiceField(label="Destinatário", queryset=Customer.objects.none(), widget=SearchableSelectInput())
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     additional_information = forms.CharField(label="Informações complementares", required=False, widget=TextareaInput(rows=4))
-    confirmation = forms.BooleanField(label="Confirmo a emissão desta NF-e pela Webmania", widget=CheckboxInput())
+    confirmation = forms.BooleanField(label="Confirmo a emissão desta NF-e", widget=CheckboxInput())
 
     def __init__(self, *args: Any, workshop=None, tax_class_choices: list[tuple[str, str]] | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

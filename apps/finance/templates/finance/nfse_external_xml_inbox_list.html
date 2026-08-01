@@ -4,7 +4,7 @@
 {% block crud_subtitle %}XMLs candidatos ficam pendentes ate revisao humana e processamento pelo lote XML validado.{% endblock %}
 {% block crud_header_actions %}<div class="flex gap-2">{% if can_export_external_inbox %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_external_xml_inbox_export' %}?{{ request.GET.urlencode }}">Exportar CSV</a>{% endif %}{% if can_upload_external_inbox %}<a class="btn btn-primary btn-sm" href="{% url 'finance:nfse_external_xml_inbox_upload' %}">Enviar XMLs candidatos</a>{% endif %}<a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_received_document_list' %}">NFS-e recebidas</a></div>{% endblock %}
 {% block crud_list_content %}
-<div class="alert alert-info mb-4">A inbox nao importa automaticamente, nao consulta Webmania e nao manifesta documentos. O documento fiscal so nasce apos processamento pelo pipeline de XML/lote.</div>
+<div class="alert alert-info mb-4">A inbox nao importa automaticamente, nao consulta e nao manifesta documentos. O documento fiscal so nasce apos processamento pelo pipeline de XML/lote.</div>
 <form method="get" class="mb-4 grid gap-3 md:grid-cols-4">
     <input class="input input-bordered input-sm" type="search" name="q" value="{{ filters.q }}" placeholder="Arquivo, hash, UUID, CNPJ, erro">
     <select class="select select-bordered select-sm" name="status"><option value="">Status da inbox</option>{% for value,label in status_choices %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>

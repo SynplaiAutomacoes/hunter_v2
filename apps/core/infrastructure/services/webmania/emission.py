@@ -199,7 +199,7 @@ def _validate_tax_class_for_emission(*, nfse_request: NfseRequest, headers: dict
             break
 
     if not matched_tax_class:
-        raise NfseEmissionError("A classe de imposto selecionada não está disponível para estas credenciais da Webmania. Atualize as classes e selecione uma referência válida.")
+        raise NfseEmissionError("A classe de imposto selecionada não está disponível para estas credenciais. Atualize as classes e selecione uma referência válida.")
 
     if not _is_nfse_tax_class(matched_tax_class):
         raise NfseEmissionError("A classe de imposto selecionada não é do tipo Nota Fiscal de Serviço.")
@@ -552,7 +552,7 @@ def preview_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | No
 
     preview_url = _extract_nfse_preview_url(data)
     if not preview_url:
-        raise NfseEmissionError("A API da Webmania nao retornou a URL da previa da Nota Fiscal de Serviço.")
+        raise NfseEmissionError("A API nao retornou a URL da previa da Nota Fiscal de Serviço.")
 
     return {**data, "preview_url": preview_url}
 
@@ -612,7 +612,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
 
         preview_url = _extract_nfse_preview_url(data)
         if not preview_url:
-            raise NfseEmissionError("A API da Webmania nao retornou o PDF da previa da Nota Fiscal de Serviço.")
+            raise NfseEmissionError("A API nao retornou o PDF da previa da Nota Fiscal de Serviço.")
 
         for download_attempt in range(1, NFSE_PREVIEW_MAX_ATTEMPTS + 1):
             try:

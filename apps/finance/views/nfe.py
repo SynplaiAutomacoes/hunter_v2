@@ -671,7 +671,7 @@ class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeCorrectionError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Carta de correcao enviada para a Webmania.")
+            messages.success(request, "Carta de correcao enviada com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -698,7 +698,7 @@ class NfeIbsCbsEvent112110IssueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Evento IBS/CBS 112110 enviado para a Webmania.")
+            messages.success(request, "Evento IBS/CBS 112110 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -725,7 +725,7 @@ class NfeIbsCbsEvent112150IssueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Evento IBS/CBS 112150 enviado para a Webmania.")
+            messages.success(request, "Evento IBS/CBS 112150 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -752,7 +752,7 @@ class NfeIbsCbsEvent112130IssueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Evento IBS/CBS 112130 enviado para a Webmania.")
+            messages.success(request, "Evento IBS/CBS 112130 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -780,7 +780,7 @@ class NfeIbsCbsEvent112110CancelView(LoginRequiredMixin, WorkshopScopedMixin, Vi
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Cancelamento do evento IBS/CBS 112110 enviado para a Webmania.")
+            messages.success(request, "Cancelamento do evento IBS/CBS 112110 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -808,7 +808,7 @@ class NfeIbsCbsEvent112150CancelView(LoginRequiredMixin, WorkshopScopedMixin, Vi
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Cancelamento do evento IBS/CBS 112150 enviado para a Webmania.")
+            messages.success(request, "Cancelamento do evento IBS/CBS 112150 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -836,7 +836,7 @@ class NfeIbsCbsEvent112130CancelView(LoginRequiredMixin, WorkshopScopedMixin, Vi
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Cancelamento do evento IBS/CBS 112130 enviado para a Webmania.")
+            messages.success(request, "Cancelamento do evento IBS/CBS 112130 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -884,7 +884,7 @@ class NfeReturnIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeReturnError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Devolucao ou estorno enviado para a Webmania.")
+            messages.success(request, "Devolucao ou estorno enviado com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -920,7 +920,7 @@ class NfeComplementaryPriceQuantityIssueView(LoginRequiredMixin, WorkshopScopedM
         except NfeComplementaryError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Nota Fiscal Complementar enviada para a Webmania.")
+            messages.success(request, "Nota Fiscal Complementar enviada com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -962,7 +962,7 @@ class NfeAdjustmentIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeAdjustmentError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Nota Fiscal de Ajuste enviada para a Webmania.")
+            messages.success(request, "Nota Fiscal de Ajuste enviada com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -1484,7 +1484,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
         return render_emission_preview_modal(
             request=self.request,
             title="Prévia da Nota Fiscal de Produto",
-            description="Confira o documento antes de transmitir a Nota Fiscal de Produto para a Webmania.",
+            description="Confira o documento antes de transmitir a Nota Fiscal de Produto.",
             previews=[{"label": "DANFE", "embed_url": reverse("finance:nfe_preview_pdf", kwargs={"pk": self.object.pk})}],
             transmit_url=self._step_url(step=self.get_current_step()),
             hidden_fields=build_preview_hidden_fields(cleaned_data=form.cleaned_data),

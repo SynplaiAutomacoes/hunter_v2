@@ -621,7 +621,7 @@ def confirm_nfe_return_document_from_payload(*, document: FiscalDocument, respon
     if document.status == FiscalDocumentStatus.APPROVED:
         mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
     elif document.status in {FiscalDocumentStatus.REPROVED, FiscalDocumentStatus.DENIED}:
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
     return document
 
@@ -734,27 +734,27 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir devolucao ou estorno; estado remoto incerto."
+        message = "Resposta invalida ao emitir devolucao ou estorno; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeReturnError(message) from exc
 
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir devolucao ou estorno; estado remoto incerto."
+        message = "Resposta invalida ao emitir devolucao ou estorno; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeReturnError(message)
 
     if _is_failed_response(response_payload):
         locked_document = apply_nfe_return_document_payload(document=locked_document, response_payload=response_payload)
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeReturnError(message)
 
     try:
         validate_nfe_return_payload_identity(document=locked_document, payload=response_payload, require_safe_identifier=True)
     except NfeReturnError as exc:
-        message = f"Resposta inconclusiva da Webmania ao emitir devolucao ou estorno; estado remoto incerto. {exc}"
+        message = f"Resposta inconclusiva ao emitir devolucao ou estorno; estado remoto incerto. {exc}"
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message, response_payload=response_payload)
         raise NfeReturnError(message) from exc

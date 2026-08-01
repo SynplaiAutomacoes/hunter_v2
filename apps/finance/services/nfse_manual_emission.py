@@ -72,7 +72,7 @@ def _is_failure(payload: dict[str, Any]) -> bool:
 
 def _assert_company_configured(company: WebmaniaCompany) -> None:
     if not str(company.webmania_company_id or company.bearer_access_token or company.consumer_key or "").strip():
-        raise NfseManualEmissionError("Empresa emissora Webmania nao esta configurada.")
+        raise NfseManualEmissionError("Empresa emissora nao esta configurada.")
 
 
 def _assert_payload_contract(preview: NfseManualEmissionPreview) -> None:
@@ -290,7 +290,7 @@ def emit_nfse_manual_from_preview(*, preview: NfseManualEmissionPreview, request
         _mark_uncertain(emission=emission, message=str(exc))
         raise
     if emission.status == FiscalEmissionAttemptStatus.FAILED:
-        message = extract_webmania_error_message(response_payload, scope="nfse") or "Emissao manual NFS-e rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfse") or "Emissao manual NFS-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfseManualEmissionError(message)
     if emission.status == FiscalEmissionAttemptStatus.SUCCEEDED:

@@ -92,7 +92,7 @@ def parse_nfse_received_xml(xml_bytes: bytes) -> NfseReceivedParsedXml:
 @transaction.atomic
 def import_nfse_received_xml(*, workshop, company: WebmaniaCompany, xml_bytes: bytes, created_by) -> NfseReceivedDocument:
     if company.workshop_id != workshop.pk:
-        raise NfseReceivedImportError("A empresa Webmania pertence a outra oficina.")
+        raise NfseReceivedImportError("A empresa emissora pertence a outra oficina.")
     if not company.nfse_received_import_enabled:
         raise NfseReceivedImportError("Importacao de NFS-e recebida nao esta habilitada para esta empresa.")
 

@@ -136,7 +136,7 @@ def validate_adjustment_tax_regime(*, workshop: Any) -> str:
         return regime
     if regime in BLOCKED_ADJUSTMENT_REGIMES:
         raise NfeAdjustmentError("Nota Fiscal de Ajuste permitida somente para Lucro Real/Normal ou Lucro Presumido.")
-    raise NfeAdjustmentError("Configure o regime tributario da empresa Webmania antes de emitir Nota Fiscal de Ajuste.")
+    raise NfeAdjustmentError("Configure o regime tributario da empresa emissora antes de emitir Nota Fiscal de Ajuste.")
 
 
 def _assert_adjustment_scope(payload: dict[str, Any], *, source: str = "payload") -> None:
@@ -355,19 +355,19 @@ def transmit_nfe_adjustment_document(*, document: FiscalDocument) -> FiscalDocum
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir Nota Fiscal de Ajuste; estado remoto incerto."
+        message = "Resposta invalida ao emitir Nota Fiscal de Ajuste; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeAdjustmentError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir Nota Fiscal de Ajuste; estado remoto incerto."
+        message = "Resposta invalida ao emitir Nota Fiscal de Ajuste; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeAdjustmentError(message)
 
     locked_document = apply_nfe_adjustment_document_payload(document=locked_document, response_payload=response_payload)
     if _is_failed_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Nota Fiscal de Ajuste rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Nota Fiscal de Ajuste rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeAdjustmentError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)

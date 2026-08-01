@@ -280,7 +280,7 @@ def cancel_nfse_item(*, item: NfseItem, reason_code: int | str, requested_by: An
         _mark_cancellation_uncertain(cancellation=cancellation, message=str(exc))
         raise
     if cancellation.status == FiscalEmissionAttemptStatus.FAILED:
-        message = extract_webmania_error_message(response_payload, scope="nfse") or "Cancelamento NFS-e rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfse") or "Cancelamento NFS-e rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfseCancellationError(message)
     if cancellation.status != FiscalEmissionAttemptStatus.SUCCEEDED:

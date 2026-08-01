@@ -389,19 +389,19 @@ def transmit_nfe_complementary_document(*, document: FiscalDocument) -> FiscalDo
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir Nota Fiscal Complementar; estado remoto incerto."
+        message = "Resposta invalida ao emitir Nota Fiscal Complementar; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeComplementaryError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir Nota Fiscal Complementar; estado remoto incerto."
+        message = "Resposta invalida ao emitir Nota Fiscal Complementar; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeComplementaryError(message)
 
     locked_document = apply_nfe_complementary_document_payload(document=locked_document, response_payload=response_payload)
     if _is_failed_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Nota Fiscal Complementar rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Nota Fiscal Complementar rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeComplementaryError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)

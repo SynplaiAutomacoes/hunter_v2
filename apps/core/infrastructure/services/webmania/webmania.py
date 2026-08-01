@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+import re
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -19,9 +21,15 @@ def is_webmania_homolog_environment() -> bool:
 def to_public_integration_message(raw_message: object) -> str:
     normalized_message = str(raw_message or "").strip()
     if not normalized_message:
-        return "Nao foi possivel concluir a operacao de integracao."
+        return "Nao foi possivel concluir a operacao."
 
-    return normalized_message.replace("WEBMANIA", "integracao").replace("Webmania", "integracao").replace("webmania", "integracao")
+    for token in ("WEBMANIA", "Webmania", "webmania", "integração", "integraçao", "integracao"):
+        normalized_message = normalized_message.replace(token, "")
+
+    normalized_message = re.sub(r"\s{2,}", " ", normalized_message).strip(" ,.;:-")
+    if not normalized_message:
+        return "Nao foi possivel concluir a operacao."
+    return normalized_message
 
 
 def latest_sync_error(companies: list[WebmaniaCompany]) -> str:

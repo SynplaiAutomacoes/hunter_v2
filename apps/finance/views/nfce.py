@@ -164,7 +164,7 @@ class NfceManualEmissionView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
         except NfceEmissionError as exc:
             messages.error(self.request, str(exc))
             return self.form_invalid(form)
-        messages.success(self.request, "NFC-e enviada para a Webmania.")
+        messages.success(self.request, "NFC-e enviada com sucesso.")
         return redirect(self.get_success_url())
 
 
@@ -201,7 +201,7 @@ class NfceCancellationView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
         except NfceCancellationError as exc:
             messages.error(self.request, str(exc))
             return self.form_invalid(form)
-        messages.success(self.request, "Cancelamento da NFC-e enviado para a Webmania.")
+        messages.success(self.request, "Cancelamento da NFC-e enviado com sucesso.")
         return redirect(self.get_success_url())
 
 
@@ -230,7 +230,7 @@ class NfceInutilizationView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
         except NfceInutilizationError as exc:
             messages.error(self.request, str(exc))
             return self.form_invalid(form)
-        messages.success(self.request, "Inutilizacao de numeracao NFC-e enviada para a Webmania.")
+        messages.success(self.request, "Inutilizacao de numeracao NFC-e enviada com sucesso.")
         return redirect(self.get_success_url())
 
 

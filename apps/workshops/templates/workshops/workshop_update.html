@@ -5,7 +5,7 @@
     <div class="flex items-center justify-between gap-4">
         <div>
             <h1 class="text-3xl font-bold text-base-content">Configuracoes da Oficina</h1>
-            <p class="text-base-content/70 mt-1">Edite dados da oficina e da integracao fiscal em abas.</p>
+            <p class="text-base-content/70 mt-1">Edite dados da oficina e dados fiscais em abas.</p>
         </div>
 
         <a href="{% url 'workshops:list' %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
@@ -344,7 +344,7 @@
                     {% if can_change_webmania_company %}
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
-                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados fiscais desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
@@ -549,7 +549,7 @@
                     {% if can_change_webmania_company %}
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
-                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados fiscais desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
@@ -625,7 +625,7 @@
                     {% if can_change_webmania_company %}
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
-                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados fiscais desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
@@ -727,7 +727,7 @@
                     {% if can_change_webmania_company %}
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
-                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados fiscais desta oficina.</span>
                     {% endif %}
                 </div>
             </form>

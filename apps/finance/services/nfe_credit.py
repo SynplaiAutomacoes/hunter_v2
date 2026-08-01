@@ -241,14 +241,14 @@ def create_and_emit_nfe_credit_type_one(*, preview: FiscalCreditProductPreview, 
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir NF-e de credito; estado remoto incerto."
+        message = "Resposta invalida ao emitir NF-e de credito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.UNCERTAIN
         document.remote_status = FiscalEmissionAttemptStatus.UNCERTAIN
         document.save(update_fields=["status", "remote_status", "atualizado_em"])
         raise NfeCreditError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir NF-e de credito; estado remoto incerto."
+        message = "Resposta invalida ao emitir NF-e de credito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.UNCERTAIN
         document.remote_status = FiscalEmissionAttemptStatus.UNCERTAIN
@@ -256,7 +256,7 @@ def create_and_emit_nfe_credit_type_one(*, preview: FiscalCreditProductPreview, 
         raise NfeCreditError(message)
     document = apply_nfe_credit_document_payload(document=document, response_payload=response_payload)
     if _is_failed_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "NF-e de credito rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "NF-e de credito rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeCreditError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
@@ -276,7 +276,7 @@ def consult_nfe_credit_document(*, document: FiscalDocument) -> dict[str, Any]:
         response.raise_for_status()
         payload = response.json()
     except (requests.RequestException, ValueError) as exc:
-        raise NfeCreditError("Falha ao consultar NF-e de credito na Webmania.") from exc
+        raise NfeCreditError("Falha ao consultar NF-e de credito.") from exc
     if not isinstance(payload, dict):
         raise NfeCreditError("Resposta invalida da consulta da NF-e de credito.")
     return payload

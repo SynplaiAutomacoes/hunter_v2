@@ -68,9 +68,9 @@ def _require_company_field(company: WebmaniaCompany, field_name: str, label: str
 def validate_nfce_configuration(*, workshop: Any, environment: int) -> WebmaniaCompany:
     company = _company_for_workshop(workshop=workshop)
     if company is None:
-        raise NfceEmissionError("Configure a empresa Webmania da oficina antes de emitir NFC-e.")
+        raise NfceEmissionError("Configure a empresa emissora da oficina antes de emitir NFC-e.")
     if not str(company.webmania_company_id or "").strip():
-        raise NfceEmissionError("Vincule a empresa Webmania da oficina antes de emitir NFC-e.")
+        raise NfceEmissionError("Vincule a empresa emissora da oficina antes de emitir NFC-e.")
     if not company.nfce_enabled:
         raise NfceEmissionError("Habilite a NFC-e na configuracao fiscal da oficina antes de emitir.")
 
@@ -359,19 +359,19 @@ def transmit_nfce_document(*, document: FiscalDocument) -> FiscalDocument:
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir NFC-e; estado remoto incerto."
+        message = "Resposta invalida ao emitir NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfceEmissionError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir NFC-e; estado remoto incerto."
+        message = "Resposta invalida ao emitir NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfceEmissionError(message)
 
     locked_document = apply_nfce_document_payload(document=locked_document, response_payload=response_payload)
     if _is_failed_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "NFC-e rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "NFC-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfceEmissionError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)

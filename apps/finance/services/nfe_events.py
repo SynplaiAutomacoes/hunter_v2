@@ -313,7 +313,7 @@ def confirm_cce_event_from_payload(*, event: FiscalDocumentEvent, response_paylo
     if event.status in {FiscalDocumentEventStatus.APPROVED, FiscalDocumentEventStatus.SUCCEEDED}:
         mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
     elif event.status in {FiscalDocumentEventStatus.REPROVED, FiscalDocumentEventStatus.FAILED}:
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correcao rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correcao rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
     return event
 
@@ -459,27 +459,27 @@ def emit_nfe_correction(*, nfe_item: NfeItem, correction_text: str, requested_by
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir carta de correcao; estado remoto incerto."
+        message = "Resposta invalida ao emitir carta de correcao; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_cce_event_uncertain(event=event, error_message=message)
         raise NfeCorrectionError(message) from exc
 
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir carta de correcao; estado remoto incerto."
+        message = "Resposta invalida ao emitir carta de correcao; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_cce_event_uncertain(event=event, error_message=message)
         raise NfeCorrectionError(message)
 
     if _is_failed_cce_response(response_payload):
         event = apply_cce_event_payload(event=event, response_payload=response_payload)
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correcao rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correcao rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeCorrectionError(message)
 
     try:
         validate_cce_payload_identity(event=event, payload=response_payload, require_uuid=True, require_sequence=True)
     except NfeCorrectionError as exc:
-        message = f"Resposta inconsistente da Webmania ao emitir carta de correcao; estado remoto incerto. {exc}"
+        message = f"Resposta inconsistente ao emitir carta de correcao; estado remoto incerto. {exc}"
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_cce_event_uncertain(event=event, error_message=message, response_payload=response_payload)
         raise NfeCorrectionError(message) from exc
