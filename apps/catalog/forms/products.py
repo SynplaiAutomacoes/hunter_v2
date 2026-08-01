@@ -147,7 +147,7 @@ class ProductForm(EquivalentProductsFormMixin, CoreModelForm):
                     return;
                 }}
 
-                if (window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este produto. Deseja continuar mesmo assim?')) {{
+                if (window.confirm('O valor informado está abaixo do último valor utilizado para este produto. Deseja continuar mesmo assim?')) {{
                     this.continueWithLowerPrice();
                     return;
                 }}
@@ -298,8 +298,8 @@ class ProductForm(EquivalentProductsFormMixin, CoreModelForm):
                                         <div class="p-6 border-b border-base-200 flex items-start gap-3 bg-base-50">
                                             <span class="material-icons text-warning text-3xl">warning</span>
                                             <div>
-                                                <h3 class="font-bold text-xl">Confirmar valor abaixo do ultimo uso</h3>
-                                                <p class="text-sm text-base-content/80 mt-2">O valor informado esta abaixo do ultimo valor utilizado para este produto.</p>
+                                                <h3 class="font-bold text-xl">Confirmar valor abaixo do último uso</h3>
+                                                <p class="text-sm text-base-content/80 mt-2">O valor informado está abaixo do último valor utilizado para este produto.</p>
                                                 <p class="text-sm text-base-content/80 mt-1">Deseja continuar mesmo assim?</p>
                                             </div>
                                         </div>

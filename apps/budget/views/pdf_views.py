@@ -99,12 +99,12 @@ def visualizar_pdf_checklist(request, pk):
 
     checklist_id = request.GET.get("checklist")
     if not checklist_id:
-        raise Http404("Checklist nao informado")
+        raise Http404("Checklist não informado")
 
     try:
         checklist_id_int = int(checklist_id)
     except (TypeError, ValueError):
-        raise Http404("Checklist invalido")
+        raise Http404("Checklist inválido")
 
     checklist = get_object_or_404(Checklist.objects.prefetch_related("items"), pk=checklist_id_int, workshop=workshop)
 
@@ -187,16 +187,16 @@ def _get_budget_from_signature_token(token):
             document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
         )
     except SignatureTokenError:
-        raise Http404("Arquivo não encotrado")
+        raise Http404("Arquivo não encontrado")
 
     budget = get_object_or_404(_budget_pdf_queryset(), pk=payload["document_id"])
     _prepare_budget_for_pdf_pricing(budget)
 
     if not budget.signature_token_active:
-        raise Http404("Arquivo não encotrado")
+        raise Http404("Arquivo não encontrado")
 
     if budget.signature_token_version != payload["version"]:
-        raise Http404("Arquivo não encotrado")
+        raise Http404("Arquivo não encontrado")
 
     return budget
 

@@ -18,7 +18,7 @@ class FiscalReferencedBasisCreateForm(CoreModelForm):
     other_amount = forms.DecimalField(label="Outros valores", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
     confirm_preparation_only = forms.BooleanField(
         required=True,
-        label="Confirmo que esta base nao emite NF-e de credito/debito",
+        label="Confirmo que esta base não emite NF-e de crédito/débito",
         widget=CheckboxInput(),
     )
 
@@ -48,8 +48,8 @@ class FiscalReferencedBasisCreateForm(CoreModelForm):
         self.fields["stock_reference"].queryset = StockMovement.objects.filter(workshop=workshop).order_by("-criado_em")
         self.fields["financial_reference"].required = False
         self.fields["stock_reference"].required = False
-        self.fields["notes"].help_text = "Registre a evidencia operacional/fiscal. A base nao autoriza emissao."
-        self.fields["principal_amount"].help_text = "Valor explicito por item; nao e preenchido automaticamente pela movimentacao financeira."
+        self.fields["notes"].help_text = "Registre a evidência operacional/fiscal. A base não autoriza emissão."
+        self.fields["principal_amount"].help_text = "Valor explicito por item; não é preenchido automaticamente pela movimentacao financeira."
         self.fields["fine_amount"].help_text = "Para multa/juros, a base futura corresponde somente a multa + juros."
 
     def clean_source_document(self) -> FiscalDocument:

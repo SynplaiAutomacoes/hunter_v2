@@ -122,7 +122,7 @@ class NfeAdvancedOperationFormUxTests(TestCase):
 
 class NfeReturnOperationalTests(TestCase):
     def setUp(self) -> None:
-        self.account = Account.objects.create(name="Conta Devolucao")
+        self.account = Account.objects.create(name="Conta Devolução")
         self.workshop = self._create_workshop(suffix=10)
         self.other_workshop = self._create_workshop(suffix=11)
         self.user = User.objects.create_user(username="fiscal-devolucao", password="test", cpf="98765432100")
@@ -132,10 +132,10 @@ class NfeReturnOperationalTests(TestCase):
     def _create_workshop(self, *, suffix: int) -> Workshop:
         return Workshop.objects.create(
             account=self.account,
-            name=f"Oficina Devolucao {suffix}",
+            name=f"Oficina Devolução {suffix}",
             cnpj=f"12.345.678/0001-{suffix:02d}",
             phone=f"+5511999999{suffix:03d}",
-            address=f"Rua Devolucao, {suffix}",
+            address=f"Rua Devolução, {suffix}",
         )
 
     def _create_nfe_item(
@@ -184,7 +184,7 @@ class NfeReturnOperationalTests(TestCase):
             purpose=purpose,
             products=products,
             requested_by=self.user,
-            natureza_operacao="Devolucao de mercadoria",
+            natureza_operacao="Devolução de mercadoria",
             codigo_cfop="1202",
             classe_imposto=classe_imposto,
             volume=volume,
@@ -203,7 +203,7 @@ class NfeReturnOperationalTests(TestCase):
             "uuid": remote_uuid or str(uuid4()),
             "modelo": "nfe",
             "status": status,
-            "motivo": "Devolucao autorizada",
+            "motivo": "Devolução autorizada",
             "nfe": "9001",
             "serie": "1",
             "recibo": "REC-RETURN",
@@ -289,11 +289,11 @@ class NfeReturnOperationalTests(TestCase):
         self.assertEqual(calculate_available_return_quantities(original_document=original), {1: Decimal("0.5")})
         self.assertEqual(list(detail_response.context_data["return_documents"]), [first, second])
         self.assertContains(detail_response, "REC-RETURN", count=2)
-        self.assertContains(detail_response, "Devolucao de mercadoria", count=2)
+        self.assertContains(detail_response, "Devolução de mercadoria", count=2)
         self.assertContains(detail_response, "CFOP: 1202", count=2)
         self.assertContains(detail_response, "Classe: REF-DEVOLUCAO")
         self.assertContains(detail_response, "Volumes: 1")
-        self.assertContains(detail_response, "Devolucao autorizada", count=2)
+        self.assertContains(detail_response, "Devolução autorizada", count=2)
         self.assertContains(detail_response, "<td>Aprovado</td>", count=2, html=True)
 
     def test_gateway_reference_selection_opens_existing_return_flow(self) -> None:
@@ -353,14 +353,14 @@ class NfeReturnOperationalTests(TestCase):
             products=[{"sequencial": 1, "quantidade": "1"}],
             classe_imposto="REF-DEVOLUCAO",
             volume=3,
-            informacoes_fisco="Informacao fiscal declarada.",
-            informacoes_complementares="Informacao complementar declarada.",
+            informacoes_fisco="Informação fiscal declarada.",
+            informacoes_complementares="Informação complementar declarada.",
         )
 
         self.assertEqual(document.request_payload["classe_imposto"], "REF-DEVOLUCAO")
         self.assertEqual(document.request_payload["volume"], "3")
-        self.assertEqual(document.request_payload["informacoes_fisco"], "Informacao fiscal declarada.")
-        self.assertEqual(document.request_payload["informacoes_complementares"], "Informacao complementar declarada.")
+        self.assertEqual(document.request_payload["informacoes_fisco"], "Informação fiscal declarada.")
+        self.assertEqual(document.request_payload["informacoes_complementares"], "Informação complementar declarada.")
         self.assertNotIn("finalidade", document.request_payload)
         self.assertNotIn("impostos", document.request_payload)
         with (
@@ -376,7 +376,7 @@ class NfeReturnOperationalTests(TestCase):
             {
                 "purpose": FiscalDocumentPurpose.RETURN,
                 "return_scope": NfeReturnForm.RETURN_SCOPE_TOTAL,
-                "natureza_operacao": "Devolucao de mercadoria",
+                "natureza_operacao": "Devolução de mercadoria",
                 "codigo_cfop": "1202",
                 "classe_imposto": "REF-DEVOLUCAO",
                 "volume": "3",
@@ -391,7 +391,7 @@ class NfeReturnOperationalTests(TestCase):
             {
                 "purpose": FiscalDocumentPurpose.RETURN,
                 "return_scope": NfeReturnForm.RETURN_SCOPE_TOTAL,
-                "natureza_operacao": "Devolucao de mercadoria",
+                "natureza_operacao": "Devolução de mercadoria",
                 "codigo_cfop": "1202",
                 "classe_imposto": "R" * 31,
                 "confirm_return": "on",
@@ -408,7 +408,7 @@ class NfeReturnOperationalTests(TestCase):
 
         with self.assertRaisesMessage(NfeReturnError, "excede o saldo"):
             self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}])
-        with self.assertRaisesMessage(NfeReturnError, "nao foi encontrado"):
+        with self.assertRaisesMessage(NfeReturnError, "não foi encontrado"):
             self._draft(item=item, products=[{"sequencial": 99, "quantidade": "1"}])
         with self.assertRaisesMessage(NfeReturnError, "mais de uma vez"):
             self._draft(
@@ -429,7 +429,7 @@ class NfeReturnOperationalTests(TestCase):
         item.save(update_fields=["raw_payload"])
 
         with patch("apps.finance.services.nfe_returns.requests.post") as post_mock:
-            with self.assertRaisesMessage(NfeReturnError, "nao possui snapshot de itens"):
+            with self.assertRaisesMessage(NfeReturnError, "não possui snapshot de itens"):
                 self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}])
 
         post_mock.assert_not_called()
@@ -440,7 +440,7 @@ class NfeReturnOperationalTests(TestCase):
         self._transmit(document=self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}]))
 
         with patch("apps.finance.services.nfe_returns.requests.post") as post_mock:
-            with self.assertRaisesMessage(NfeReturnError, "saldo disponivel"):
+            with self.assertRaisesMessage(NfeReturnError, "saldo disponível"):
                 self._draft(item=item, products=[])
 
         post_mock.assert_not_called()
@@ -453,7 +453,7 @@ class NfeReturnOperationalTests(TestCase):
             patch("apps.finance.services.nfe_returns.requests.post", return_value=_mock_response(self._remote_payload())) as post_mock,
         ):
             transmit_nfe_return_document(document=document)
-            with self.assertRaisesMessage(NfeReturnError, "ja possui envio remoto"):
+            with self.assertRaisesMessage(NfeReturnError, "já possui envio remoto"):
                 transmit_nfe_return_document(document=document)
 
         self.assertEqual(post_mock.call_count, 1)
@@ -635,7 +635,7 @@ class NfeReturnOperationalTests(TestCase):
         document.save(update_fields=["remote_uuid", "status"])
 
         with patch("apps.finance.services.nfe_returns.requests.get") as get_mock:
-            with self.assertRaisesMessage(NfeReturnError, "UUID remoto invalido"):
+            with self.assertRaisesMessage(NfeReturnError, "UUID remoto inválido"):
                 reconcile_nfe_return_document(document=document)
 
         get_mock.assert_not_called()

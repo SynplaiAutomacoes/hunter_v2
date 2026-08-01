@@ -43,7 +43,7 @@ class DebitCancellationFixtureMixin(DebitFixtureMixin):
         return {"uuid": self.document.remote_uuid, "chave": self.document.access_key, "modelo": "nfe", "status": status, "xml": "https://example.test/debit-original.xml", "xml_cancelamento": "https://example.test/debit-cancel.xml", "log": {"consumer_secret": "secret"}}
 
     def cancel(self, **overrides: Any) -> FiscalDocumentEvent:
-        kwargs = {"document": self.document, "reason": "Cancelamento fiscal de debito validado.", "requested_by": self.user, "legal_confirmation": True}
+        kwargs = {"document": self.document, "reason": "Cancelamento fiscal de débito validado.", "requested_by": self.user, "legal_confirmation": True}
         kwargs.update(overrides)
         with patch("apps.finance.services.nfe_debit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_debit_cancellation.requests.put", return_value=_response(self.cancellation_payload())) as put:
             event = cancel_nfe_debit_document(**kwargs)
@@ -67,7 +67,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
 
         payload = self.put_mock.call_args.kwargs["json"]
         self.assertTrue(self.put_mock.call_args.args[0].endswith("/1/nfe/cancelar/"))
-        self.assertEqual(payload, {"chave": self.document.access_key, "motivo": "Cancelamento fiscal de debito validado."})
+        self.assertEqual(payload, {"chave": self.document.access_key, "motivo": "Cancelamento fiscal de débito validado."})
         self.assertFalse({"ambiente", "finalidade", "tipo_debito", "dfe_referenciado", "produtos", "impostos", "ibs_cbs", "cod_evento", "nfce_referenciada"}.intersection(payload))
         self.assertEqual(event.event_type, FiscalDocumentEventType.CANCELLATION)
         self.assertEqual(event.event_payload_type, "nfe_debit_cancellation")
@@ -95,20 +95,20 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
                 cancel_nfe_debit_document(document=self.document, reason=reason, requested_by=self.user, legal_confirmation=True)
             put.assert_not_called()
         with patch("apps.finance.services.nfe_debit_cancellation.requests.put") as put, self.assertRaisesMessage(NfeDebitCancellationError, "Confirme"):
-            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=False)
+            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=False)
         put.assert_not_called()
 
         for status in [FiscalDocumentStatus.PROCESSING, FiscalDocumentStatus.REPROVED, FiscalDocumentStatus.DENIED, FiscalDocumentStatus.UNCERTAIN, FiscalDocumentStatus.CANCELED]:
             FiscalDocument.objects.filter(pk=self.document.pk).update(status=status)
             self.document.refresh_from_db()
             with self.subTest(status=status), patch("apps.finance.services.nfe_debit_cancellation.requests.put") as put, self.assertRaises(NfeDebitCancellationError):
-                cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+                cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
             put.assert_not_called()
 
         FiscalDocument.objects.filter(pk=self.document.pk).update(status=FiscalDocumentStatus.APPROVED, remote_uuid="", access_key="")
         self.document.refresh_from_db()
         with patch("apps.finance.services.nfe_debit_cancellation.requests.put") as put, self.assertRaisesMessage(NfeDebitCancellationError, "sem chave ou UUID"):
-            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
         put.assert_not_called()
 
     def test_non_debit_documents_and_disabled_feature_are_blocked(self) -> None:
@@ -121,18 +121,18 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
             FiscalDocument.objects.filter(pk=self.document.pk).update(document_type=document_type, purpose=purpose, fiscal_purpose_type=fiscal_type)
             self.document.refresh_from_db()
             with self.subTest(document_type=document_type, purpose=purpose), patch("apps.finance.services.nfe_debit_cancellation.requests.put") as put, self.assertRaises(NfeDebitCancellationError):
-                cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+                cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
             put.assert_not_called()
         FiscalDocument.objects.filter(pk=self.document.pk).update(document_type=FiscalDocumentType.NFE, purpose=original_purpose, fiscal_purpose_type="4")
         WebmaniaCompany.objects.filter(workshop=self.workshop).update(nfe_debit_emission_enabled=False)
         self.document.refresh_from_db()
         with patch("apps.finance.services.nfe_debit_cancellation.requests.put") as put, self.assertRaisesMessage(NfeDebitCancellationError, "desabilitada"):
-            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
         put.assert_not_called()
 
     def test_timeout_is_uncertain_and_blocks_retry_with_frozen_payload(self) -> None:
         with patch("apps.finance.services.nfe_debit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_debit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaisesMessage(NfeDebitCancellationError, "incerto"):
-            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
         event = self.document.events.get(event_payload_type="nfe_debit_cancellation")
         attempt = event.emission_attempts.get()
         self.assertEqual(event.status, FiscalDocumentEventStatus.UNCERTAIN)
@@ -151,7 +151,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
             payload = self.cancellation_payload(status=status)
             payload.pop("uuid")
             with patch("apps.finance.services.nfe_debit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_debit_cancellation.requests.put", return_value=_response(payload)), self.assertRaises(NfeDebitCancellationError):
-                cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+                cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
             event = self.document.events.get(event_payload_type="nfe_debit_cancellation")
             self.document.refresh_from_db()
             self.assertEqual(event.status, expected_event_status)
@@ -159,7 +159,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
 
     def test_webhook_is_idempotent_and_updates_only_debit_document(self) -> None:
         with patch("apps.finance.services.nfe_debit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_debit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaises(NfeDebitCancellationError):
-            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
         event = self.document.events.get(event_payload_type="nfe_debit_cancellation")
         source = self.preview.basis.source_document
         payload = self.cancellation_payload()
@@ -175,7 +175,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
 
     def test_ambiguous_credit_and_debit_cancellations_update_neither(self) -> None:
         with patch("apps.finance.services.nfe_debit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_debit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaises(NfeDebitCancellationError):
-            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
         debit_event = self.document.events.get(event_payload_type="nfe_debit_cancellation")
         debit_workshop = self.workshop
         other_preview = self.build_fixture(suffix=90)
@@ -192,7 +192,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
 
     def test_reconciliation_queries_without_reissuing_or_mutating_source(self) -> None:
         with patch("apps.finance.services.nfe_debit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_debit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaises(NfeDebitCancellationError):
-            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de debito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_debit_document(document=self.document, reason="Cancelamento fiscal de débito validado.", requested_by=self.user, legal_confirmation=True)
         event = self.document.events.get(event_payload_type="nfe_debit_cancellation")
         source = self.preview.basis.source_document
         with patch("apps.finance.services.nfe_debit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_debit_cancellation.requests.get", return_value=_response(self.cancellation_payload())) as get, patch("apps.finance.services.nfe_debit_cancellation.requests.put") as put:
@@ -204,7 +204,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
         self.assertEqual(source.status, FiscalDocumentStatus.APPROVED)
 
     def test_permission_cross_workshop_payload_and_download_are_protected(self) -> None:
-        request = RequestFactory().post("/", {"reason": "Cancelamento fiscal de debito validado.", "legal_confirmation": "on"})
+        request = RequestFactory().post("/", {"reason": "Cancelamento fiscal de débito validado.", "legal_confirmation": "on"})
         request.user = self.user
         def issue_only(*args: Any, **kwargs: Any) -> bool:
             return kwargs.get("codename") == "issue_nfe_debit"
@@ -261,7 +261,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationConcurrentTests(DebitCancellationFi
                 barrier.wait(timeout=5)
                 document = FiscalDocument.objects.get(pk=self.document.pk)
                 user = User.objects.get(pk=self.user.pk)
-                cancel_nfe_debit_document(document=document, reason="Cancelamento fiscal de debito validado.", requested_by=user, legal_confirmation=True)
+                cancel_nfe_debit_document(document=document, reason="Cancelamento fiscal de débito validado.", requested_by=user, legal_confirmation=True)
             except Exception as exc:
                 with result_lock:
                     errors.append(str(exc))

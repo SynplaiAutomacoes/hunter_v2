@@ -226,7 +226,7 @@ class NfeTaxClassForm(TaxClassFormBase):
         try:
             parsed = json.loads(raw_value)
         except json.JSONDecodeError as exc:
-            raise IbsCbsConfigurationError("Detalhes IBS/CBS devem ser JSON valido.") from exc
+            raise IbsCbsConfigurationError("Detalhes IBS/CBS devem ser JSON válido.") from exc
         return clean_ibs_cbs_details(parsed)
 
     def clean(self) -> dict[str, Any]:

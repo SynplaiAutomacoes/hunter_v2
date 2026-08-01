@@ -88,7 +88,7 @@ class NfeReturnForm(CoreForm):
     RETURN_SCOPE_TOTAL = "total"
     RETURN_SCOPE_PARTIAL = "partial"
 
-    purpose = forms.ChoiceField(choices=((FiscalDocumentPurpose.RETURN, "Devolucao"), (FiscalDocumentPurpose.REVERSAL, "Estorno")))
+    purpose = forms.ChoiceField(choices=((FiscalDocumentPurpose.RETURN, "Devolução"), (FiscalDocumentPurpose.REVERSAL, "Estorno")))
     return_scope = forms.ChoiceField(required=False, choices=((RETURN_SCOPE_TOTAL, "Total"), (RETURN_SCOPE_PARTIAL, "Parcial")))
     natureza_operacao = forms.CharField(max_length=60)
     codigo_cfop = forms.CharField(max_length=10)
@@ -126,7 +126,7 @@ class NfeReturnForm(CoreForm):
         return_scope = str(cleaned_data.get("return_scope") or self.RETURN_SCOPE_TOTAL).strip()
         products = cleaned_data.get("produtos_json") or []
         if purpose == FiscalDocumentPurpose.RETURN and return_scope == self.RETURN_SCOPE_PARTIAL and not products:
-            self.add_error("produtos_json", "Informe os produtos e quantidades para devolucao parcial.")
+            self.add_error("produtos_json", "Informe os produtos e quantidades para devolução parcial.")
         if purpose == FiscalDocumentPurpose.REVERSAL or return_scope == self.RETURN_SCOPE_TOTAL:
             cleaned_data["produtos_json"] = []
         return cleaned_data
@@ -290,8 +290,8 @@ class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRe
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn("ID", attr="id"),
-            TableColumn("Numero", attr="number_display", search_by="reserved_number"),
-            TableColumn("Ordem de Servico", attr="workorder", search_by="workorder__id"),
+            TableColumn("Número", attr="number_display", search_by="reserved_number"),
+            TableColumn("Ordem de Serviço", attr="workorder", search_by="workorder__id"),
             TableColumn("Cliente", attr="customer_name", search_by="workorder__budget__customer__name"),
             TableColumn("Criado em", attr=NfeRequest.criado_em.field.name),
             TableColumn("Status", attr="nfe_request_status_badge", search_by="status", format="status_badge"),
@@ -653,12 +653,12 @@ class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfe_request.items.order_by("-id").first()
         if not is_nfe_item_eligible_for_cce(latest_item):
-            messages.error(request, "Carta de correcao permitida somente para NF-e autorizada com chave de acesso ou UUID valido.")
+            messages.error(request, "Carta de correção permitida somente para NF-e autorizada com chave de acesso ou UUID válido.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         form = NfeCorrectionForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe a correcao entre 15 e 1000 caracteres e confirme as restricoes legais.")
+            messages.error(request, "Informe a correção entre 15 e 1000 caracteres e confirme as restrições legais.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -671,7 +671,7 @@ class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeCorrectionError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Carta de correcao enviada para a Webmania.")
+            messages.success(request, "Carta de correção enviada com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -698,7 +698,7 @@ class NfeIbsCbsEvent112110IssueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Evento IBS/CBS 112110 enviado para a Webmania.")
+            messages.success(request, "Evento IBS/CBS 112110 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -717,7 +717,7 @@ class NfeIbsCbsEvent112150IssueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
         form = NfeIbsCbsEvent112150Form(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe a data de previsao de entrega no formato YYYY-MM-DD e confirme a responsabilidade fiscal.")
+            messages.error(request, "Informe a data de previsão de entrega no formato YYYY-MM-DD e confirme a responsabilidade fiscal.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -725,7 +725,7 @@ class NfeIbsCbsEvent112150IssueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Evento IBS/CBS 112150 enviado para a Webmania.")
+            messages.success(request, "Evento IBS/CBS 112150 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -752,7 +752,7 @@ class NfeIbsCbsEvent112130IssueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Evento IBS/CBS 112130 enviado para a Webmania.")
+            messages.success(request, "Evento IBS/CBS 112130 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -780,7 +780,7 @@ class NfeIbsCbsEvent112110CancelView(LoginRequiredMixin, WorkshopScopedMixin, Vi
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Cancelamento do evento IBS/CBS 112110 enviado para a Webmania.")
+            messages.success(request, "Cancelamento do evento IBS/CBS 112110 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -808,7 +808,7 @@ class NfeIbsCbsEvent112150CancelView(LoginRequiredMixin, WorkshopScopedMixin, Vi
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Cancelamento do evento IBS/CBS 112150 enviado para a Webmania.")
+            messages.success(request, "Cancelamento do evento IBS/CBS 112150 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -836,7 +836,7 @@ class NfeIbsCbsEvent112130CancelView(LoginRequiredMixin, WorkshopScopedMixin, Vi
         except NfeIbsCbsEventError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Cancelamento do evento IBS/CBS 112130 enviado para a Webmania.")
+            messages.success(request, "Cancelamento do evento IBS/CBS 112130 enviado com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -850,12 +850,12 @@ class NfeReturnIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfe_request.items.order_by("-id").first()
         if not is_local_nfe_eligible_for_return(latest_item):
-            messages.error(request, "Devolucao ou estorno permitidos somente para NF-e autorizada com chave de acesso valida.")
+            messages.error(request, "Devolução ou estorno permitidos somente para NF-e autorizada com chave de acesso válida.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         form = NfeReturnForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe finalidade, CFOP, natureza da operacao e produtos validos para devolucao ou estorno.")
+            messages.error(request, "Informe finalidade, CFOP, natureza da operação e produtos validos para devolução ou estorno.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         purpose = str(form.cleaned_data["purpose"])
@@ -864,7 +864,7 @@ class NfeReturnIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         else:
             has_permission = _user_can_issue_return(user=request.user, workshop=self.workshop, request=request)
         if not has_permission:
-            messages.error(request, "Usuario sem permissao especifica para esta operacao fiscal.")
+            messages.error(request, "Usuário sem permissão especifica para esta operação fiscal.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -884,7 +884,7 @@ class NfeReturnIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeReturnError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Devolucao ou estorno enviado para a Webmania.")
+            messages.success(request, "Devolução ou estorno enviado com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -898,12 +898,12 @@ class NfeComplementaryPriceQuantityIssueView(LoginRequiredMixin, WorkshopScopedM
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfe_request.items.order_by("-id").first()
         if not is_local_nfe_eligible_for_complementary(latest_item):
-            messages.error(request, "Nota Complementar permitida somente para NF-e local autorizada com chave ou UUID valido.")
+            messages.error(request, "Nota Complementar permitida somente para NF-e local autorizada com chave ou UUID válido.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         form = NfeComplementaryPriceQuantityForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe operacao, CFOP, natureza, itens validos e confirme a emissao da Nota Complementar.")
+            messages.error(request, "Informe operação, CFOP, natureza, itens validos e confirme a emissão da Nota Complementar.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -920,7 +920,7 @@ class NfeComplementaryPriceQuantityIssueView(LoginRequiredMixin, WorkshopScopedM
         except NfeComplementaryError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Nota Fiscal Complementar enviada para a Webmania.")
+            messages.success(request, "Nota Fiscal Complementar enviada com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -937,7 +937,7 @@ class NfeAdjustmentIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         form = NfeAdjustmentForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe os dados obrigatorios da Nota Fiscal de Ajuste e confirme as restricoes fiscais.")
+            messages.error(request, "Informe os dados obrigatórios da Nota Fiscal de Ajuste e confirme as restrições fiscais.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -962,7 +962,7 @@ class NfeAdjustmentIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeAdjustmentError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Nota Fiscal de Ajuste enviada para a Webmania.")
+            messages.success(request, "Nota Fiscal de Ajuste enviada com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -977,12 +977,12 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfe_request.items.order_by("-id").first()
         if latest_item is None:
-            messages.error(request, "A Nota Fiscal de Produto ainda nao possui item sincronizado para cancelamento.")
+            messages.error(request, "A Nota Fiscal de Produto ainda não possui item sincronizado para cancelamento.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         status = str(getattr(latest_item, "status", "")).strip().lower()
         if status not in {"aprovado", "contingencia"}:
-            messages.error(request, "Somente Nota Fiscal de Produto aprovada ou em contingencia pode ser cancelada.")
+            messages.error(request, "Somente Nota Fiscal de Produto aprovada ou em contingência pode ser cancelada.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         form = NfeCancelForm(request.POST)
@@ -1027,7 +1027,7 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         item = nfe_request.items.order_by("-id").first()
         if item is None:
-            messages.error(request, "A Nota Fiscal de Produto ainda nao possui um item sincronizado para consulta.")
+            messages.error(request, "A Nota Fiscal de Produto ainda não possui um item sincronizado para consulta.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         service = get_fiscal_service()
@@ -1052,12 +1052,12 @@ class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         latest_item = nfe_request.items.order_by("-id").first()
 
         if not _can_invalidate_nfe_request(nfe_request=nfe_request, latest_item=latest_item):
-            messages.error(request, "A numeracao desta Nota Fiscal de Produto nao pode ser inutilizada no estado atual.")
+            messages.error(request, "A numeração desta Nota Fiscal de Produto não pode ser inutilizada no estado atual.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         form = NfeInvalidateForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe um motivo de inutilizacao entre 15 e 255 caracteres.")
+            messages.error(request, "Informe um motivo de inutilização entre 15 e 255 caracteres.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         reason = str(form.cleaned_data["reason"]).strip()
@@ -1082,7 +1082,7 @@ class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request.save(update_fields=["invalidation_reason", "invalidation_xml_url", "invalidation_log_payload", "invalidated_at"])
         nfe_request.set_status(NfeRequestStatus.INVALIDATED)
 
-        messages.success(request, "Numeracao da Nota Fiscal de Produto inutilizada com sucesso.")
+        messages.success(request, "Numeração da Nota Fiscal de Produto inutilizada com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -1102,7 +1102,7 @@ class NfeDocumentDownloadView(LoginRequiredMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
 
         if document_kind == "xml":
             can_download = _user_can_download_nferequest_xml(user=request.user, workshop=self.workshop, request=request)
@@ -1113,7 +1113,7 @@ class NfeDocumentDownloadView(LoginRequiredMixin, View):
 
         item = nfe_request.items.order_by("-id").first()
         if item is None:
-            raise Http404("Documento ainda nao disponivel")
+            raise Http404("Documento ainda não disponível")
 
         field_name, extension = self.document_fields[document_kind]
         document_url = str(getattr(item, field_name, "") or "").strip()
@@ -1153,7 +1153,7 @@ class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
 
         event = get_object_or_404(
             FiscalDocumentEvent.objects.select_related("document", "document__legacy_nfe_item"),
@@ -1266,7 +1266,7 @@ class NfeReturnDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
 
         document = get_object_or_404(
             FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item__request=nfe_request).distinct(),
@@ -1330,7 +1330,7 @@ class NfeComplementaryDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
 
         document = get_object_or_404(
             FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item__request=nfe_request).distinct(),
@@ -1366,7 +1366,7 @@ class NfeAdjustmentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
 
         document = get_object_or_404(
             FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item__request=nfe_request, links_from__role=FiscalDocumentLinkRole.ADJUSTS).distinct(),
@@ -1417,7 +1417,7 @@ class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def _build_content_disposition(*, nfe_request: NfeRequest) -> str:
         identifier = str(getattr(nfe_request, "reserved_number", "") or nfe_request.pk or "documento").strip()
         safe_identifier = identifier.replace(" ", "-")
-        return f'inline; filename="nfe-previa-{safe_identifier}.pdf"'
+        return f'inline; filename="nfe-prévia-{safe_identifier}.pdf"'
 
 
 class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
@@ -1431,7 +1431,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
     step3_form_class = NfeRequestStep3Form
     preview_initial_fields = ("pricing_slider", "tax_class", "additional_information")
     tax_class_kind = "nfe"
-    tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal de Produto: {error}"
+    tax_class_warning_message = "Não foi possível carregar classes de imposto de Nota Fiscal de Produto: {error}"
     success_redirect_name = "finance:nfe_emit"
     status_by_step = {
         1: NfeRequestStatus.CHECKING_CLIENT,
@@ -1463,7 +1463,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
             if not self.object.update_status_based_on_request(response_payload.get("status")):
                 self.object.set_status(NfeRequestStatus.PROCESSING)
 
-            messages.success(self.request, "Solicitacao de Nota Fiscal de Produto enviada com sucesso.")
+            messages.success(self.request, "Solicitação de Nota Fiscal de Produto enviada com sucesso.")
             return True
         except FiscalServiceError as exc:
             logger.exception("Falha ao emitir NF-e", extra={"nfe_request_id": self.object.pk})
@@ -1484,7 +1484,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
         return render_emission_preview_modal(
             request=self.request,
             title="Prévia da Nota Fiscal de Produto",
-            description="Confira o documento antes de transmitir a Nota Fiscal de Produto para a Webmania.",
+            description="Confira o documento antes de transmitir a Nota Fiscal de Produto.",
             previews=[{"label": "DANFE", "embed_url": reverse("finance:nfe_preview_pdf", kwargs={"pk": self.object.pk})}],
             transmit_url=self._step_url(step=self.get_current_step()),
             hidden_fields=build_preview_hidden_fields(cleaned_data=form.cleaned_data),

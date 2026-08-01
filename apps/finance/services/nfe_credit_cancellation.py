@@ -82,20 +82,20 @@ def is_nfe_credit_eligible_for_cancellation(document: FiscalDocument | None) -> 
 
 def _assert_eligible(*, document: FiscalDocument) -> None:
     if document.document_type != FiscalDocumentType.NFE or document.origin != FiscalDocumentOrigin.DERIVED or document.purpose != FiscalDocumentPurpose.CREDIT or document.fiscal_purpose_type != "1":
-        raise NfeCreditCancellationError("Cancelamento permitido somente para NF-e de credito tipo 1 emitida pelo Hunter.")
+        raise NfeCreditCancellationError("Cancelamento permitido somente para NF-e de crédito tipo 1 emitida pelo Hunter.")
     if not is_credit_debit_basis_enabled(workshop=document.workshop):
-        raise NfeCreditCancellationError("O recurso fiscal de credito/debito esta desabilitado para esta oficina.")
+        raise NfeCreditCancellationError("O recurso fiscal de crédito/débito esta desabilitado para esta oficina.")
     if document.status == FiscalDocumentStatus.CANCELED:
-        raise NfeCreditCancellationError("Esta NF-e de credito ja esta cancelada.")
+        raise NfeCreditCancellationError("Esta NF-e de crédito já esta cancelada.")
     if document.status == FiscalDocumentStatus.UNCERTAIN:
-        raise NfeCreditCancellationError("NF-e de credito em estado incerto deve ser reconciliada antes do cancelamento.")
+        raise NfeCreditCancellationError("NF-e de crédito em estado incerto deve ser reconciliada antes do cancelamento.")
     if document.status != FiscalDocumentStatus.APPROVED:
-        raise NfeCreditCancellationError("Cancelamento permitido somente para NF-e de credito autorizada.")
+        raise NfeCreditCancellationError("Cancelamento permitido somente para NF-e de crédito autorizada.")
     if not str(document.access_key or "").strip() and not str(document.remote_uuid or "").strip():
-        raise NfeCreditCancellationError("Nao foi possivel cancelar NF-e de credito sem chave ou UUID.")
+        raise NfeCreditCancellationError("Não foi possível cancelar NF-e de crédito sem chave ou UUID.")
     active_statuses = [FiscalDocumentEventStatus.STARTED, FiscalDocumentEventStatus.SENT, FiscalDocumentEventStatus.PROCESSING, FiscalDocumentEventStatus.UNCERTAIN]
     if document.events.filter(event_type=FiscalDocumentEventType.CANCELLATION, status__in=active_statuses).exists():
-        raise NfeCreditCancellationError("Ja existe cancelamento da NF-e de credito em processamento ou estado incerto.")
+        raise NfeCreditCancellationError("Já existe cancelamento da NF-e de crédito em processamento ou estado incerto.")
 
 
 def _build_payload(*, document: FiscalDocument, reason: str) -> dict[str, str]:
@@ -114,7 +114,7 @@ def _idempotency_key(*, workshop_id: int, document_id: int, event_id: int) -> st
 
 def create_credit_cancellation_event_attempt(*, document: FiscalDocument, reason: str, requested_by: Any | None, legal_confirmation: bool) -> tuple[FiscalDocumentEvent, FiscalEmissionAttempt, dict[str, str]]:
     if not legal_confirmation:
-        raise NfeCreditCancellationError("Confirme explicitamente o cancelamento da NF-e de credito.")
+        raise NfeCreditCancellationError("Confirme explicitamente o cancelamento da NF-e de crédito.")
     reason = validate_credit_cancellation_reason(reason)
     with transaction.atomic():
         locked = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=document.pk, workshop=document.workshop)
@@ -194,13 +194,13 @@ def cancel_nfe_credit_document(*, document: FiscalDocument, reason: str, request
         response = requests.put(_build_cancel_url(), json=payload, headers=_build_headers(workshop=event.document.workshop), timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
-        message = "Timeout ao cancelar NF-e de credito; estado remoto incerto."
+        message = "Timeout ao cancelar NF-e de crédito; estado remoto incerto."
         logger.warning("nfe_credit_cancellation_timeout", extra={"fiscal_document_event_id": event.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(event=event, message=message)
         raise NfeCreditCancellationError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar NF-e de credito", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar NF-e de crédito", scope="nfe")
         mark_attempt_failed(attempt=attempt, error_message=message)
         event.status = FiscalDocumentEventStatus.FAILED
         event.response_payload = sanitize_fiscal_payload({"error": message})
@@ -209,18 +209,18 @@ def cancel_nfe_credit_document(*, document: FiscalDocument, reason: str, request
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao cancelar NF-e de credito; estado remoto incerto."
+        message = "Resposta inválida ao cancelar NF-e de crédito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(event=event, message=message)
         raise NfeCreditCancellationError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao cancelar NF-e de credito; estado remoto incerto."
+        message = "Resposta inválida ao cancelar NF-e de crédito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(event=event, message=message)
         raise NfeCreditCancellationError(message)
     event = apply_credit_cancellation_payload(event=event, response_payload=response_payload)
     if _failed(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento da NF-e de credito rejeitado."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento da NF-e de crédito rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeCreditCancellationError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
@@ -252,14 +252,14 @@ def reconcile_nfe_credit_cancellation(*, event: FiscalDocumentEvent) -> FiscalDo
     document = event.document
     identifier = str(document.remote_uuid or document.access_key or "").strip()
     if not identifier:
-        raise NfeCreditCancellationError("Nao foi possivel consultar cancelamento sem chave ou UUID.")
+        raise NfeCreditCancellationError("Não foi possível consultar cancelamento sem chave ou UUID.")
     params = {"uuid": identifier} if len(identifier) != 44 else {"chave": identifier}
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
         payload = response.json()
     except (requests.RequestException, ValueError) as exc:
-        raise NfeCreditCancellationError("Falha ao consultar cancelamento da NF-e de credito.") from exc
+        raise NfeCreditCancellationError("Falha ao consultar cancelamento da NF-e de crédito.") from exc
     if not isinstance(payload, dict):
-        raise NfeCreditCancellationError("Resposta invalida da consulta da NF-e de credito.")
+        raise NfeCreditCancellationError("Resposta inválida da consulta da NF-e de crédito.")
     return apply_credit_cancellation_payload(event=event, response_payload=payload)

@@ -1,10 +1,10 @@
 {% extends 'crud/list_page.html' %}
 
-{% block crud_title %}Perguntas Investigativas{% endblock %}
+{% block crud_title %}Perguntas investigativas{% endblock %}
 {% block crud_subtitle %}Configure o roteiro de perguntas para o orçamento.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'quote:investigative_question_create' %}" class="btn btn-primary">Nova Pergunta</a>
+    <a href="{% url 'quote:investigative_question_create' %}" class="btn btn-primary">Nova pergunta</a>
 {% endblock %}
 
 {% block crud_table_wrapper_id %}investigative-questions-table-wrapper{% endblock %}

@@ -309,7 +309,7 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
     
                     <input type="hidden" name="customer_type" :value="tipo">
                 """),
-                HTML('<h3 class="text-xl font-bold col-span-12">Dados Gerais</h3>'),
+                HTML('<h3 class="text-xl font-bold col-span-12">Dados gerais</h3>'),
                 # ─────────────────────────────
                 # Linha 1 — Identificação
                 # CPF/CNPJ | Nome | Nome Fantasia (PJ)
@@ -419,7 +419,7 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
                         HTML('<h3 class="text-xl font-bold">Veículos</h3>'),
                         Button(
                             name="add_vehicle",
-                            value="+ Adicionar Veículo",
+                            value="+ Adicionar veículo",
                             css_class="btn btn-primary",
                             hx_get=add_vehicle_url,
                             hx_target="#vehicle-list",

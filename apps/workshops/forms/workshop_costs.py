@@ -186,7 +186,7 @@ class WorkshopCostForm(CoreModelForm):
                 Div(
                     HTML(f"""
                         <div class="col-span-12 flex items-center justify-between mb-2">
-                            <h3 class="text-xl font-bold">Mês de Referência</h3>
+                            <h3 class="text-xl font-bold">Mês de referência</h3>
                             {copy_btn_html}
                         </div>
                     """),
@@ -208,14 +208,14 @@ class WorkshopCostForm(CoreModelForm):
                         css_class="contents",
                     ),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Taxas e Impostos</h3>'),
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Taxas e impostos</h3>'),
                     Field("card_rate", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("tax_rate", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("profit_margin", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("commission_rate", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("risk_coefficient", wrapper_class="col-span-12 lg:col-span-12"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Metas e Indicadores</h3>'),
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Metas e indicadores</h3>'),
                     Field("parts_purchase_cap", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("freight_cost", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("third_party_service_cap", wrapper_class="col-span-12 lg:col-span-4"),
@@ -226,7 +226,7 @@ class WorkshopCostForm(CoreModelForm):
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start col-span-12",
                 ),
                 Div(
-                    HTML('<div class="col-span-12 mb-4"><span class="badge badge-neutral">Cálculos Automáticos</span></div>'),
+                    HTML('<div class="col-span-12 mb-4"><span class="badge badge-neutral">Cálculos automáticos</span></div>'),
                     Field("total_value", wrapper_class="col-span-12"),
                     Field("total_monthly_costs", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("profit_target", wrapper_class="col-span-12 lg:col-span-6"),
@@ -374,7 +374,7 @@ class WorkshopCostForm(CoreModelForm):
                 <div class="flex flex-col gap-2">
                     <div class="flex items-start justify-between gap-2">
                         <div>
-                            <h3 class="text-sm font-semibold text-base-content">Calendário de Dias Trabalhados</h3>
+                            <h3 class="text-sm font-semibold text-base-content">Calendário de dias trabalhados</h3>
                             <p class="text-[10px] text-base-content/70">Clique em um dia útil para marcar ou desmarcar.</p>
                             <div class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-success/20 px-2.5 py-1">
                                 <span class="material-icons text-success text-[14px]">event_available</span>

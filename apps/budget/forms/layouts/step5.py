@@ -206,7 +206,7 @@ def configure_budget_step5_form(form):
                                     </div>
                                 """),
                         Field("slider", label=False, help_text=False, wrapper_class="w-full"),
-                        HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para direita para aumentar Mão de obra</p>'),
+                        HTML('<p class="text-sm text-gray-500 font-semibold italic">Deslize para a esquerda para aumentar Peça, ou para a direita para aumentar Mão de obra</p>'),
                         css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                     ),
                     # Desconto
@@ -235,8 +235,8 @@ def configure_budget_step5_form(form):
                                     <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
                                         <div class="mb-3 flex items-center justify-between gap-3">
                                             <div>
-                                                <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
-                                                <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
+                                                <p class="text-sm font-bold text-base-content">Tipo de desconto</p>
+                                                <p class="text-xs text-base-content/60">Selecione onde o desconto será aplicado.</p>
                                             </div>
                                             <span class="material-icons text-base-content/40">filter_alt</span>
                                         </div>

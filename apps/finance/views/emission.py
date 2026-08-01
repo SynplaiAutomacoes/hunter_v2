@@ -114,7 +114,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     base_steps_definition = [
         {"key": "workorder", "title": "Selecionar OS", "form_class": EmissionStep1Form},
         {"key": "customer", "title": "Conferir Cliente", "form_class": EmissionStep2Form},
-        {"key": "items", "title": "Conferir Produtos/Servicos", "form_class": EmissionStep3Form},
+        {"key": "items", "title": "Conferir Produtos/Serviços", "form_class": EmissionStep3Form},
         {"key": "summary", "title": "Resumo", "form_class": EmissionStep4Form},
         {"key": "note_mode", "title": "Emitir Nota", "form_class": EmissionStep5Form},
     ]
@@ -248,9 +248,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         self._clear_state()
 
         if has_created_requests:
-            messages.info(self.request, "Emissao fechada. Voce pode ajustar as notas criadas pelas listagens.")
+            messages.info(self.request, "Emissão fechada. Você pode ajustar as notas criadas pelas listagens.")
         else:
-            messages.info(self.request, "Emissao fechada. Voce pode iniciar uma nova quando quiser.")
+            messages.info(self.request, "Emissão fechada. Você pode iniciar uma nova quando quiser.")
 
         if getattr(self.request, "htmx", False):
             response = HttpResponse()
@@ -350,7 +350,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         allowed = slider_modes & emission_modes
 
         if not allowed:
-            return set(), "Não ha opções de emissão disponiveis para esta OS."
+            return set(), "Não ha opções de emissão disponíveis para esta OS."
 
         messages_list = list(emission_messages)
         if not messages_list:
@@ -499,7 +499,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         try:
             tax_classes = list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError as exc:
-            messages.warning(self.request, f"Nao foi possivel carregar classes de imposto: {exc}")
+            messages.warning(self.request, f"Não foi possível carregar classes de imposto: {exc}")
             self._tax_class_choices_cache = choices_by_type
             return choices_by_type
 
@@ -578,7 +578,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
     def _retry_notice(self, *, state: dict[str, Any], step_key: str) -> str:
         if step_key == "nfse_config" and state.get("note_mode") == "both" and state.get("nfe_done") and not state.get("nfse_done"):
-            return "A Nota Fiscal de Produto ja foi emitida com sucesso. Este reenvio tentara apenas a Nota Fiscal de Serviço pendente."
+            return "A Nota Fiscal de Produto já foi emitida com sucesso. Este reenvio tentara apenas a Nota Fiscal de Serviço pendente."
         return ""
 
     def get_context_data(self, **kwargs):
@@ -720,8 +720,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if not self._acquire_submission_lock(state=state, note_key="nfe"):
             existing_request_id = state.get("nfe_request_id")
             if existing_request_id:
-                return False, "Ja existe um envio de Nota Fiscal de Produto em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
-            return False, "A emissao da Nota Fiscal de Produto ja esta sendo processada. Aguarde alguns instantes e tente novamente."
+                return False, "Já existe um envio de Nota Fiscal de Produto em andamento para esta emissão. Aguarde a conclusão antes de tentar novamente."
+            return False, "A emissão da Nota Fiscal de Produto já esta sendo processada. Aguarde alguns instantes e tente novamente."
 
         nfe_request = self._get_or_create_nfe_request(state=state, workorder=workorder)
         try:
@@ -748,8 +748,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if not self._acquire_submission_lock(state=state, note_key="nfse"):
             existing_request_id = state.get("nfse_request_id")
             if existing_request_id:
-                return False, "Ja existe um envio de Nota Fiscal de Serviço em andamento para esta emissao. Aguarde a conclusao antes de tentar novamente."
-            return False, "A emissao da Nota Fiscal de Serviço ja esta sendo processada. Aguarde alguns instantes e tente novamente."
+                return False, "Já existe um envio de Nota Fiscal de Serviço em andamento para esta emissão. Aguarde a conclusão antes de tentar novamente."
+            return False, "A emissão da Nota Fiscal de Serviço já esta sendo processada. Aguarde alguns instantes e tente novamente."
 
         nfse_request = self._get_or_create_nfse_request(state=state, workorder=workorder)
         try:
@@ -854,7 +854,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
     def _handle_invalid_workorder(self):
         self._clear_state()
-        messages.error(self.request, "Selecione uma ordem de servico valida antes de emitir a nota.")
+        messages.error(self.request, "Selecione uma ordem de serviço válida antes de emitir a nota.")
         return self._redirect_to_step(1)
 
     def form_valid(self, form):
@@ -866,9 +866,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
             has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
             if has_nfe and not has_nfse:
-                messages.warning(self.request, "Esta OS ja possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Servico sera processada nesta emissao.")
+                messages.warning(self.request, "Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.")
             elif has_nfse and not has_nfe:
-                messages.warning(self.request, "Esta OS ja possui Nota Fiscal de Servico emitida. Apenas a Nota Fiscal de Produto sera processada nesta emissao.")
+                messages.warning(self.request, "Esta OS já possui Nota Fiscal de Serviço emitida. Apenas a Nota Fiscal de Produto será processada nesta emissão.")
             if state.get("workorder_id") != workorder.pk:
                 state.update(
                     {
@@ -907,7 +907,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
             allowed_note_modes, _ = self._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
             if not allowed_note_modes:
-                messages.error(self.request, "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual.")
+                messages.error(self.request, "Não ha saldo de produtos ou serviços para emitir nota com a configuração atual.")
                 self._write_state(state)
                 return self._redirect_to_step(self._current_step())
 
@@ -1012,7 +1012,7 @@ class EmissionPreviewView(EmissionRequestCreateView):
 
     def get(self, request, *args, **kwargs):
         if self._selected_workorder() is None:
-            return HttpResponse("<div id='emission-step4-body' class='alert alert-warning'>Selecione uma OS antes de atualizar a previa.</div>")
+            return HttpResponse("<div id='emission-step4-body' class='alert alert-warning'>Selecione uma OS antes de atualizar a prévia.</div>")
 
         form = self.get_form()
         return self.render_to_response(self.get_context_data(form=form))

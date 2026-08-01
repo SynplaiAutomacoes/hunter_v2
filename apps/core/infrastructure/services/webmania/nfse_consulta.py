@@ -43,7 +43,7 @@ def _build_consulta_url(*, event_uuid: str) -> str:
 def consult_nfse_uuid(*, workshop: Any, event_uuid: str) -> dict[str, Any]:
     normalized_uuid = str(event_uuid or "").strip()
     if not normalized_uuid:
-        raise NfseConsultaError("Nao foi possivel consultar a NFS-e ou lote sem UUID.")
+        raise NfseConsultaError("Não foi possível consultar a NFS-e ou lote sem UUID.")
 
     try:
         with observe_dependency_call(
@@ -62,7 +62,7 @@ def consult_nfse_uuid(*, workshop: Any, event_uuid: str) -> dict[str, Any]:
             response.raise_for_status()
             payload = response.json()
             if not isinstance(payload, dict):
-                raise NfseConsultaError("Resposta invalida da API de consulta da Nota Fiscal de Servico.")
+                raise NfseConsultaError("Resposta inválida da API de consulta da Nota Fiscal de Serviço.")
 
             sanitized_payload = sanitize_fiscal_payload(payload)
             error_message = extract_webmania_error_message(sanitized_payload.get("error") or sanitized_payload.get("msg") or sanitized_payload.get("message"), scope="nfse")
@@ -73,10 +73,10 @@ def consult_nfse_uuid(*, workshop: Any, event_uuid: str) -> dict[str, Any]:
             dependency_call.success(extra={"status": str(sanitized_payload.get("status") or "")})
             return sanitized_payload
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao consultar status da Nota Fiscal de Servico", scope="nfse")
+        message = build_webmania_request_exception_message(exc, default="Falha ao consultar status da Nota Fiscal de Serviço", scope="nfse")
         raise NfseConsultaError(message) from exc
     except ValueError as exc:
-        raise NfseConsultaError("Resposta invalida da API de consulta da Nota Fiscal de Servico.") from exc
+        raise NfseConsultaError("Resposta inválida da API de consulta da Nota Fiscal de Serviço.") from exc
 
 
 def consult_nfse_item(*, item: NfseItem) -> dict[str, Any]:
@@ -100,21 +100,21 @@ def consult_nfse_batch(*, batch: NfseBatch) -> dict[str, Any]:
 def _validate_query_identity(*, payload: dict[str, Any], expected_uuid: str, expected_model: str) -> None:
     payload_uuid = str(payload.get("uuid") or "").strip().lower()
     if not payload_uuid or payload_uuid != str(expected_uuid).strip().lower():
-        raise NfseConsultaError("A consulta retornou UUID diferente do registro local; nenhuma atualizacao foi aplicada.")
+        raise NfseConsultaError("A consulta retornou UUID diferente do registro local; nenhuma atualização foi aplicada.")
 
     payload_model = str(payload.get("modelo") or "").strip().lower()
     if payload_model != expected_model:
-        raise NfseConsultaError("A consulta retornou modelo fiscal diferente do registro local; nenhuma atualizacao foi aplicada.")
+        raise NfseConsultaError("A consulta retornou modelo fiscal diferente do registro local; nenhuma atualização foi aplicada.")
 
 
 def _ensure_unique_item_uuid(*, item: NfseItem) -> None:
     if NfseItem.objects.filter(uuid=item.uuid).exclude(pk=item.pk).exists():
-        raise NfseConsultaError("UUID NFS-e ambiguo entre registros locais; nenhuma atualizacao foi aplicada.")
+        raise NfseConsultaError("UUID NFS-e ambíguo entre registros locais; nenhuma atualização foi aplicada.")
 
 
 def _ensure_unique_batch_uuid(*, batch: NfseBatch) -> None:
     if NfseBatch.objects.filter(uuid=batch.uuid).exclude(pk=batch.pk).exists():
-        raise NfseConsultaError("UUID de lote RPS ambiguo entre registros locais; nenhuma atualizacao foi aplicada.")
+        raise NfseConsultaError("UUID de lote RPS ambíguo entre registros locais; nenhuma atualização foi aplicada.")
 
 
 def reconcile_nfse_item(*, item: NfseItem) -> NfseItem:
@@ -146,24 +146,24 @@ def reconcile_nfse_item(*, item: NfseItem) -> NfseItem:
 def _reconcile_batch_items(*, batch: NfseBatch, payload: dict[str, Any], reconciled_at: Any) -> None:
     raw_items = payload.get("info_nfse") or []
     if not isinstance(raw_items, list):
-        raise NfseConsultaError("O retorno do lote possui info_nfse invalido; nenhuma atualizacao foi aplicada.")
+        raise NfseConsultaError("O retorno do lote possui info_nfse inválido; nenhuma atualização foi aplicada.")
 
     for raw_item in raw_items:
         if not isinstance(raw_item, dict):
-            raise NfseConsultaError("O retorno do lote possui item invalido; nenhuma atualizacao foi aplicada.")
+            raise NfseConsultaError("O retorno do lote possui item inválido; nenhuma atualização foi aplicada.")
 
         item_uuid = str(raw_item.get("uuid") or "").strip()
         if not item_uuid:
-            raise NfseConsultaError("O retorno do lote possui item sem UUID; nenhuma atualizacao foi aplicada.")
+            raise NfseConsultaError("O retorno do lote possui item sem UUID; nenhuma atualização foi aplicada.")
 
         matches = list(NfseItem.objects.select_for_update().filter(uuid=item_uuid).order_by("pk")[:2])
         if len(matches) > 1:
-            raise NfseConsultaError("UUID de item NFS-e ambiguo no retorno do lote; nenhuma atualizacao foi aplicada.")
+            raise NfseConsultaError("UUID de item NFS-e ambíguo no retorno do lote; nenhuma atualização foi aplicada.")
 
         if matches:
             nfse_item = matches[0]
             if nfse_item.workshop_id != batch.workshop_id or nfse_item.request_id != batch.request_id:
-                raise NfseConsultaError("Item NFS-e do lote pertence a outro escopo; nenhuma atualizacao foi aplicada.")
+                raise NfseConsultaError("Item NFS-e do lote pertence a outro escopo; nenhuma atualização foi aplicada.")
         else:
             nfse_item = NfseItem.objects.create(
                 workshop=batch.workshop,

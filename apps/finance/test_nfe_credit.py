@@ -49,13 +49,13 @@ def _response(payload: dict[str, Any]) -> Mock:
 class CreditFixtureMixin:
     def build_fixture(self, *, suffix: int = 71) -> FiscalCreditProductPreview:
         self.user = User.objects.create_user(username=f"credit{suffix}", password="test", cpf=f"76543210{suffix:03d}")
-        account = Account.objects.create(name=f"Conta Credito {suffix}", owner=self.user)
+        account = Account.objects.create(name=f"Conta Crédito {suffix}", owner=self.user)
         self.user.account = account
         self.user.is_account_owner = True
         self.user.save(update_fields=["account", "is_account_owner"])
-        self.workshop = Workshop.objects.create(account=account, name=f"Oficina Credito {suffix}", cnpj=f"33.345.678/0001-{suffix:02d}", phone="+5511999999999", address="Rua Credito, 1")
+        self.workshop = Workshop.objects.create(account=account, name=f"Oficina Crédito {suffix}", cnpj=f"33.345.678/0001-{suffix:02d}", phone="+5511999999999", address="Rua Crédito, 1")
         WebmaniaCompany.objects.create(workshop=self.workshop, credit_debit_basis_enabled=True)
-        customer = Customer.objects.create(workshop=self.workshop, customer_type="PF", name="Cliente Credito", cpf_or_cnpj="12345678901", email="credito@example.test", logradouro="Rua Teste", numero="123", bairro="Centro", cidade="Sao Paulo", estado="SP", cep="01001-000")
+        customer = Customer.objects.create(workshop=self.workshop, customer_type="PF", name="Cliente Crédito", cpf_or_cnpj="12345678901", email="crédito@example.test", logradouro="Rua Teste", numero="123", bairro="Centro", cidade="São Paulo", estado="SP", cep="01001-000")
         budget = Budget.objects.create(workshop=self.workshop, entry_date="2026-06-22", status=BudgetStatus.APPROVED, customer=customer)
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
         nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder)
@@ -125,7 +125,7 @@ class FiscalPhaseTwoCreditTypeOneTests(CreditFixtureMixin, TestCase):
 
     def test_retry_same_preview_is_blocked_without_remote_call(self) -> None:
         self.emit()
-        with patch("apps.finance.services.nfe_credit.requests.post") as post, self.assertRaisesMessage(NfeCreditError, "ja possui"):
+        with patch("apps.finance.services.nfe_credit.requests.post") as post, self.assertRaisesMessage(NfeCreditError, "já possui"):
             create_and_emit_nfe_credit_type_one(preview=self.preview, workshop=self.workshop, requested_by=self.user, legal_confirmation=True)
         post.assert_not_called()
 

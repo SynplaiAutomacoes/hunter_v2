@@ -243,7 +243,7 @@ class ChecklistForm(CoreModelForm):
         uploaded_name = str(getattr(uploaded_pdf, "name", "") or "").lower()
         uploaded_content_type = str(getattr(uploaded_pdf, "content_type", "") or "").lower()
         if not uploaded_name.endswith(".pdf") and uploaded_content_type not in {"application/pdf", "application/x-pdf"}:
-            raise forms.ValidationError("Envie um arquivo PDF valido.")
+            raise forms.ValidationError("Envie um arquivo PDF válido.")
 
         return uploaded_pdf
 

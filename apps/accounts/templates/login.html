@@ -52,7 +52,7 @@ Bem-vindo de volta. Faça login para continuar.
     <div id="code-step-1">
         <div class="form-control w-full">
             <label class="label">
-                <span class="label-text font-semibold">Usuário</span>
+                <span class="label-text font-semibold">Usuário ou e-mail</span>
             </label>
             <input type="text" id="login-identifier" class="input input-bordered w-full" placeholder="user123">
             <label class="label hidden" id="identifier-error-label">
@@ -66,7 +66,7 @@ Bem-vindo de volta. Faça login para continuar.
 
     <!-- Step 2: Verificação -->
     <div id="code-step-2" class="hidden">
-        <p class="text-sm mb-4">Enviamos um código para o WhatsApp final <span id="masked-phone" class="font-bold"></span>.</p>
+        <p class="text-sm mb-4">Enviamos um código para o WhatsApp com final <span id="masked-phone" class="font-bold"></span>.</p>
         <div class="form-control w-full text-center">
             <label class="label">
                 <span class="label-text font-semibold">Código</span>
@@ -118,7 +118,7 @@ Bem-vindo de volta. Faça login para continuar.
 
         if (!identifier) {
             errorLabel.classList.remove('hidden');
-            errorMsg.innerText = 'Informe seu usuário';
+            errorMsg.innerText = 'Informe seu usuário ou e-mail';
             return;
         }
 

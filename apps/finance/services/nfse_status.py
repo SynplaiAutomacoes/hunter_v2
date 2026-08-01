@@ -44,13 +44,13 @@ def consult_nfse_municipal_status(*, capability: NfseMunicipalCapability) -> dic
     try:
         payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da API de status municipal NFS-e."
+        message = "Resposta inválida da API de status municipal NFS-e."
         capability.last_status_error = message
         capability.save(update_fields=["last_status_error", "atualizado_em"])
         raise NfseStatusError(message) from exc
 
     if not isinstance(payload, dict):
-        message = "Resposta invalida da API de status municipal NFS-e."
+        message = "Resposta inválida da API de status municipal NFS-e."
         capability.last_status_error = message
         capability.save(update_fields=["last_status_error", "atualizado_em"])
         raise NfseStatusError(message)

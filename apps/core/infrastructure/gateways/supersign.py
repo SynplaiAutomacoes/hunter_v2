@@ -85,7 +85,7 @@ def get_signed_document_download_url(*, document_id: str) -> str:
         data = response.json()
     except ValueError as exc:
         logger.error("supersign_download_url_invalid_json", extra={"document_id": document_id})
-        raise SuperSignGatewayError("Resposta invalida ao buscar downloadUrl do documento assinado") from exc
+        raise SuperSignGatewayError("Resposta inválida ao buscar downloadUrl do documento assinado") from exc
 
     download_url = data.get("downloadUrl") or data.get("url") if isinstance(data, dict) else None
     if not isinstance(download_url, str) or not download_url.strip():
@@ -132,7 +132,7 @@ def get_supersign_envelope_signed_document_id(*, envelope_id: str) -> str:
         data = response.json()
     except ValueError as exc:
         logger.error("supersign_envelope_details_invalid_json", extra={"envelope_id": envelope_id})
-        raise SuperSignGatewayError("Resposta invalida ao buscar detalhes do envelope") from exc
+        raise SuperSignGatewayError("Resposta inválida ao buscar detalhes do envelope") from exc
 
     envelope_status = data.get("status") if isinstance(data, dict) else None
     documents = data.get("documents") if isinstance(data, dict) else None
@@ -180,7 +180,7 @@ def get_supersign_envelope_signed_document_id(*, envelope_id: str) -> str:
             "first_document_id": first_document_id,
         },
     )
-    raise SuperSignGatewayError("Envelope ainda nao possui documento assinado disponivel")
+    raise SuperSignGatewayError("Envelope ainda não possui documento assinado disponível")
 
 
 def list_supersign_webhooks() -> list[dict[str, Any]]:
@@ -293,7 +293,7 @@ def download_signed_document(*, document_id: str) -> bytes:
                 "content_length": len(response.content),
             },
         )
-        raise SuperSignGatewayError("Arquivo retornado nao possui formato PDF")
+        raise SuperSignGatewayError("Arquivo retornado não possui formato PDF")
 
     logger.info(
         "supersign_download_signed_success",

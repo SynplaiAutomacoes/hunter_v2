@@ -85,8 +85,8 @@ class Product(TimeStampedModel):
     # --- Financeiro ---
     cost_price = MoneyField(verbose_name="Valor de Custo", max_digits=14, decimal_places=2)
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
-    last_purchase_price = MoneyField(verbose_name="Ultimo Valor de Compra", max_digits=14, decimal_places=2, null=True, blank=True)
-    last_used_price = MoneyField(verbose_name="Ultimo Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)
+    last_purchase_price = MoneyField(verbose_name="Último Valor de Compra", max_digits=14, decimal_places=2, null=True, blank=True)
+    last_used_price = MoneyField(verbose_name="Último Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)
 
     # Margem armazenada para facilidade de consulta, mas calculada no form
     profit_margin = models.DecimalField(verbose_name="Margem de Lucro", max_digits=7, decimal_places=2, default=0, blank=True)

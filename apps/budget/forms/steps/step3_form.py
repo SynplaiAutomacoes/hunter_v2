@@ -842,7 +842,7 @@ class BudgetStep3Form(BudgetStepBaseForm):
             final_count = len(uploaded_slot_types) + len(new_additional_images)
 
         if final_count > MAX_BUDGET_IMAGES:
-            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} anexos permitido. Você terá {final_count} anexos após esta operação.")
+            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} anexos permitidos. Você terá {final_count} anexos após esta operação.")
 
         return cleaned_data
 

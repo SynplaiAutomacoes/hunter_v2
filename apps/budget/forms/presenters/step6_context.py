@@ -60,9 +60,9 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
     action_blockers_display = " ".join(action_blockers)
     action_blocked_reason_json = escape(json.dumps(action_blockers_display))
     has_active_workorder = budget.workorders.exclude(status=WorkOrderStatus.CANCELLED).exists()
-    cancel_workorder_block_message = "Nao e possivel cancelar um orcamento enquanto existir uma O.S. ativa vinculada. Cancele a O.S. primeiro para depois cancelar o orcamento."
+    cancel_workorder_block_message = "Não é possível cancelar um orçamento enquanto existir uma O.S. ativa vinculada. Cancele a O.S. primeiro para depois cancelar o orçamento."
     cancel_workorder_blocked_reason_json = escape(json.dumps(cancel_workorder_block_message))
-    reject_workorder_block_message = "Nao e possivel reprovar um orcamento apos a abertura da O.S. Cancele a ordem de servico primeiro ou siga com o cancelamento do orcamento."
+    reject_workorder_block_message = "Não é possível reprovar um orçamento após a abertura da O.S. Cancele a ordem de serviço primeiro ou siga com o cancelamento do orçamento."
     reject_workorder_blocked_reason_json = escape(json.dumps(reject_workorder_block_message))
     approval_blockers = list(budget.approval_blockers)
     approval_blockers_display = " ".join(approval_blockers)

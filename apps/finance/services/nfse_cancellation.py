@@ -21,8 +21,8 @@ from apps.core.infrastructure.services.webmania.webmania_errors import build_web
 logger = logging.getLogger(__name__)
 
 NFSE_CANCELLATION_REASONS = {
-    1: "Erro na emissao",
-    2: "Servico nao prestado",
+    1: "Erro na emissão",
+    2: "Serviço não prestado",
     4: "Duplicidade da nota",
 }
 
@@ -50,9 +50,9 @@ def _validate_reason(reason_code: int | str) -> int:
     try:
         normalized = int(reason_code)
     except (TypeError, ValueError) as exc:
-        raise NfseCancellationError("Motivo de cancelamento NFS-e invalido.") from exc
+        raise NfseCancellationError("Motivo de cancelamento NFS-e inválido.") from exc
     if normalized not in NFSE_CANCELLATION_REASONS:
-        raise NfseCancellationError("Motivo de cancelamento NFS-e invalido.")
+        raise NfseCancellationError("Motivo de cancelamento NFS-e inválido.")
     return normalized
 
 
@@ -70,9 +70,9 @@ def _manual_emission_for_item(item: NfseItem) -> NfseManualEmission | None:
 def _validate_manual_cancellation_capability(*, emission: NfseManualEmission) -> None:
     capability = emission.preview.municipal_capability
     if capability.workshop_id != emission.workshop_id or capability.company_id != emission.company_id:
-        raise NfseCancellationError("A capacidade municipal nao pertence a empresa/oficina da emissao manual.")
+        raise NfseCancellationError("A capacidade municipal não pertence a empresa/oficina da emissão manual.")
     if not capability.is_active or not capability.cancellation_enabled:
-        raise NfseCancellationError("O cancelamento NFS-e esta desabilitado para o municipio configurado.")
+        raise NfseCancellationError("O cancelamento NFS-e esta desabilitado para o município configurado.")
 
 
 def is_nfse_item_eligible_for_cancellation(item: NfseItem | None) -> bool:
@@ -99,21 +99,21 @@ def is_nfse_item_eligible_for_cancellation(item: NfseItem | None) -> bool:
 
 def _assert_eligible(*, item: NfseItem) -> None:
     if not item.uuid:
-        raise NfseCancellationError("Nao foi possivel cancelar NFS-e sem UUID remoto.")
+        raise NfseCancellationError("Não foi possível cancelar NFS-e sem UUID remoto.")
     manual_emission = _manual_emission_for_item(item)
     if item.request_id is None and manual_emission is None:
-        raise NfseCancellationError("A NFS-e nao esta vinculada a uma requisicao legada ou emissao manual valida.")
+        raise NfseCancellationError("A NFS-e não esta vinculada a uma requisicao legada ou emissão manual válida.")
     if str(item.status).strip().lower() == "cancelado":
-        raise NfseCancellationError("Esta NFS-e ja esta cancelada.")
+        raise NfseCancellationError("Esta NFS-e já esta cancelada.")
     if str(item.status).strip().lower() == "substituido":
-        raise NfseCancellationError("NFS-e substituida nao pode ser cancelada por este fluxo.")
+        raise NfseCancellationError("NFS-e substituida não pode ser cancelada por este fluxo.")
     if str(item.status).strip().lower() == "uncertain":
         raise NfseCancellationError("NFS-e em estado incerto deve ser reconciliada antes do cancelamento.")
     if item.status != NfseItemStatus.aprovado:
         raise NfseCancellationError("Cancelamento permitido somente para NFS-e autorizada.")
     if manual_emission is not None:
         if manual_emission.status == FiscalEmissionAttemptStatus.UNCERTAIN or manual_emission.is_uncertain:
-            raise NfseCancellationError("A emissao manual NFS-e esta incerta e deve ser reconciliada antes do cancelamento.")
+            raise NfseCancellationError("A emissão manual NFS-e esta incerta e deve ser reconciliada antes do cancelamento.")
         _validate_manual_cancellation_capability(emission=manual_emission)
     else:
         if FiscalEmissionAttempt.objects.filter(
@@ -123,7 +123,7 @@ def _assert_eligible(*, item: NfseItem) -> None:
             request_id=item.request_id,
             status=FiscalEmissionAttemptStatus.UNCERTAIN,
         ).exists():
-            raise NfseCancellationError("A emissao NFS-e esta incerta e deve ser reconciliada antes do cancelamento.")
+            raise NfseCancellationError("A emissão NFS-e esta incerta e deve ser reconciliada antes do cancelamento.")
         try:
             validate_nfse_cancellation_capability(nfse_request=item.request)
         except NfseCapabilityError as exc:
@@ -152,10 +152,10 @@ def _create_cancellation_attempt(*, item: NfseItem, reason_code: int, requested_
         existing = _existing_cancellation(locked_item)
         if existing is not None:
             if existing.status == FiscalEmissionAttemptStatus.SUCCEEDED:
-                raise NfseCancellationError("Esta NFS-e ja possui cancelamento concluido.")
+                raise NfseCancellationError("Esta NFS-e já possui cancelamento concluído.")
             if existing.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-                raise NfseCancellationError("Ja existe cancelamento NFS-e incerto; consulte antes de qualquer nova acao.")
-            raise NfseCancellationError("Ja existe cancelamento NFS-e registrado para esta nota.")
+                raise NfseCancellationError("Já existe cancelamento NFS-e incerto; consulte antes de qualquer nova acao.")
+            raise NfseCancellationError("Já existe cancelamento NFS-e registrado para esta nota.")
 
         payload = sanitize_fiscal_payload({"uuid": str(locked_item.uuid), "motivo": reason_code})
         try:
@@ -169,7 +169,7 @@ def _create_cancellation_attempt(*, item: NfseItem, reason_code: int, requested_
                 requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
             )
         except IntegrityError as exc:
-            raise NfseCancellationError("Ja existe cancelamento NFS-e registrado para esta nota.") from exc
+            raise NfseCancellationError("Já existe cancelamento NFS-e registrado para esta nota.") from exc
 
         try:
             attempt = begin_emission_attempt(
@@ -212,7 +212,7 @@ def apply_nfse_cancellation_payload(*, cancellation: NfseCancellation, payload: 
     if _is_success(sanitized):
         item = cancellation.item
         if not should_apply_nfse_update(model="nfse", current_status=item.status, current_remote_updated_at=item.remote_updated_at, payload=sanitized):
-            raise NfseCancellationError("O cancelamento remoto nao pode ser aplicado por anti-regressao; reconcilie a NFS-e.")
+            raise NfseCancellationError("O cancelamento remoto não pode ser aplicado por anti-regressao; reconcilie a NFS-e.")
         item.status = NfseItemStatus.cancelado
         item.reason = str(sanitized.get("motivo") or cancellation.reason_label).strip()
         item.last_update_source = update_source
@@ -252,7 +252,7 @@ def cancel_nfse_item(*, item: NfseItem, reason_code: int | str, requested_by: An
         _mark_cancellation_uncertain(cancellation=cancellation, message=message)
         raise NfseCancellationError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar Nota Fiscal de Servico", scope="nfse")
+        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar Nota Fiscal de Serviço", scope="nfse")
         mark_attempt_failed(attempt=attempt, error_message=message)
         cancellation.status = FiscalEmissionAttemptStatus.FAILED
         cancellation.response_payload = sanitize_fiscal_payload({"error": message})
@@ -263,12 +263,12 @@ def cancel_nfse_item(*, item: NfseItem, reason_code: int | str, requested_by: An
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao cancelar NFS-e; estado remoto incerto."
+        message = "Resposta inválida ao cancelar NFS-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_cancellation_uncertain(cancellation=cancellation, message=message)
         raise NfseCancellationError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao cancelar NFS-e; estado remoto incerto."
+        message = "Resposta inválida ao cancelar NFS-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_cancellation_uncertain(cancellation=cancellation, message=message)
         raise NfseCancellationError(message)
@@ -280,11 +280,11 @@ def cancel_nfse_item(*, item: NfseItem, reason_code: int | str, requested_by: An
         _mark_cancellation_uncertain(cancellation=cancellation, message=str(exc))
         raise
     if cancellation.status == FiscalEmissionAttemptStatus.FAILED:
-        message = extract_webmania_error_message(response_payload, scope="nfse") or "Cancelamento NFS-e rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfse") or "Cancelamento NFS-e rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfseCancellationError(message)
     if cancellation.status != FiscalEmissionAttemptStatus.SUCCEEDED:
-        message = "Resposta de cancelamento NFS-e sem confirmacao conclusiva; estado remoto incerto."
+        message = "Resposta de cancelamento NFS-e sem confirmação conclusiva; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_cancellation_uncertain(cancellation=cancellation, message=message)
         raise NfseCancellationError(message)

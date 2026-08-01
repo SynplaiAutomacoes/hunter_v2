@@ -52,24 +52,24 @@ def _normalize_event(event: int | str) -> tuple[str, int]:
     try:
         code = int(event)
     except (TypeError, ValueError) as exc:
-        raise NfseManifestationError("Evento de manifestacao NFS-e invalido.") from exc
+        raise NfseManifestationError("Evento de manifestação NFS-e inválido.") from exc
     if code == 1:
         return NfseManifestation.ManifestationType.CONFIRMATION, 1
     if code == 2:
         return NfseManifestation.ManifestationType.REJECTION, 2
-    raise NfseManifestationError("Evento de manifestacao NFS-e invalido.")
+    raise NfseManifestationError("Evento de manifestação NFS-e inválido.")
 
 
 def _normalize_manifestor(manifestor: int | str) -> tuple[str, int]:
     try:
         code = int(manifestor)
     except (TypeError, ValueError) as exc:
-        raise NfseManifestationError("Manifestador NFS-e invalido.") from exc
+        raise NfseManifestationError("Manifestador NFS-e inválido.") from exc
     if code == 1:
         return NfseManifestation.ManifestationRole.TAKER, 1
     if code == 2:
         return NfseManifestation.ManifestationRole.INTERMEDIARY, 2
-    raise NfseManifestationError("Manifestador NFS-e invalido.")
+    raise NfseManifestationError("Manifestador NFS-e inválido.")
 
 
 def _normalize_rejection(*, event_code: int, rejection_reason: int | str | None, rejection_justification: str | None) -> tuple[int | None, str]:
@@ -78,9 +78,9 @@ def _normalize_rejection(*, event_code: int, rejection_reason: int | str | None,
     try:
         reason = int(rejection_reason)
     except (TypeError, ValueError) as exc:
-        raise NfseManifestationError("Rejeicao de NFS-e exige motivo.") from exc
+        raise NfseManifestationError("Rejeição de NFS-e exige motivo.") from exc
     if reason not in REJECTION_REASONS:
-        raise NfseManifestationError("Motivo de rejeicao NFS-e invalido.")
+        raise NfseManifestationError("Motivo de rejeição NFS-e inválido.")
     justification = str(rejection_justification or "").strip()
     if reason == 9 and not (15 <= len(justification) <= 255):
         raise NfseManifestationError("Motivo 9 exige justificativa entre 15 e 255 caracteres.")
@@ -101,17 +101,17 @@ def _assert_eligible(*, item: NfseItem) -> None:
     if item.request_id is None:
         raise NfseManifestationError("A NFS-e deve pertencer a uma requisicao local.")
     if not item.uuid:
-        raise NfseManifestationError("Manifestacao exige UUID remoto da NFS-e.")
+        raise NfseManifestationError("Manifestação exige UUID remoto da NFS-e.")
     if item.status == NfseItemStatus.cancelado:
-        raise NfseManifestationError("NFS-e cancelada nao pode ser manifestada.")
+        raise NfseManifestationError("NFS-e cancelada não pode ser manifestada.")
     if str(item.status).strip().lower() == "substituido":
-        raise NfseManifestationError("NFS-e substituida nao pode ser manifestada nesta fase.")
+        raise NfseManifestationError("NFS-e substituida não pode ser manifestada nesta fase.")
     if str(item.status).strip().lower() == "uncertain":
-        raise NfseManifestationError("NFS-e incerta deve ser reconciliada antes da manifestacao.")
+        raise NfseManifestationError("NFS-e incerta deve ser reconciliada antes da manifestação.")
     if item.status != NfseItemStatus.aprovado:
-        raise NfseManifestationError("Manifestacao permitida somente para NFS-e autorizada.")
+        raise NfseManifestationError("Manifestação permitida somente para NFS-e autorizada.")
     if FiscalEmissionAttempt.objects.filter(workshop=item.workshop, document_kind=FiscalEmissionDocumentKind.NFSE, operation_type=FiscalEmissionOperationType.EMISSION, request_id=item.request_id, status=FiscalEmissionAttemptStatus.UNCERTAIN).exists():
-        raise NfseManifestationError("A emissao NFS-e esta incerta e deve ser reconciliada antes da manifestacao.")
+        raise NfseManifestationError("A emissão NFS-e esta incerta e deve ser reconciliada antes da manifestação.")
     try:
         validate_nfse_manifestation_capability(nfse_request=item.request)
     except NfseCapabilityError as exc:
@@ -137,13 +137,13 @@ def _assert_received_eligible(*, document: NfseReceivedDocument) -> None:
     if document.validation_status != NfseReceivedDocument.ValidationStatus.VALIDATED:
         raise NfseManifestationError("A NFS-e recebida deve estar validada.")
     if not document.xml_snapshot.strip() or not document.xml_hash.strip():
-        raise NfseManifestationError("Manifestacao exige XML recebido validado.")
+        raise NfseManifestationError("Manifestação exige XML recebido validado.")
     if document.role not in {NfseReceivedDocument.Role.TAKER, NfseReceivedDocument.Role.INTERMEDIARY}:
-        raise NfseManifestationError("Manifestacao de NFS-e recebida exige papel tomador ou intermediario.")
+        raise NfseManifestationError("Manifestação de NFS-e recebida exige papel tomador ou intermediario.")
     if not str(document.uuid or "").strip():
-        raise NfseManifestationError("Manifestacao de NFS-e recebida exige UUID remoto seguro.")
+        raise NfseManifestationError("Manifestação de NFS-e recebida exige UUID remoto seguro.")
     if _received_status_is_blocked(document):
-        raise NfseManifestationError("NFS-e recebida cancelada, substituida ou incerta nao pode ser manifestada.")
+        raise NfseManifestationError("NFS-e recebida cancelada, substituida ou incerta não pode ser manifestada.")
     try:
         validate_nfse_received_manifestation_capability(document=document)
     except NfseCapabilityError as exc:
@@ -162,7 +162,7 @@ def is_nfse_received_document_eligible_for_manifestation(document: NfseReceivedD
 
 def nfse_received_document_manifestation_block_reason(document: NfseReceivedDocument | None) -> str:
     if document is None:
-        return "Documento recebido indisponivel."
+        return "Documento recebido indisponível."
     try:
         _assert_received_eligible(document=document)
     except NfseManifestationError as exc:
@@ -186,7 +186,7 @@ def _build_payload(*, item: NfseItem, event_code: int, manifestor: int, rejectio
 
 def _build_received_payload(*, document: NfseReceivedDocument, event_code: int, manifestor: int, rejection_reason: int | None, rejection_justification: str) -> dict[str, Any]:
     if document.environment not in {"1", "2"}:
-        raise NfseManifestationError("Manifestacao de NFS-e recebida exige ambiente seguro no XML.")
+        raise NfseManifestationError("Manifestação de NFS-e recebida exige ambiente seguro no XML.")
     payload: dict[str, Any] = {
         "ambiente": int(document.environment),
         "uuid": str(document.uuid),
@@ -210,8 +210,8 @@ def _create_manifestation_attempt(*, item: NfseItem, event: int | str, manifesto
         existing = _existing_manifestation(item=locked_item, event_code=event_code, manifestor=manifestor_code)
         if existing is not None:
             if existing.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-                raise NfseManifestationError("Ja existe manifestacao NFS-e incerta; consulte antes de qualquer nova acao.")
-            raise NfseManifestationError("Ja existe manifestacao NFS-e registrada para esta nota, evento e manifestador.")
+                raise NfseManifestationError("Já existe manifestação NFS-e incerta; consulte antes de qualquer nova acao.")
+            raise NfseManifestationError("Já existe manifestação NFS-e registrada para esta nota, evento e manifestador.")
         payload = _build_payload(item=locked_item, event_code=event_code, manifestor=manifestor_code, rejection_reason=reason, rejection_justification=justification)
         try:
             manifestation = NfseManifestation.objects.create(
@@ -227,7 +227,7 @@ def _create_manifestation_attempt(*, item: NfseItem, event: int | str, manifesto
                 created_by=created_by if getattr(created_by, "is_authenticated", False) else None,
             )
         except IntegrityError as exc:
-            raise NfseManifestationError("Ja existe manifestacao NFS-e ativa para esta nota, evento e manifestador.") from exc
+            raise NfseManifestationError("Já existe manifestação NFS-e ativa para esta nota, evento e manifestador.") from exc
         try:
             attempt = begin_emission_attempt(
                 workshop=locked_item.workshop,
@@ -257,8 +257,8 @@ def _create_received_manifestation_attempt(*, document: NfseReceivedDocument, ev
         existing = _existing_received_manifestation(document=locked_document, event_code=event_code, manifestor=manifestor_code)
         if existing is not None:
             if existing.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-                raise NfseManifestationError("Ja existe manifestacao NFS-e recebida incerta; consulte antes de qualquer nova acao.")
-            raise NfseManifestationError("Ja existe manifestacao NFS-e recebida registrada para este documento, evento e manifestador.")
+                raise NfseManifestationError("Já existe manifestação NFS-e recebida incerta; consulte antes de qualquer nova acao.")
+            raise NfseManifestationError("Já existe manifestação NFS-e recebida registrada para este documento, evento e manifestador.")
         payload = _build_received_payload(document=locked_document, event_code=event_code, manifestor=manifestor_code, rejection_reason=reason, rejection_justification=justification)
         try:
             manifestation = NfseManifestation.objects.create(
@@ -274,7 +274,7 @@ def _create_received_manifestation_attempt(*, document: NfseReceivedDocument, ev
                 created_by=created_by if getattr(created_by, "is_authenticated", False) else None,
             )
         except IntegrityError as exc:
-            raise NfseManifestationError("Ja existe manifestacao NFS-e recebida ativa para este documento, evento e manifestador.") from exc
+            raise NfseManifestationError("Já existe manifestação NFS-e recebida ativa para este documento, evento e manifestador.") from exc
         try:
             attempt = begin_emission_attempt(
                 workshop=locked_document.workshop,
@@ -316,7 +316,7 @@ def apply_nfse_manifestation_payload(*, manifestation: NfseManifestation, payloa
     sanitized = sanitize_fiscal_payload(payload)
     payload_uuid = str(sanitized.get("uuid") or "").strip()
     if locked.remote_uuid and payload_uuid and str(locked.remote_uuid).lower() != payload_uuid.lower():
-        raise NfseManifestationError("O retorno pertence a outra manifestacao NFS-e.")
+        raise NfseManifestationError("O retorno pertence a outra manifestação NFS-e.")
     locked.response_payload = sanitized
     if payload_uuid:
         locked.remote_uuid = payload_uuid
@@ -351,7 +351,7 @@ def _send_manifestation(*, manifestation: NfseManifestation, attempt: FiscalEmis
         _mark_uncertain(manifestation=manifestation, message=message)
         raise NfseManifestationError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao manifestar Nota Fiscal de Servico", scope="nfse")
+        message = build_webmania_request_exception_message(exc, default="Falha ao manifestar Nota Fiscal de Serviço", scope="nfse")
         mark_attempt_failed(attempt=attempt, error_message=message)
         manifestation.status = FiscalEmissionAttemptStatus.FAILED
         manifestation.response_payload = sanitize_fiscal_payload({"error": message})
@@ -361,22 +361,22 @@ def _send_manifestation(*, manifestation: NfseManifestation, attempt: FiscalEmis
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao manifestar NFS-e; estado remoto incerto."
+        message = "Resposta inválida ao manifestar NFS-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(manifestation=manifestation, message=message)
         raise NfseManifestationError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao manifestar NFS-e; estado remoto incerto."
+        message = "Resposta inválida ao manifestar NFS-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(manifestation=manifestation, message=message)
         raise NfseManifestationError(message)
     manifestation = apply_nfse_manifestation_payload(manifestation=manifestation, payload=response_payload, update_source="manifestation")
     if manifestation.status == FiscalEmissionAttemptStatus.FAILED:
-        message = extract_webmania_error_message(response_payload, scope="nfse") or "Manifestacao NFS-e rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfse") or "Manifestação NFS-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfseManifestationError(message)
     if manifestation.status != FiscalEmissionAttemptStatus.SUCCEEDED:
-        message = "Resposta de manifestacao NFS-e sem confirmacao conclusiva; estado remoto incerto."
+        message = "Resposta de manifestação NFS-e sem confirmação conclusiva; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(manifestation=manifestation, message=message)
         raise NfseManifestationError(message)
@@ -419,7 +419,7 @@ def reconcile_nfse_manifestation(*, manifestation: NfseManifestation) -> NfseMan
     if manifestation.status == FiscalEmissionAttemptStatus.SUCCEEDED:
         return manifestation
     if not manifestation.remote_uuid:
-        raise NfseManifestationError("Manifestacao incerta sem UUID remoto exige decisao administrativa; nenhum POST sera repetido.")
+        raise NfseManifestationError("Manifestação incerta sem UUID remoto exige decisão administrativa; nenhum POST será repetido.")
     try:
         payload = consult_nfse_uuid(workshop=manifestation.workshop, event_uuid=str(manifestation.remote_uuid))
     except NfseConsultaError as exc:

@@ -27,7 +27,7 @@ class NfeDebitIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
             validation_status=FiscalProductPreviewStatus.APPROVED,
         )
         if not is_nfe_debit_emission_enabled(workshop=self.workshop):
-            messages.error(request, "A emissao de NF-e de debito esta desabilitada para esta oficina.")
+            messages.error(request, "A emissão de NF-e de débito esta desabilitada para esta oficina.")
             return redirect("finance:fiscal_debit_product_preview_detail", pk=preview.pk)
         try:
             document = create_and_emit_nfe_debit_type_four(
@@ -40,7 +40,7 @@ class NfeDebitIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeDebitError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, f"NF-e de debito tipo 4 registrada com status {document.get_status_display()}.")
+            messages.success(request, f"NF-e de débito tipo 4 registrada com status {document.get_status_display()}.")
         return redirect("finance:fiscal_debit_product_preview_detail", pk=preview.pk)
 
 
@@ -63,7 +63,7 @@ class NfeDebitDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, *args, **kwargs):
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
         document = get_object_or_404(FiscalDocument, pk=kwargs["pk"], workshop=self.workshop, purpose=FiscalDocumentPurpose.DEBIT, fiscal_purpose_type="4")
         field_name, extension = self.document_fields[document_kind]
         try:
@@ -72,7 +72,7 @@ class NfeDebitDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         identifier = str(document.number or document.access_key or document.remote_uuid or document.pk).replace(" ", "-")
-        response["Content-Disposition"] = f'attachment; filename="nfe-debito-{document_kind}-{identifier}.{extension}"'
+        response["Content-Disposition"] = f'attachment; filename="nfe-débito-{document_kind}-{identifier}.{extension}"'
         return response
 
 
@@ -93,7 +93,7 @@ class NfeDebitCancellationView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeDebitCancellationError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Cancelamento da NF-e de debito processado.")
+            messages.success(request, "Cancelamento da NF-e de débito processado.")
         return redirect("finance:fiscal_debit_product_preview_detail", pk=document.debit_product_preview_id)
 
 
@@ -119,7 +119,7 @@ class NfeDebitCancellationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, 
         except WebmaniaDocumentDownloadError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
-        response["Content-Disposition"] = f'attachment; filename="nfe-debito-cancelamento-{event.document_id}.xml"'
+        response["Content-Disposition"] = f'attachment; filename="nfe-débito-cancelamento-{event.document_id}.xml"'
         return response
 
 
@@ -131,5 +131,5 @@ class NfeDebitEmissionFeatureToggleView(LoginRequiredMixin, WorkshopScopedMixin,
     def post(self, request, *args, **kwargs):
         enabled = request.POST.get("enabled") == "1"
         set_nfe_debit_emission_enabled(workshop=self.workshop, enabled=enabled, actor=request.user)
-        messages.success(request, "Emissao de NF-e de debito habilitada." if enabled else "Emissao de NF-e de debito desabilitada.")
+        messages.success(request, "Emissão de NF-e de débito habilitada." if enabled else "Emissão de NF-e de débito desabilitada.")
         return redirect("finance:fiscal_debit_product_preview_list")

@@ -4,30 +4,30 @@
 <div class="mx-auto max-w-7xl space-y-5 p-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-            <h1 class="text-2xl font-bold">Previas fiscais de debito</h1>
-            <p class="text-sm text-base-content/70">Debito tipo 4 por multa/juros.</p>
+            <h1 class="text-2xl font-bold">Prévias fiscais de débito</h1>
+            <p class="text-sm text-base-content/70">Débito tipo 4 por multa/juros.</p>
         </div>
-        {% if can_prepare_preview and preview_enabled %}<a class="btn btn-primary" href="{% url 'finance:fiscal_debit_product_preview_create' %}">Criar previa</a>{% endif %}
+        {% if can_prepare_preview and preview_enabled %}<a class="btn btn-primary" href="{% url 'finance:fiscal_debit_product_preview_create' %}">Criar prévia</a>{% endif %}
     </div>
-    <div class="alert alert-warning">A emissao exige preview aprovada, permissao especifica e habilitacao administrativa da oficina.</div>
+    <div class="alert alert-warning">A emissão exige prévia aprovada, permissão especifica e habilitacao administrativa da oficina.</div>
     {% if can_manage_debit_emission %}
     <form method="post" action="{% url 'finance:nfe_debit_emission_toggle' %}" class="flex items-center gap-3">
         {% csrf_token %}
         <input type="hidden" name="enabled" value="{% if debit_emission_enabled %}0{% else %}1{% endif %}">
-        <button class="btn btn-sm {% if debit_emission_enabled %}btn-error{% else %}btn-outline{% endif %}" type="submit">{% if debit_emission_enabled %}Desabilitar emissao de debito{% else %}Habilitar emissao de debito{% endif %}</button>
-        <span class="text-sm text-base-content/70">Configuracao administrativa auditavel por oficina.</span>
+        <button class="btn btn-sm {% if debit_emission_enabled %}btn-error{% else %}btn-outline{% endif %}" type="submit">{% if debit_emission_enabled %}Desabilitar emissão de débito{% else %}Habilitar emissão de débito{% endif %}</button>
+        <span class="text-sm text-base-content/70">Configuração administrativa auditável por oficina.</span>
     </form>
     {% endif %}
     <div class="overflow-x-auto">
         <table class="table">
-            <thead><tr><th>Base</th><th>Revisao</th><th>DF-e/item</th><th>Total</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Base</th><th>Revisão</th><th>DF-e/item</th><th>Total</th><th>Status</th><th></th></tr></thead>
             <tbody>
             {% for preview in previews %}
                 <tr>
                     <td>#{{ preview.basis_id }}</td><td>{{ preview.revision }}</td><td>{{ preview.source_access_key|slice:"-8:" }} / {{ preview.source_item_sequence }}</td><td>R$ {{ preview.product_total_amount }}</td><td>{{ preview.get_validation_status_display }}</td>
                     <td><a class="btn btn-sm" href="{% url 'finance:fiscal_debit_product_preview_detail' pk=preview.pk %}">Abrir</a></td>
                 </tr>
-            {% empty %}<tr><td colspan="6" class="text-center text-base-content/60">Nenhuma previa criada.</td></tr>{% endfor %}
+            {% empty %}<tr><td colspan="6" class="text-center text-base-content/60">Nenhuma prévia criada.</td></tr>{% endfor %}
             </tbody>
         </table>
     </div>

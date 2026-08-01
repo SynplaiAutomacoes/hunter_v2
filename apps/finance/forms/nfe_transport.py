@@ -79,7 +79,7 @@ def configure_nfe_transport_form(*, form: forms.BaseForm, snapshot: object = Non
     form.fields["transport_gross_weight"] = forms.DecimalField(label="Peso bruto (kg)", required=False, min_value=0, max_digits=12, decimal_places=3, widget=DecimalInput(min_value=0, decimal_places=3))
     form.fields["transport_net_weight"] = forms.DecimalField(label="Peso liquido (kg)", required=False, min_value=0, max_digits=12, decimal_places=3, widget=DecimalInput(min_value=0, decimal_places=3))
     form.fields["transport_volume_brand"] = forms.CharField(label="Marca dos volumes", required=False, max_length=60, widget=TextInput())
-    form.fields["transport_volume_numbering"] = forms.CharField(label="Numeracao dos volumes", required=False, max_length=60, widget=TextInput())
+    form.fields["transport_volume_numbering"] = forms.CharField(label="Numeração dos volumes", required=False, max_length=60, widget=TextInput())
     form.fields["transport_seals"] = forms.CharField(label="Lacres", required=False, max_length=60, widget=TextInput())
     form.fields["nfe_transport_trailers_json"] = forms.CharField(
         required=False,
@@ -113,7 +113,7 @@ def clean_nfe_transport_form(cleaned_data: dict[str, Any]) -> dict[str, Any]:
 def build_nfe_transport_form_layout() -> Any:
     return Div(
         HTML("<h3 class='text-lg font-semibold pt-4'>Transporte</h3>"),
-        HTML("<p class='text-sm text-base-content/70'>Preencha somente quando houver transporte associado a esta NF-e. Nenhum valor de frete sera calculado.</p>"),
+        HTML("<p class='text-sm text-base-content/70'>Preencha somente quando houver transporte associado a esta NF-e. Nenhum valor de frete será calculado.</p>"),
         Field("freight_mode"),
         Div(
             Field("transport_person_type", wrapper_class="col-span-12 lg:col-span-4"),

@@ -40,7 +40,7 @@ def _build_inutilization_url() -> str:
 def validate_nfce_inutilization_reason(reason: str) -> str:
     normalized = str(reason or "").strip()
     if len(normalized) < NFCE_INUTILIZATION_MIN_REASON_LENGTH or len(normalized) > NFCE_INUTILIZATION_MAX_REASON_LENGTH:
-        raise NfceInutilizationError("Informe um motivo de inutilizacao entre 15 e 255 caracteres.")
+        raise NfceInutilizationError("Informe um motivo de inutilização entre 15 e 255 caracteres.")
     return normalized
 
 
@@ -56,11 +56,11 @@ def normalize_nfce_inutilization_range(*, sequence_start: Any, sequence_end: Any
             start = int(sequence_start)
             end = int(sequence_end if sequence_end not in (None, "") else sequence_start)
         except (TypeError, ValueError) as exc:
-            raise NfceInutilizationError("Informe sequencia inicial e final validas.") from exc
+            raise NfceInutilizationError("Informe sequencia inicial e final válidas.") from exc
     if start <= 0 or end <= 0:
         raise NfceInutilizationError("A sequencia da NFC-e deve ser maior que zero.")
     if start > end:
-        raise NfceInutilizationError("A sequencia inicial nao pode ser maior que a final.")
+        raise NfceInutilizationError("A sequencia inicial não pode ser maior que a final.")
     return start, end
 
 
@@ -90,17 +90,17 @@ def _blocking_nfce_document_statuses() -> set[str]:
 
 def validate_nfce_inutilization_configuration(*, workshop: Any, environment: int, series: Any) -> WebmaniaCompany:
     if int(environment) not in {1, 2}:
-        raise NfceInutilizationError("Ambiente da inutilizacao NFC-e invalido.")
+        raise NfceInutilizationError("Ambiente da inutilização NFC-e inválido.")
     try:
         company = validate_nfce_configuration(workshop=workshop, environment=int(environment))
     except NfceEmissionError as exc:
         raise NfceInutilizationError(str(exc)) from exc
     normalized_series = str(series or "").strip()
     if not normalized_series.isdigit():
-        raise NfceInutilizationError("Informe serie NFC-e valida.")
+        raise NfceInutilizationError("Informe serie NFC-e válida.")
     company_series = str(company.nfce_serie or "").strip()
     if normalized_series != company_series:
-        raise NfceInutilizationError("A serie informada nao corresponde a serie NFC-e configurada para a oficina.")
+        raise NfceInutilizationError("A serie informada não corresponde a serie NFC-e configurada para a oficina.")
     return company
 
 
@@ -115,7 +115,7 @@ def _assert_no_local_nfce_in_range(*, workshop: Any, environment: int, series: s
     for document in candidates:
         number = str(document.number or "").strip()
         if number.isdigit() and sequence_start <= int(number) <= sequence_end:
-            raise NfceInutilizationError("A faixa contem NFC-e conhecida localmente e nao pode ser inutilizada.")
+            raise NfceInutilizationError("A faixa contem NFC-e conhecida localmente e não pode ser inutilizada.")
 
 
 def _assert_no_overlapping_inutilization(*, workshop: Any, environment: int, series: str, sequence_start: int, sequence_end: int, exclude_pk: int | None = None) -> None:
@@ -131,7 +131,7 @@ def _assert_no_overlapping_inutilization(*, workshop: Any, environment: int, ser
     if exclude_pk is not None:
         queryset = queryset.exclude(pk=exclude_pk)
     if queryset.exists():
-        raise NfceInutilizationError("Ja existe inutilizacao ativa, concluida ou incerta sobrepondo esta faixa.")
+        raise NfceInutilizationError("Já existe inutilização ativa, concluída ou incerta sobrepondo esta faixa.")
 
 
 def assert_nfce_inutilization_range_available(*, workshop: Any, environment: int, series: str, sequence_start: int, sequence_end: int, exclude_pk: int | None = None) -> None:
@@ -167,13 +167,13 @@ def create_nfce_inutilization_draft(
     local_limitation_confirmation: bool = False,
 ) -> FiscalNumberInutilization:
     if not local_limitation_confirmation:
-        raise NfceInutilizationError("Confirme que a verificacao local nao garante ausencia de uso fora do Hunter.")
+        raise NfceInutilizationError("Confirme que a verificacao local não garante ausencia de uso fora do Hunter.")
     reason = validate_nfce_inutilization_reason(reason)
     start, end = normalize_nfce_inutilization_range(sequence_start=sequence_start, sequence_end=sequence_end)
     with transaction.atomic():
         company = WebmaniaCompany.objects.select_for_update().filter(workshop=workshop).first()
         if company is None:
-            raise NfceInutilizationError("Configure a empresa Webmania da oficina antes de inutilizar numeracao NFC-e.")
+            raise NfceInutilizationError("Configure a empresa emissora da oficina antes de inutilizar numeração NFC-e.")
         validate_nfce_inutilization_configuration(workshop=workshop, environment=int(environment), series=series)
         normalized_series = str(series or "").strip()
         assert_nfce_inutilization_range_available(workshop=workshop, environment=int(environment), series=normalized_series, sequence_start=start, sequence_end=end)
@@ -240,10 +240,10 @@ def _assert_transmittable(*, inutilization: FiscalNumberInutilization) -> None:
     if existing_attempt is None:
         return
     if existing_attempt.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-        raise NfceInutilizationError("Ja existe tentativa de inutilizacao NFC-e em estado remoto incerto. Nao reenvie automaticamente.")
+        raise NfceInutilizationError("Já existe tentativa de inutilização NFC-e em estado remoto incerto. Não reenvie automaticamente.")
     if existing_attempt.status in {FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED}:
-        raise NfceInutilizationError("Esta intencao de inutilizacao NFC-e ja possui envio remoto registrado.")
-    raise NfceInutilizationError("Esta intencao de inutilizacao NFC-e ja possui tentativa fiscal registrada.")
+        raise NfceInutilizationError("Esta intencao de inutilização NFC-e já possui envio remoto registrado.")
+    raise NfceInutilizationError("Esta intencao de inutilização NFC-e já possui tentativa fiscal registrada.")
 
 
 def transmit_nfce_inutilization(*, inutilization: FiscalNumberInutilization) -> FiscalNumberInutilization:
@@ -276,13 +276,13 @@ def transmit_nfce_inutilization(*, inutilization: FiscalNumberInutilization) -> 
         response = requests.put(_build_inutilization_url(), json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
-        message = "Timeout ao inutilizar numeracao NFC-e; faixa em estado remoto incerto."
+        message = "Timeout ao inutilizar numeração NFC-e; faixa em estado remoto incerto."
         logger.warning("nfce_inutilization_timeout", extra={"fiscal_number_inutilization_id": locked.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_inutilization_uncertain(inutilization=locked, error_message=message)
         raise NfceInutilizationError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao inutilizar numeracao NFC-e", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao inutilizar numeração NFC-e", scope="nfe")
         mark_attempt_failed(attempt=attempt, error_message=message)
         locked.status = FiscalNumberInutilizationStatus.FAILED
         locked.remote_status = FiscalNumberInutilizationStatus.FAILED
@@ -294,19 +294,19 @@ def transmit_nfce_inutilization(*, inutilization: FiscalNumberInutilization) -> 
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao inutilizar numeracao NFC-e; estado remoto incerto."
+        message = "Resposta inválida ao inutilizar numeração NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_inutilization_uncertain(inutilization=locked, error_message=message)
         raise NfceInutilizationError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao inutilizar numeracao NFC-e; estado remoto incerto."
+        message = "Resposta inválida ao inutilizar numeração NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_inutilization_uncertain(inutilization=locked, error_message=message)
         raise NfceInutilizationError(message)
 
     locked = apply_nfce_inutilization_payload(inutilization=locked, response_payload=response_payload)
     if _is_failed_inutilization_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Inutilizacao NFC-e rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Inutilização NFC-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfceInutilizationError(message)
     if locked.status == FiscalNumberInutilizationStatus.SUCCEEDED:

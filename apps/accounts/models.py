@@ -46,7 +46,7 @@ class User(AbstractUser):
         max_length=20,
         blank=True,
         verbose_name="Telefone (WhatsApp)",
-        help_text="Número com DDI para envio de mensagens via WhatsApp",
+        help_text="Número com DDI para envio de mensagens pelo WhatsApp.",
     )
     workshops = models.ManyToManyField(
         "workshops.Workshop",
@@ -149,12 +149,12 @@ class LoginCodeToken(TimeStampedModel):
 
 class FavoritePage(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="favorite_pages")
-    url = models.CharField(max_length=500, verbose_name="URL da Página")
+    url = models.CharField(max_length=500, verbose_name="URL da página")
     position = models.PositiveIntegerField(default=1, verbose_name="Posição")
 
     class Meta:
-        verbose_name = "Página Favorita"
-        verbose_name_plural = "Páginas Favoritas"
+        verbose_name = "Página favorita"
+        verbose_name_plural = "Páginas favoritas"
         ordering = ["position", "pk"]
         constraints = [
             models.UniqueConstraint(fields=("user", "url"), name="unique_user_favorite_page_url"),
