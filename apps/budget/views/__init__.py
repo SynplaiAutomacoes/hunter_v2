@@ -84,6 +84,7 @@ __all__ = [
     "visualizar_pdf_checklist",
     "visualizar_pdf_gestor",
     "visualizar_pdf_mecanico",
+    "download_pdf_gestor",
     "signature_preview",
     "signature_file",
     "BudgetEventsView",

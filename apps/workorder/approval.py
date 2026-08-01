@@ -9,7 +9,7 @@ from apps.catalog.product_issues import has_invalid_ncm
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.stock.models import StockMovement, StockProduct
 from apps.workorder.models import WorkOrderItem
-from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus
 
 
 logger = logging.getLogger(__name__)

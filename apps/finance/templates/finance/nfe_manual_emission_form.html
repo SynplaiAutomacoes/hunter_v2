@@ -1,0 +1,350 @@
+{% extends 'crud/page.html' %}
+{% load crispy_forms_tags %}
+
+{% block crud_content %}
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <p class="text-sm font-medium uppercase tracking-wide text-primary">NF-e Normal · Emissão Manual</p>
+            <h1 class="mt-1 text-3xl font-bold text-base-content">Emitir NF-e sem Ordem de Serviço</h1>
+            <p class="mt-1 text-base-content/70">Informe destinatário e produtos, revise os dados e emita pelo mesmo motor fiscal da NF-e por OS.</p>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <span class="material-icons">info</span>
+        <span>Esta emissão é independente de OS e não movimenta estoque. Serviços permanecem no fluxo próprio de NFS-e.</span>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <ol class="mb-8 grid grid-cols-1 gap-3 md:grid-cols-3" aria-label="Etapas da emissão manual">
+                <li class="manual-step-indicator rounded-xl border border-primary bg-primary/5 p-4" data-step-indicator="1" aria-current="step">
+                    <span class="text-xs font-semibold uppercase tracking-wide text-primary">Etapa 1</span>
+                    <span class="mt-1 block font-semibold">Destinatário</span>
+                </li>
+                <li class="manual-step-indicator rounded-xl border border-base-300 p-4" data-step-indicator="2">
+                    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Etapa 2</span>
+                    <span class="mt-1 block font-semibold">Produtos</span>
+                </li>
+                <li class="manual-step-indicator rounded-xl border border-base-300 p-4" data-step-indicator="3">
+                    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Etapa 3</span>
+                    <span class="mt-1 block font-semibold">Revisar e emitir</span>
+                </li>
+            </ol>
+
+            <form method="post" class="space-y-6" id="manual-nfe-form" novalidate>
+                {% csrf_token %}
+
+                <section class="manual-wizard-step space-y-5" data-manual-step="1" {% if form.recipient.errors %}data-has-errors="true"{% endif %}>
+                    <div>
+                        <h2 class="text-2xl font-bold">Destinatário</h2>
+                        <p class="mt-1 text-base-content/70">Selecione uma pessoa cadastrada. Não é necessário orçamento nem Ordem de Serviço.</p>
+                    </div>
+                    <div class="flex items-end gap-3">
+                        <div class="min-w-0 flex-1">{{ form.recipient|as_crispy_field }}</div>
+                        {% if can_add_customer %}
+                            <button type="button"
+                                    class="btn btn-outline btn-primary mb-4 gap-2"
+                                    hx-get="{% url 'customer:quick_create' %}"
+                                    hx-target="#modal-container"
+                                    hx-swap="innerHTML"
+                                    onclick="document.getElementById('form_modal').showModal()">
+                                <span class="material-icons text-sm">person_add</span>
+                                Nova pessoa
+                            </button>
+                        {% endif %}
+                    </div>
+                </section>
+
+                <section class="manual-wizard-step hidden space-y-5" data-manual-step="2" {% if item_formset.errors or item_formset.non_form_errors %}data-has-errors="true"{% endif %}>
+                    <div>
+                        <h2 class="text-2xl font-bold">Produtos da NF-e</h2>
+                        <p class="mt-1 text-base-content/70">Selecione produtos, quantidades e valores unitários. Você pode incluir vários itens.</p>
+                    </div>
+
+                    <div class="rounded-xl border border-base-300 p-4 md:p-5">
+                        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                            <p class="text-sm text-base-content/65">Os produtos devem pertencer à oficina ativa e não podem se repetir.</p>
+                            <div class="flex gap-2">
+                                {% if can_add_product %}
+                                    <button type="button"
+                                            class="btn btn-outline btn-sm gap-2"
+                                            hx-get="{% url 'finance:emission_manual_quick_product' %}"
+                                            hx-target="#modal-container"
+                                            hx-swap="innerHTML"
+                                            onclick="document.getElementById('form_modal').showModal()">
+                                        <span class="material-icons text-sm">add_box</span>
+                                        Novo produto
+                                    </button>
+                                {% endif %}
+                                <button type="button" class="btn btn-primary btn-sm gap-2" id="add-manual-item">
+                                    <span class="material-icons text-sm">add</span>
+                                    Adicionar item
+                                </button>
+                            </div>
+                        </div>
+
+                        {{ item_formset.management_form }}
+                        {% if item_formset.non_form_errors %}
+                            <div class="alert alert-error mb-4">{{ item_formset.non_form_errors }}</div>
+                        {% endif %}
+
+                        <div id="manual-items" class="space-y-3">
+                            {% for item_form in item_formset %}
+                                <div class="manual-item-row grid grid-cols-1 gap-3 rounded-lg bg-base-200/50 p-4 md:grid-cols-12">
+                                    <div class="md:col-span-6">{{ item_form.product|as_crispy_field }}</div>
+                                    <div class="md:col-span-2">{{ item_form.quantity|as_crispy_field }}</div>
+                                    <div class="md:col-span-3">{{ item_form.unit_price|as_crispy_field }}</div>
+                                    <div class="flex items-center justify-end md:col-span-1">
+                                        <div class="hidden">{{ item_form.DELETE }}</div>
+                                        <button type="button" class="btn btn-ghost btn-sm text-error remove-manual-item" title="Remover item">
+                                            <span class="material-icons">delete</span>
+                                        </button>
+                                    </div>
+                                    {% if item_form.non_field_errors %}<div class="text-error md:col-span-12">{{ item_form.non_field_errors }}</div>{% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+
+                        <template id="manual-item-empty-form">
+                            <div class="manual-item-row grid grid-cols-1 gap-3 rounded-lg bg-base-200/50 p-4 md:grid-cols-12">
+                                <div class="md:col-span-6">{{ item_formset.empty_form.product|as_crispy_field }}</div>
+                                <div class="md:col-span-2">{{ item_formset.empty_form.quantity|as_crispy_field }}</div>
+                                <div class="md:col-span-3">{{ item_formset.empty_form.unit_price|as_crispy_field }}</div>
+                                <div class="flex items-center justify-end md:col-span-1">
+                                    <div class="hidden">{{ item_formset.empty_form.DELETE }}</div>
+                                    <button type="button" class="btn btn-ghost btn-sm text-error remove-manual-item" title="Remover item">
+                                        <span class="material-icons">delete</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+
+                <section class="manual-wizard-step hidden space-y-5" data-manual-step="3" {% if form.tax_class.errors or form.additional_information.errors or form.confirmation.errors or form.non_field_errors %}data-has-errors="true"{% endif %}>
+                    <div>
+                        <h2 class="text-2xl font-bold">Revisar e emitir</h2>
+                        <p class="mt-1 text-base-content/70">Confira a configuração fiscal e o resumo antes de transmitir a NF-e para a Webmania.</p>
+                    </div>
+
+                    {{ form.tax_class|as_crispy_field }}
+                    {{ form.additional_information|as_crispy_field }}
+
+                    <div class="rounded-xl border border-base-300 bg-base-200/40 p-5">
+                        <h3 class="font-semibold">Resumo da emissão manual</h3>
+                        <dl class="mt-3 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+                            <div>
+                                <dt class="text-base-content/60">Destinatário</dt>
+                                <dd class="font-semibold" id="manual-review-recipient">—</dd>
+                            </div>
+                            <div>
+                                <dt class="text-base-content/60">Quantidade de itens</dt>
+                                <dd class="font-semibold" id="manual-review-item-count">0</dd>
+                            </div>
+                        </dl>
+                        <div class="mt-4 overflow-x-auto">
+                            <table class="table table-sm">
+                                <thead><tr><th>Produto</th><th class="text-right">Qtd.</th><th class="text-right">Valor unitário</th></tr></thead>
+                                <tbody id="manual-review-items"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {{ form.confirmation|as_crispy_field }}
+                    {% if form.non_field_errors %}<div class="alert alert-error">{{ form.non_field_errors }}</div>{% endif %}
+                </section>
+
+                <div class="flex items-center justify-between border-t border-base-200 pt-5">
+                    <a href="{% url 'finance:emission_origin' %}" class="btn btn-ghost gap-2" id="manual-exit-link">
+                        <span class="material-icons text-sm">arrow_back</span>
+                        Voltar à origem
+                    </a>
+                    <button type="button" class="btn btn-ghost hidden" id="manual-previous-step">
+                        <span class="material-icons text-sm">arrow_back</span>
+                        Voltar
+                    </button>
+                    <div class="ml-auto">
+                        <button type="button" class="btn btn-primary gap-2" id="manual-next-step">
+                            Continuar
+                            <span class="material-icons text-sm">arrow_forward</span>
+                        </button>
+                        <button type="submit" class="btn btn-primary hidden gap-2" id="manual-submit">
+                            <span class="material-icons text-sm">send</span>
+                            Emitir NF-e
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <dialog id="form_modal" class="modal">
+        <div id="modal-container"></div>
+        <form method="dialog" class="modal-backdrop"><button>Fechar</button></form>
+    </dialog>
+
+    <script>
+        (() => {
+            const form = document.getElementById('manual-nfe-form');
+            const items = document.getElementById('manual-items');
+            const totalForms = document.getElementById('id_items-TOTAL_FORMS');
+            const emptyTemplate = document.getElementById('manual-item-empty-form');
+            const steps = [...document.querySelectorAll('[data-manual-step]')];
+            const indicators = [...document.querySelectorAll('[data-step-indicator]')];
+            const previousButton = document.getElementById('manual-previous-step');
+            const nextButton = document.getElementById('manual-next-step');
+            const submitButton = document.getElementById('manual-submit');
+            const exitLink = document.getElementById('manual-exit-link');
+            let currentStep = Number(steps.find(step => step.dataset.hasErrors === 'true')?.dataset.manualStep || 1);
+
+            const visibleItemRows = () => [...items.querySelectorAll('.manual-item-row')].filter(row => !row.classList.contains('hidden'));
+
+            const fieldLabel = field => {
+                if (!field) return '—';
+                if (field.tagName === 'SELECT') return field.selectedOptions[0]?.textContent?.trim() || '—';
+                const root = field.closest('[x-data]');
+                const option = root?.querySelector(`[data-value='${field.value}']`);
+                return option?.dataset.label || option?.textContent?.trim() || field.value || '—';
+            };
+
+            const updateReview = () => {
+                document.getElementById('manual-review-recipient').textContent = fieldLabel(form.elements.recipient);
+                const rows = visibleItemRows();
+                document.getElementById('manual-review-item-count').textContent = String(rows.length);
+                const reviewBody = document.getElementById('manual-review-items');
+                reviewBody.innerHTML = '';
+                rows.forEach(row => {
+                    const product = row.querySelector('[name$="-product"]');
+                    const quantity = row.querySelector('[name$="-quantity"]');
+                    const unitPrice = row.querySelector('[name$="-unit_price"]');
+                    const reviewRow = document.createElement('tr');
+                    [fieldLabel(product), quantity?.value || '—', unitPrice?.value || '—'].forEach((value, index) => {
+                        const cell = document.createElement('td');
+                        cell.textContent = value;
+                        if (index > 0) cell.className = 'text-right';
+                        reviewRow.appendChild(cell);
+                    });
+                    reviewBody.appendChild(reviewRow);
+                });
+            };
+
+            const showStep = stepNumber => {
+                currentStep = Math.max(1, Math.min(3, stepNumber));
+                steps.forEach(step => step.classList.toggle('hidden', Number(step.dataset.manualStep) !== currentStep));
+                indicators.forEach(indicator => {
+                    const active = Number(indicator.dataset.stepIndicator) === currentStep;
+                    indicator.classList.toggle('border-primary', active);
+                    indicator.classList.toggle('bg-primary/5', active);
+                    indicator.classList.toggle('border-base-300', !active);
+                    if (active) indicator.setAttribute('aria-current', 'step');
+                    else indicator.removeAttribute('aria-current');
+                });
+                previousButton.classList.toggle('hidden', currentStep === 1);
+                exitLink.classList.toggle('hidden', currentStep !== 1);
+                nextButton.classList.toggle('hidden', currentStep === 3);
+                submitButton.classList.toggle('hidden', currentStep !== 3);
+                if (currentStep === 3) updateReview();
+            };
+
+            const validateStep = stepNumber => {
+                const step = steps.find(candidate => Number(candidate.dataset.manualStep) === stepNumber);
+                if (stepNumber === 2 && visibleItemRows().length === 0) {
+                    window.alert('Adicione ao menos um produto para continuar.');
+                    return false;
+                }
+                const fields = [...step.querySelectorAll('input, select, textarea')].filter(field => !field.disabled && field.type !== 'hidden' && !field.closest('.hidden'));
+                const invalidField = fields.find(field => !field.checkValidity());
+                if (invalidField) {
+                    invalidField.reportValidity();
+                    return false;
+                }
+                return true;
+            };
+
+            const bindRemoveButtons = root => {
+                root.querySelectorAll('.remove-manual-item').forEach(button => {
+                    if (button.dataset.bound) return;
+                    button.dataset.bound = '1';
+                    button.addEventListener('click', () => {
+                        const row = button.closest('.manual-item-row');
+                        const deleteInput = row.querySelector('input[name$="-DELETE"]');
+                        if (deleteInput) deleteInput.checked = true;
+                        row.classList.add('hidden');
+                    });
+                });
+            };
+
+            nextButton.addEventListener('click', () => {
+                if (validateStep(currentStep)) showStep(currentStep + 1);
+            });
+            previousButton.addEventListener('click', () => showStep(currentStep - 1));
+            form.addEventListener('submit', event => {
+                if (!validateStep(3)) event.preventDefault();
+            });
+
+            document.getElementById('add-manual-item').addEventListener('click', () => {
+                const index = Number(totalForms.value);
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = emptyTemplate.innerHTML.replaceAll('__prefix__', String(index)).trim();
+                const row = wrapper.firstElementChild;
+                items.appendChild(row);
+                totalForms.value = String(index + 1);
+                bindRemoveButtons(row);
+                if (window.htmx) htmx.process(row);
+            });
+
+            const closeModal = () => {
+                const modal = document.getElementById('form_modal');
+                if (modal && modal.open) modal.close();
+            };
+
+            const selectRecipient = recipient => {
+                if (!recipient || !recipient.id || !window.Alpine) return;
+                const input = document.querySelector('[name="recipient"]');
+                const root = input && input.closest('[x-data]');
+                if (!root) return;
+                const data = Alpine.$data(root);
+                const list = root.querySelector('ul[role="listbox"]');
+                let option = list.querySelector(`li[data-value='${recipient.id}']`);
+                if (!option) {
+                    option = document.createElement('li');
+                    option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
+                    option.dataset.value = String(recipient.id);
+                    option.dataset.label = recipient.name || 'Pessoa';
+                    const label = document.createElement('span');
+                    label.className = 'block truncate';
+                    label.textContent = recipient.name || 'Pessoa';
+                    option.appendChild(label);
+                    option.addEventListener('click', () => data.select(option));
+                    list.appendChild(option);
+                }
+                data.select(option);
+            };
+
+            const addProductOption = product => {
+                if (!product || !product.id) return;
+                const targets = [...document.querySelectorAll('[name$="-product"]')];
+                const templateSelect = emptyTemplate.content.querySelector('[name$="-product"]');
+                if (templateSelect) targets.push(templateSelect);
+                targets.forEach(select => {
+                    if (select.querySelector(`option[value='${product.id}']`)) return;
+                    select.add(new Option(product.label || 'Produto', String(product.id)));
+                });
+                const target = visibleItemRows().map(row => row.querySelector('[name$="-product"]')).find(select => !select.value) || visibleItemRows().at(-1)?.querySelector('[name$="-product"]');
+                if (target) target.value = String(product.id);
+            };
+
+            document.body.addEventListener('customerSaved', event => {
+                closeModal();
+                selectRecipient(event.detail);
+            });
+            document.body.addEventListener('manualProductSaved', event => {
+                closeModal();
+                addProductOption(event.detail);
+            });
+            bindRemoveButtons(document);
+            showStep(currentStep);
+        })();
+    </script>
+{% endblock %}

@@ -361,12 +361,12 @@ class BudgetStep1Form(BudgetStepBaseForm):
                                         if (isLocked) {
                                             return;
                                         }
-                                        if ($event.target.name === 'customer') { 
-                                            customerId = $event.target.value; 
+                                        if ($event.target.name === 'customer') {
+                                            customerId = $event.target.value;
                                             vehicleId = ''; // Reseta veículo se mudar cliente
                                             updateVehicleList($event.target.value);
-                                        } else if ($event.target.name === 'vehicle') { 
-                                            vehicleId = $event.target.value; 
+                                        } else if ($event.target.name === 'vehicle') {
+                                            vehicleId = $event.target.value;
                                         }
                                     """
                             },

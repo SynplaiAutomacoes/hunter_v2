@@ -1,0 +1,1129 @@
+# Decisoes arquiteturais
+
+## ADR - Fase 4.0.5 - Homologacao operacional antes de remover fallback NF-e
+
+Data: 2026-07-08.
+
+Contexto: a Fase 4.0.4, checkpoint `9486f8ca`, planejou migracao de grupos e decidiu que a remocao do fallback so deve ocorrer em fase futura. Ainda faltam evidencias reais de homologacao operacional.
+
+Decisao: escolher **Opcao B - homologar grupos e preparar fase futura de remocao do fallback**.
+
+Consequencias:
+
+- O fallback legado permanece ativo.
+- A proxima etapa deve registrar evidencias operacionais reais ou preparar tecnicamente a remocao apenas se essas evidencias ja existirem.
+- Nenhuma remocao imediata e aceitavel sem matriz de usuarios, resultados de UI/backend/downloads/cross-workshop, aceite fiscal/operacional, janela de implantacao e rollback.
+- Modernizacao de cancelamento/inutilizacao continua backlog tecnico separado.
+
+Opcoes rejeitadas:
+
+- Opcao A, manter fallback por tempo indeterminado: aceitavel se homologacao bloquear, mas nao e a direcao preferida.
+- Opcao C, remover fallback na proxima fase: rejeitada sem evidencias reais.
+- Opcao D, pausar permissoes e priorizar modernizacao tecnica: fica como alternativa se a homologacao depender de terceiros.
+
+## ADR - Fase 4.0.4 - Remocao futura do fallback NF-e depende de migracao de grupos
+
+Data: 2026-07-08.
+
+Contexto: a Fase 4.0.3, checkpoint `9f888ced`, criou permissoes dedicadas para NF-e normal, mas manteve fallback temporario para evitar quebra operacional. Ainda nao ha confirmacao documental dos grupos reais e usuarios que dependem de `change_nferequest`, `change_nfserequest` e `view_nferequest`.
+
+Decisao: escolher **Opcao B - planejar remocao futura em fase propria apos migracao de grupos**.
+
+Consequencias:
+
+- O fallback legado permanece ativo agora.
+- Grupos reais devem ser mapeados e receber permissoes dedicadas antes da remocao.
+- A proxima fase deve ser de homologacao operacional, nao de remocao imediata.
+- A remocao futura exige testes de UI, backend, downloads, usuario sem permissao, cross-workshop e ausencia de mudanca remota/payload/regra fiscal.
+
+Opcoes rejeitadas:
+
+- Opcao A, manter fallback por tempo indeterminado: reduz risco imediato, mas perpetua autorizacao ampla.
+- Opcao C, remover fallback imediatamente: rejeitada por risco operacional sem mapeamento de grupos.
+- Opcao D, priorizar modernizacao de cancelamento/inutilizacao: permanece backlog tecnico, mas nao substitui a migracao de permissoes.
+
+## ADR - Fase 4.0.3 - Permissoes dedicadas NF-e normal com fallback temporario
+
+Data: 2026-07-08.
+
+Contexto: a Fase 4.0.2, validada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`, aprovou a Opcao A para reduzir dependencia de `change_nferequest` e do fallback legado `change_nfserequest`. A branch ja tinha `origin/main` integrada e validada no HEAD `0caf7ca5`.
+
+Decisao:
+
+- Declarar permissoes dedicadas em `NfeRequest`.
+- Aplicar as permissoes nos fluxos existentes de cancelamento, inutilizacao e downloads.
+- Manter fallback temporario para grupos existentes.
+- Criar permissoes de payload/resposta remota sem abrir views novas nesta fase.
+
+Consequencias:
+
+- Menor autorizacao ampla para acoes fiscais sensiveis.
+- Compatibilidade operacional preservada ate migracao de grupos reais.
+- Fallback deve ser removido em fase posterior.
+- Cancelamento/inutilizacao continuam legados; modernizacao exige fase propria.
+
+## ADR-001 - Manter fiscal dentro de `apps.finance`
+
+- Contexto: codigo atual concentra fiscal em `apps.finance`.
+- Decisao: evoluir dentro de `apps.finance`, com subdominio fiscal incremental.
+- Alternativas: criar app `fiscal` novo.
+- Consequencias: menor ruptura e melhor compatibilidade.
+- Riscos: app finance permanece grande.
+- Status: implementada e validada na Fase 1 para estrutura inicial dentro de `apps.finance`, com dividas preexistentes registradas.
+- Fase: 1.
+
+## ADR-002 - Evolucao incremental antes de dominio unificado completo
+
+- Contexto: NF-e/NFS-e atuais funcionam em models legados.
+- Decisao: estabilizar idempotencia e webhook antes de migrar tudo para `FiscalDocument`.
+- Alternativas: migracao direta.
+- Consequencias: menor risco operacional.
+- Riscos: periodo de compatibilidade mais longo.
+- Status: implementada e validada na Fase 1 para NF-e/NFS-e legados; dominio unificado completo permanece para fase futura.
+- Fase: 1/8.
+
+## ADR-003 - Compatibilidade com NF-e/NFS-e atuais
+
+- Decisao: preservar `NfeRequest`, `NfseRequest`, `NfeItem`, `NfseItem`, `NfseBatch` ate backfill aprovado.
+- Status: implementada e validada na Fase 1.
+- Fase: 1.
+
+## ADR-004 - Idempotencia persistida
+
+- Decisao: criar tentativa persistida por intencao fiscal; cache pode ser apenas otimizacao secundaria.
+- Alternativas: manter cache.
+- Consequencias: permite `uncertain` e auditoria.
+- Status: implementada e validada na Fase 1 com `FiscalEmissionAttempt`.
+- Fase: 1.
+
+## ADR-005 - Webhook idempotente por fingerprint
+
+- Decisao: persistir payload bruto e calcular fingerprint unico para evitar efeitos duplicados.
+- Status: implementada e validada na Fase 1 com fingerprint persistido em `WebmaniaWebhookEvent`.
+- Fase: 1.
+
+## ADR-006 - Reconciliacao nunca emite
+
+- Decisao: reconciliacao so consulta remoto, processa webhooks e recupera downloads.
+- Status: implementada e validada na Fase 1 para NF-e/NFS-e e tentativas `uncertain`.
+- Fase: 1.
+
+## ADR-007 - Permissoes fiscais especificas
+
+- Decisao: criar matriz fiscal propria, mantendo compatibilidade temporaria com permissoes atuais.
+- Status: implementada parcialmente e validada na Fase 1 para corrigir NF-e com fallback legado `nfserequest`.
+- Fase: 1/6.
+
+## ADR-008 - Backfill aprovado separadamente
+
+- Decisao: nenhum backfill destrutivo antes da Fase 8.
+- Status: proposta.
+- Fase: 8.
+
+## ADR-009 - NFS-e municipal guiada por capacidades
+
+- Decisao: consultar e armazenar capacidades do municipio/provedor antes de habilitar acoes condicionais.
+- Status: proposta.
+- Fase: 3.
+
+## ADR-010 - NFCom e DC-e com feature flag
+
+- Decisao atualizada na Fase 2.6.0: NFCom e DC-e so podem ser implementadas atras de feature flag e habilitacao administrativa explicita por oficina. As APIs oficiais atuais sao v2.0.0 e nao possuem marcador beta.
+- Alternativas consideradas: liberar por permissao comum; manter totalmente fora do produto; esconder apenas por menu. Rejeitadas porque o baixo valor imediato e o risco operacional exigem isolamento e desativacao sem afetar NF-e/NFS-e.
+- Consequencias: as futuras implementacoes exigirao configuracao por oficina, testes isolados e rollback independente; a UI nao deve rotula-las como beta sem evidencia oficial vigente.
+- Riscos: mudancas de contrato remoto Webmania podem exigir ajustes antes de producao.
+- Status: proposta.
+- Fase: 6/7.
+
+## ADR-011 - Fonte de verdade local e remota
+
+- Decisao: local guarda auditoria e estado projetado; remoto Webmania e fonte para autorizacao fiscal final.
+- Status: proposta.
+- Fase: todas.
+
+## ADR-012 - Nucleo fiscal minimo para eventos e derivados NF-e/NFC-e
+
+- Contexto: Fase 2 precisa representar CC-e, manifestacao, IBS/CBS e documentos derivados sem tratar eventos como notas comuns.
+- Decisao: introduzir `FiscalDocument` e `FiscalDocumentEvent` minimos em `apps.finance` na Fase 2.1, preservando `NfeRequest`/`NfeItem` como legado operacional. `FiscalDocumentLink` fica reservado para a Fase 2.2, quando houver documentos derivados reais.
+- Alternativas consideradas: criar models especificos de NF-e; adicionar campos/eventos diretamente em `NfeItem`; usar apenas `WebmaniaWebhookEvent`.
+- Consequencias: modelagem correta para evento versus documento derivado, suporte a historico e compatibilidade futura com Fase 8, mantendo a Fase 2.1 restrita a CC-e.
+- Riscos: exige espelho sob demanda de `NfeItem` legado e cuidado para nao tratar evento como nova nota.
+- Status: implementada e validada na Fase 2.1 sem `FiscalDocumentLink`.
+- Fase: 2.1/2.2/2.3/2.4.
+
+## ADR-013 - Eventos fiscais nao sao documentos fiscais comuns
+
+- Contexto: CC-e, manifestacao e IBS/CBS possuem protocolo/status e XML/evento, mas nao sao emissao de nota comum nem devem consumir numeracao como NF-e.
+- Decisao: persistir eventos em `FiscalDocumentEvent`, vinculados ao documento ou evento original, com tentativa idempotente propria.
+- Alternativas consideradas: criar `NfeItem` para cada evento; registrar apenas em logs.
+- Consequencias: timeline auditavel, permissao especifica por acao e reconciliacao sem duplicidade.
+- Riscos: telas legadas precisarao buscar historico em tabela nova quando exibirem detalhe.
+- Status: implementada e validada para CC-e na Fase 2.1.
+- Fase: 2.
+
+## ADR-014 - Documentos derivados e ajustes possuem regras distintas de vinculo
+
+- Contexto: devolucao/estorno, complementar e ajuste geram NF-e novas, mas a documentacao oficial nao exige a mesma referencia para todas. Devolucao exige `chave`; complementar exige `chave` ou `uuid`; ajuste usa body com `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `ambiente` e `cliente`, sem exigir chave/UUID original.
+- Decisao: persistir todos como `FiscalDocument` proprio. `FiscalDocumentLink` e obrigatorio para devolucao/estorno e complementar, e opcional para ajuste. Ajuste sem original nao deve ser bloqueado.
+- Alternativas consideradas: exigir link para qualquer documento Fase 2.2; atualizar o documento original; guardar derivado apenas no payload.
+- Consequencias: evita sobrescrever a nota original, suporta NF-e externa referenciada e permite ajuste avulso compativel com a API.
+- Riscos: UI e permissoes precisam deixar claro quando ha nota original local, nota externa ou operacao avulsa.
+- Status: implementada e validada para devolucao/estorno na Fase 2.2A; complementar e ajuste permanecem planejados.
+- Fase: 2.2.
+
+## ADR-016 - NF-e externa referenciada por devolucao e complemento
+
+- Contexto: devolucao e complemento podem referenciar uma NF-e nao emitida pelo Hunter V2.
+- Decisao: permitir chave manual de 44 digitos, validar formato, criar `FiscalDocument` externo minimo como original referenciado, marcar `origin=external`, exigir confirmacao explicita e registrar que a origem nao foi emitida localmente. Nao tratar `/1/nfe/consulta/` como validador garantido de NF-e de outro emissor.
+- Alternativas consideradas: bloquear documentos externos; guardar apenas chave no payload.
+- Consequencias: amplia cobertura fiscal sem forcar backfill inexistente e preserva auditoria por oficina.
+- Riscos: consulta remota pode ser insuficiente; nesses casos a UI deve bloquear ou exigir decisao operacional documentada antes de transmissao.
+- Status: implementada e validada para devolucao/estorno na Fase 2.2A; complemento externo permanece planejado para 2.2B. NF-e externa minima nao permite parcial sem XML/importacao validada.
+- Fase: 2.2.
+
+## ADR-018 - Idempotencia de devolucao/estorno por documento derivado
+
+- Contexto: duas devolucoes parciais legitimas podem ter os mesmos itens, quantidades e CFOP em momentos diferentes, portanto a identidade nao pode ser somente `original + itens + quantidades + CFOP`.
+- Decisao: na Fase 2.2A, criar o `FiscalDocument` derivado antes da chamada remota e associar `FiscalEmissionAttempt` ao derivado. A chave recomendada e `hash(workshop_id, derived_document_id, operation_type, request_generation)`.
+- Alternativas consideradas: chave por payload fiscal; chave por nota original e itens.
+- Consequencias: cada intencao fiscal persistida transmite uma unica vez e permite devolucoes parciais legitimas independentes.
+- Riscos: documentos derivados iniciados e abandonados exigem status local claro e limpeza operacional futura.
+- Status: implementada e validada na Fase 2.2A para devolucao/estorno.
+- Fase: 2.2A.
+
+## ADR-020 - Nota complementar por subtipos e documento derivado
+
+- Contexto: a Nota Fiscal Complementar pode complementar preco/quantidade, impostos ou documento de adicao/importacao. Misturar todos os cenarios no mesmo formulario/idempotencia aumenta risco fiscal e operacional.
+- Decisao: modelar a complementar como `FiscalDocument(purpose="complementary")` com subtipo explicito `complementary_type`: `price_quantity`, `tax` ou `import_addition`. O link `FiscalDocumentLink(role="complements")` e obrigatorio para a NF-e original local ou externa.
+- Alternativas consideradas: usar `purpose` separado para cada subtipo; armazenar tudo apenas no payload; tratar complementar como variacao de devolucao.
+- Consequencias: simplifica historico e downloads como documento derivado unico, mas requer campo/subtipo persistente ou estrutura equivalente aprovada na implementacao.
+- Riscos: payload oficial varia por subtipo e deve ser revalidado imediatamente antes do codigo.
+- Status: implementada e validada parcialmente na Fase 2.2B.1 para `price_quantity` local; subtipos `tax` e `import_addition` permanecem propostos e nao implementados.
+- Fase: 2.2B.
+
+## ADR-021 - NF-e externa em Nota Complementar
+
+- Contexto: uma complementar pode referenciar NF-e externa por chave, mas a consulta padrao da Webmania nao deve ser tratada como validacao garantida de documento de outro emissor.
+- Decisao: permitir NF-e externa minima por chave de 44 digitos e confirmacao explicita. Bloquear `complementary_price_quantity` sem XML/importacao validada dos itens originais. Permitir `complementary_tax` externa somente se aprovado com confirmacao forte, payload auditavel e permissao restrita. Adiar `complementary_import_addition` externa ate haver importacao/validacao adequada.
+- Alternativas consideradas: bloquear toda complementar externa; permitir qualquer subtipo por entrada manual; consultar `/1/nfe/consulta/` como validador.
+- Consequencias: mantem capacidade fiscal com risco controlado e evita complemento de itens sem ordem fiscal original.
+- Riscos: usuarios podem precisar de fluxo futuro de importacao XML para casos reais externos.
+- Status: validada na Fase 2.2B.1 para bloquear `complementary_price_quantity` externo minimo; complementar tributaria externa e importacao permanecem propostos e nao implementados.
+- Fase: 2.2B.
+
+## ADR-022 - Idempotencia da Nota Complementar
+
+- Contexto: duas complementares legitimas podem ter payload semelhante em momentos diferentes; usar apenas hash do payload/original bloquearia casos validos ou permitiria reenvio duplicado em timeout.
+- Decisao: seguir o padrao validado na Fase 2.2A: criar `FiscalDocument` complementar derivado antes do gateway e associar `FiscalEmissionAttempt` com chave `hash(workshop_id, complementary_document_id, operation_type, request_generation)`.
+- Alternativas consideradas: idempotencia por original+payload; cache; idempotencia por tela/formulario.
+- Consequencias: cada intencao complementar e auditavel, bloqueavel em `uncertain` e reconciliavel sem reemitir.
+- Riscos: documentos complementares iniciados e abandonados exigem limpeza/observabilidade futura.
+- Status: implementada e validada parcialmente na Fase 2.2B.1 para `operation_type="complementary_price_quantity"`.
+- Fase: 2.2B.
+
+## ADR-023 - Complementar de preco/quantidade local antes de complementar tributaria
+
+- Contexto: o payload de complementar de preco/quantidade reaproveita itens fiscais locais conhecidos, enquanto complemento tributario, IBS/CBS e adicao/importacao exigem validacoes fiscais adicionais e UI propria.
+- Decisao: implementar primeiro somente `complementary_price_quantity` para NF-e original local autorizada, bloqueando NF-e externa minima e removendo do payload objetos tributarios fora do escopo.
+- Alternativas consideradas: liberar complemento externo por chave manual; misturar complemento tributario no mesmo formulario; implementar todo `/1/nfe/complementar/` em lote.
+- Consequencias: entrega incremental reduz risco e preserva caminho para `complementary_tax` e `complementary_import_addition` com nova autorizacao.
+- Riscos: casos reais de complemento tributario ou externo continuam sem atendimento ate subfase propria.
+- Status: validada na Fase 2.2B.1.
+- Fase: 2.2B.1.
+
+## ADR-017 - NF-e de credito e debito ficam em Fase 2.5
+
+- Contexto: a familia NF-e inclui finalidades 5 e 6 pelo endpoint `/1/nfe/emissao/`, com `tipo_credito` e `tipo_debito`. A documentacao oficial lista os tipos remotos e artigos Webmania de rejeicao indicam que finalidade credito/debito deve estar relacionada a IBS/CBS.
+- Decisao: planejar subfase propria 2.5 para Nota Fiscal de Credito e Nota Fiscal de Debito, usando `FiscalDocument(document_type="nfe", purpose="credit"|"debit")`, campo futuro `fiscal_purpose_type`, `FiscalEmissionAttempt(operation_type="nfe_credit_emission"|"nfe_debit_emission")`, feature flag e habilitacao administrativa por oficina. Codigo funcional deve ser adiado ate suporte IBS/CBS ou aprovacao explicita de subconjunto seguro.
+- Alternativas consideradas: incluir credito/debito em 2.2 ou 2.3; implementar como NF-e normal com finalidade diferente; usar apenas hash de payload como idempotencia.
+- Consequencias: reduz risco fiscal, evita duplicacao por payload equivalente e preserva separacao de dominio entre NF-e normal, derivados e documentos de credito/debito.
+- Riscos: demanda fiscal pode antecipar prioridade; se isso ocorrer, exigir aprovacao explicita e revalidacao tributaria imediata.
+- Status: revisada na Fase 2.5.0; funcionalidade nao implementada.
+- Fase: 2.5.
+
+## ADR-024 - Nota Fiscal de Ajuste exige regime tributario explicito
+
+- Contexto: a Webmania documenta a Nota Fiscal de Ajuste como recurso para empresas de Lucro Normal ou Presumido, sem representar entrada ou saida de produtos. O Hunter V2 ja possui `WebmaniaCompany.regime_tributario` editavel nos fluxos de empresa/oficina.
+- Decisao: reutilizar `WebmaniaCompany.regime_tributario` como fonte local de elegibilidade. Permitir ajuste somente para `lucro_real`, `lucro_normal` ou `lucro_presumido`; bloquear Simples Nacional, MEI, vazio ou desconhecido antes do gateway.
+- Alternativas consideradas: inferir pelo tipo de tributacao; liberar quando ausente; criar novo campo duplicado. Rejeitadas por risco fiscal e duplicacao de configuracao.
+- Consequencias: oficinas precisam manter a empresa Webmania configurada corretamente antes de emitir ajuste.
+- Riscos: dados remotos antigos podem nao preencher `regime_tributario`; nesses casos a emissao fica bloqueada ate ajuste administrativo.
+- Status: implementada e validada na Fase 2.2C.
+- Fase: 2.2C.
+
+## ADR-025 - Ajuste como documento fiscal avulso com link opcional
+
+- Contexto: a API `/1/nfe/ajuste/` nao exige chave ou UUID de NF-e anterior; apenas cenarios de negocio podem relacionar o ajuste a outro documento.
+- Decisao: criar `FiscalDocument(purpose="adjustment")` antes do gateway e permitir `FiscalDocumentLink(role="adjusts")` apenas quando o usuario informar documento relacionado existente.
+- Alternativas consideradas: exigir documento original sempre; reaproveitar devolucao/estorno; guardar apenas payload sem documento.
+- Consequencias: ajuste avulso permanece auditavel, e relacoes reais podem ser rastreadas sem bloquear casos fiscais validos.
+- Riscos: UI deve deixar claro que estorno SC/ES usa devolucao/estorno, nao ajuste.
+- Status: implementada e validada na Fase 2.2C.
+- Fase: 2.2C.
+
+## ADR-026 - NFC-e nasce em `FiscalDocument`, nao em legado paralelo
+
+- Contexto: NF-e legada ainda usa `NfeRequest`/`NfeItem`, mas NFC-e ainda nao possui fluxo operacional. Criar `NfceRequest` paralelo aumentaria legado sem necessidade.
+- Decisao: planejar NFC-e diretamente em `FiscalDocument(document_type="nfce", purpose="normal")`, com `FiscalEmissionAttempt(operation_type="nfce_emission")` e configuracao por `WebmaniaCompany`.
+- Alternativas consideradas: reutilizar `NfeRequest` com flag de modelo; criar `NfceRequest`; implementar NFC-e apenas como payload manual sem documento local.
+- Consequencias: separa NF-e e NFC-e no dominio, reduz risco de confundir numeracao/status e aproxima a Fase 8.
+- Riscos: telas legadas de NF-e nao podem ser reaproveitadas sem filtros rigorosos por `document_type`.
+- Status: implementada e validada na Fase 2.3.1 para emissao manual simples.
+- Fase: 2.3.
+
+## ADR-027 - Configuracao NFC-e reutiliza `WebmaniaCompany`
+
+- Contexto: o codigo atual ja possui `nfce_serie`, `nfce_numero`, `nfce_id_csc`, `nfce_codigo_csc`, `nfce_numero_dev`, `nfce_id_csc_dev` e `nfce_codigo_csc_dev` em `WebmaniaCompany` e forms de oficina/empresa, mas nao possuia flag explicita de habilitacao nem protecao suficiente de CSC em HTML/formularios.
+- Decisao: usar esses campos como gate local de NFC-e, adicionar somente `WebmaniaCompany.nfce_enabled` como flag explicita por oficina, tratar CSC/ID CSC como segredos nos formularios e ampliar os campos CSC para 255 caracteres para suportar criptografia local. Nao criar model/configuracao paralela na primeira subfase funcional.
+- Alternativas consideradas: criar `WorkshopNfceConfig`; guardar CSC em settings; inferir configuracao por resposta remota.
+- Consequencias: menor ruptura, reaproveitamento da UI/configuracao existente, bloqueio operacional por padrao ate habilitacao administrativa explicita e ausencia de CSC em payload/HTML visivel.
+- Riscos: valores antigos em texto puro permanecem legiveis pelo backend ate serem substituidos; os formularios nao os exibem e preservam valor quando campo fica vazio.
+- Status: implementada e validada na Fase 2.3.1.
+- Fase: 2.3.
+
+## ADR-028 - Cancelamento padrao de NFC-e como evento do documento
+
+- Contexto: a Webmania usa `PUT /1/nfe/cancelar/` para NF-e/NFC-e. Quando `nfce_referenciada` e informado, a API processa cancelamento por substituicao; a Fase 2.3.2 autoriza somente cancelamento padrao.
+- Decisao: modelar cancelamento padrao NFC-e como `FiscalDocumentEvent(event_type="cancellation")` associado ao `FiscalDocument(document_type="nfce")`, com `FiscalEmissionAttempt(operation_type="nfce_cancellation")`. O documento original muda para `cancelado` apenas depois de resposta/webhook/reconciliacao valida de cancelamento.
+- Alternativas consideradas: alterar diretamente `FiscalDocument` sem evento; criar documento derivado; reaproveitar cancelamento NF-e legado.
+- Consequencias: preserva historico auditavel, idempotencia por evento e separacao de substituicao/inutilizacao.
+- Riscos: regras estaduais/prazos de cancelamento podem exigir validacoes futuras; nao impor prazo local fixo nesta fase sem validacao oficial aplicavel.
+- Status: implementada e validada na Fase 2.3.2.
+- Fase: 2.3.2.
+
+## ADR-029 - Inutilizacao NFC-e usa entidade propria de faixa
+
+- Contexto: inutilizacao de numeracao comunica a SEFAZ/Webmania que um numero ou intervalo nao sera utilizado. Diferente de cancelamento, nao existe NFC-e emitida a ser cancelada e, portanto, nao ha documento fiscal original ao qual vincular um evento.
+- Decisao: criar `FiscalNumberInutilization` para representar a faixa inutilizada, escopada por oficina, documento `nfce`, ambiente e serie. A idempotencia usara `FiscalEmissionAttempt(operation_type="nfce_inutilization")` associado a essa entidade. A Fase 2.3.3 usa somente `modelo=2`; embora o contrato aceite `modelo=1`, inutilizacao funcional de NF-e fica fora de escopo.
+- Alternativas consideradas: modelar como `FiscalDocumentEvent` de uma NFC-e existente; criar `FiscalDocument` ficticio para numeros nao emitidos; implementar inutilizacao NF-e/NFC-e generica no mesmo fluxo.
+- Consequencias: a modelagem evita confundir inutilizacao com cancelamento, permite bloquear faixas sobrepostas e preserva compatibilidade com futuras operacoes NF-e sem expor funcionalidade nao autorizada.
+- Riscos: a validacao local nao garante que a faixa nao tenha sido usada fora do Hunter; a UI deve exigir confirmacao explicita dessa limitacao e a resposta remota permanece a fonte final.
+- Status: implementada e validada na Fase 2.3.3.
+- Fase: 2.3.3.
+
+## ADR-015 - Fase 2 dividida em subfases obrigatorias
+
+- Contexto: NF-e/NFC-e adicional combina eventos simples, documentos derivados, novo modelo NFC-e e eventos tributarios avancados.
+- Decisao: executar em 2.1 CC-e, 2.2A devolucao/estorno, 2.2B complementar, 2.2C ajuste, 2.3 NFC-e, 2.4 manifestacao e IBS/CBS, 2.5 credito/debito.
+- Alternativas consideradas: implementar toda Fase 2 em lote.
+- Consequencias: menor risco, gates claros, rollback por capacidade.
+- Riscos: mais etapas de aprovacao e manutencao documental.
+- Status: aprovada documentalmente; Fase 2.1 validada.
+- Fase: 2.0.
+
+## ADR-030 - Modelagem IBS/CBS local em classes fiscais NF-e/NFC-e
+
+- Contexto: NF-e/NFC-e atuais usam `classe_imposto`, mas `TaxClassNfe` local nao guarda IBS/CBS. A Webmania documenta `produtos[].impostos.ibs_cbs` e suporte IBS/CBS em classes fiscais.
+- Decisao: evoluir `TaxClassNfe` com estrutura IBS/CBS local auditavel: campos normalizados para situacao/classificacao, campos de regime regular, `ibs_cbs_details` JSON validado para grupos condicionais oficiais, usuario/data de configuracao e sincronizacao `ibs_cbs` no payload da classe fiscal Webmania.
+- Alternativas consideradas: depender apenas da classe remota Webmania; inserir JSON livre direto no produto; calcular automaticamente por NCM/regime.
+- Consequencias: emissao pode ser bloqueada antes do gateway quando configuracao minima estiver ausente e o payload usado fica auditavel por oficina.
+- Riscos: schema IBS/CBS pode mudar com a Reforma Tributaria; por isso preservar payload bruto sanitizado e revalidar docs antes do codigo.
+- Status: implementada e validada na Fase 2.4A+B.
+- Fase: 2.4A.
+
+## ADR-031 - Fonte de classificacao tributaria IBS/CBS
+
+- Contexto: `situacao_tributaria` e `classificacao_tributaria` dependem de regra fiscal; inferencia automatica por produto/regime sem base confiavel cria risco fiscal.
+- Decisao: a fonte local deve ser configuracao administrativa/fiscal explicita por oficina/classe/produto, com auditoria de usuario e timestamp. `WebmaniaCompany.regime_tributario` auxilia validacoes, mas nao determina sozinho a classificacao.
+- Alternativas consideradas: inferir por NCM/CFOP; liberar campos vazios; deixar apenas a Webmania rejeitar.
+- Consequencias: aumenta trabalho de configuracao, mas evita emissao sabidamente incompleta.
+- Riscos: oficinas sem apoio fiscal podem ficar bloqueadas ate configurar corretamente.
+- Status: implementada e validada na Fase 2.4A+B para classes NF-e/NFC-e.
+- Fase: 2.4A.
+
+## ADR-032 - Bloqueio seguro quando IBS/CBS estiver ausente
+
+- Contexto: a Webmania informa obrigatoriedade IBS/CBS em producao para NF-e/NFC-e com data de emissao >= `05/01/2026`.
+- Decisao: bloquear transmissao NF-e/NFC-e normal antes do gateway quando a classe fiscal local nao estiver IBS/CBS-ready. Homologacao tambem exige configuracao valida por padrao; nenhum bypass silencioso foi criado.
+- Alternativas consideradas: tentar emitir e tratar rejeicao; permitir bypass silencioso em homologacao; preencher defaults.
+- Consequencias: reduz rejeicoes e falsas garantias de conformidade.
+- Riscos: pode interromper emissao ate configuracao fiscal ser concluida.
+- Status: implementada e validada na Fase 2.4A+B para NF-e normal e NFC-e manual simples.
+- Fase: 2.4A/2.4B.
+
+## ADR-033 - Coexistencia de tributos antigos e IBS/CBS na transicao
+
+- Contexto: emissoes normais podem coexistir com tributos antigos durante a transicao, mas finalidades de credito/debito devem usar somente IBS/CBS segundo rejeicao 1001.
+- Decisao: permitir coexistencia somente quando a operacao oficial permitir; bloquear preventivamente tributos antigos em credito/debito e em qualquer finalidade que exigir somente IBS/CBS.
+- Alternativas consideradas: remover tributos antigos de todos os fluxos; manter todos os tributos em todos os fluxos.
+- Consequencias: preserva NF-e/NFC-e normal e reduz risco de rejeicao 1001.
+- Riscos: exige validadores por finalidade e operacao.
+- Status: validada parcialmente na Fase 2.4A+B para emissao normal por `classe_imposto`; credito/debito seguem bloqueados ate 2.4E.
+- Fase: 2.4B/2.4E.
+
+## ADR-034 - Eventos IBS/CBS somente apos base de emissao
+
+- Contexto: eventos IBS/CBS sao operacoes posteriores vinculadas a NF-e/NFC-e, mas nao substituem o preenchimento IBS/CBS na emissao.
+- Decisao: implementar eventos e cancelamento IBS/CBS apenas depois de a base de classes/emissao NF-e/NFC-e estar conformada.
+- Alternativas consideradas: implementar eventos antes da base; misturar eventos em complemento tributario.
+- Consequencias: evita criar eventos sobre documentos base inconsistentes.
+- Riscos: adia cobertura de eventos avancados da Reforma Tributaria.
+- Status: proposta.
+- Fase: 2.4D.
+
+## ADR-035 - Credito/debito bloqueados ate base IBS/CBS aprovada
+
+- Contexto: finalidades 5/6 dependem de IBS/CBS e rejeitam tributos incompatíveis.
+- Decisao: manter Nota Fiscal de Credito e Debito sem codigo funcional ate Fase 2.4B validada e subfase 2.4E aprovada.
+- Alternativas consideradas: implementar credito/debito com payload NF-e normal; liberar atras de feature flag sem IBS/CBS.
+- Consequencias: evita rejeicao 1001 e preserva dominio planejado de `FiscalDocument(purpose=credit|debit)`.
+- Riscos: demanda contabil por credito/debito fica adiada.
+- Status: proposta.
+- Fase: 2.4E/2.5.
+
+## ADR-036 - Derivados IBS/CBS usam snapshot fiscal original
+
+- Contexto: devolucao, estorno e complementar de preco/quantidade derivam de uma NF-e anterior. A classe fiscal atual do produto pode ter sido alterada apos a emissao original, especialmente durante a migracao IBS/CBS.
+- Decisao: a fonte primaria para IBS/CBS em derivados deve ser o snapshot fiscal da NF-e original local. `TaxClassNfe` atual pode ser usado apenas como apoio/validacao quando houver confirmacao fiscal explicita e registro auditavel.
+- Alternativas consideradas: usar sempre a classe fiscal atual; copiar integralmente o produto original; bloquear todos os derivados ate backfill completo.
+- Consequencias: reduz risco de gerar derivado com tributacao diferente da nota original, mas exige preservar ou reconstruir snapshot fiscal antes do gateway.
+- Riscos: notas legadas sem snapshot suficiente podem ficar bloqueadas ate importacao/revisao fiscal.
+- Status: implementada e validada na Fase 2.4C.1 para devolucao/estorno.
+- Fase: 2.4C.
+
+## ADR-037 - NF-e externa minima nao suporta derivados IBS/CBS por item
+
+- Contexto: NF-e externa criada por chave manual nao possui itens, sequenciais fiscais, quantidades nem tributacao original no Hunter.
+- Decisao: bloquear devolucao parcial e complementar preco/quantidade com IBS/CBS para NF-e externa minima. Estorno/devolucao total so podem ser avaliados em fase funcional com confirmacao forte, permissao restrita e contrato oficial que dispense detalhe de itens.
+- Alternativas consideradas: permitir entrada manual de itens/IBS-CBS; usar `/1/nfe/consulta/` como garantia; bloquear toda NF-e externa.
+- Consequencias: evita emissao derivada com base fiscal incompleta e cria backlog claro para importacao/validacao XML.
+- Riscos: usuarios com notas externas reais precisarao de fluxo futuro antes de operar parcialmente.
+- Status: implementada e validada parcialmente na Fase 2.4C.1 para manter devolucao parcial externa bloqueada; importacao/XML permanece backlog.
+- Fase: 2.4C.
+
+## ADR-038 - Complementar preco/quantidade IBS/CBS nao e complementar tributaria
+
+- Contexto: a Fase 2.2B.1 implementou apenas complementar de preco/quantidade e removeu objetos tributarios amplos do payload. A Reforma Tributaria pode exigir IBS/CBS no item, mas isso nao autoriza abrir complemento tributario geral.
+- Decisao: na 2.4C.2, IBS/CBS deve ser aplicado somente ao acrescimo de preco/quantidade quando o contrato e o snapshot permitirem. O bloco permitido e `produtos[].impostos.ibs_cbs`, derivado do snapshot fiscal da NF-e original local; `base_calculo` e obrigatorio na complementar conforme contrato oficial e deve estar no snapshot usado. `TaxClassNfe` atual nao e fallback automatico. Complementar tributaria ampla permanece subfase separada e nao implementada.
+- Alternativas consideradas: reintroduzir todo objeto `impostos`; manter bloqueio total; misturar preco/quantidade e impostos no mesmo formulario.
+- Consequencias: preserva escopo incremental e evita rejeicoes por payload tributario incompatível.
+- Riscos: alguns cenarios fiscais podem exigir complementar tributaria antes de preco/quantidade com IBS/CBS; nesses casos deve haver nova aprovacao.
+- Status: implementada e validada na Fase 2.4C.2 para complementar de preco/quantidade local.
+- Fase: 2.4C.2.
+
+## ADR-039 - Ajuste IBS/CBS exige revalidacao especifica
+
+- Contexto: o fluxo implementado de ajuste usa `/1/nfe/ajuste/` com ICMS/ICMS-ST, cliente, CFOP e regime tributario. O endpoint oficial de eventos IBS/CBS e separado e credito/debito usa finalidades proprias.
+- Decisao: nao inserir `produtos[].impostos.ibs_cbs` no ajuste por inferencia. Na Fase 2.4C.3, a revalidacao oficial confirmou que `/1/nfe/ajuste/` documenta `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `valor_icms_st`, `ambiente`, `cliente`, `situacao_tributaria` e informacoes textuais; nao documenta produtos, IBS/CBS, credito/debito ou eventos. Portanto, qualquer tentativa de usar ajuste como credito/debito, evento IBS/CBS, complemento tributario ou estorno deve ser bloqueada antes do gateway.
+- Alternativas consideradas: transformar ajuste em emissao normal com IBS/CBS; reutilizar evento IBS/CBS; liberar ajuste sem revisao.
+- Consequencias: evita payload fora do contrato e mantem ajuste avulso com link opcional.
+- Riscos: pode bloquear casos fiscais de ajuste ate esclarecimento oficial/contabil.
+- Status: implementada e validada na Fase 2.4C.3.
+- Fase: 2.4C.3.
+
+## ADR-040 - Eventos IBS/CBS sao eventos documentais, nao documentos
+
+- Contexto: a Webmania documenta `POST /1/nfe/evento-ibs-cbs/` para registrar eventos da Reforma Tributaria vinculados a NF-e/NFC-e, com `chave`, `ambiente`, `cod_evento`, `evento` e campos especificos por codigo. Esses eventos nao emitem uma nova NF-e/NFC-e.
+- Decisao: modelar eventos IBS/CBS como `FiscalDocumentEvent(event_type="ibs_cbs")` associado ao `FiscalDocument` base. Adicionar campos planejados para `event_code`, `event_sequence`, `event_payload_type`, `remote_event_id/protocol`, `remote_uuid`, payload/resposta sanitizados e XML de evento quando retornado.
+- Alternativas consideradas: criar `FiscalDocument` para cada evento; reutilizar ajuste/complementar; tratar como webhook avulso sem persistencia propria.
+- Consequencias: preserva historico auditavel do evento sem alterar o status fiscal da NF-e/NFC-e original indevidamente e reaproveita o padrao de CC-e/cancelamento.
+- Riscos: eventos de destinatario e eventos com itens exigem validacoes fiscais fortes antes de liberar UI.
+- Status: proposta documental na Fase 2.4D.0.
+- Fase: 2.4D.
+
+## ADR-041 - Cancelamento de evento IBS/CBS e subfase propria
+
+- Contexto: a Webmania documenta `PUT /1/nfe/evento-ibs-cbs/cancelar/` por UUID do evento autorizado, com ambiente e `url_notificacao` opcionais. Isso cancela o evento, nao o documento fiscal base.
+- Decisao: planejar cancelamento de evento como subfase propria, com tentativa `nfe_ibs_cbs_event_cancellation`, associada ao evento IBS/CBS original. A ausencia de UUID remoto ou status incerto do evento original bloqueia cancelamento.
+
+### ADR 2.4D.2 - Cancelamento do evento IBS/CBS 112110 como evento relacionado
+
+- Decisao: implementar cancelamento somente do evento `112110` autorizado como `FiscalDocumentEvent(event_type="ibs_cbs_cancellation")`, associado ao evento original por `related_event`.
+- Justificativa: o endpoint oficial cancela um evento por UUID remoto e retorna um novo ciclo de status/log; isso nao representa novo documento fiscal nem cancelamento da NF-e/NFC-e base.
+- Payload: enviar somente `uuid`, `ambiente` e `url_notificacao` quando aplicavel. Nao enviar `chave`, `cod_evento`, `evento`, `ibs_cbs`, produtos ou campos de credito/debito.
+- Idempotencia: `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")` associado ao evento de cancelamento; constraint condicional impede cancelamentos ativos/incertos duplicados para o mesmo evento original.
+- Consequencia: sucesso marca o evento original como `cancelado`, mas preserva o status do `FiscalDocument` base. Demais cancelamentos de eventos IBS/CBS permanecem pendentes de subfase propria.
+- Status: implementada na Fase 2.4D.2.
+
+## ADR-042 - Proxima subfase IBS/CBS prioriza 112150 isolado
+
+- Contexto: apos validar `112110` e seu cancelamento, os eventos restantes se dividem entre payload minimo de data, eventos com itens/controle de estoque/transporte, eventos de destinatario e evento ligado a credito/debito.
+- Decisao: recomendar `2.4D.3 - Implementar somente evento IBS/CBS 112150`, sem agrupar `112120`, `112130` ou `112140` na mesma subfase.
+- Justificativa: `112150` possui menor superficie fiscal porque exige apenas `data_previsao_entrega` alem do envelope, nao depende de credito/debito, nao exige papel destinatario e nao exige `itens[]`.
+- Alternativas consideradas: agrupar todos os eventos `1121xx`; implementar destinatario primeiro; generalizar cancelamento para todos os codigos.
+- Consequencias: reduz risco e permite testar o primeiro evento com payload especifico antes de abrir eventos com item/estoque. Eventos com itens, destinatario, apuracao externa e credito/debito permanecem bloqueados ate subfases proprias.
+- Status: proposta documental na Fase 2.4D.3.0.
+- Fase: 2.4D.3.0.
+
+## ADR-043 - Evento IBS/CBS 112150 com payload oficial estreito
+
+- Decisao: implementar `cod_evento=112150` somente para NF-e normal local autorizada, como `FiscalDocumentEvent(event_type="ibs_cbs", event_code="112150")`, sem criar documento fiscal novo e sem alterar status da NF-e base.
+- Contrato: a revalidacao oficial confirmou `data_previsao_entrega` no topo do payload, enquanto `evento` e a sequencia numerica. O Hunter nao envia `ibs_cbs`, `itens`, `produtos`, credito/debito ou cancelamento nesse evento.
+- Idempotencia: manter `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")` e chave por oficina/documento/tipo/codigo/sequencia. A mesma data de previsao fica bloqueada enquanto houver evento ativo, aprovado ou incerto; datas diferentes podem gerar nova sequencia ate o limite de 20 eventos por documento/tipo.
+- Elegibilidade: NFC-e, derivados, ajuste, documentos externos, credito/debito e documentos sem chave ficam bloqueados nesta subfase.
+- Cancelamento: cancelamento do `112150` nao foi implementado. O cancelamento validado em 2.4D.2 permanece restrito ao `112110`.
+- Status: validada na Fase 2.4D.3.
+- Fase: 2.4D.3.
+
+## ADR-044 - Cancelamento do evento IBS/CBS 112150 por UUID
+
+- Decisao: implementar somente cancelamento do evento IBS/CBS `112150` autorizado, usando `PUT /1/nfe/evento-ibs-cbs/cancelar/`, sem criar cancelamento generico para outros codigos.
+- Contrato: payload com `uuid` do evento original, `ambiente` quando aplicavel e `url_notificacao` opcional. O Hunter nao envia `chave`, `cod_evento`, `evento`, `data_previsao_entrega`, `ibs_cbs`, produtos, payload de nota ou credito/debito.
+- Modelagem: criar `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112150", related_event=<evento 112150>)`, com tentativa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`. Nenhum `FiscalDocument` novo e criado.
+- Status: retorno remoto positivo atualiza o evento de cancelamento e marca o evento original como cancelado; o `FiscalDocument` base nao muda status.
+- Compatibilidade: cancelamento do `112110` permanece no fluxo validado e intacto.
+- Status: validada na Fase 2.4D.4.
+- Fase: 2.4D.4.
+
+## ADR-045 - Eventos IBS/CBS 112120, 112130 e 112140 devem ser separados por semantica operacional
+
+- Contexto: a Webmania documenta `112120`, `112130` e `112140` como eventos de emitente por `POST /1/nfe/evento-ibs-cbs/`, todos com `itens[]`, sequencial fiscal do item, `valor_ibs`, `valor_cbs` e campos especificos de `controle_estoque`. Apesar da estrutura comum, cada codigo representa fato fiscal distinto: importacao ALC/ZFM nao convertida em isencao, perecimento/perda/roubo/furto em transporte contratado pelo fornecedor, e fornecimento nao realizado com pagamento antecipado.
+- Decisao: nao implementar os tres juntos. Planejar subfases isoladas, com `112130` como primeiro candidato funcional apenas se houver snapshot fiscal confiavel e input operacional/fiscal auditavel. `112120` fica atras de contexto de importacao/ALC-ZFM validado; `112140` fica atras de regra de pagamento antecipado/nota de debito.
+- Fonte de dados: usar snapshot fiscal do documento original (`FiscalDocument.request_payload`, `FiscalDocument.response_payload`, `NfeItem.raw_payload` ou `NfeItem.log_payload`) somente quando contiver item fiscal, sequencia e dados IBS/CBS suficientes. `TaxClassNfe` atual nao e fallback automatico para evento de documento ja emitido.
+- Bloqueio seguro: documentos externos sem XML/importacao validada, documentos sem snapshot suficiente, itens sem sequencial fiscal, divergencia de itens e valores IBS/CBS ausentes ou incompletos bloqueiam antes do gateway.
+- Cancelamento: manter em subfase separada por codigo, usando UUID remoto do evento autorizado. Nao criar cancelamento generico para `112120/112130/112140` junto com a emissao.
+- Alternativas consideradas: implementar os tres juntos por compartilharem `itens[]`; criar formulario generico de evento com JSON livre; usar classe fiscal atual para recompor valores. Rejeitadas por risco de payload fiscal incorreto e falta de fonte operacional uniforme.
+- Consequencias: menor velocidade de cobertura, mas maior controle sobre fonte fiscal, estoque/transporte e pagamento antecipado.
+- Status: proposta documental na Fase 2.4D.5.0.
+- Fase: 2.4D.5.
+
+### ADR 2.4D.1 - Primeiro evento IBS/CBS implementado como evento, nao documento
+
+- Decisao: implementar `cod_evento=112110` como `FiscalDocumentEvent(event_type="ibs_cbs")`, associado a um `FiscalDocument` NF-e/NFC-e normal local autorizado.
+- Justificativa: evento IBS/CBS altera historico/eventos da nota, mas nao representa nova NF-e/NFC-e nem documento derivado. O documento base nao deve ter status alterado pelo evento.
+- Idempotencia: usar `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")` associado ao documento e ao evento; chave com oficina, documento, tipo, codigo, sequencia e geracao.
+- Sequencia: reservar `event_sequence` por documento e tipo de evento IBS/CBS, porque a constraint persistente e `(document, event_type, event_sequence)`.
+- Payload: para `112110`, enviar somente envelope oficial confirmado. Nao enviar `ibs_cbs`, produtos, credito/debito, cancelamento ou campos de outros eventos.
+- Consequencia: eventos futuros com itens/campos especificos devem ampliar a modelagem de payload de forma controlada; cancelamento de evento permanece em fase propria.
+- Alternativas consideradas: implementar cancelamento junto ao primeiro evento; reutilizar cancelamento NF-e/NFC-e; cancelar documento base.
+- Consequencias: reduz risco de atualizar/cancelar documento errado e permite idempotencia especifica para cancelamento de evento.
+- Riscos: se a SEFAZ/Webmania retornar modelos/codigos diferentes por evento cancelado, o parser deve preservar resposta bruta sanitizada e mapear apenas campos confirmados.
+- Status: proposta documental na Fase 2.4D.0.
+- Fase: 2.4D.
+## ADR - Evento IBS/CBS 112130 isolado
+
+Status: aprovado e validado em 2026-06-18.
+
+Decisao: implementar o evento `112130` como caso especifico, usando `FiscalDocumentEvent` e `FiscalEmissionAttempt` existentes, sem criar model novo, sem `FiscalDocumentLink` e sem cancelamento nesta fase.
+
+Justificativa: o contrato oficial do `112130` exige payload proprio com `itens[]` e `controle_estoque` para perecimento/perda/roubo/furto no transporte contratado pelo fornecedor. Um formulario generico para eventos IBS/CBS aumentaria risco de payload fiscal incorreto e de uso indevido de eventos `112120`, `112140` ou `211xxx`.
+
+Consequencias: o Hunter exige snapshot fiscal original com sequencial fiscal e IBS/CBS por item; `TaxClassNfe` atual nao e fallback automatico para evento de documento ja emitido. Cancelamento do `112130`, eventos `112120/112140`, eventos `211xxx`, credito/debito e complementar tributaria permanecem para fases posteriores.
+
+## ADR - Cancelamento do evento IBS/CBS 112130 por UUID
+
+Status: aprovado e validado em 2026-06-18.
+
+Decisao: implementar somente o cancelamento do evento IBS/CBS `112130` autorizado, usando `PUT /1/nfe/evento-ibs-cbs/cancelar/`, sem criar cancelamento generico para `112120`, `112140` ou eventos `211xxx`.
+
+Contrato: payload restrito a `uuid` do evento original, `ambiente` quando aplicavel e `url_notificacao` opcional. O Hunter nao envia `chave`, `cod_evento`, `evento`, `itens`, `controle_estoque`, `ibs_cbs`, produtos, payload de nota, credito/debito ou dados de documento derivado.
+
+Modelagem: criar `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112130", related_event=<evento 112130>)`, com tentativa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`. Nenhum `FiscalDocument` novo e criado.
+
+Status: retorno remoto positivo atualiza o evento de cancelamento e marca o evento `112130` original como cancelado; o `FiscalDocument` base nao muda status. Timeout preserva evento/tentativa `uncertain` e bloqueia novo cancelamento automatico.
+
+Compatibilidade: cancelamentos validados de `112110` e `112150` permanecem intactos. Eventos `112120`, `112140`, `211xxx`, credito/debito e complementar tributaria continuam bloqueados ate autorizacao propria.
+
+Fase: 2.4D.5.2.
+
+## ADR - Adiar eventos IBS/CBS 112120 e 112140 ate fontes fiscais confiaveis
+
+Status: aprovado documentalmente na Fase 2.4D.6.0.
+
+Contexto: a Webmania documenta `112120` como evento de importacao ALC/ZFM nao convertida em isencao e `112140` como fornecimento nao realizado com pagamento antecipado. Ambos exigem `itens[]`, item sequencial fiscal, valores IBS/CBS e campos especificos de `controle_estoque`.
+
+Decisao: adiar a implementacao funcional de ambos. A infraestrutura tecnica de eventos IBS/CBS ja esta validada, mas o Hunter ainda nao possui fonte fiscal/operacional confiavel para os dados especificos desses eventos.
+
+Justificativa:
+
+- `112120` exige NF-e de importacao referenciada, contexto ALC/ZFM e quantidade sem conversao em isencao. O app de estoque possui importacao/parser XML, mas nao projeta documento fiscal Webmania com snapshot IBS/CBS e regra ALC/ZFM para eventos.
+- `112140` exige item da nota de debito de pagamento antecipado e quantidade nao fornecida. Nota de debito/credito IBS/CBS segue bloqueada e o financeiro atual nao cria vinculo fiscal item-pagamento antecipado.
+
+Consequencias: criar primeiro fase preparatoria de importacao XML/snapshot fiscal e/ou fase de credito/debito/pagamento antecipado. Cancelamentos de `112120` e `112140` so podem ser implementados depois da emissao do codigo correspondente estar validada.
+
+Fase: 2.4D.6.0.
+
+## ADR-046 - Adiar credito/debito ate existir fonte fiscal por tipo
+
+- Status: proposto na Fase 2.5.1.0.
+- Contexto: a base IBS/CBS e a infraestrutura de documentos/tentativas existem, mas o Hunter nao possui apuracao, evidencia legal e vinculo por item para nenhum dos tipos de credito/debito.
+- Decisao: escolher Opcao D e criar Fase 2.5.1P preparatoria. Nenhuma emissao sera liberada apenas por input manual ou por reaproveitamento de movimento financeiro/estoque generico.
+- Consequencias: `FiscalDocument` continua sendo o documento futuro; `fiscal_purpose_type` preservara o enum remoto; referencias serao modeladas por documento/item; emissao exigira feature flag global, habilitacao por oficina e permissao fiscal.
+- Contrato: credito usa `nfe_referenciada[]`; debito `3`/`4` usa `produtos[].dfe_referenciado`; todos os itens usam exclusivamente `impostos.ibs_cbs` e CFOP na raiz.
+- Separacao: notas de credito/debito nao substituem eventos IBS/CBS, inclusive `112140` e `211128`.
+
+## ADR-047 - Base fiscal referenciada e entidade propria sem emissao
+
+- Status: aprovada e implementada na Fase 2.5.1P.
+- Decisao: usar `FiscalReferencedBasis` para preparar documento/item, snapshot historico, hipotese e referencias operacionais. Nao reutilizar `FiscalDocumentLink`, pois ainda nao existe documento de credito/debito derivado.
+- Snapshot: extrair somente do documento emitido/NfeItem; nunca recalcular por `TaxClassNfe` atual; congelar apos aprovacao.
+- Habilitacao: flag auditavel em `WebmaniaCompany` permite preparar bases, nao emitir documentos.
+- Operacao remota: nenhuma. Nao criar `FiscalEmissionAttempt`, webhook ou reconciliacao nesta fase.
+
+## ADR-048 - Adiar primeiro tipo ate existir base monetaria por item
+
+- Status: proposto na Fase 2.5.2.0.
+- Decisao: Opcao D. `FiscalReferencedBasis` aprovada e necessaria, mas nao suficiente para emissao.
+- Motivo: o snapshot atual cobre IBS/CBS e identidade do item, enquanto o contrato exige produto comercial completo e valores fiscais. `FinancialMovement.amount` agregado nao separa principal, multa e juros por item.
+- Direcao: criar 2.5.2P sem operacao remota; depois priorizar credito tipo 1. Debito tipo 4 permanece posterior porque exige `dfe_referenciado` por produto.
+## ADR-049 - Snapshot monetario/comercial one-to-one
+
+- Status: aceita na Fase 2.5.2P.
+- Decisao: criar `FiscalReferencedBasisItem` one-to-one, preservando `FiscalReferencedBasis` como identidade/hipotese e evitando misturar seu ciclo com composicao monetaria.
+- Fonte: somente snapshots historicos do documento/NF-e legada; sem cadastro atual, classe fiscal ou valor financeiro agregado como fallback.
+- Composicao: multa/juros usa somente multa + juros; demais hipoteses somam principal + multa + juros + outros.
+- Consequencia: bases antigas sem item monetario continuam legiveis, mas nao podem ser aprovadas ate receberem uma preparacao valida por fluxo futuro controlado. Nenhum backfill implicito foi criado.
+## ADR-050 - Adiar credito tipo 1 ate validar valoracao fiscal
+
+- Status: proposta pela Fase 2.5.3.0, aguardando aprovacao.
+- Contexto: a base 2.5.2P congela item e `multa + juros`, mas o contrato oficial consultado nao determina como esses valores ocupam quantidade/subtotal/total nem como formar IBS/CBS do produto de credito.
+- Decisao: nao inventar quantidade 1, nao copiar o item original integralmente e nao proporcionalizar IBS/CBS automaticamente. Adiar gateway ate confirmacao fiscal/documental.
+- Contrato confirmado: `finalidade=5`, `tipo_credito=1`, `nfe_referenciada[]`, CFOP na raiz, apenas `impostos.ibs_cbs`; sem `dfe_referenciado`.
+- Consequencia: proxima fase recomendada `2.5.3P`; futura emissao usa documento derivado, link `credits`, tentativa `nfe_credit_emission`, flag/permissoes proprias e cancelamento posterior pelo fluxo NF-e padrao.
+## ADR-051 - Preview fiscal versionado sem transmissao
+
+- Status: aceita na Fase 2.5.3P.
+- Decisao: criar `FiscalCreditProductPreview` separado da base. Quantidade, unitario, total e CFOP sao input administrativo explicito; total deve fechar com quantidade x unitario e com multa + juros.
+- IBS/CBS: copia sanitizada e imutavel do snapshot aprovado, sem calculo e sem `TaxClassNfe` atual.
+- Seguranca: permissoes proprias, revisao por base, imutabilidade apos aprovacao e nenhum objeto remoto.
+- Consequencia: a previa reduz ambiguidade tecnica, mas ainda nao autoriza emissao fiscal; cliente/pedido e validacao externa permanecem pendentes.
+
+## ADR - Emissao de credito tipo 1 consome preview aprovada
+
+- Status: aceita na Fase 2.5.4.
+- Decisao: produto e IBS/CBS sao copiados exclusivamente da preview imutavel; cliente e pedido reutilizam os builders da NF-e normal vinculada a origem. O documento derivado possui FK para base, one-to-one para preview, link `credits` e tentativa persistida antes do gateway.
+- Consequencia: uma nova emissao legitima exige nova preview aprovada. Cancelamento e tipos 2-5 exigem fases proprias.
+
+## ADR - Cancelamento padrao da NF-e de credito tipo 1
+
+- Status: aceita na Fase 2.5.5.
+- Decisao: usar `FiscalDocumentEvent(cancellation)` e operacao especifica `nfe_credit_cancellation`, sem reutilizar cancelamento de evento IBS/CBS. O body segue estritamente o contrato oficial: chave/UUID e motivo, sem ambiente ou dados da emissao.
+- Consequencia: somente resposta, webhook ou consulta remota com status positivo altera o documento de credito; origem, base e preview permanecem imutaveis. Tipos 2-5 e debito continuam bloqueados.
+
+## ADR - Proximo bloco apos credito tipo 1
+
+**Status:** aprovado na Fase 2.5.6.0 e implementado na Fase 2.5.6P.
+
+**Decisao:** priorizar debito tipo 4, mas iniciar por uma preview fiscal propria sem transmissao. Nao reutilizar nem mutar `FiscalCreditProductPreview`.
+
+**Motivos:**
+
+- o contrato oficial e claro: `finalidade=6`, `tipo_debito=4`, `dfe_referenciado` por produto, CFOP na raiz e somente IBS/CBS;
+- `FiscalReferencedBasis` e `FiscalReferencedBasisItem` ja fornecem chave, sequencial e snapshots necessarios;
+- a composicao multa + juros ja e auditavel;
+- credito e debito sao intencoes fiscais diferentes, portanto precisam de aprovacao e payload congelado independentes;
+- uma preview sem gateway reduz o risco de rejeicao 1001 e de transmissao semanticamente incorreta.
+
+**Alternativas rejeitadas agora:** reutilizar preview de credito; emitir debito diretamente; priorizar creditos 2-5; retomar eventos sem fonte local; iniciar NFS-e/CT-e antes das auditorias proprias.
+
+**OpenAPI:** nenhuma alteracao; o schema validado ja representa tipos, referencias, IBS/CBS exclusivo e eventos pendentes.
+
+**Implementacao:** model separado, sem heranca ou mutacao da preview de credito. A flag preparatoria geral foi reutilizada; quatro permissoes de preview de debito foram criadas. Nenhum gateway ou model remoto foi ampliado.
+
+## ADR - Emissao da NF-e de debito tipo 4
+
+**Status:** implementado e validado tecnicamente na Fase 2.5.7.
+
+**Decisao:** a proxima fase pode implementar somente debito tipo 4, a partir de `FiscalDebitProductPreview` aprovada e origem local. Nao enviar `nfe_referenciada`; usar exclusivamente `produtos[].dfe_referenciado` conforme contrato oficial. Criar flag de emissao propria, distinta da flag preparatoria.
+
+**Justificativa:** todos os snapshots fiscais/comerciais/monetarios estao congelados; o payload esta validado; a infraestrutura do credito e reutilizavel; a separacao de preview, documento, operation type, permissoes e flag impede confusao entre credito e debito.
+
+**Cancelamento:** fase posterior pelo cancelamento NF-e padrao, nunca pelo endpoint de cancelamento de evento IBS/CBS.
+
+**Auto-revisao:** a emissao exige nota original local normal e aprovada, chave coerente, snapshots comercial/monetario, composicao multa+juros e produto/IBS-CBS identicos aos valores congelados. O webhook verifica ambiguidade global antes de atualizar o debito.
+
+## ADR - Cancelamento da NF-e de debito tipo 4
+
+**Status:** implementado e validado tecnicamente na Fase 2.5.8.
+
+**Decisao:** usar `FiscalDocumentEvent(event_type="cancellation", event_payload_type="nfe_debit_cancellation")` e operation type especifico `nfe_debit_cancellation`. O body segue o contrato NF-e padrao com identificador e motivo, sem ambiente ou campos de emissao. O documento original, base e preview sao imutaveis.
+
+**Resolucao remota:** webhook de cancelamento de debito e avaliado antes do documento emitido, mas somente e aceito quando houver um unico evento candidato em todo o conjunto de cancelamentos NF-e. A reconciliacao consulta o documento e nunca reenvia o cancelamento.
+
+## ADR - Proximo bloco apos credito/debito de multa e juros
+
+**Status:** proposto na Fase 2.6.0.
+
+**Decisao:** priorizar `Fase 3.0 - Auditoria e Planejamento Tecnico da NFS-e Expandida`, sem codigo funcional, antes de continuar os tipos restantes de credito/debito ou eventos IBS/CBS pendentes.
+
+**Justificativa:** NFS-e possui alto valor direto para oficinas e fluxo operacional legado reutilizavel, mas exige decisao explicita sobre capacidades municipais, Padrao Nacional, ISS/IBS-CBS, RPS/lotes, substituicao e manifestacao. Os demais candidatos dependem de ZFM/ALC, sucessao, estoque fiscal, apuracao externa, pagamento antecipado ou fontes do destinatario ainda inexistentes.
+
+**Rollout:** a auditoria deve propor flags/capacidades por oficina e municipio, mantendo compatibilidade legada. Nenhum model, migration ou gateway e autorizado pela decisao documental.
+
+**NFCom/DC-e:** a classificacao oficial atual foi corrigida para API v2.0.0. Feature flag e habilitacao administrativa permanecem como politica interna Hunter devido ao baixo valor imediato e ao risco de rollout, nao por status beta oficial.
+
+## ADR - Evolucao gradual da NFS-e legada
+
+**Status:** proposto na Fase 3.0.
+
+**Decisao:** preservar `NfseRequest`, `NfseBatch` e `NfseItem` como fonte operacional do fluxo por OS. Criar projecao `FiscalDocument(nfse)` somente sob demanda para novas operacoes; emissao manual futura nasce no dominio fiscal novo. Nao executar backfill em massa na estabilizacao.
+
+**Capacidades:** usar entidade `NfseMunicipalCapability` separada de `WebmaniaCompany`, porque status, versao, ambientes, autenticacao, emissao, funcoes, servicos e parametros variam por municipio/provedor e no tempo.
+
+**Ordem:** 3.1 estabiliza idempotencia/webhook/capacidades; 3.2 amplia consulta; 3.3 corrige cancelamento; 3.4 substituicao; 3.5.0 reavalia o proximo bloco; 3.6.0 planeja manifestacao; 3.6.x implementa manifestacao se aprovada; rollout/emissao manual e downloads/observabilidade ficam em fases posteriores.
+
+**Consequencias:** compatibilidade legada e flags por oficina sao obrigatorias. Nenhuma nova operacao herda permissao legada automaticamente. O gateway continua sendo Webmania; documentos nacionais definem semantica, nao uma integracao paralela.
+
+**Status da decisao em 2026-06-23:** aceita e implementada na Fase 3.1. A primeira versao usa snapshot administrativo local por oficina/empresa/municipio e compatibilidade legada explicita; sincronizacao automatica e TTL remoto permanecem para fase futura. O timestamp remoto canonico foi adicionado ao item/lote sem backfill.
+
+## ADR - Consultas NFS-e nao usam tentativa de emissao
+
+**Decisao:** consultas da Fase 3.2 sao GETs repetiveis e nao recebem `FiscalEmissionAttempt`. A trilha usa `last_reconciled_at`, `last_update_source`, payload sanitizado e erro. Isso evita aplicar semantica `uncertain` de transmissao a uma leitura: timeout de GET nao prova alteracao fiscal remota.
+
+**Lote:** o UUID do `lote_rps` usa o mesmo endpoint de consulta. Batch e `info_nfse` sao aplicados transacionalmente; nao foi inventada consulta por numero RPS.
+
+**Status municipal:** resposta remota e snapshot informativo. Somente acao administrativa futura pode alterar flags aprovadas.
+## ADR - cancelamento NFS-e legado sem `FiscalDocument`
+
+**Decisao:** manter a base operacional legada e criar `NfseCancellation` como trilha auditavel, referenciada pela tentativa via `request_model/request_id`.
+
+**Motivo:** a Fase 3.3 nao autoriza projecao generalizada `FiscalDocument(nfse)` nem backfill. A constraint parcial e o bloqueio pessimista do item resolvem concorrencia sem acoplar o legado ao dominio novo. `nfse_cancellation` permanece separado de emissao e de qualquer futura substituicao.
+
+## ADR - preview obrigatoria antes da substituicao NFS-e
+
+**Contexto:** `POST /2/nfse/substituir` cria nova NFS-e a partir de `rps`. A documentacao oficial apresenta inconsistencia entre o texto (`uuid`/`motivo`) e a tabela/exemplo (`ambiente`, `codigo_verificacao`, `motivo`, `rps`). O Hunter pode reconstruir RPS usando dados atuais, mas eles sao mutaveis.
+
+**Decisao:** adotar a Opcao B. Criar primeiro `NfseSubstitutionPreview` imutavel e aprovada, sem transmissao. A fase funcional futura usa somente preview aprovada, capability municipal e feature flag. `NfseSubstitution` representa a operacao e liga dois `NfseItem`; nao e cancelamento e nao requer `FiscalDocument(nfse)` generalizado.
+
+**Consequencias:** evita substituir com tomador, servico, valor ou tributacao alterados silenciosamente; permite auditoria e testes do novo RPS. O custo e uma fase preparatoria adicional e a necessidade de nova confirmacao contratual sobre a identificacao da original antes do POST funcional.
+
+**Implementacao 3.4P:** entidade propria no legado NFS-e, sem `FiscalDocument(nfse)` e sem tentativa remota. O snapshot XML preserva URL, identificadores e payload remoto sanitizado disponivel; o Hunter nao baixa nem reconstrói conteudo XML durante a preparacao. Tomador, servico, valores e tributacao do novo RPS sao input administrativo explicito.
+
+**Implementacao 3.4.1:** seguir tabela/exemplo oficial e nao a frase contraditoria sobre `uuid`. A operacao remota usa `NfseSubstitution` + tentativa; retorno sincrono aprovado exige `nfse_substituida.uuid` igual a original. Webhook por UUID substituto pode concluir uma intencao previamente identificada. XML original nunca e sobrescrito; estado `substituido` possui rank terminal equivalente a cancelado.
+
+## ADR - Proximo bloco apos cancelamento e substituicao NFS-e
+
+**Status:** proposto na Fase 3.5.0.
+
+**Decisao:** priorizar manifestacao de NFS-e Padrao Nacional em fase propria, antes de emissao manual nova, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes ou complementar tributaria.
+
+**Justificativa:** manifestacao trabalha sobre NFS-e existente e pode reutilizar capacidade municipal, tentativa persistida, payload sanitizado, webhook e reconciliacao consultiva. Ela nao cria RPS, nao consome numeracao, nao altera XML original e nao exige dominio novo de transporte, estoque, sucessao, ZFM/ALC, pagamento antecipado ou apuracao fiscal. O valor de produto e menor que emissao manual nova, mas o risco e o tamanho da fase sao muito menores.
+
+**Restricoes:** aplicar apenas quando `NfseMunicipalCapability.manifestation_enabled` e a configuracao administrativa da oficina permitirem. Timeout deve permanecer `uncertain`, sem retry automatico. Webhook ambiguo ou retorno sem identificador suficiente deve ficar pendente para reconciliacao/acao administrativa, sem inferir sucesso.
+
+**OpenAPI:** nenhuma alteracao nesta fase; o endpoint `/2/nfse/manifestar` ja esta representado no OpenAPI validado.
+
+## ADR - Manifestacao NFS-e sem preview previa
+
+**Status:** proposto na Fase 3.6.0.
+
+**Decisao:** implementar futuramente manifestacao NFS-e como `NfseManifestation` proprio vinculado a `NfseItem`, sem criar preview previa e sem criar `FiscalDocument(nfse)`. A intencao congelada e a tentativa `nfse_manifestation` sao suficientes para auditoria/idempotencia.
+
+**Justificativa:** diferentemente da substituicao, manifestacao nao reconstrói RPS nem cria nova NFS-e. O contrato oficial e pequeno: ambiente, identificador, papel, evento e campos condicionais de rejeicao. Uma preview adicionaria friccao sem reduzir risco material, desde que rejeicao tenha confirmacao explicita e payload congelado.
+
+**Restricoes:** somente Padrao Nacional confirmado; bloquear municipal legado, NFS-e cancelada, substituida, incerta ou sem identificador suficiente. Desfazer/cancelar manifestacao nao sera implementado sem endpoint oficial claro.
+
+**Implementacao 3.6.1:** `NfseManifestation` proprio, sem preview e sem `FiscalDocument(nfse)`. O gateway transmite apenas o contrato oficial de manifestacao; cancelamento, substituicao e XML original da NFS-e permanecem preservados.
+
+## ADR - Proximo bloco apos manifestacao NFS-e
+
+**Status:** proposto na Fase 3.7.0.
+
+**Decisao:** escolher a Opcao F: fase preparatoria para emissao manual nova de NFS-e, antes de qualquer transmissao por `POST /2/nfse/emissao`.
+
+**Justificativa:** emissao manual nova e o proximo bloco com maior valor de produto e maior reaproveitamento da infraestrutura NFS-e validada. Porem, diferentemente da manifestacao, ela cria documento fiscal novo e pode consumir RPS/numeracao. A base local existe apenas parcialmente e permanece acoplada a OS/cadastros mutaveis. A preview imutavel reduz risco fiscal ao congelar tomador, servico, valores, ISS, IBS/CBS, ambiente, municipio/capability e payload planejado antes da fase funcional.
+
+## ADR - Fase 3.7.1: emissao manual somente a partir de preview aprovada
+
+**Decisao:** implementar `NfseManualEmission` como intencao remota propria e transmitir somente o `request_payload` aprovado da `NfseManualEmissionPreview`.
+
+**Consequencias:** `NfseItem` pode existir sem OS legada quando originado por emissao manual. Nao sera criado `FiscalDocument(nfse)` nesta fase. Cancelamento, substituicao e manifestacao da NFS-e manual exigem fases futuras proprias. A diferenca entre exemplo com `rps` objeto e contrato local com `rps` lista foi resolvida preservando o payload aprovado, sem conversao.
+
+**Alternativas rejeitadas agora:** importacao de NFS-e recebida sem XML/papel fiscal seguro; CT-e/MDF-e/NFCom/DC-e sem dominio local; eventos IBS/CBS `112120`, `112140` e `211xxx` sem fontes especificas; creditos/debitos restantes sem evidencias fiscais; complementar tributaria sem auditoria propria.
+
+**Consequencia:** a proxima fase recomendada nao cria `FiscalEmissionAttempt`, nao chama Webmania e nao cria NFS-e emitida. Uma fase funcional posterior devera consumir somente preview aprovada, com tentativa persistida antes do POST, `uncertain` bloqueante, webhook seguro e reconciliacao consultiva.
+## ADR - Fase 3.8.0: proximo ciclo apos emissao manual NFS-e
+
+Data: 2026-06-28.
+
+Contexto: a Fase 3.7.1 foi validada no checkpoint `2cb35206`, criando `NfseManualEmission`, tentativa `nfse_manual_emission`, emissao exclusiva por preview aprovada e `NfseItem` somente apos confirmacao remota valida.
+
+Decisao: priorizar **Fase 3.8.1 - Cancelamento da NFS-e Manual Nova** como extensao segura do cancelamento NFS-e existente.
+
+Justificativa:
+
+- contrato oficial do cancelamento (`PUT /2/nfse/cancelar` com `uuid` e `motivo`) e o mesmo ja usado pelo fluxo validado;
+- a fonte local e confiavel quando `NfseManualEmission.nfse_item` aponta para `NfseItem` autorizado com UUID;
+- reaproveita `NfseCancellation`, `FiscalEmissionAttempt(operation_type="nfse_cancellation")`, webhook e reconciliacao consultiva;
+- fecha o primeiro ciclo operacional da NFS-e manual sem criar nova NFS-e, sem novo RPS e sem depender de importacao ou `FiscalDocument(nfse)`;
+- reduz risco frente a substituicao e manifestacao, que exigem respectivamente novo RPS/substituta ou Padrao Nacional/papel fiscal.
+
+Consequencia: substituicao e manifestacao da NFS-e manual permanecem fases separadas; preview e emissao manual sao imutaveis e nao devem ser alteradas pelo cancelamento.
+
+Implementacao 3.8.1: a decisao foi mantida. Nao foi criado novo modelo; `NfseCancellation` passou a aceitar `request` opcional para origem manual, mantendo `item` obrigatorio e a constraint de uma intencao ativa por NFS-e. A operacao de idempotencia continuou `nfse_cancellation`, porque a separacao por `NfseItem` e oficina e suficiente e evita bifurcar o contrato remoto por origem.
+
+## ADR - Fase 3.9.0: proximo bloco apos ciclo minimo da NFS-e manual
+
+Data: 2026-06-28.
+
+Contexto: a Fase 3.8.1 foi validada no checkpoint `29f3f3a9`, completando o ciclo minimo `preview -> emissao -> cancelamento` da NFS-e manual. A origem manual usa `NfseManualEmissionPreview`, `NfseManualEmission`, `NfseItem` autorizado e `NfseCancellation` com `request` opcional. O contrato de cancelamento permanece `{uuid, motivo}`, XML original preservado e XML de cancelamento separado.
+
+Decisao: priorizar **substituicao da NFS-e manual** como extensao segura do fluxo atual de substituicao NFS-e.
+
+Justificativa:
+
+- `NfseSubstitutionPreview` e `NfseSubstitution` ja existem e ja foram validados para NFS-e local;
+- `POST /2/nfse/substituir` ja esta representado no OpenAPI validado;
+- a NFS-e manual autorizada possui `NfseItem`, UUID e, quando elegivel, `codigo_verificacao` para identificar a original;
+- a preview imutavel ja mitiga o maior risco da substituicao: novo RPS construido a partir de dados mutaveis;
+- o ajuste esperado e de elegibilidade/origem, sem criar gateway paralelo, sem `FiscalDocument(nfse)` e sem abrir NFS-e recebida/importada.
+
+Alternativas adiadas: manifestacao da NFS-e manual, porque depende de Padrao Nacional e papel fiscal; NFS-e recebida/importada, porque falta dominio de XML/identidade/tenancy; NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria, por maior dependencia externa e risco fiscal.
+
+Consequencia: a proxima fase funcional deve ser pequena e escolher explicitamente extensao do fluxo atual, nao fluxo paralelo especifico de `NfseManualEmission`.
+
+## ADR - Fase 3.9.1: substituicao manual como extensao do fluxo existente
+
+**Status:** implementado e validado tecnicamente em 2026-06-29.
+
+**Decisao:** nao criar modelo ou fluxo paralelo para substituicao da NFS-e manual. A origem manual passa a ser apenas mais uma origem elegivel de `NfseItem` original para `NfseSubstitutionPreview` e `NfseSubstitution`.
+
+**Justificativa:** o contrato remoto e identico ao fluxo ja validado de substituicao NFS-e. A diferenca relevante e local: a original pode ter `request_id=None`, desde que exista `NfseManualEmission` vinculada e confirmada. A capability vem da preview de emissao manual, e nao de `NfseRequest`.
+
+**Consequencias:** a substituta manual tambem pode nascer sem `NfseRequest`/OS; isso e intencional quando a original manual nao possui esses vinculos. `FiscalDocument(nfse)` permanece adiado. Manifestacao manual e NFS-e recebida/importada permanecem fases futuras separadas.
+
+## ADR - Fase 3.10.0: adiar manifestacao da NFS-e manual
+
+**Status:** validada documentalmente em 2026-06-29 no checkpoint `8d5c7192`.
+
+**Decisao:** adiar a manifestacao da NFS-e manual. Nao implementar `Fase 3.10.1` agora.
+
+**Justificativa:** `NfseManifestation` e `operation_type="nfse_manifestation"` ja existem e o endpoint oficial `POST /2/nfse/manifestar` continua claro para Padrao Nacional. O problema e o papel fiscal: a documentacao oficial descreve manifestacao por tomador ou intermediario, enquanto a NFS-e manual emitida pelo Hunter normalmente e documento da propria oficina prestadora. Sem criterio local para provar que a oficina atua como tomadora/intermediaria, a extensao funcional abriria risco fiscal.
+
+**Alternativas avaliadas:** implementar como extensao segura de `NfseManifestation`; criar fluxo separado manual; preparar NFS-e recebida/importada. A primeira e tecnicamente possivel, mas fiscalmente ambigua. A segunda foi rejeitada por duplicar fluxo. A terceira permanece recomendada como preparacao posterior, porque documentos recebidos de terceiros tendem a se alinhar melhor ao papel de manifestador.
+
+**Consequencias:** manifestacao da NFS-e manual continua pendente; NFS-e recebida/importada deve ser planejada antes de manifestacao de terceiros; nenhuma alteracao em OpenAPI ou codigo funcional foi feita.
+
+## ADR - Fase 3.11.0: NFS-e recebida por XML antes de manifestacao
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Decisao:** escolher Opcao A, criar em fase futura um registro local de NFS-e recebida/importada baseado em XML validado (`NfseReceivedDocument` ou nome equivalente), antes de qualquer manifestacao funcional.
+
+**Justificativa:** a manifestacao faz mais sentido para documentos em que a oficina e tomadora ou intermediaria. A forma mais defensavel de provar esse papel e validar o XML recebido, extrair CNPJs, municipio, ambiente, UUID/chave/codigo e congelar hash/snapshot. A consulta Webmania por identificador e util como complemento, mas a documentacao revalidada nao confirma endpoint de importacao que substitua XML e papel fiscal.
+
+**Consequencias:** a proxima implementacao, se aprovada, deve ser preparatoria e local; nao deve criar `NfseItem`, `FiscalDocument(nfse)` nem executar `POST /2/nfse/manifestar`. Manifestacao futura dependera de documento recebido validado, papel `taker` ou `intermediary`, Padrao Nacional e capability ativa.
+
+## ADR - Fase 3.12.0: manifestacao de NFS-e recebida por extensao segura
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.11.1 foi validada no checkpoint `b25ad698`, criando `NfseReceivedDocument` por XML validado. O documento recebido agora possui XML snapshot/hash, UUID/identificador/codigo, CNPJs extraidos, role fiscal, oficina, empresa, status de validacao e protecao por permissoes. A importacao nao cria artefatos de emissao nem chama Webmania.
+
+**Decisao:** escolher Opcao A e planejar `3.12.1 - Manifestacao de NFS-e Recebida` como extensao segura de `NfseManifestation` existente, nao como fluxo paralelo.
+
+**Justificativa:** a manifestacao oficial e por tomador ou intermediario no Padrao Nacional. Diferente da NFS-e manual emitida pela propria oficina, a NFS-e recebida validada por XML pode provar que a oficina atua como tomadora ou intermediaria. O fluxo existente de `NfseManifestation` ja resolve payload, tentativa, idempotencia, timeout, webhook e reconciliacao; duplicar isso criaria risco e manutencao desnecessaria.
+
+**Consequencias:** a fase funcional futura deve adaptar a modelagem para vincular uma manifestacao a exatamente uma origem: `nfse_item` ou `received_document`. Deve bloquear provider, unknown, multiple, sem UUID, sem Padrao Nacional, status terminal/incerto e cross-workshop. Nao criar `NfseItem`, nao criar `FiscalDocument(nfse)`, nao alterar XML recebido e nao reusar permissoes de importacao como permissao de manifestacao.
+
+**OpenAPI:** nenhuma alteracao. O contrato oficial ja esta representado para manifestacao, webhook, consulta e status.
+
+## ADR - Fase 3.13.0: proximo bloco apos fechamento NFS-e
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.12.1 foi validada no checkpoint `6cc3a788`, fechando os principais fluxos NFS-e atuais: cancelamento legado, substituicao, manifestacao Padrao Nacional, preview/emissao/cancelamento/substituicao manual, registro de NFS-e recebida por XML e manifestacao de NFS-e recebida. A manifestacao recebida estendeu `NfseManifestation` para `NfseReceivedDocument` sem criar `NfseItem` ou `FiscalDocument(nfse)`.
+
+**Decisao:** escolher consulta/reconciliacao auxiliar de `NfseReceivedDocument` como proxima recomendacao, desde que seja estritamente consultiva.
+
+**Justificativa:** o documento recebido validado por XML agora fornece fonte local suficiente para consulta segura: oficina, empresa, UUID/identificador, XML/hash, CNPJs e papel fiscal. `GET /2/nfse/consulta/{identifier}` e `/2/nfse/status` podem reduzir incerteza operacional e apoiar manifestacao/reconciliacao, reaproveitando infraestrutura NFS-e existente. Importacao em lote tem valor, mas exige UX e processamento parcial; e-mail/ERP e novas familias abrem dependencias externas maiores; eventos IBS/CBS, creditos/debitos e complementar tributaria continuam dependentes de fontes fiscais especificas.
+
+**Consequencias:** a futura consulta nao pode criar NFS-e recebida sem XML, substituir XML validado, recalcular papel fiscal, criar manifestacao automaticamente, criar `NfseItem` ou criar `FiscalDocument(nfse)`. Manifestacao manual permanece adiada. NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria permanecem fora do escopo imediato.
+
+**OpenAPI:** nenhuma alteracao. O schema validado atual permanece suficiente para consulta, status, manifestacao e webhooks.
+
+## ADR - Fase 3.13.1: consulta recebida como snapshot auxiliar
+
+**Status:** implementado e validado tecnicamente em 2026-06-29.
+
+**Decisao:** representar a consulta remota de NFS-e recebida em entidade propria (`NfseReceivedDocumentConsultation`), vinculada ao `NfseReceivedDocument`, sem promover a resposta Webmania a fonte primaria.
+
+**Justificativa:** o XML validado continua sendo a evidencia local principal de identidade, papel fiscal e dados tributarios. A consulta remota e util para reconciliacao operacional, mas pode divergir do XML e nao deve sobrescrever hash, snapshot, UUID, CNPJs, municipio, ambiente ou valor extraidos.
+
+**Consequencias:** a consulta usa somente GET, depende de feature flag e permissao propria, registra divergencias auditaveis e nao cria `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` ou manifestacao automatica. Importacao por consulta, lote e integracoes externas continuam fases futuras.
+
+## ADR - Fase 3.14.0: proximo bloco apos NFS-e recebida completa
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.13.1 foi validada no checkpoint `01f0924d`. O bloco NFS-e recebida possui registro local por XML, manifestacao segura e consulta/reconciliacao GET-only. A consulta implementada preserva XML/hash/dados extraidos, registra divergencias em `NfseReceivedDocumentConsultation` e nao cria manifestacao automatica, `NfseItem` ou `FiscalDocument(nfse)`.
+
+**Decisao:** escolher importacao em lote de XML de NFS-e recebida como proxima fase funcional pequena.
+
+**Justificativa:** o lote XML reaproveita a fonte local mais confiavel ja validada, aumenta valor operacional para oficinas com muitos documentos recebidos e evita dependencia de consulta Webmania como origem. E menor e mais testavel que e-mail/ERP, NFS-e expandida ampla, CT-e/MDF-e/NFCom/DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes ou complementar tributaria.
+
+**Consequencias:** a proxima fase deve ser XML-only, com relatorio por arquivo, importacao parcial segura, bloqueio de duplicidade e cross-workshop. Consulta Webmania continua apenas apoio consultivo; e-mail/ERP fica posterior ao lote local; manifestacao manual e demais dominios fiscais permanecem adiados.
+
+## ADR - Fase 3.14.1: lote persistido e importacao parcial
+
+**Status:** implementado e validado tecnicamente em 2026-06-29.
+
+**Decisao:** persistir lote e itens por arquivo em `NfseReceivedImportBatch` e `NfseReceivedImportBatchItem`, em vez de relatorio transiente.
+
+**Justificativa:** o lote e uma operacao fiscal auditavel com importacao parcial. Persistir resultados por arquivo permite explicar duplicidades, XMLs invalidos, CNPJ/oficina divergente e documentos criados sem depender de estado de tela.
+
+**Consequencias:** a importacao continua usando `NfseReceivedDocument` como documento fiscal primario, reaproveita o parser/importador unitario e nao cria Webmania calls, manifestacoes, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`.
+
+## ADR - Fase 3.15.0: proximo bloco apos consolidacao recebida
+
+**Status:** validada documentalmente em 2026-06-29 no checkpoint `4815728b`.
+
+**Contexto:** a Fase 3.14.1 foi validada no checkpoint `b53e862b`, encerrando o ciclo recebido com upload unitario XML, manifestacao, consulta GET-only e lote XML auditavel.
+
+**Decisao:** escolher planejamento de integracao e-mail/ERP para XML de NFS-e como proxima fase, somente preparatoria/documental.
+
+**Justificativa:** o dominio fiscal recebido ja esta pronto para processar XMLs locais. A lacuna agora e a origem externa desses XMLs. Implementar conector real sem fase preparatoria criaria riscos de credenciais, anexos errados, duplicidade, fila e importacao silenciosa.
+
+**Consequencias:** nenhuma integracao real deve ser implementada na proxima fase documental. Consulta Webmania ampliada, manifestacao manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
+
+## ADR - Fase 3.15.1: caixa de entrada externa antes de conectores reais
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.15.0 foi validada documentalmente no checkpoint `4815728b` e autorizou apenas planejamento preparatorio de integracao e-mail/ERP para XML de NFS-e. O lote XML local ja existe e e a fronteira fiscal segura.
+
+**Decisao:** escolher **Opcao A - Implementar caixa de entrada externa de XML** como recomendacao para uma futura fase funcional, com revisao humana antes do lote. Nao implementar conector real nesta fase.
+
+**Justificativa:** a caixa de entrada separa origem operacional de importacao fiscal. E-mail, ERP, pasta externa ou webhook podem fornecer XML candidato, mas o documento recebido so nasce pelo pipeline validado de XML/lote. Isso reduz risco de credenciais, spoofing, anexo adulterado, documento de outra oficina e importacao silenciosa.
+
+**Consequencias:** a proxima implementacao, se aprovada, deve criar dominio intermediario auditavel, permissoes e flags proprias, sem chamar Webmania, sem manifestar, sem criar `NfseItem`, sem criar `FiscalDocument(nfse)` e sem criar `FiscalEmissionAttempt`. Conectores reais IMAP/Gmail/Microsoft/ERP continuam posteriores.
+
+**OpenAPI:** nenhuma alteracao. A decisao e local e nao envolve endpoint Webmania novo.
+
+## ADR - Fase 3.15.2: inbox local/manual antes de conectores externos
+
+**Status:** em implementacao controlada em 2026-06-30.
+
+**Contexto:** a Fase 3.15.1 foi validada documentalmente no checkpoint `5882cd4e`. A decisao aprovada foi implementar caixa de entrada local para XMLs candidatos, sem conector real.
+
+**Decisao:** implementar `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem` como camada operacional intermediaria. Itens podem ser pendentes, invalidos, duplicados, aprovados, descartados, processados ou erro. Somente itens aprovados sao enviados ao lote XML validado.
+
+**Justificativa:** a inbox permite capturar XMLs candidatos e auditar origem manual sem criar caminho fiscal paralelo. O lote continua dono da criacao de `NfseReceivedDocument`.
+
+**Consequencias:** a implementacao adiciona flag e permissoes proprias. Nenhum conector real, Webmania automatica, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` e criado pela inbox.
+
+## ADR - Fase 3.16.0: ampliar inbox local antes de conectores reais
+
+**Status:** validada documentalmente em 2026-06-30 no checkpoint `424a3c2a`.
+
+**Contexto:** a Fase 3.15.2 foi validada no checkpoint `517d25b8`. O bloco NFS-e recebida ja possui XML unitario, manifestacao recebida, consulta GET-only, lote XML e inbox local/manual.
+
+**Decisao:** escolher **Opcao D - Ampliar inbox local** como proxima recomendacao funcional pequena.
+
+**Justificativa:** conectores reais de e-mail/ERP/pasta/webhook ainda dependem de autenticacao, segregacao por oficina, contratos externos, idempotencia por origem e observabilidade. A inbox local ja tem fonte e dominio implementados; melhorar filtros, busca, auditoria, relatorio e acoes controladas aumenta valor com risco menor.
+
+**Consequencias:** a proxima fase deve continuar local, sem conector real, sem Webmania automatica, sem manifestacao automatica e sem criar documento fiscal fora do lote XML. NFS-e expandida, CT-e/MDF-e/NFCom/DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 4.0.1: sanear NF-e/NFC-e sem funcionalidade nova
+
+**Status:** validada em 2026-07-02 no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
+
+**Contexto:** a Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`, aprovando saneamento tecnico NF-e/NFC-e antes de qualquer evolucao funcional.
+
+**Decisao:** executar apenas correcao pequena e testada de permissao/UX, alinhando a exposicao de cancelamento/inutilizacao NF-e normal com a permissao server-side existente. Nao criar permissao nova nesta fase porque isso exigiria migration e decisao operacional propria.
+
+**Justificativa:** o risco imediato era a tela sugerir acoes fiscais legadas para quem so deveria visualizar, embora o POST ja estivesse protegido. Corrigir a exposicao reduz risco sem alterar regra fiscal, payload, endpoint ou modelagem.
+
+**Consequencias:** cancelamento/inutilizacao NF-e normal continuam legados e entram no backlog tecnico para modernizacao futura. Downloads/payloads de NF-e normal tambem precisam de decisao propria de permissao.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 4.0.2: planejar permissoes dedicadas para NF-e normal
+
+**Status:** em planejamento documental em 2026-07-02.
+
+**Contexto:** a Fase 4.0.1 foi validada e encerrada no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`. A UI da NF-e normal foi alinhada ao guard server-side, mas as acoes sensiveis continuam dependentes de permissoes genericas legadas.
+
+**Decisao:** escolher **Opcao A - implementar permissoes dedicadas com fallback legado temporario**.
+
+**Justificativa:** cancelamento, inutilizacao, XML, DANFE/PDF, payload e resposta remota exigem granularidade maior que `change_nferequest`/`view_nferequest`. O fallback temporario reduz risco de quebra operacional enquanto grupos sao migrados.
+
+**Consequencias:** a proxima fase funcional deve criar permissoes dedicadas em `NfeRequest` e aplicar UI/POST/downloads de forma consistente. A modernizacao de cancelamento/inutilizacao para evento/tentativa propria permanece separada e nao deve ser misturada com a fase de permissoes.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.17.1: auditoria sem correcao funcional imediata
+
+**Status:** validada em 2026-07-02 no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`.
+
+**Contexto:** a Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a` e decidiu executar auditoria geral antes de abrir novo dominio fiscal.
+
+**Decisao:** realizar auditoria documental/tecnica do modulo fiscal, registrar achados por severidade e manter a fase sem implementacao funcional nova enquanto nao houver achado critico/alto.
+
+**Justificativa:** o bloco NFS-e recebida consolidou varias fronteiras locais e remotas. A revisao das migrations 0070-0074, permissoes, flags, services, UX e testes nao exige correcao imediata; abrir nova funcionalidade aumentaria risco sem tratar o baseline acumulado.
+
+**Consequencias:** backlog residual passa a priorizar baseline `mypy`, retencao/reprocessamento da inbox e auditoria analitica, todos em fases proprias. Conectores externos, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.18.0: priorizar saneamento tecnico pos-auditoria
+
+**Status:** validada documentalmente em 2026-07-02 no checkpoint `274df7f7`.
+
+**Contexto:** a Fase 3.17.1 encerrou a auditoria tecnica/fiscal geral no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`, sem alteracao funcional e sem achados criticos/altos. O bloco NFS-e recebida/entrada XML esta encerrado, consolidado e auditado.
+
+**Decisao:** escolher **Opcao A - Saneamento tecnico pos-auditoria** como proximo ciclo fiscal.
+
+**Justificativa:** novos dominios fiscais e automacoes externas ainda dependem de fonte local segura, autenticacao, contrato claro, papel fiscal, payload minimo e testes deterministicos. Ja o saneamento tecnico reduz risco acumulado em tipagem, permissoes, flags, documentacao, testes e protecao de payload sem abrir comportamento fiscal novo.
+
+**Consequencias:** a proxima fase deve ser incremental, sem novo dominio fiscal, sem payload remoto novo, sem alteracao de comportamento fiscal e sem conectores externos. Reducao gradual do baseline `mypy`, revisao de permissoes/flags e reforco de regressao entram como frentes tecnicas, nao como novas capacidades de negocio.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.18.1: saneamento tecnico sem comportamento fiscal novo
+
+**Status:** validada em 2026-07-02 no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`.
+
+**Contexto:** a Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`, recomendando saneamento tecnico apos a auditoria geral.
+
+**Decisao:** executar saneamento por revisao, documentacao e reforco de testes de regressao, sem alterar regras fiscais, payload remoto, endpoints ou dominios.
+
+**Justificativa:** os fluxos recentes ja possuem guardas de permissao, flags e cross-workshop. A acao de menor risco e reforcar provas de seguranca e registrar backlog para o baseline `mypy`, em vez de fazer refatoracao ampla.
+
+**Consequencias:** qualquer ajuste funcional, novo conector, consulta automatica, manifestacao automatica, NFS-e expandida ou novo dominio fiscal continua exigindo fase propria.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.19.0: encerramento temporario do ciclo fiscal funcional
+
+**Status:** em encerramento documental em 2026-07-02.
+
+**Contexto:** a Fase 3.18.1 foi validada e encerrada no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`. O bloco NFS-e recebida foi concluido, auditado e saneado. O modulo fiscal preserva NF-e/NFC-e e NFS-e legadas, implementou NFS-e manual, manifestacao Padrao Nacional, NFS-e recebida por XML, consulta GET-only, manifestacao de recebida, lote XML, inbox local/manual/assistida, ampliacao operacional da inbox, auditoria geral e saneamento tecnico.
+
+**Decisao:** escolher **Opcao A - Encerramento temporario do ciclo fiscal funcional**.
+
+**Justificativa:** o escopo atual chegou a um marco estavel e testado. Continuar diretamente com novas funcionalidades fiscais aumentaria risco sem nova decisao de negocio, fonte fiscal, contrato/API e criterios de aceite. O encerramento cria uma fronteira clara entre o ciclo concluido e qualquer retomada futura.
+
+**Consequencias:** nenhum novo ciclo fiscal deve iniciar por implementacao funcional. A retomada exige fase documental com objetivo, justificativa, fonte local ou externa, contrato Webmania/API quando houver, risco fiscal, risco de seguranca, impactos de modelagem, permissoes, feature flags, payloads, UX, testes, criterios de aceite e escopo proibido.
+
+**Opcoes futuras candidatas:** conector externo real de e-mail/ERP; NFS-e expandida; manifestacao da NFS-e manual; IBS/CBS pendentes; creditos/debitos pendentes; complementar tributaria; CT-e/MDF-e/NFCom/DC-e; reducao tecnica incremental sem alterar regra fiscal.
+
+**OpenAPI:** nenhuma alteracao. O OpenAPI validado permanece suficiente.
+
+## ADR - Fase 4.0.0: auditar NF-e/NFC-e antes de nova implementacao
+
+**Status:** em auditoria documental/tecnica em 2026-07-02.
+
+**Contexto:** o ciclo fiscal anterior foi encerrado no checkpoint `722ac3bb0561caf3720a2a967e9234506f8d7f92`. NF-e/NFC-e foram preservadas e expandidas em varias fases, mas ainda nao haviam sido auditadas como bloco funcional completo no novo ciclo.
+
+**Decisao:** executar auditoria documental/tecnica do bloco NF-e/NFC-e e escolher **Opcao B - Fazer saneamento tecnico do bloco NF-e/NFC-e** como proxima recomendacao.
+
+**Justificativa:** os fluxos principais existem em graus diferentes: NF-e normal e derivados, NFC-e manual/cancelamento/inutilizacao, CC-e, consulta/reconciliacao, downloads, webhooks, IBS/CBS pontual e credito/debito parcial. O risco maior nao e falta de contrato remoto, mas convivencia entre legado e padrao moderno, permissoes amplas, preview remoto, cancelamento/inutilizacao NF-e legados e lacunas de documentacao/teste granular.
+
+**Consequencias:** a proxima fase deve ser tecnica, sem funcionalidade fiscal nova, sem endpoint novo, sem novo payload remoto e sem alteracao de comportamento fiscal. Implementacao de manifestacao NF-e, contingencia/offline NFC-e, novos eventos IBS/CBS, creditos/debitos restantes ou complementar tributaria exige fase documental propria posterior.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.16.1: operacao em massa e relatorio local da inbox XML
+
+**Status:** validada em 2026-06-30 no checkpoint `166eda86`.
+
+**Contexto:** a Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601` e decidiu ampliar a inbox local antes de conectores reais.
+
+**Decisao:** implementar filtros, busca, CSV e acoes em massa sobre `NfseExternalXmlInbox`/`NfseExternalXmlInboxItem`, mantendo `NfseReceivedImportBatch` como unica fronteira de criacao de `NfseReceivedDocument`.
+
+**Justificativa:** a operacao local reduz trabalho manual sem introduzir credenciais externas, automacao fiscal ou fonte remota. CSV sem XML bruto atende relatorio operacional sem expor payload fiscal. Acoes em massa reaproveitam validacoes existentes e registram usuario/data por item.
+
+**Consequencias:** foram criadas apenas permissoes de exportacao e gestao em massa. Retencao e reprocessamento de erro permanecem adiados. Nenhum conector, Webmania automatica, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` foi introduzido.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.17.0: encerrar NFS-e recebida e auditar o modulo fiscal
+
+**Status:** em planejamento documental em 2026-06-30.
+
+**Contexto:** a Fase 3.16.1 foi validada e encerrada no checkpoint `166eda86`. O bloco NFS-e recebida possui registro unitario, manifestacao, consulta auxiliar, lote XML, inbox local e operacao ampliada.
+
+**Decisao:** escolher **Opcao A - Encerrar bloco NFS-e recebida e executar auditoria tecnica/fiscal geral** antes de abrir novo dominio fiscal ou retomar blocos tributarios sensiveis.
+
+**Justificativa:** o modulo acumulou muitas subfases, migrations, permissoes, flags, services, payloads, testes e documentos. Auditoria geral reduz risco de regressao, inconsistencias e duplicidade de regras sem depender de credenciais externas ou inferencia fiscal fragil.
+
+**Consequencias:** a proxima fase deve ser preferencialmente documental/tecnica, sem implementacao funcional nova. Conectores externos, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
+
+**OpenAPI:** nenhuma alteracao.
+## ADR - Fase 4.1.0 - endurecimento operacional da devolucao NF-e
+
+Contexto: a fase 4.0.2 de permissoes genericas da NF-e normal foi pausada. A prioridade passou a ser tornar a devolucao/estorno NF-e operacional sem reescrever o fluxo ja validado.
+
+Decisao:
+- Reusar o nucleo existente de devolucao/estorno (`FiscalDocument`, `FiscalDocumentLink`, `FiscalEmissionAttempt`, `nfe_returns.py`).
+- Nao criar novo dominio fiscal nem novo endpoint remoto.
+- Corrigir a UI para diferenciar devolucao total, devolucao parcial e estorno, evitando exigir produtos parciais quando a operacao nao usa essa selecao.
+- Criar permissao dedicada `view_nfe_return_payload` em `FiscalDocument` para expor request/response sanitizados.
+
+Consequencias:
+- Devolucao parcial continua conservadora e baseada em sequencial fiscal/quantidade.
+- Estorno continua usando payload proprio e permissao propria `issue_nfe_reversal`.
+- Download XML/DANFE continua separado de visualizacao de payload.
+- Modernizacao de cancelamento/inutilizacao NF-e normal e permissoes genericas permanecem fora desta fase.
+## ADR - Fase 4.2.0: fechamento operacional da CC-e
+
+- Status: aceita em 2026-07-02.
+- Contexto: CC-e ja existia desde a Fase 2.1, mas a retomada fiscal priorizou deixa-la pronta para homologacao/uso interno antes de continuar permissoes genericas NF-e ou novos dominios.
+- Decisao: manter `FiscalDocumentEvent(event_type="cce")`, `FiscalEmissionAttempt(operation_type="cce")` e endpoint `POST /1/nfe/cartacorrecao/`; adicionar apenas hardening operacional com validacao textual conservadora, payload/response por permissao dedicada e ocultacao da acao em estado ativo/incerto.
+- Consequencias: evita tratar CC-e como documento derivado, preserva a NF-e original imutavel e reduz risco de uso para alteracoes fiscais proibidas. A validacao textual e deliberadamente conservadora e pode exigir ajuste fiscal futuro por homologacao.
+- Nao decisoes: nao iniciar Fase 4.0.2, nao criar CC-e para NFC-e, nao alterar devolucao/estorno, NFS-e, credito/debito, complementar tributaria, eventos IBS/CBS pendentes ou familias novas.
+
+## ADR - Fase 4.1.3: estender a NF-e normal com transporte
+
+- Status: aceita documentalmente em 2026-07-27.
+- Contexto: a NF-e normal usa `NfeRequest`, um unico `build_nfe_payload` para preview e emissao e `FiscalEmissionAttempt` para congelamento/idempotencia. O payload atual fixa `pedido.modalidade_frete=9` e nao possui grupo `transporte`.
+- Decisao: adicionar futuramente a intencao de transporte na mesma `NfeRequest` e aplica-la de forma aditiva no builder existente. Preservar modalidade `9` como default e omitir o grupo para requisicoes antigas ou sem transporte.
+- Modelagem recomendada: modalidade explicita mais snapshot JSON opcional, validado por lista permitida. Nao criar entidade fiscal, request, builder ou endpoint paralelo.
+- Justificativa: esse ponto mantem preview e emissao identicos, reaproveita tentativa, idempotencia, timeout, webhook, reconciliacao, auditoria, permissoes e downloads sem tocar nos fluxos posteriores.
+- Consequencias: os dois formularios existentes devem editar a mesma intencao. Frete comercial da OS/orcamento nao e fonte automatica de `pedido.frete`; fornecedor nao se torna transportadora por inferencia.
+- Recorte inicial: modalidade, transportador e volumes, sem valor monetario de frete, cadastro mestre, reboque, CT-e ou MDF-e.
+- OpenAPI: mantido inalterado; a lacuna local do grupo `transporte` deve ser revalidada antes de eventual atualizacao.
+
+## ADR - Fase 4.1.3A: snapshot opcional de transporte na NfeRequest
+
+- Status: implementada e validada tecnicamente em 2026-07-27.
+- Contexto: o inventario confirmou `NfeRequest` e `build_nfe_payload` como pontos unicos de extensao para ambos os fluxos e para preview/emissao.
+- Decisao: persistir `freight_mode` com default `9` e `transport_snapshot` opcional na mesma requisicao. Formularios compartilham configuracao/validacao; o builder valida novamente e achata transportador/volumes no grupo Webmania `transporte`.
+- Compatibilidade: modalidade `9` retorna antes de qualquer extensao do builder, mantendo o mesmo `pedido` e omitindo `transporte`.
+- Auditoria: o snapshot nao consulta fornecedor, OS ou outro cadastro. O payload final continua congelado por `FiscalEmissionAttempt` antes do POST.
+- Consequencias: modalidade, transportador e volumes ficam disponiveis; valor de frete e qualquer alteracao de total permanecem proibidos.
+- OpenAPI: inalterado. Nenhum endpoint ou contrato remoto existente foi substituido.
+
+## ADR - Fase 4.1.4: identidade segura e historico completo da CC-e
+
+- Status: implementada em 2026-07-28.
+- Contexto: a CC-e ja era operacional e os campos existentes armazenavam UUID, identificador/protocolo, XML e DACCE. As lacunas estavam na validacao uniforme da identidade remota e na exposicao do protocolo no historico.
+- Decisao: manter o fluxo e a modelagem existentes; validar UUID/modelo/sequencia nas respostas conclusivas, validar tambem a chave da NF-e em webhook e bloquear a consulta antes do GET quando o UUID local for invalido.
+- Estado incerto: resposta bem-sucedida sem identidade segura permanece `uncertain`, com retorno sanitizado para auditoria. Timeout e inconsistencia nunca disparam novo POST.
+- Compatibilidade: respostas de rejeicao continuam seguindo o tratamento produtivo existente; protocolo, quando retornado sob alias conhecido, permanece em `FiscalDocumentEvent.remote_event_id`.
+- UX: a tabela de eventos existente exibe sequencia, status, UUID, protocolo e documentos por CC-e, sem criar pagina ou fluxo paralelo.
+- OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade ou endpoint foi criado.
+
+## ADR - Fase 4.1.5: completar a devolucao no documento derivado existente
+
+- Status: implementada em 2026-07-28.
+- Contexto: devolucao/estorno ja possuia documento derivado, vinculo, snapshot, saldo, tentativa, webhook e consulta. O contrato oficial ainda oferecia volume e limites maiores para textos, enquanto identificadores remotos precisavam de validacao uniforme.
+- Decisao: manter o endpoint e o payload existentes; adicionar somente o campo opcional `volume`, expor informacoes ao Fisco ja suportadas e validar UUID/chave/modelo/vinculo antes de aplicar resposta, webhook ou reconciliacao.
+- Fiscal: finalidade nao e acrescentada ao payload especifico. CFOP e natureza continuam declarados pelo usuario; impostos nao sao inferidos e IBS/CBS continua dependente do snapshot seguro existente.
+- Saldo: documentos `processing`, `approved`, `contingency` e `uncertain` continuam reservando quantidades. Multiplas devolucoes usam o mesmo calculo por sequencial e nunca alteram o snapshot original.
+- Estado incerto: timeout ou identificador remoto invalido continua `uncertain`; consulta usa somente UUID/chave validados e nenhum caminho de reconciliacao realiza POST.
+- UX: o historico reaproveitado exibe finalidade, status, numero/serie, recibo, UUID, chave e documentos, preservando escopo e permissoes existentes.
+- OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade ou endpoint foi criado.
+
+## ADR - Fase 4.1.6: completar validacao do snapshot de transporte
+
+- Status: implementada em 2026-07-28.
+- Contexto: o snapshot criado na Fase 4.1.3A ja possuia o conjunto completo de transportador, veiculo e volumes solicitado. As lacunas eram divergencias pequenas entre validacao local e limites oficiais da Webmania.
+- Decisao: manter a modelagem e o payload existentes; ampliar validacao e opcoes dos formularios compartilhados para IE/UF, exterior, formatos de placa e quantidade de volumes, e persistir o array opcional de reboques dentro do mesmo snapshot JSON.
+- Compatibilidade: modalidade `9` continua ignorando snapshot e omitindo `transporte`. Snapshots validos ja persistidos continuam gerando o mesmo grupo e preview/emissao permanecem identicos.
+- Fiscal: `pedido.frete`, seguro e outras despesas nao sao enviados nesta fase. Esses valores exigem decisao especifica sobre composicao de totais.
+- Nao decisoes: nao criar transportadora mestre, dominio de frota, CT-e, MDF-e ou inferencia a partir de fornecedor, cliente, orcamento ou OS. Reboques sao somente dados declarados da NF-e.
+- OpenAPI e banco: inalterados. Nenhuma migration, entidade, endpoint ou builder foi criado.
+
+## ADR - Fase 4.1.7: cobertura completa da CC-e sem ampliar o contrato
+
+- Status: implementada em 2026-07-28.
+- Contexto: a auditoria do contrato oficial confirmou que o fluxo existente ja envia todos os campos documentados e preserva todos os retornos da CC-e. A lacuna remanescente era somente a rastreabilidade desses dados no historico operacional.
+- Decisao: nao alterar service, payload, endpoint, model, webhook ou reconciliacao. Expor na tabela existente o texto corrigido, o status legivel e a mensagem remota ja sanitizada e persistida em `response_payload`.
+- Artefatos: XML e DACCE continuam em `FiscalDocumentEvent`, separados do XML/DANFE da NF-e original e baixados pelo gateway protegido existente.
+- Compatibilidade: emissao, idempotencia, timeout `uncertain`, reconciliacao GET-only, validacao de identidade e bloqueio cross-workshop permanecem inalterados.
+- Protocolo: a resposta oficial de CC-e nao documenta protocolo; aliases ja aceitos continuam sendo preservados defensivamente em `remote_event_id`, sem novo campo.
+- OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade, endpoint ou contrato remoto foi criado.
+
+## ADR - Fase 4.1.8: classe fiscal explicita na devolucao existente
+
+- Status: implementada em 2026-07-28.
+- Contexto: o fluxo derivado ja cobria itens, saldo, volume, informacoes, retorno, artefatos e identidade segura. A auditoria oficial encontrou apenas `classe_imposto` sem ponto de entrada local.
+- Decisao: adicionar a referencia opcional ao formulario e ao mesmo builder de devolucao, com limite compativel com `NfeRequest.tax_class`, persistencia no snapshot atual e congelamento pela tentativa existente.
+- Regra fiscal: a referencia deve ser declarada explicitamente. Nao copiar classe da origem, nao consultar cadastro automaticamente e nao inferir CFOP, finalidade ou impostos.
+- Compatibilidade: ausencia de `classe_imposto` omite a chave e mantem byte a byte a estrutura anterior da intencao fiscal.
+- UX: a tabela existente exibe natureza, CFOP, classe, volumes, status legivel e mensagem remota sem criar modulo ou pagina.
+- OpenAPI e banco: inalterados. Nenhuma migration, entidade, endpoint ou permissao foi criada.

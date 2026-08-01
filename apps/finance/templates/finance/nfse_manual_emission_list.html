@@ -1,0 +1,10 @@
+{% extends 'crud/list.html' %}
+
+{% block crud_title %}Emissões manuais NFS-e{% endblock %}
+{% block crud_subtitle %}Transmissões feitas exclusivamente a partir de previews aprovadas.{% endblock %}
+{% block crud_list_content %}
+{% if eligible_previews %}<div class="alert alert-info mb-4">Há previews aprovadas elegíveis para emissão.</div>{% endif %}
+<div class="overflow-x-auto"><table class="table table-zebra"><thead><tr><th>Empresa</th><th>RPS</th><th>Status</th><th>UUID</th><th></th></tr></thead><tbody>
+{% for emission in emissions %}<tr><td>{{ emission.company }}</td><td>{{ emission.rps_number }}/{{ emission.rps_series }}</td><td>{{ emission.get_status_display }}</td><td>{{ emission.remote_uuid|default:"-" }}</td><td><a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_manual_emission_detail' emission.pk %}">Abrir</a></td></tr>{% empty %}<tr><td colspan="5">Nenhuma emissão manual registrada.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

@@ -6,7 +6,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+from django.template import Context
+from django.template.loader import get_template
 from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.urls import reverse
 
 from apps.budget.models import BudgetType
 from apps.collaborators.test_commissions import create_workorder, create_workshop
@@ -56,6 +59,54 @@ class IssuedDocumentsArchiveConcurrencyTests(SimpleTestCase):
         thread_pool_executor_mock.assert_called_once_with(max_workers=5)
         self.assertEqual(len(futures), 8)
         self.assertEqual(len(result), 8)
+
+
+class IssuedDocumentsNavigationTemplateTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    def _render_central(self, *, operation: str = "", operation_label: str = "") -> str:
+        request = self.factory.get("/finance/notas-emitidas/")
+        request.user = SimpleNamespace(is_authenticated=True)
+        template = get_template("finance/issued_documents_list.html").template
+        context = Context(
+            {
+                "request": request,
+                "filter_state": {
+                    "has_selected_period": False,
+                    "selected_note_type": "nfe" if operation else "all",
+                    "search_raw": "",
+                    "start_raw": "",
+                    "end_raw": "",
+                },
+                "note_type_choices": (("all", "Todas"), ("nfe", "Nota Fiscal de Produto")),
+                "issued_note_rows": [],
+                "issued_notes_total": 0,
+                "issued_nfe_total": 0,
+                "issued_nfse_total": 0,
+                "download_xml_url": "/finance/notas-emitidas/download/xml/",
+                "download_pdfs_url": "/finance/notas-emitidas/download/pdfs/",
+                "fiscal_operation": operation,
+                "fiscal_operation_label": operation_label,
+            }
+        )
+        return template.render(context)
+
+    def test_central_distinguishes_consultation_from_new_emission(self) -> None:
+        html = self._render_central()
+
+        self.assertIn("Central de Notas", html)
+        self.assertIn("Para criar um novo documento, use Emitir Nota.", html)
+        self.assertIn(f'href="{reverse("finance:emission_create")}"', html)
+        self.assertIn("Emitir Nota", html)
+
+    def test_reference_selection_can_return_to_operation_gateway(self) -> None:
+        html = self._render_central(operation="return", operation_label="Devolução")
+
+        self.assertIn("Selecionar NF-e para Devolução", html)
+        self.assertIn("Escolha a NF-e de referência para Devolução", html)
+        self.assertIn(f'href="{reverse("finance:emission_create")}"', html)
+        self.assertIn("Trocar operação", html)
 
 
 class IssuedDocumentsArchiveDownloadViewTests(TestCase):
@@ -198,3 +249,23 @@ class IssuedDocumentsArchiveDownloadViewTests(TestCase):
         self.assertTrue(nfse_row["has_pdf"])
         self.assertIn("/finance/notas-emitidas/download/xml/", context["download_xml_url"])
         self.assertIn("/finance/notas-emitidas/download/pdfs/", context["download_pdfs_url"])
+
+    def test_gateway_operation_is_preserved_when_selecting_reference_nfe(self) -> None:
+        nfe_request = self._create_nfe_with_xml(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            number="302",
+            xml_url="https://example.com/gateway.xml",
+        )
+        view = IssuedDocumentsListView()
+        view.workshop = self.workshop
+        view.request = self.factory.get("/finance/notas-emitidas/", {"tipo": "nfe", "operacao": "return"})
+
+        context = view.get_context_data()
+        row = next(row for row in context["issued_note_rows"] if row["request_id"] == nfe_request.pk)
+
+        self.assertEqual(context["fiscal_operation"], "return")
+        self.assertEqual(context["fiscal_operation_label"], "Devolução")
+        self.assertEqual(row["action_label"], "Selecionar")
+        self.assertIn("origin=issued_documents", row["detail_url"])
+        self.assertIn("operacao=return", row["detail_url"])
