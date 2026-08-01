@@ -109,6 +109,8 @@ class IssuedDocumentsFilterMixin:
         fiscal_operation = str(self.request.GET.get("operacao") or "").strip().lower()
         if fiscal_operation not in self.FISCAL_OPERATION_LABELS:
             fiscal_operation = ""
+        if fiscal_operation:
+            selected_note_type = "nfe"
         filter_error = ""
 
         if start_raw or end_raw:
@@ -132,9 +134,14 @@ class IssuedDocumentsFilterMixin:
             "search_raw": search_raw,
             "fiscal_operation": fiscal_operation,
             "fiscal_operation_label": self.FISCAL_OPERATION_LABELS.get(fiscal_operation, ""),
+            "selected_nfe_id": self._parse_selected_nfe_id() if fiscal_operation else None,
             "is_valid": is_valid,
             "filter_error": filter_error,
         }
+
+    def _parse_selected_nfe_id(self) -> int | None:
+        raw_value = str(self.request.GET.get("selected_nfe") or "").strip()
+        return int(raw_value) if raw_value.isdigit() else None
 
     @staticmethod
     def _parse_id_list(raw_values: list[str]) -> list[int]:
@@ -257,6 +264,19 @@ class IssuedDocumentsFilterMixin:
             ),
         )
 
+    def _build_selection_url(self, *, state: dict[str, Any], pk: int | None = None) -> str:
+        params = build_issued_documents_origin_params(
+            data_inicial=state["start_raw"],
+            data_final=state["end_raw"],
+            tipo="nfe",
+            search=state["search_raw"],
+            operacao=state["fiscal_operation"],
+        )
+        params.pop("origin", None)
+        if pk is not None:
+            params["selected_nfe"] = str(pk)
+        return append_query_params(url=reverse("finance:issued_documents_list"), params=params)
+
     def _build_nfe_row(self, request_obj: NfeRequest, *, state: dict[str, Any]) -> dict[str, Any]:
         latest_item = self._get_latest_prefetched_item(request_obj)
         available_documents = self._build_available_document_labels(note_type="nfe", item=latest_item)
@@ -282,7 +302,8 @@ class IssuedDocumentsFilterMixin:
             "status_badge": request_obj.nfe_request_status_badge,
             "available_documents": available_documents,
             "detail_url": self._build_detail_url(view_name="finance:nfe_detail", pk=request_obj.pk, state=state),
-            "action_label": "Selecionar" if state["fiscal_operation"] else "Abrir",
+            "selection_url": self._build_selection_url(state=state, pk=request_obj.pk) if state["fiscal_operation"] else "",
+            "action_label": "Selecionar esta NF-e" if state["fiscal_operation"] else "Abrir",
         }
 
     def _build_nfse_row(self, request_obj: NfseRequest, *, state: dict[str, Any]) -> dict[str, Any]:
@@ -420,6 +441,14 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
         state = self._get_filter_state()
         nfe_requests, nfse_requests = self._get_filtered_requests(state=state)
         rows = self._build_rows(nfe_requests=nfe_requests, nfse_requests=nfse_requests, state=state)
+        selected_fiscal_nfe = next(
+            (
+                row
+                for row in rows
+                if state["fiscal_operation"] and row["note_type"] == "nfe" and row["request_id"] == state["selected_nfe_id"]
+            ),
+            None,
+        )
 
         context.update(
             {
@@ -433,6 +462,8 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
                 "download_pdfs_url": reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
                 "fiscal_operation": state["fiscal_operation"],
                 "fiscal_operation_label": state["fiscal_operation_label"],
+                "selected_fiscal_nfe": selected_fiscal_nfe,
+                "fiscal_selection_reset_url": self._build_selection_url(state=state) if state["fiscal_operation"] else "",
             }
         )
         return context

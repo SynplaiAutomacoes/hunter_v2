@@ -1,7 +1,7 @@
 {% extends 'crud/list_page.html' %}
 
-{% block crud_title %}{% if fiscal_operation %}Selecionar NF-e para {{ fiscal_operation_label }}{% else %}Central de Notas{% endif %}{% endblock %}
-{% block crud_subtitle %}{% if fiscal_operation %}Escolha a NF-e de referência para {{ fiscal_operation_label }}. Depois revise os dados e conclua a operação.{% else %}Consulte documentos emitidos, acesse ações fiscais e baixe XMLs ou PDFs. Para criar um novo documento, use Emitir Nota.{% endif %}{% endblock %}
+{% block crud_title %}{% if fiscal_operation %}Selecionar NF-e de referência{% else %}Central de Notas{% endif %}{% endblock %}
+{% block crud_subtitle %}{% if fiscal_operation %}Escolha a nota fiscal que será utilizada nesta operação. Operação atual: {{ fiscal_operation_label }}.{% else %}Consulte documentos emitidos, acesse ações fiscais e baixe XMLs ou PDFs. Para criar um novo documento, use Emitir Nota.{% endif %}{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex w-full flex-col gap-3">
@@ -56,33 +56,35 @@
                 <a href="{% url 'finance:issued_documents_list' %}{% if fiscal_operation %}?tipo=nfe&operacao={{ fiscal_operation }}{% endif %}" class="btn btn-ghost btn-sm">Limpar Filtros</a>
             {% endif %}
 
-            <button
-                type="button"
-                id="issued-documents-download-xml"
-                data-issued-download="true"
-                data-download-label="XML"
-                data-download-url="{{ download_xml_url }}"
-                data-document-group="xml"
-                class="btn btn-primary btn-sm gap-2 shadow-sm"
-                disabled
-            >
-                <span class="material-icons text-sm">folder_zip</span>
-                Baixar XML
-            </button>
+            {% if not fiscal_operation %}
+                <button
+                    type="button"
+                    id="issued-documents-download-xml"
+                    data-issued-download="true"
+                    data-download-label="XML"
+                    data-download-url="{{ download_xml_url }}"
+                    data-document-group="xml"
+                    class="btn btn-primary btn-sm gap-2 shadow-sm"
+                    disabled
+                >
+                    <span class="material-icons text-sm">folder_zip</span>
+                    Baixar XML
+                </button>
 
-            <button
-                type="button"
-                id="issued-documents-download-pdfs"
-                data-issued-download="true"
-                data-download-label="PDF"
-                data-download-url="{{ download_pdfs_url }}"
-                data-document-group="pdfs"
-                class="btn btn-secondary btn-sm gap-2 shadow-sm"
-                disabled
-            >
-                <span class="material-icons text-sm">picture_as_pdf</span>
-                Baixar PDFs
-            </button>
+                <button
+                    type="button"
+                    id="issued-documents-download-pdfs"
+                    data-issued-download="true"
+                    data-download-label="PDF"
+                    data-download-url="{{ download_pdfs_url }}"
+                    data-document-group="pdfs"
+                    class="btn btn-secondary btn-sm gap-2 shadow-sm"
+                    disabled
+                >
+                    <span class="material-icons text-sm">picture_as_pdf</span>
+                    Baixar PDFs
+                </button>
+            {% endif %}
         </div>
     </div>
 {% endblock %}
@@ -128,16 +130,20 @@
                     </div>
                 </div>
 
-                <div>
-                    <label for="issued-documents-type" class="label pt-0 pb-1">
-                        <span class="label-text text-xs">Tipo de nota</span>
-                    </label>
-                    <select id="issued-documents-type" name="tipo" class="select select-bordered select-sm w-full">
-                        {% for value, label in note_type_choices %}
-                            <option value="{{ value }}" {% if filter_state.selected_note_type == value %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
+                {% if fiscal_operation %}
+                    <input type="hidden" name="tipo" value="nfe" />
+                {% else %}
+                    <div>
+                        <label for="issued-documents-type" class="label pt-0 pb-1">
+                            <span class="label-text text-xs">Tipo de nota</span>
+                        </label>
+                        <select id="issued-documents-type" name="tipo" class="select select-bordered select-sm w-full">
+                            {% for value, label in note_type_choices %}
+                                <option value="{{ value }}" {% if filter_state.selected_note_type == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endif %}
 
                 <div>
                     <label for="issued-documents-search" class="label pt-0 pb-1">
