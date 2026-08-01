@@ -42,6 +42,12 @@ class IssuedDocumentsFilterMixin:
         "complementary": "Nota Complementar",
         "adjustment": "Nota de Ajuste",
     }
+    FISCAL_OPERATION_CONTINUATION_LABELS: dict[str, str] = {
+        "return": "a devolução",
+        "correction": "a Carta de Correção",
+        "complementary": "a Nota Complementar",
+        "adjustment": "a Nota de Ajuste",
+    }
 
     DOCUMENT_LABELS_BY_TYPE: dict[str, dict[str, list[tuple[str, str]]]] = {
         "nfe": {
@@ -134,6 +140,7 @@ class IssuedDocumentsFilterMixin:
             "search_raw": search_raw,
             "fiscal_operation": fiscal_operation,
             "fiscal_operation_label": self.FISCAL_OPERATION_LABELS.get(fiscal_operation, ""),
+            "fiscal_operation_continuation_label": self.FISCAL_OPERATION_CONTINUATION_LABELS.get(fiscal_operation, ""),
             "selected_nfe_id": self._parse_selected_nfe_id() if fiscal_operation else None,
             "is_valid": is_valid,
             "filter_error": filter_error,
@@ -462,6 +469,7 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
                 "download_pdfs_url": reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
                 "fiscal_operation": state["fiscal_operation"],
                 "fiscal_operation_label": state["fiscal_operation_label"],
+                "fiscal_operation_continuation_label": state["fiscal_operation_continuation_label"],
                 "selected_fiscal_nfe": selected_fiscal_nfe,
                 "fiscal_selection_reset_url": self._build_selection_url(state=state) if state["fiscal_operation"] else "",
             }

@@ -95,6 +95,12 @@ class IssuedDocumentsNavigationTemplateTests(SimpleTestCase):
                 "download_pdfs_url": "/finance/notas-emitidas/download/pdfs/",
                 "fiscal_operation": operation,
                 "fiscal_operation_label": operation_label,
+                "fiscal_operation_continuation_label": {
+                    "return": "a devolução",
+                    "correction": "a Carta de Correção",
+                    "complementary": "a Nota Complementar",
+                    "adjustment": "a Nota de Ajuste",
+                }.get(operation, ""),
                 "selected_fiscal_nfe": selected_fiscal_nfe,
                 "fiscal_selection_reset_url": "/finance/notas-emitidas/?tipo=nfe&operacao=return" if operation else "",
             }
@@ -148,11 +154,74 @@ class IssuedDocumentsNavigationTemplateTests(SimpleTestCase):
             selected_fiscal_nfe=row,
         )
 
-        self.assertIn("NF-e selecionada: 1234", html)
-        self.assertIn("Continuar operação", html)
-        self.assertIn("Selecionar esta NF-e", html)
+        self.assertIn("✓ NF-e 1234 selecionada com sucesso", html)
+        self.assertIn("A NF-e 1234 foi selecionada. Clique em continuar para prosseguir com a devolução.", html)
+        self.assertIn("Continuar com NF-e 1234", html)
+        self.assertIn("✓ NF-e selecionada", html)
+        self.assertIn('aria-selected="true"', html)
+        self.assertIn('aria-current="true"', html)
+        self.assertIn('<tr class="!bg-success/10" aria-selected="true">', html)
+        self.assertNotIn('<tr class="bg-success/15 ring-2 ring-inset ring-success/60"', html)
+        self.assertNotIn(">Selecionar esta NF-e</a>", html)
         self.assertNotIn('name="note_selection"', html)
         self.assertNotIn(">Documentos</th>", html)
+
+    def test_reference_selection_keeps_unselected_rows_available(self) -> None:
+        selected_row: dict[str, object] = {
+            "note_type": "nfe",
+            "request_id": 42,
+            "number": "1234",
+            "customer_name": "Cliente Selecionado",
+            "created_at": None,
+            "detail_url": "/finance/nfe/42/",
+            "selection_url": "/finance/notas-emitidas/?operacao=return&selected_nfe=42",
+            "action_label": "Selecionar esta NF-e",
+        }
+        available_row: dict[str, object] = {
+            **selected_row,
+            "request_id": 43,
+            "number": "1235",
+            "customer_name": "Outro Cliente",
+            "selection_url": "/finance/notas-emitidas/?operacao=return&selected_nfe=43",
+        }
+
+        html = self._render_central(
+            operation="return",
+            operation_label="Devolução",
+            rows=[selected_row, available_row],
+            selected_fiscal_nfe=selected_row,
+        )
+
+        self.assertEqual(html.count("✓ NF-e selecionada"), 1)
+        self.assertEqual(html.count("Selecionar esta NF-e"), 1)
+        self.assertIn('selected_nfe=43', html)
+
+    def test_selected_state_is_consistent_for_all_reference_operations(self) -> None:
+        row: dict[str, object] = {
+            "note_type": "nfe",
+            "request_id": 42,
+            "number": "1234",
+            "customer_name": "Cliente Teste",
+            "created_at": None,
+            "detail_url": "/finance/nfe/42/",
+            "selection_url": "/finance/notas-emitidas/?selected_nfe=42",
+            "action_label": "Selecionar esta NF-e",
+        }
+        operations = {
+            "return": ("Devolução", "a devolução"),
+            "correction": ("Carta de Correção", "a Carta de Correção"),
+            "complementary": ("Nota Complementar", "a Nota Complementar"),
+            "adjustment": ("Nota de Ajuste", "a Nota de Ajuste"),
+        }
+
+        for operation, (label, continuation_label) in operations.items():
+            with self.subTest(operation=operation):
+                html = self._render_central(operation=operation, operation_label=label, rows=[row], selected_fiscal_nfe=row)
+
+                self.assertIn(label, html)
+                self.assertIn("✓ NF-e selecionada", html)
+                self.assertIn("Continuar com NF-e 1234", html)
+                self.assertIn(f"Clique em continuar para prosseguir com {continuation_label}.", html)
 
 
 class IssuedDocumentsArchiveDownloadViewTests(TestCase):

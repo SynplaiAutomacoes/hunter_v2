@@ -5,13 +5,16 @@
     </div>
 {% else %}
     {% if fiscal_operation %}
-        <div class="mb-6 rounded-2xl border border-primary/30 bg-primary/5 p-5">
+        <div class="mb-6 rounded-2xl border p-5 {% if selected_fiscal_nfe %}border-success/50 bg-success/10{% else %}border-primary/30 bg-primary/5{% endif %}">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                     <p class="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{{ fiscal_operation_label }}</p>
                     {% if selected_fiscal_nfe %}
-                        <h2 class="mt-1 text-lg font-bold text-base-content">NF-e selecionada: {{ selected_fiscal_nfe.number }}</h2>
+                        <h2 class="mt-1 text-lg font-bold text-success">✓ NF-e {{ selected_fiscal_nfe.number }} selecionada com sucesso</h2>
                         <p class="mt-1 text-sm text-base-content/70">
+                            A NF-e {{ selected_fiscal_nfe.number }} foi selecionada. Clique em continuar para prosseguir com {{ fiscal_operation_continuation_label }}.
+                        </p>
+                        <p class="mt-1 text-xs text-base-content/60">
                             {{ selected_fiscal_nfe.customer_name }} · {{ selected_fiscal_nfe.created_at|date:'d/m/Y H:i' }}
                         </p>
                     {% else %}
@@ -23,7 +26,7 @@
                     <div class="flex flex-wrap items-center gap-2">
                         <a href="{{ fiscal_selection_reset_url }}" class="btn btn-ghost btn-sm">Trocar NF-e</a>
                         <a href="{{ selected_fiscal_nfe.detail_url }}" class="btn btn-primary gap-2">
-                            Continuar operação
+                            Continuar com NF-e {{ selected_fiscal_nfe.number }}
                             <span class="material-icons text-sm">arrow_forward</span>
                         </a>
                     </div>
@@ -81,7 +84,7 @@
                 </thead>
                 <tbody>
                     {% for row in issued_note_rows %}
-                        <tr{% if selected_fiscal_nfe and selected_fiscal_nfe.request_id == row.request_id %} class="bg-primary/10"{% endif %}>
+                        <tr{% if selected_fiscal_nfe and selected_fiscal_nfe.request_id == row.request_id %} class="!bg-success/10" aria-selected="true"{% endif %}>
                             {% if not fiscal_operation %}
                                 <td>
                                     <input
@@ -122,9 +125,15 @@
                             {% endif %}
                             <td class="text-right">
                                 {% if fiscal_operation %}
-                                    <a href="{{ row.selection_url }}" class="btn btn-primary btn-sm whitespace-nowrap" aria-label="Selecionar NF-e {{ row.number }} para {{ fiscal_operation_label }}">
-                                        {{ row.action_label }}
-                                    </a>
+                                    {% if selected_fiscal_nfe and selected_fiscal_nfe.request_id == row.request_id %}
+                                        <span class="btn btn-success btn-sm whitespace-nowrap" aria-current="true" aria-label="NF-e {{ row.number }} selecionada para {{ fiscal_operation_label }}">
+                                            ✓ NF-e selecionada
+                                        </span>
+                                    {% else %}
+                                        <a href="{{ row.selection_url }}" class="btn btn-primary btn-sm whitespace-nowrap" aria-label="Selecionar NF-e {{ row.number }} para {{ fiscal_operation_label }}">
+                                            {{ row.action_label }}
+                                        </a>
+                                    {% endif %}
                                 {% else %}
                                     <a href="{{ row.detail_url }}" class="btn btn-ghost btn-xs">{{ row.action_label }}</a>
                                 {% endif %}
