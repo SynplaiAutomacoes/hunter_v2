@@ -213,20 +213,20 @@ def _validate_nfe_tax_class(*, nfe_request: NfeRequest, headers: dict[str, str])
         response = requests.get(_build_tax_class_url(), headers=headers, timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao validar classe de imposto para emissao", scope="tax_class")
+        message = build_webmania_request_exception_message(exc, default="Falha ao validar classe de imposto para emissão", scope="tax_class")
         raise NfeEmissionError(message) from exc
 
     try:
         payload = response.json()
     except ValueError as exc:
-        raise NfeEmissionError("Resposta invalida da API ao validar classe de imposto.") from exc
+        raise NfeEmissionError("Resposta inválida da API ao validar classe de imposto.") from exc
 
     if not isinstance(payload, list):
         if isinstance(payload, dict):
             error_message = extract_webmania_error_message(payload.get("error") or payload.get("message") or payload.get("msg"), scope="tax_class")
             if error_message:
                 raise NfeEmissionError(error_message)
-        raise NfeEmissionError("Resposta invalida da API ao validar classe de imposto.")
+        raise NfeEmissionError("Resposta inválida da API ao validar classe de imposto.")
 
     for item in payload:
         if not isinstance(item, dict):
@@ -234,10 +234,10 @@ def _validate_nfe_tax_class(*, nfe_request: NfeRequest, headers: dict[str, str])
         if str(item.get("referencia") or "").strip() != reference:
             continue
         if _is_nfse_tax_class(item):
-            raise NfeEmissionError("A classe de imposto selecionada nao e do tipo Nota Fiscal.")
+            raise NfeEmissionError("A classe de imposto selecionada não é do tipo Nota Fiscal.")
         return item
 
-    raise NfeEmissionError("A classe de imposto selecionada nao esta disponivel para estas credenciais.")
+    raise NfeEmissionError("A classe de imposto selecionada não está disponível para estas credenciais.")
 
 
 def _validate_local_ibs_cbs_tax_class(*, nfe_request: NfeRequest) -> None:
@@ -258,7 +258,7 @@ def _normalize_document(value: str) -> str:
 def _require_customer_field(*, value: object, field_name: str) -> str:
     normalized = str(value or "").strip()
     if not normalized:
-        raise NfeEmissionError(f"Campo obrigatorio do cliente ausente para Nota Fiscal: {field_name}.")
+        raise NfeEmissionError(f"Campo obrigatório do cliente ausente para Nota Fiscal: {field_name}.")
     return normalized
 
 
@@ -299,7 +299,7 @@ def _build_customer_payload(nfe_request: NfeRequest) -> dict[str, Any]:
         payload["ie"] = state_registration or "ISENTO"
         return payload
 
-    raise NfeEmissionError("Documento do cliente invalido para emissao de Nota Fiscal.")
+    raise NfeEmissionError("Documento do cliente inválido para emissão de Nota Fiscal.")
 
 
 def _normalize_ncm(raw_value: str) -> str:
@@ -319,15 +319,15 @@ def _unit_for_api(raw_unit: str) -> str:
 def _build_snapshot_product_line(line: Any) -> ProductEmissionLine:
     product = getattr(line, "source_object", None)
     if product is None:
-        raise NfeEmissionError("A OS possui item de peca local sem cadastro fiscal completo. Cadastre o produto para emitir Nota Fiscal.")
+        raise NfeEmissionError("A OS possui item de peça local sem cadastro fiscal completo. Cadastre o produto para emitir Nota Fiscal.")
 
     ncm = _normalize_ncm(product.ncm)
     if len(ncm) != 8:
-        raise NfeEmissionError(f"Produto '{product.name}' sem NCM valido para emissao de Nota Fiscal.")
+        raise NfeEmissionError(f"Produto '{product.name}' sem NCM válido para emissão de Nota Fiscal.")
 
     code = str(product.code or "").strip()
     if not code:
-        raise NfeEmissionError(f"Produto '{product.name}' sem codigo para emissao de Nota Fiscal.")
+        raise NfeEmissionError(f"Produto '{product.name}' sem código para emissão de Nota Fiscal.")
 
     quantity = Decimal(line.quantity)
     base_total = _quantize_money(Decimal(line.raw_total.amount))
@@ -357,11 +357,11 @@ def _build_manual_product_line(item: Any) -> ProductEmissionLine:
     product = item.product
     ncm = _normalize_ncm(product.ncm)
     if len(ncm) != 8:
-        raise NfeEmissionError(f"Produto '{product.name}' sem NCM valido para emissao de Nota Fiscal.")
+        raise NfeEmissionError(f"Produto '{product.name}' sem NCM válido para emissão de Nota Fiscal.")
 
     code = str(product.code or "").strip()
     if not code:
-        raise NfeEmissionError(f"Produto '{product.name}' sem codigo para emissao de Nota Fiscal.")
+        raise NfeEmissionError(f"Produto '{product.name}' sem código para emissão de Nota Fiscal.")
 
     quantity = Decimal(item.quantity)
     base_total = _quantize_money(quantity * Decimal(item.unit_price))
@@ -417,16 +417,16 @@ def _build_preview_validation_message(line: Any) -> str | None:
 
     product = getattr(line, "source_object", None)
     if product is None:
-        return "A OS possui item de peca local sem cadastro fiscal completo. Cadastre o produto para emitir Nota Fiscal."
+        return "A OS possui item de peça local sem cadastro fiscal completo. Cadastre o produto para emitir Nota Fiscal."
 
     product_name = str(getattr(product, "name", "") or getattr(line, "description", "") or "Produto").strip() or "Produto"
     ncm = _normalize_ncm(getattr(product, "ncm", ""))
     if len(ncm) != 8:
-        return f"Produto '{product_name}' sem NCM valido para emissao de Nota Fiscal."
+        return f"Produto '{product_name}' sem NCM válido para emissão de Nota Fiscal."
 
     code = str(getattr(product, "code", "") or "").strip()
     if not code:
-        return f"Produto '{product_name}' sem codigo para emissao de Nota Fiscal."
+        return f"Produto '{product_name}' sem código para emissão de Nota Fiscal."
 
     return None
 
@@ -471,7 +471,7 @@ def _format_quantity(value: Decimal) -> str:
 
 def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) -> Decimal:
     if quantity <= 0:
-        raise NfeEmissionError("Quantidade invalida ao montar item da Nota Fiscal.")
+        raise NfeEmissionError("Quantidade inválida ao montar item da Nota Fiscal.")
 
     return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
 
@@ -518,7 +518,7 @@ def _apply_transport_to_nfe_payload(*, payload: dict[str, Any], nfe_request: Nfe
 
     pedido_payload = payload.get("pedido")
     if not isinstance(pedido_payload, dict):
-        raise NfeEmissionError("Pedido invalido ao aplicar dados de transporte na Nota Fiscal.")
+        raise NfeEmissionError("Pedido inválido ao aplicar dados de transporte na Nota Fiscal.")
     pedido_payload["modalidade_frete"] = freight_mode
     if transport_payload:
         payload["transporte"] = transport_payload
@@ -544,16 +544,16 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         )
 
         if allocation.products_target <= 0:
-            raise NfeEmissionError("A configuracao atual do slider direciona 100% da venda para servicos. Utilize Nota Fiscal de Servico para esta emissao.")
+            raise NfeEmissionError("A configuração atual do slider direciona 100% da venda para serviços. Utilize Nota Fiscal de Serviço para esta emissão.")
 
         lines = _extract_product_lines(workorder=workorder)
         if not lines:
-            raise NfeEmissionError("A OS selecionada nao possui pecas elegiveis para emissao de Nota Fiscal.")
+            raise NfeEmissionError("A OS selecionada não possui peças elegíveis para emissão de Nota Fiscal.")
 
         try:
             allocated_totals = distribute_total_proportionally(base_values=[line.base_total for line in lines], target_total=allocation.products_target)
         except ValueError as exc:
-            raise NfeEmissionError("Nao foi possivel distribuir o valor da Nota Fiscal proporcionalmente entre as pecas.") from exc
+            raise NfeEmissionError("Não foi possível distribuir o valor da Nota Fiscal proporcionalmente entre as peças.") from exc
 
         product_discount = compute_product_discount_for_nfe(
             workorder=workorder,
@@ -588,7 +588,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         products_payload.append(product_payload)
 
     if not products_payload:
-        raise NfeEmissionError("Nao foi possivel montar itens de produto para emissao de Nota Fiscal.")
+        raise NfeEmissionError("Não foi possível montar itens de produto para emissão de Nota Fiscal.")
 
     return products_payload, allocation.products_target, allocation, product_discount
 
@@ -655,16 +655,16 @@ def preview_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None 
         response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da Nota Fiscal", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao gerar prévia da Nota Fiscal", scope="nfe")
         raise NfeEmissionError(message) from exc
 
     try:
         data = response.json()
     except ValueError as exc:
-        raise NfeEmissionError("Resposta invalida da API de previa da Nota Fiscal.") from exc
+        raise NfeEmissionError("Resposta inválida da API de prévia da Nota Fiscal.") from exc
 
     if not isinstance(data, dict):
-        raise NfeEmissionError("Resposta invalida da API de previa da Nota Fiscal.")
+        raise NfeEmissionError("Resposta inválida da API de prévia da Nota Fiscal.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
     if error_message:
@@ -672,7 +672,7 @@ def preview_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None 
 
     preview_url = _extract_nfe_preview_url(data)
     if not preview_url:
-        raise NfeEmissionError("A API nao retornou a URL da previa da Nota Fiscal.")
+        raise NfeEmissionError("A API não retornou a URL da prévia da Nota Fiscal.")
 
     return {**data, "preview_url": preview_url}
 
@@ -691,7 +691,7 @@ def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpReque
         response = requests.post(emit_url, json=payload, headers=headers, timeout=60)
         response.raise_for_status()
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da Nota Fiscal", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao gerar prévia da Nota Fiscal", scope="nfe")
         raise NfeEmissionError(message) from exc
 
     content_type = str(response.headers.get("Content-Type") or "application/pdf")
@@ -705,10 +705,10 @@ def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpReque
     try:
         data = response.json()
     except ValueError as exc:
-        raise NfeEmissionError("Resposta invalida da API de previa da Nota Fiscal.") from exc
+        raise NfeEmissionError("Resposta inválida da API de prévia da Nota Fiscal.") from exc
 
     if not isinstance(data, dict):
-        raise NfeEmissionError("Resposta invalida da API de previa da Nota Fiscal.")
+        raise NfeEmissionError("Resposta inválida da API de prévia da Nota Fiscal.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
     if error_message:
@@ -716,7 +716,7 @@ def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpReque
 
     preview_url = _extract_nfe_preview_url(data)
     if not preview_url:
-        raise NfeEmissionError("A API nao retornou o PDF da previa da Nota Fiscal.")
+        raise NfeEmissionError("A API não retornou o PDF da prévia da Nota Fiscal.")
 
     try:
         return download_webmania_document(workshop=nfe_request.workshop, url=preview_url)
@@ -781,12 +781,12 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
     try:
         data = response.json()
     except ValueError as exc:
-        mark_attempt_uncertain(attempt=attempt, error_message="Resposta invalida da API de emissao de Nota Fiscal.")
-        raise NfeEmissionError("Resposta invalida da API de emissao de Nota Fiscal.") from exc
+        mark_attempt_uncertain(attempt=attempt, error_message="Resposta inválida da API de emissão de Nota Fiscal.")
+        raise NfeEmissionError("Resposta inválida da API de emissão de Nota Fiscal.") from exc
 
     if not isinstance(data, dict):
-        mark_attempt_uncertain(attempt=attempt, error_message="Resposta invalida da API de emissao de Nota Fiscal.")
-        raise NfeEmissionError("Resposta invalida da API de emissao de Nota Fiscal.")
+        mark_attempt_uncertain(attempt=attempt, error_message="Resposta inválida da API de emissão de Nota Fiscal.")
+        raise NfeEmissionError("Resposta inválida da API de emissão de Nota Fiscal.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
     if error_message:
@@ -815,7 +815,7 @@ def cancel_nfe_document(*, workshop, access_key: str, event_uuid: str, reason: s
     elif event_uuid_value:
         payload["uuid"] = event_uuid_value
     else:
-        raise NfeEmissionError("Nao foi possivel identificar a Nota Fiscal para cancelamento.")
+        raise NfeEmissionError("Não foi possível identificar a Nota Fiscal para cancelamento.")
 
     try:
         response = requests.put(cancel_url, json=payload, headers=headers, timeout=30)
@@ -827,10 +827,10 @@ def cancel_nfe_document(*, workshop, access_key: str, event_uuid: str, reason: s
     try:
         data = response.json()
     except ValueError as exc:
-        raise NfeEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal.") from exc
+        raise NfeEmissionError("Resposta inválida da API de cancelamento de Nota Fiscal.") from exc
 
     if not isinstance(data, dict):
-        raise NfeEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal.")
+        raise NfeEmissionError("Resposta inválida da API de cancelamento de Nota Fiscal.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
     if error_message:
@@ -861,10 +861,10 @@ def invalidate_nfe_number(*, workshop, number: int, reason: str, series: int, mo
     try:
         data = response.json()
     except ValueError as exc:
-        raise NfeEmissionError("Resposta invalida da API de inutilizacao da Nota Fiscal.") from exc
+        raise NfeEmissionError("Resposta inválida da API de inutilização da Nota Fiscal.") from exc
 
     if not isinstance(data, dict):
-        raise NfeEmissionError("Resposta invalida da API de inutilizacao da Nota Fiscal.")
+        raise NfeEmissionError("Resposta inválida da API de inutilização da Nota Fiscal.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
     if error_message:

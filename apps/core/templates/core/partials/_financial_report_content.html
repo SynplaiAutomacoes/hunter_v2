@@ -1,5 +1,5 @@
 {% load format_tags %}
-<p class="text-xs font-semibold uppercase tracking-[0.22em] text-base-content/45">Relatorio gerencial</p>
+<p class="text-xs font-semibold uppercase tracking-[0.22em] text-base-content/45">Relatório gerencial</p>
 <h3 class="mt-2 text-2xl font-black text-balance text-base-content xl:text-[2rem]">{{ report_title }}</h3>
 <p class="mt-2 text-sm text-base-content/70">{{ workshop.name|default:"-" }} <span class="mx-2 text-base-content/30">/</span> {{ periodo_label }}</p>
 
@@ -39,7 +39,7 @@
                 <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-success/70">Valor Total Entregue</p>
                 <p class="mt-1 text-2xl font-black tabular-nums text-success">{{ total_value|money_br }}</p>
                 {% if indicator == 'carros_mes' %}
-                    <p class="mt-2 text-xs text-base-content/50">valor considerando veículos entregues, não está considerando os veículos que estão na oficina</p>
+                    <p class="mt-2 text-xs text-base-content/50">Valor considerando veículos entregues; não considera os veículos que estão na oficina</p>
                 {% endif %}
             </div>
         </div>
@@ -48,7 +48,7 @@
     <section class="min-w-0 rounded-[1.75rem] border border-base-300/70 bg-base-100 shadow-sm">
         <div class="flex flex-col gap-2 border-b border-base-300/70 px-5 py-4 sm:px-6">
             <h4 class="font-semibold text-base-content sm:text-lg">{{ items_label }}</h4>
-            <p class="text-sm text-base-content/60">A soma das linhas abaixo fecha exatamente com o total exibido no cabecalho.</p>
+            <p class="text-sm text-base-content/60">A soma das linhas abaixo fecha exatamente com o total exibido no cabeçalho.</p>
         </div>
 
         {% if is_budget_report %}
@@ -59,7 +59,7 @@
                             <th class="w-24">ID</th>
                             <th class="min-w-[220px]">Cliente</th>
                             <th class="w-36">Data</th>
-                            <th class="min-w-[240px]">Veiculo</th>
+                            <th class="min-w-[240px]">Veículo</th>
                             <th class="w-44 text-right">{{ value_column_label }}</th>
                         </tr>
                     </thead>
@@ -120,7 +120,7 @@
                                         <tr class="text-[11px] uppercase tracking-[0.14em] text-base-content/55">
                                             <th class="w-28">O.S.</th>
                                             <th class="min-w-[220px]">Cliente</th>
-                                            <th class="min-w-[220px]">Veiculo</th>
+                                            <th class="min-w-[220px]">Veículo</th>
                                             <th class="w-36">Data</th>
                                             <th class="w-44 text-right">{{ value_column_label }}</th>
                                         </tr>

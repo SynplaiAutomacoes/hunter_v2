@@ -133,7 +133,7 @@ def _build_workshop_address(payload: dict[str, Any]) -> str:
     complement = _clean_string(payload.get("complemento"))
 
     if not address:
-        return "Endereco nao informado"
+        return "Endereço não informado"
 
     parts = [address]
     if number:
@@ -293,7 +293,7 @@ def create_b2b_companies(*, quantity: int, workshop: Workshop | None = None, for
 
     companies = [item for item in data if isinstance(item, dict)]
     if not companies:
-        raise WebmaniaB2BServiceError("A API nao retornou as credenciais da nova empresa.")
+        raise WebmaniaB2BServiceError("A API não retornou as credenciais da nova empresa.")
     return companies
 
 
@@ -382,7 +382,7 @@ def provision_webmania_company_for_workshop(*, workshop: Workshop) -> WebmaniaCo
     company_payload = companies[0]
     company = _upsert_company_from_payload(payload=company_payload, workshop=workshop)
     if company is None:
-        raise WebmaniaB2BServiceError("Nao foi possivel vincular a empresa criada à oficina.")
+        raise WebmaniaB2BServiceError("Não foi possível vincular a empresa criada à oficina.")
 
     if not company.cnpj:
         company.cnpj = _clean_string(workshop.cnpj)

@@ -49,7 +49,7 @@ def build_default_service_description_for_workorder(*, workorder: Any) -> str:
     if service_descriptions:
         return "; ".join(service_descriptions)
 
-    return f"Prestacao de servico referente a OS #{getattr(workorder, 'pk', '-')}"
+    return f"Prestação de serviço referente à OS #{getattr(workorder, 'pk', '-')}"
 
 
 def _is_debug_enabled() -> bool:
@@ -399,7 +399,7 @@ def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: 
     gross_amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     if gross_amount <= 0:
-        raise NfseEmissionError("A OS selecionada nao possui saldo de servicos para emissao de Nota Fiscal de Serviço com a configuracao atual do slider.")
+        raise NfseEmissionError("A OS selecionada não possui saldo de serviços para emissão de Nota Fiscal de Serviço com a configuração atual do slider.")
 
     service_discount = compute_service_discount_for_nfse(
         workorder=nfse_request.workorder,
@@ -408,7 +408,7 @@ def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: 
     net_amount = _quantize_money(gross_amount - service_discount)
 
     if net_amount <= 0:
-        raise NfseEmissionError("O valor total do desconto aplicado e maior ou igual ao valor dos servicos para esta Nota Fiscal de Serviço.")
+        raise NfseEmissionError("O valor total do desconto aplicado é maior ou igual ao valor dos serviços para esta Nota Fiscal de Serviço.")
 
     return str(net_amount)
 
@@ -527,16 +527,16 @@ def preview_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | No
             )
             response.raise_for_status()
         except requests.RequestException as exc:
-            error_message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da Nota Fiscal de Serviço", scope="nfse")
+            error_message = build_webmania_request_exception_message(exc, default="Falha ao gerar prévia da Nota Fiscal de Serviço", scope="nfse")
             raise NfseEmissionError(error_message) from exc
 
         try:
             data = response.json()
         except ValueError as exc:
-            raise NfseEmissionError("Resposta invalida da API de previa da Nota Fiscal de Serviço.") from exc
+            raise NfseEmissionError("Resposta inválida da API de prévia da Nota Fiscal de Serviço.") from exc
 
         if not isinstance(data, dict):
-            raise NfseEmissionError("Resposta invalida da API de previa da Nota Fiscal de Serviço.")
+            raise NfseEmissionError("Resposta inválida da API de prévia da Nota Fiscal de Serviço.")
 
         return data
 
@@ -552,7 +552,7 @@ def preview_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | No
 
     preview_url = _extract_nfse_preview_url(data)
     if not preview_url:
-        raise NfseEmissionError("A API nao retornou a URL da previa da Nota Fiscal de Serviço.")
+        raise NfseEmissionError("A API não retornou a URL da prévia da Nota Fiscal de Serviço.")
 
     return {**data, "preview_url": preview_url}
 
@@ -575,7 +575,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
             )
             response.raise_for_status()
         except requests.RequestException as exc:
-            error_message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da Nota Fiscal de Serviço", scope="nfse")
+            error_message = build_webmania_request_exception_message(exc, default="Falha ao gerar prévia da Nota Fiscal de Serviço", scope="nfse")
             raise NfseEmissionError(error_message) from exc
         return response
 
@@ -583,10 +583,10 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
         try:
             data = current_response.json()
         except ValueError as exc:
-            raise NfseEmissionError("Resposta invalida da API de previa da Nota Fiscal de Serviço.") from exc
+            raise NfseEmissionError("Resposta inválida da API de prévia da Nota Fiscal de Serviço.") from exc
 
         if not isinstance(data, dict):
-            raise NfseEmissionError("Resposta invalida da API de previa da Nota Fiscal de Serviço.")
+            raise NfseEmissionError("Resposta inválida da API de prévia da Nota Fiscal de Serviço.")
         return data
 
     def _response_to_document(current_response: requests.Response, *, current_payload: dict[str, Any]) -> DownloadedWebmaniaDocument | None:
@@ -612,14 +612,14 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
 
         preview_url = _extract_nfse_preview_url(data)
         if not preview_url:
-            raise NfseEmissionError("A API nao retornou o PDF da previa da Nota Fiscal de Serviço.")
+            raise NfseEmissionError("A API não retornou o PDF da prévia da Nota Fiscal de Serviço.")
 
         for download_attempt in range(1, NFSE_PREVIEW_MAX_ATTEMPTS + 1):
             try:
                 download_response = requests.get(preview_url, headers=headers, timeout=60)
                 download_response.raise_for_status()
             except requests.RequestException as exc:
-                error_message = build_webmania_request_exception_message(exc, default="Falha ao baixar previa da Nota Fiscal de Serviço", scope="nfse")
+                error_message = build_webmania_request_exception_message(exc, default="Falha ao baixar prévia da Nota Fiscal de Serviço", scope="nfse")
                 raise NfseEmissionError(error_message) from exc
 
             pending_message = _extract_preview_pending_message_from_response(download_response)
@@ -627,11 +627,11 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
                 if download_attempt < NFSE_PREVIEW_MAX_ATTEMPTS:
                     time.sleep(NFSE_PREVIEW_RETRY_DELAY_SECONDS)
                     continue
-                raise NfseEmissionError("O PDF da previa da Nota Fiscal de Serviço ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
+                raise NfseEmissionError("O PDF da prévia da Nota Fiscal de Serviço ainda está sendo gerado pelo município. Tente novamente em alguns segundos.")
 
             download_content_type = str(download_response.headers.get("Content-Type") or "application/octet-stream")
             if "application/pdf" not in download_content_type.lower() and not download_response.content.startswith(b"%PDF"):
-                raise NfseEmissionError("A previa da Nota Fiscal de Serviço ainda nao retornou um PDF valido. Tente novamente em alguns segundos.")
+                raise NfseEmissionError("A prévia da Nota Fiscal de Serviço ainda não retornou um PDF válido. Tente novamente em alguns segundos.")
 
             return DownloadedWebmaniaDocument(
                 content=download_response.content,
@@ -639,7 +639,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
                 content_disposition=str(download_response.headers.get("Content-Disposition") or ""),
             )
 
-        raise NfseEmissionError("O PDF da previa da Nota Fiscal de Serviço ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
+        raise NfseEmissionError("O PDF da prévia da Nota Fiscal de Serviço ainda está sendo gerado pelo município. Tente novamente em alguns segundos.")
 
     for attempt in range(1, NFSE_PREVIEW_MAX_ATTEMPTS + 1):
         response = _post_preview(payload)
@@ -650,7 +650,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
         if attempt < NFSE_PREVIEW_MAX_ATTEMPTS:
             time.sleep(NFSE_PREVIEW_RETRY_DELAY_SECONDS)
 
-    raise NfseEmissionError("O PDF da previa da Nota Fiscal de Serviço ainda esta sendo gerado pelo municipio. Tente novamente em alguns segundos.")
+    raise NfseEmissionError("O PDF da prévia da Nota Fiscal de Serviço ainda está sendo gerado pelo município. Tente novamente em alguns segundos.")
 
 
 def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:

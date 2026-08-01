@@ -17,7 +17,7 @@ def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool
 
 
 BUDGET_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Orçamento", "view_name": "budget:budget_create"}
-CREATE_CLIENT_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar Cliente", "view_name": "customer:customer_create"}
+CREATE_CLIENT_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar cliente", "view_name": "customer:customer_create"}
 COLLABORATOR_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar colaborador", "view_name": "collaborators:collaborator_create"}
 SUPPLIER_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar fornecedor", "view_name": "suppliers:supplier_create"}
 PRODUCT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Produto", "view_name": "catalog:product_create"}
