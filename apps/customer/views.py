@@ -2,6 +2,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Count, Prefetch
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -343,6 +344,17 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             # Callable defaults set show_hidden_initial; without the hidden field in POST,
             # changed_data may miss accepts_messages. Compare against form.initial instead.
             previously_accepted_messages = bool(form.initial.get("accepts_messages", False))
+            transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+            transferred_plates: set[str] = set()
+            if transfer_vehicle_ids:
+                qs = Vehicle.objects.filter(
+                    pk__in=transfer_vehicle_ids,
+                    workshop=self.workshop,
+                ).select_for_update()
+                locked = list(qs)
+                transferred_plates = {v.plate for v in locked}
+                Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=self.object)
+
             self.object = form.save()
             vehicles.instance = self.object
 
@@ -357,7 +369,9 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             if previously_accepted_messages and not self.object.accepts_messages:
                 cancel_pending_outbound_for_customer(self.object.pk)
 
-            return super().form_valid(form)
+            response = super().form_valid(form)
+            response["HX-Trigger"] = "vehicle-section-refresh"
+            return response
 
         return self.render_to_response(self.get_context_data(form=form))
 

@@ -24,20 +24,10 @@ class Migration(migrations.Migration):
             name='last_oil_change_km',
             field=models.PositiveIntegerField(blank=True, null=True, verbose_name='KM da última troca de óleo'),
         ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='ALTER TABLE "customer_vehicle" ADD COLUMN IF NOT EXISTS "next_oil_change_date" date NULL',
-                    reverse_sql='ALTER TABLE "customer_vehicle" DROP COLUMN IF EXISTS "next_oil_change_date"',
-                ),
-            ],
-            state_operations=[
-                migrations.AddField(
-                    model_name='vehicle',
-                    name='next_oil_change_date',
-                    field=models.DateField(blank=True, null=True, verbose_name='Data prevista da próxima troca de óleo'),
-                ),
-            ],
+        migrations.AddField(
+            model_name='vehicle',
+            name='next_oil_change_date',
+            field=models.DateField(blank=True, null=True, verbose_name='Data prevista da próxima troca de óleo'),
         ),
         migrations.AddField(
             model_name='vehicle',

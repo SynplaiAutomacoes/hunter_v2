@@ -166,7 +166,11 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         total_value = instance.calculate_total_value()
         total_monthly_costs = instance.calculate_total_monthly_costs(items=cost_items)
-        profit_target = instance.calculate_profit_target(total_monthly_costs)
+        profit_target = cleaned_data.get("profit_target")
+        if profit_target is None:
+            profit_target = self._money_from_post(request.POST, "profit_target")
+        if profit_target is None:
+            profit_target = Money(0, "BRL")
         gross_revenue_target = instance.calculate_gross_revenue_target(total_monthly_costs, profit_target, total_value)
         profitability_multiplier = instance.calculate_profitability_multiplier(gross_revenue_target, total_value)
 

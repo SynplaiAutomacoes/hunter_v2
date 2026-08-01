@@ -1,20 +1,46 @@
 <!-- apps/workshops/templates/workshop_costs/partials/workshop_cost_calculation_results.html -->
 {% load crispy_forms_tags %}
 
-<div class="col-span-12 mb-4"><span class="badge badge-neutral">Cálculos Automáticos</span></div>
+<div class="col-span-12 mb-4"><span class="badge badge-neutral">Metas e Indicadores</span></div>
 
-<div class="col-span-12">
-    {{ form.total_value|as_crispy_field }}
-</div>
-<div class="col-span-12 lg:col-span-6">
-    {{ form.total_monthly_costs|as_crispy_field }}
-</div>
-<div class="col-span-12 lg:col-span-6">
+<div class="col-span-12 lg:col-span-4">
     {{ form.profit_target|as_crispy_field }}
 </div>
-<div class="col-span-12 lg:col-span-6">
+<div class="col-span-12 lg:col-span-4">
     {{ form.gross_revenue_target|as_crispy_field }}
 </div>
-<div class="col-span-12 lg:col-span-6">
+<div id="multiplier-feedback" class="col-span-12 lg:col-span-4">
     {{ form.profitability_multiplier|as_crispy_field }}
 </div>
+
+{# Atualização ao vivo dos campos movidos para fora da área de swap HTMX #}
+<div id="div_id_total_value" hx-swap-oob="true" class="col-span-12 lg:col-span-3 mb-3">
+    <label for="{{ form.total_value.id_for_label }}" class="block text-gray-700 text-sm font-bold mb-2">
+        {{ form.total_value.label }}
+    </label>
+    {{ form.total_value }}
+    {% if form.total_value.errors %}
+        <p class="text-error text-sm">{{ form.total_value.errors.0 }}</p>
+    {% endif %}
+</div>
+
+<div id="div_id_total_monthly_costs" hx-swap-oob="true" class="col-span-12 lg:col-span-12 mb-3">
+    <label for="{{ form.total_monthly_costs.id_for_label }}" class="block text-gray-700 text-sm font-bold mb-2">
+        {{ form.total_monthly_costs.label }}
+    </label>
+    {{ form.total_monthly_costs }}
+    {% if form.total_monthly_costs.errors %}
+        <p class="text-error text-sm">{{ form.total_monthly_costs.errors.0 }}</p>
+    {% endif %}
+</div>
+
+{# Re-inicializa os widgets Alpine injetados via swap OOB #}
+<script hx-swap-oob="true">
+    document.querySelectorAll('#div_id_total_value, #div_id_total_monthly_costs').forEach(el => {
+        if (window.Alpine) {
+            Alpine.discoverUninitializedComponents((componentEl) => {
+                Alpine.initializeComponent(componentEl);
+            });
+        }
+    });
+</script>
