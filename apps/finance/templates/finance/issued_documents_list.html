@@ -1,7 +1,7 @@
 {% extends 'crud/list_page.html' %}
 
-{% block crud_title %}{% if fiscal_operation %}Selecionar NF-e para {{ fiscal_operation_label }}{% else %}Central de Notas Emitidas{% endif %}{% endblock %}
-{% block crud_subtitle %}{% if fiscal_operation %}Escolha a NF-e de referência. A operação continuará no fluxo fiscal já existente.{% else %}Filtre Nota Fiscal de Produto e Nota Fiscal de Serviço por periodo, selecione as notas e baixe XMLs ou PDFs em arquivo ZIP.{% endif %}{% endblock %}
+{% block crud_title %}{% if fiscal_operation %}Selecionar NF-e para {{ fiscal_operation_label }}{% else %}Central de Notas{% endif %}{% endblock %}
+{% block crud_subtitle %}{% if fiscal_operation %}Escolha a NF-e de referência. A operação continuará no fluxo fiscal já existente.{% else %}Consulte documentos emitidos, acesse ações fiscais e baixe XMLs ou PDFs. Para criar um novo documento, use Emitir Nota.{% endif %}{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex w-full flex-col gap-3">
@@ -37,6 +37,17 @@
             </div>
         </form>
         <div class="flex flex-wrap gap-2 xl:justify-end">
+            {% if fiscal_operation %}
+                <a href="{% url 'finance:emission_create' %}" class="btn btn-ghost btn-sm gap-2">
+                    <span class="material-icons text-sm">arrow_back</span>
+                    Trocar operação
+                </a>
+            {% else %}
+                <a href="{% url 'finance:emission_create' %}" class="btn btn-primary btn-sm gap-2">
+                    <span class="material-icons text-sm">add</span>
+                    Emitir Nota
+                </a>
+            {% endif %}
             <button type="button" class="btn btn-outline btn-sm gap-2" onclick="document.getElementById('issued-documents-filter-modal').showModal()">
                 <span class="material-icons text-sm">filter_alt</span>
                 Filtrar

@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
-from django.template.loader import render_to_string
+from django.template import Context
+from django.template.loader import get_template, render_to_string
 from django.test import RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
 
@@ -211,14 +212,23 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         expected_url = f"{reverse('finance:emission_normal')}?tipo=nfe&reset=1&operacao=transport"
         self.assertRedirects(response, expected_url, fetch_redirect_response=False)
 
-    def test_nfe_specific_redirect_opens_origin_choice(self) -> None:
+    def test_nfe_specific_redirect_opens_fiscal_operation_gateway(self) -> None:
         request = self.factory.get("/finance/nfe/create/")
         self._prepare_request(request)
         view = NfeCreateRedirectView()
         view.setup(request)
         view.workshop = SimpleNamespace(pk=20)
 
-        self.assertEqual(view.get_redirect_url(), reverse("finance:emission_origin"))
+        self.assertEqual(view.get_redirect_url(), reverse("finance:emission_create"))
+
+    def test_nfe_list_creation_cta_opens_fiscal_operation_gateway(self) -> None:
+        request = self.factory.get("/finance/nfe/")
+        self._prepare_request(request)
+        template = get_template("finance/nfe_request_list.html").template
+        html = template.render(Context({"request": request, "object_list": []}))
+
+        self.assertIn(f'href="{reverse("finance:emission_create")}"', html)
+        self.assertNotIn(f'href="{reverse("finance:emission_origin")}"', html)
 
     def test_navigation_opens_gateway_without_resetting_normal_wizard(self) -> None:
         finance_menu = next(item for item in NAVBAR_MENU_DEFINITIONS if item.get("label") == "Financeiro")

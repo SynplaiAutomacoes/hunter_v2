@@ -69,7 +69,7 @@ class EmissionCreateRedirectBaseView(LoginRequiredMixin, WorkshopScopedMixin, Re
 
 class NfeCreateRedirectView(EmissionCreateRedirectBaseView):
     def get_redirect_url(self, *args, **kwargs) -> str:
-        return reverse("finance:emission_origin")
+        return reverse("finance:emission_create")
 
 
 class NfseCreateRedirectView(EmissionCreateRedirectBaseView):
