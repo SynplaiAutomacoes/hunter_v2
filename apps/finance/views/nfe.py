@@ -61,6 +61,16 @@ from apps.workshops.util.workshops import get_active_workshop_or_404, has_worksh
 logger = logging.getLogger(__name__)
 
 
+def _posted_values(data: object, field_name: str) -> list[object]:
+    getlist = getattr(data, "getlist", None)
+    if callable(getlist):
+        return list(getlist(field_name))
+    value = data.get(field_name) if isinstance(data, dict) else None
+    if value in (None, ""):
+        return []
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
 class NfeCancelForm(CoreForm):
     reason = forms.CharField(min_length=15, max_length=255)
 
@@ -83,7 +93,7 @@ class NfeReturnForm(CoreForm):
     natureza_operacao = forms.CharField(max_length=60)
     codigo_cfop = forms.CharField(max_length=10)
     classe_imposto = forms.CharField(required=False, max_length=30)
-    produtos_json = forms.CharField(required=False, widget=forms.Textarea)
+    produtos_json = forms.CharField(required=False, widget=forms.HiddenInput)
     volume = forms.IntegerField(required=False, min_value=1, max_value=999999999999999)
     informacoes_complementares = forms.CharField(required=False, max_length=5000)
     informacoes_fisco = forms.CharField(required=False, max_length=2000)
@@ -91,14 +101,23 @@ class NfeReturnForm(CoreForm):
 
     def clean_produtos_json(self):
         raw_value = str(self.cleaned_data.get("produtos_json") or "").strip()
-        if not raw_value:
-            return []
-        try:
-            products = json.loads(raw_value)
-        except ValueError as exc:
-            raise forms.ValidationError("Informe os produtos em JSON valido.") from exc
-        if not isinstance(products, list):
-            raise forms.ValidationError("Produtos devem ser uma lista JSON.")
+        if raw_value:
+            try:
+                parsed_products = json.loads(raw_value)
+            except ValueError as exc:
+                raise forms.ValidationError("Não foi possível interpretar os produtos selecionados.") from exc
+            if not isinstance(parsed_products, list):
+                raise forms.ValidationError("Seleção de produtos inválida.")
+            return parsed_products
+
+        products: list[dict[str, str]] = []
+        sequences = _posted_values(self.data, "return_item_sequence")
+        quantities = _posted_values(self.data, "return_item_quantity")
+        for sequence, quantity in zip(sequences, quantities, strict=False):
+            normalized_quantity = str(quantity or "").strip()
+            if not normalized_quantity or normalized_quantity in {"0", "0.0", "0.00"}:
+                continue
+            products.append({"sequencial": str(sequence).strip(), "quantidade": normalized_quantity})
         return products
 
     def clean(self):
@@ -117,17 +136,44 @@ class NfeComplementaryPriceQuantityForm(CoreForm):
     operacao = forms.CharField(max_length=20)
     natureza_operacao = forms.CharField(max_length=120)
     codigo_cfop = forms.CharField(max_length=10)
-    itens_json = forms.CharField(widget=forms.Textarea)
+    itens_json = forms.CharField(required=False, widget=forms.HiddenInput)
     confirm_complementary = forms.BooleanField(required=True)
 
     def clean_itens_json(self):
         raw_value = str(self.cleaned_data.get("itens_json") or "").strip()
-        try:
-            items = json.loads(raw_value)
-        except ValueError as exc:
-            raise forms.ValidationError("Informe os itens em JSON valido.") from exc
-        if not isinstance(items, list):
-            raise forms.ValidationError("Itens devem ser uma lista JSON.")
+        if raw_value:
+            try:
+                parsed_items = json.loads(raw_value)
+            except ValueError as exc:
+                raise forms.ValidationError("Não foi possível interpretar os itens complementares.") from exc
+            if not isinstance(parsed_items, list):
+                raise forms.ValidationError("Seleção de itens complementares inválida.")
+            return parsed_items
+
+        items: list[dict[str, str]] = []
+        field_lists = [
+            _posted_values(self.data, "complementary_item_sequence"),
+            _posted_values(self.data, "complementary_item_quantity"),
+            _posted_values(self.data, "complementary_item_value"),
+            _posted_values(self.data, "complementary_item_cfop"),
+            _posted_values(self.data, "complementary_item_tax_status"),
+        ]
+        for sequence, quantity, value, cfop, tax_status in zip(*field_lists, strict=False):
+            normalized_quantity = str(quantity or "").strip() or "0"
+            normalized_value = str(value or "").strip() or "0"
+            if normalized_quantity in {"0", "0.0", "0.00"} and normalized_value in {"0", "0.0", "0.00"}:
+                continue
+            items.append(
+                {
+                    "sequencial": str(sequence).strip(),
+                    "quantidade_complementar": normalized_quantity,
+                    "valor_complementar": normalized_value,
+                    "codigo_cfop": str(cfop or "").strip(),
+                    "situacao_tributaria": str(tax_status or "").strip(),
+                }
+            )
+        if not items:
+            raise forms.ValidationError("Informe quantidade ou valor complementar em ao menos um item.")
         return items
 
 
@@ -138,7 +184,7 @@ class NfeAdjustmentForm(CoreForm):
     valor_icms = forms.DecimalField(min_value=0, decimal_places=2, max_digits=15)
     valor_icms_st = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=15)
     situacao_tributaria = forms.CharField(max_length=4)
-    cliente_json = forms.CharField(widget=forms.Textarea)
+    cliente_json = forms.CharField(required=False, widget=forms.HiddenInput)
     informacoes_fisco = forms.CharField(required=False, max_length=2000)
     informacoes_complementares = forms.CharField(required=False, max_length=5000)
     confirm_adjustment = forms.BooleanField(required=True)
@@ -146,12 +192,41 @@ class NfeAdjustmentForm(CoreForm):
 
     def clean_cliente_json(self):
         raw_value = str(self.cleaned_data.get("cliente_json") or "").strip()
-        try:
-            client = json.loads(raw_value)
-        except ValueError as exc:
-            raise forms.ValidationError("Informe o cliente em JSON valido.") from exc
-        if not isinstance(client, dict) or not client:
-            raise forms.ValidationError("Cliente deve ser um objeto JSON.")
+        if raw_value:
+            try:
+                client = json.loads(raw_value)
+            except ValueError as exc:
+                raise forms.ValidationError("Não foi possível interpretar os dados do destinatário.") from exc
+            if not isinstance(client, dict) or not client:
+                raise forms.ValidationError("Dados do destinatário inválidos.")
+            return client
+
+        person_type = str(self.data.get("adjustment_client_person_type") or "").strip()
+        document = str(self.data.get("adjustment_client_document") or "").strip()
+        name = str(self.data.get("adjustment_client_name") or "").strip()
+        if person_type not in {"pf", "pj"} or not document or not name:
+            raise forms.ValidationError("Informe tipo, CPF/CNPJ e nome do destinatário.")
+        client = {
+            "tipo_pessoa": person_type,
+            "cpf" if person_type == "pf" else "cnpj": document,
+            "nome_completo" if person_type == "pf" else "razao_social": name,
+        }
+        optional_fields = {
+            "ie": "adjustment_client_state_registration",
+            "email": "adjustment_client_email",
+            "telefone": "adjustment_client_phone",
+            "endereco": "adjustment_client_address",
+            "numero": "adjustment_client_address_number",
+            "complemento": "adjustment_client_address_complement",
+            "bairro": "adjustment_client_neighborhood",
+            "cidade": "adjustment_client_city",
+            "uf": "adjustment_client_state",
+            "cep": "adjustment_client_postal_code",
+        }
+        for client_key, field_name in optional_fields.items():
+            value = str(self.data.get(field_name) or "").strip()
+            if value:
+                client[client_key] = value
         return client
 
 
@@ -238,6 +313,41 @@ def _format_item_status_badge(status: str) -> dict[str, str]:
         "contingencia": {"text": "Contingência", "class": "badge-soft badge-warning"},
     }
     return status_map.get(str(status or "").strip().lower(), {"text": str(status or "-") or "-", "class": "badge-ghost"})
+
+
+def _operation_product_rows(*, latest_item: NfeItem | None, fiscal_document: FiscalDocument | None) -> list[dict[str, str]]:
+    if latest_item is None:
+        return []
+    payloads = [
+        getattr(latest_item, "raw_payload", None),
+        getattr(latest_item, "log_payload", None),
+        getattr(fiscal_document, "request_payload", None),
+        getattr(fiscal_document, "response_payload", None),
+    ]
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        products = payload.get("produtos")
+        if not isinstance(products, list):
+            order = payload.get("pedido")
+            products = order.get("produtos") if isinstance(order, dict) else None
+        if not isinstance(products, list) or not products:
+            continue
+        rows: list[dict[str, str]] = []
+        for index, product in enumerate(products, start=1):
+            if not isinstance(product, dict):
+                continue
+            rows.append(
+                {
+                    "sequence": str(product.get("sequencial") or product.get("item") or index),
+                    "code": str(product.get("codigo") or product.get("sku") or "-"),
+                    "description": str(product.get("nome") or product.get("descricao") or product.get("produto") or f"Item {index}"),
+                    "quantity": str(product.get("quantidade") or product.get("qtd") or "-"),
+                }
+            )
+        if rows:
+            return rows
+    return []
 
 
 def _build_field(label: str, value: object) -> dict[str, str]:
@@ -452,6 +562,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         }
         operation_entrypoint = operation_entrypoints.get(requested_operation)
         fiscal_document = FiscalDocument.objects.filter(workshop=self.workshop, legacy_nfe_item=latest_item).first() if latest_item is not None else None
+        operation_product_rows = _operation_product_rows(latest_item=latest_item, fiscal_document=fiscal_document)
         can_issue_ibs_cbs_event_112110 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112110(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_ibs_cbs_event_112130 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112130(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_ibs_cbs_event_112150 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112150(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
@@ -518,6 +629,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "ibs_cbs_events": ibs_cbs_events,
                 "ibs_cbs_cancellation_events": ibs_cbs_cancellation_events,
                 "nfe_return_form": NfeReturnForm(),
+                "operation_product_rows": operation_product_rows,
                 "return_documents": return_documents,
                 "nfe_complementary_form": NfeComplementaryPriceQuantityForm(),
                 "complementary_documents": complementary_documents,

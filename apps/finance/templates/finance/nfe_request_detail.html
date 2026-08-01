@@ -735,9 +735,26 @@
                             <input id="nfe-return-volume" type="number" min="1" max="999999999999999" name="volume" class="input input-bordered w-full">
                         </div>
                         <div class="md:col-span-2">
-                            <label for="nfe-return-products" class="label"><span class="label-text">Produtos para devolução parcial em JSON</span></label>
-                            <textarea id="nfe-return-products" name="produtos_json" class="textarea textarea-bordered w-full font-mono text-xs" rows="6" placeholder='[{"sequencial":1, "quantidade":"1"}]'></textarea>
-                            <p class="mt-1 text-xs text-base-content/60">Preencha somente para devolução parcial. Devolução total e estorno não exigem seleção parcial de itens.</p>
+                            <h4 class="font-semibold">Produtos da NF-e original</h4>
+                            <p class="mt-1 text-xs text-base-content/60">Para devolução parcial, informe a quantidade somente nos itens que serão devolvidos. Na devolução total ou no estorno, deixe as quantidades vazias.</p>
+                            <input type="hidden" name="produtos_json" value="">
+                            <div class="mt-3 overflow-x-auto rounded-xl border border-base-300">
+                                <table class="table table-sm">
+                                    <thead><tr><th>Item</th><th>Produto</th><th>Qtd. original</th><th>Qtd. a devolver</th></tr></thead>
+                                    <tbody>
+                                        {% for product in operation_product_rows %}
+                                            <tr>
+                                                <td>{{ product.sequence }}<input type="hidden" name="return_item_sequence" value="{{ product.sequence }}"></td>
+                                                <td><span class="font-medium">{{ product.description }}</span><br><span class="text-xs text-base-content/60">{{ product.code }}</span></td>
+                                                <td>{{ product.quantity }}</td>
+                                                <td><input type="number" name="return_item_quantity" class="input input-bordered input-sm w-32" min="0" step="0.0001" aria-label="Quantidade a devolver do item {{ product.sequence }}"></td>
+                                            </tr>
+                                        {% empty %}
+                                            <tr><td colspan="4" class="text-center text-base-content/60">Os itens da NF-e não estão disponíveis para seleção parcial. A devolução total permanece disponível.</td></tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         <div class="md:col-span-2">
                             <label for="nfe-return-info" class="label"><span class="label-text">Informações complementares</span></label>
@@ -748,7 +765,9 @@
                             <textarea id="nfe-return-fisco" name="informacoes_fisco" class="textarea textarea-bordered w-full" rows="3" maxlength="2000"></textarea>
                         </div>
                     </div>
-                    <label class="label cursor-pointer justify-start gap-3 mt-4">
+                    <h4 class="mt-5 font-semibold">Revisar e emitir</h4>
+                    <p class="mt-1 text-xs text-base-content/60">Revise finalidade, itens, quantidades e informações fiscais antes de confirmar.</p>
+                    <label class="label cursor-pointer justify-start gap-3 mt-2">
                         <input type="checkbox" name="confirm_return" class="checkbox checkbox-sm" required>
                         <span class="label-text">Confirmo que a devolução/estorno cria um novo documento fiscal e não altera a NF-e original.</span>
                     </label>
@@ -784,11 +803,32 @@
                             <input id="nfe-complementary-nature" name="natureza_operacao" class="input input-bordered w-full" value="Nota Fiscal Complementar" maxlength="120" required>
                         </div>
                         <div class="md:col-span-2">
-                            <label for="nfe-complementary-items" class="label"><span class="label-text">Itens complementares em JSON</span></label>
-                            <textarea id="nfe-complementary-items" name="itens_json" class="textarea textarea-bordered w-full font-mono text-xs" rows="6" required>[{"sequencial":1, "quantidade_complementar":"0", "valor_complementar":"0.00", "codigo_cfop":"", "situacao_tributaria":""}]</textarea>
+                            <h4 class="font-semibold">Itens da NF-e original</h4>
+                            <p class="mt-1 text-xs text-base-content/60">Informe a quantidade e/ou o valor que será acrescentado. Itens sem complemento serão ignorados.</p>
+                            <input type="hidden" name="itens_json" value="">
+                            <div class="mt-3 overflow-x-auto rounded-xl border border-base-300">
+                                <table class="table table-sm">
+                                    <thead><tr><th>Produto</th><th>Qtd. complementar</th><th>Valor complementar</th><th>CFOP</th><th>Situação tributária</th></tr></thead>
+                                    <tbody>
+                                        {% for product in operation_product_rows %}
+                                            <tr>
+                                                <td><input type="hidden" name="complementary_item_sequence" value="{{ product.sequence }}"><span class="font-medium">{{ product.description }}</span><br><span class="text-xs text-base-content/60">Item {{ product.sequence }} · {{ product.code }}</span></td>
+                                                <td><input type="number" name="complementary_item_quantity" class="input input-bordered input-sm w-32" min="0" step="0.0001" value="0"></td>
+                                                <td><input type="number" name="complementary_item_value" class="input input-bordered input-sm w-32" min="0" step="0.01" value="0"></td>
+                                                <td><input name="complementary_item_cfop" class="input input-bordered input-sm w-28" maxlength="10"></td>
+                                                <td><input name="complementary_item_tax_status" class="input input-bordered input-sm w-24" maxlength="4"></td>
+                                            </tr>
+                                        {% empty %}
+                                            <tr><td colspan="5" class="text-center text-base-content/60">Os itens fiscais da NF-e de referência não estão disponíveis.</td></tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
-                    <label class="label cursor-pointer justify-start gap-3 mt-3">
+                    <h4 class="mt-5 font-semibold">Revisar e emitir</h4>
+                    <p class="mt-1 text-xs text-base-content/60">Revise a NF-e de referência, os itens e os valores complementares antes de confirmar.</p>
+                    <label class="label cursor-pointer justify-start gap-3 mt-2">
                         <input type="checkbox" name="confirm_complementary" class="checkbox checkbox-sm" required>
                         <span class="label-text">Confirmo que a Nota Complementar acrescenta preço e/ou quantidade à NF-e original.</span>
                     </label>
@@ -837,9 +877,25 @@
                             <label for="nfe-adjustment-tax-status" class="label"><span class="label-text">Situação tributária</span></label>
                             <input id="nfe-adjustment-tax-status" name="situacao_tributaria" class="input input-bordered w-full" maxlength="4" required>
                         </div>
-                        <div class="md:col-span-2">
-                            <label for="nfe-adjustment-client" class="label"><span class="label-text">Cliente em JSON</span></label>
-                            <textarea id="nfe-adjustment-client" name="cliente_json" class="textarea textarea-bordered w-full font-mono text-xs" rows="5" required>{"cpf":"00000000000","nome_completo":"Nome do Cliente"}</textarea>
+                        <div class="md:col-span-2 rounded-xl border border-base-300 p-4">
+                            <h4 class="font-semibold">Destinatário</h4>
+                            <p class="mt-1 text-xs text-base-content/60">Informe os dados do destinatário que constarão na Nota de Ajuste.</p>
+                            <input type="hidden" name="cliente_json" value="">
+                            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div><label class="label"><span class="label-text">Tipo de pessoa</span></label><select name="adjustment_client_person_type" class="select select-bordered w-full" required><option value="pf">Pessoa física</option><option value="pj">Pessoa jurídica</option></select></div>
+                                <div><label class="label"><span class="label-text">CPF/CNPJ</span></label><input name="adjustment_client_document" class="input input-bordered w-full" maxlength="18" required></div>
+                                <div><label class="label"><span class="label-text">Nome/Razão social</span></label><input name="adjustment_client_name" class="input input-bordered w-full" maxlength="60" value="{{ nfe_request.customer_name }}" required></div>
+                                <div><label class="label"><span class="label-text">Inscrição estadual</span></label><input name="adjustment_client_state_registration" class="input input-bordered w-full" maxlength="14"></div>
+                                <div><label class="label"><span class="label-text">E-mail</span></label><input type="email" name="adjustment_client_email" class="input input-bordered w-full"></div>
+                                <div><label class="label"><span class="label-text">Telefone</span></label><input name="adjustment_client_phone" class="input input-bordered w-full" maxlength="20"></div>
+                                <div class="md:col-span-2"><label class="label"><span class="label-text">Endereço</span></label><input name="adjustment_client_address" class="input input-bordered w-full" maxlength="60"></div>
+                                <div><label class="label"><span class="label-text">Número</span></label><input name="adjustment_client_address_number" class="input input-bordered w-full" maxlength="10"></div>
+                                <div><label class="label"><span class="label-text">Complemento</span></label><input name="adjustment_client_address_complement" class="input input-bordered w-full" maxlength="60"></div>
+                                <div><label class="label"><span class="label-text">Bairro</span></label><input name="adjustment_client_neighborhood" class="input input-bordered w-full" maxlength="60"></div>
+                                <div><label class="label"><span class="label-text">Cidade</span></label><input name="adjustment_client_city" class="input input-bordered w-full" maxlength="60"></div>
+                                <div><label class="label"><span class="label-text">UF</span></label><input name="adjustment_client_state" class="input input-bordered w-full" maxlength="2"></div>
+                                <div><label class="label"><span class="label-text">CEP</span></label><input name="adjustment_client_postal_code" class="input input-bordered w-full" maxlength="10"></div>
+                            </div>
                         </div>
                         <div class="md:col-span-2">
                             <label for="nfe-adjustment-fisco" class="label"><span class="label-text">Informações ao fisco</span></label>
@@ -850,7 +906,9 @@
                             <textarea id="nfe-adjustment-info" name="informacoes_complementares" class="textarea textarea-bordered w-full" rows="2" maxlength="5000"></textarea>
                         </div>
                     </div>
-                    <label class="label cursor-pointer justify-start gap-3 mt-3">
+                    <h4 class="mt-5 font-semibold">Revisar e emitir</h4>
+                    <p class="mt-1 text-xs text-base-content/60">Revise os valores fiscais e os dados do destinatário antes de confirmar.</p>
+                    <label class="label cursor-pointer justify-start gap-3 mt-2">
                         <input type="checkbox" name="confirm_adjustment" class="checkbox checkbox-sm" required>
                         <span class="label-text">Confirmo que esta Nota de Ajuste e fiscalmente aplicavel e nao representa movimento de produtos.</span>
                     </label>

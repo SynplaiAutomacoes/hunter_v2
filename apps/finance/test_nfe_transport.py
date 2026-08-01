@@ -214,9 +214,19 @@ class NfeTransportFormTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["transport_snapshot"]["volumes"]["volume"], 999999999999999)
 
-    def test_legacy_and_unified_forms_persist_complete_trailers_in_same_snapshot(self) -> None:
+    def test_legacy_and_unified_forms_persist_friendly_trailer_fields_in_same_snapshot(self) -> None:
         data = self._form_data()
-        data["nfe_transport_trailers_json"] = '[{"placa":"ABC1234","uf_veiculo":"SP","rntc":"998877","vagao":"123","balsa":"BALSA-1"},{"placa":"AB1234","uf_veiculo":"EX"}]'
+        data.update(
+            {
+                "transport_trailer_1_plate": "ABC1234",
+                "transport_trailer_1_state": "SP",
+                "transport_trailer_1_rntc": "998877",
+                "transport_trailer_1_wagon": "123",
+                "transport_trailer_1_ferry": "BALSA-1",
+                "transport_trailer_2_plate": "AB1234",
+                "transport_trailer_2_state": "EX",
+            }
+        )
         legacy_form = NfeRequestStep3Form(data=data, instance=NfeRequest(), tax_class_choices=[("REF-NFE", "Classe NF-e")])
         unified_form = EmissionNfeConfigForm(data=data, tax_class_choices=[("REF-NFE", "Classe NF-e")])
 
@@ -226,6 +236,7 @@ class NfeTransportFormTests(SimpleTestCase):
         self.assertEqual(unified_form.cleaned_data["transport_snapshot"], TRANSPORT_SNAPSHOT_WITH_TRAILERS)
         request = legacy_form.save(commit=False)
         self.assertEqual(request.transport_snapshot, TRANSPORT_SNAPSHOT_WITH_TRAILERS)
+        self.assertEqual(unified_form.fields["nfe_transport_trailers_json"].widget.input_type, "hidden")
 
     def test_trailers_reject_unknown_fields_before_snapshot(self) -> None:
         data = self._form_data()

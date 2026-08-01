@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import requests
-from django.http import Http404
+from django.http import Http404, QueryDict
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
@@ -31,7 +31,7 @@ from apps.finance.services.nfe_returns import (
     reconcile_nfe_return_document,
     transmit_nfe_return_document,
 )
-from apps.finance.views.nfe import NfeRequestDetailView, NfeReturnDownloadView, NfeReturnForm
+from apps.finance.views.nfe import NfeAdjustmentForm, NfeComplementaryPriceQuantityForm, NfeRequestDetailView, NfeReturnDownloadView, NfeReturnForm
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
@@ -41,6 +41,83 @@ def _mock_response(payload: dict[str, object]) -> Mock:
     response.raise_for_status.return_value = None
     response.json.return_value = payload
     return response
+
+
+class NfeAdvancedOperationFormUxTests(TestCase):
+    def test_partial_return_builds_products_from_friendly_quantity_fields(self) -> None:
+        data = QueryDict(mutable=True)
+        data.update(
+            {
+                "purpose": FiscalDocumentPurpose.RETURN,
+                "return_scope": NfeReturnForm.RETURN_SCOPE_PARTIAL,
+                "natureza_operacao": "Devolução parcial",
+                "codigo_cfop": "1202",
+                "confirm_return": "on",
+            }
+        )
+        data.setlist("return_item_sequence", ["1", "2"])
+        data.setlist("return_item_quantity", ["1.5", ""])
+
+        form = NfeReturnForm(data)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["produtos_json"], [{"sequencial": "1", "quantidade": "1.5"}])
+        self.assertEqual(form.fields["produtos_json"].widget.input_type, "hidden")
+
+    def test_complementary_builds_items_from_friendly_fields(self) -> None:
+        data = QueryDict(mutable=True)
+        data.update(
+            {
+                "operacao": "1",
+                "natureza_operacao": "Nota Fiscal Complementar",
+                "codigo_cfop": "5102",
+                "confirm_complementary": "on",
+            }
+        )
+        data.setlist("complementary_item_sequence", ["1", "2"])
+        data.setlist("complementary_item_quantity", ["0", "2"])
+        data.setlist("complementary_item_value", ["10.50", "0"])
+        data.setlist("complementary_item_cfop", ["5102", "5102"])
+        data.setlist("complementary_item_tax_status", ["00", "00"])
+
+        form = NfeComplementaryPriceQuantityForm(data)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(len(form.cleaned_data["itens_json"]), 2)
+        self.assertEqual(form.cleaned_data["itens_json"][0]["valor_complementar"], "10.50")
+        self.assertEqual(form.cleaned_data["itens_json"][1]["quantidade_complementar"], "2")
+        self.assertEqual(form.fields["itens_json"].widget.input_type, "hidden")
+
+    def test_adjustment_builds_client_contract_from_friendly_fields(self) -> None:
+        form = NfeAdjustmentForm(
+            {
+                "operacao": "1",
+                "natureza_operacao": "Crédito ICMS sobre estoque",
+                "codigo_cfop": "5949",
+                "valor_icms": "100.00",
+                "situacao_tributaria": "090",
+                "adjustment_client_person_type": "pj",
+                "adjustment_client_document": "11222333000181",
+                "adjustment_client_name": "Cliente Teste Ltda",
+                "adjustment_client_state": "SP",
+                "adjustment_client_city": "São Paulo",
+                "confirm_adjustment": "on",
+                "confirm_not_sc_es_reversal": "on",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["cliente_json"],
+            {
+                "tipo_pessoa": "pj",
+                "cnpj": "11222333000181",
+                "razao_social": "Cliente Teste Ltda",
+                "cidade": "São Paulo",
+                "uf": "SP",
+            },
+        )
+        self.assertEqual(form.fields["cliente_json"].widget.input_type, "hidden")
 
 
 class NfeReturnOperationalTests(TestCase):
@@ -236,6 +313,8 @@ class NfeReturnOperationalTests(TestCase):
         self.assertEqual(detail_response.context_data["gateway_operation_modal_id"], "return_nfe_modal")
         self.assertContains(detail_response, "Continue no fluxo existente de Devolução")
         self.assertContains(detail_response, "return_nfe_modal")
+        self.assertContains(detail_response, 'name="return_item_quantity"')
+        self.assertNotContains(detail_response, "Produtos para devolução parcial em JSON")
 
     def test_gateway_reference_selection_reuses_complementary_and_adjustment_flows(self) -> None:
         item = self._create_nfe_item()
@@ -260,6 +339,12 @@ class NfeReturnOperationalTests(TestCase):
 
                 self.assertEqual(detail_response.context_data["gateway_operation_modal_id"], modal_id)
                 self.assertContains(detail_response, modal_id)
+                if operation == "complementary":
+                    self.assertContains(detail_response, 'name="complementary_item_value"')
+                    self.assertNotContains(detail_response, "Itens complementares em JSON")
+                else:
+                    self.assertContains(detail_response, 'name="adjustment_client_document"')
+                    self.assertNotContains(detail_response, "Cliente em JSON")
 
     def test_payload_exposes_supported_tax_class_volume_and_information_without_inferred_taxes(self) -> None:
         item = self._create_nfe_item()

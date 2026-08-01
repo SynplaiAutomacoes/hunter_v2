@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from crispy_forms.layout import Div, Field, HTML
 from django import forms
 
-from apps.core.presentation.widgets import CEPInput, CPForCNPJInput, DecimalInput, NumberInput, PlateInput, SearchableSelectInput, TextareaInput, TextInput
+from apps.core.presentation.widgets import CEPInput, CPForCNPJInput, DecimalInput, NumberInput, PlateInput, SearchableSelectInput, TextInput
 from apps.finance.nfe_transport import (
     BRAZILIAN_STATE_CHOICES,
     FREIGHT_MODE_CHOICES,
@@ -14,6 +15,43 @@ from apps.finance.nfe_transport import (
     build_nfe_transport_form_initial,
     build_nfe_transport_snapshot,
 )
+
+MAX_TRANSPORT_TRAILERS = 3
+
+
+def _configure_trailer_fields(form: forms.BaseForm) -> None:
+    for index in range(1, MAX_TRANSPORT_TRAILERS + 1):
+        prefix = f"transport_trailer_{index}"
+        form.fields[f"{prefix}_plate"] = forms.CharField(label="Placa", required=False, max_length=8, widget=PlateInput())
+        form.fields[f"{prefix}_state"] = forms.ChoiceField(label="UF", choices=BRAZILIAN_STATE_CHOICES, required=False, widget=SearchableSelectInput(choices=BRAZILIAN_STATE_CHOICES))
+        form.fields[f"{prefix}_rntc"] = forms.CharField(label="RNTRC/ANTT", required=False, max_length=20, widget=TextInput())
+        form.fields[f"{prefix}_wagon"] = forms.IntegerField(label="Vagão", required=False, min_value=0, widget=NumberInput())
+        form.fields[f"{prefix}_ferry"] = forms.CharField(label="Balsa", required=False, max_length=20, widget=TextInput())
+
+
+def _set_trailer_initial(form: forms.BaseForm, trailers: object) -> None:
+    if not isinstance(trailers, list):
+        return
+    for index, trailer in enumerate(trailers[:MAX_TRANSPORT_TRAILERS], start=1):
+        if not isinstance(trailer, dict):
+            continue
+        prefix = f"transport_trailer_{index}"
+        for suffix, snapshot_key in (("plate", "placa"), ("state", "uf_veiculo"), ("rntc", "rntc"), ("wagon", "vagao"), ("ferry", "balsa")):
+            form.initial.setdefault(f"{prefix}_{suffix}", trailer.get(snapshot_key, ""))
+
+
+def _build_trailers_from_form(cleaned_data: dict[str, Any]) -> list[dict[str, Any]]:
+    trailers: list[dict[str, Any]] = []
+    for index in range(1, MAX_TRANSPORT_TRAILERS + 1):
+        prefix = f"transport_trailer_{index}"
+        trailer = {
+            snapshot_key: cleaned_data.get(f"{prefix}_{suffix}")
+            for suffix, snapshot_key in (("plate", "placa"), ("state", "uf_veiculo"), ("rntc", "rntc"), ("wagon", "vagao"), ("ferry", "balsa"))
+            if cleaned_data.get(f"{prefix}_{suffix}") not in (None, "")
+        }
+        if trailer:
+            trailers.append(trailer)
+    return trailers
 
 
 def configure_nfe_transport_form(*, form: forms.BaseForm, snapshot: object = None, freight_mode: object = 9) -> None:
@@ -44,13 +82,18 @@ def configure_nfe_transport_form(*, form: forms.BaseForm, snapshot: object = Non
     form.fields["transport_volume_numbering"] = forms.CharField(label="Numeracao dos volumes", required=False, max_length=60, widget=TextInput())
     form.fields["transport_seals"] = forms.CharField(label="Lacres", required=False, max_length=60, widget=TextInput())
     form.fields["nfe_transport_trailers_json"] = forms.CharField(
-        label="Reboques",
         required=False,
-        help_text='Lista JSON opcional. Ex.: [{"placa":"ABC1234","uf_veiculo":"SP","rntc":"123","vagao":1,"balsa":"B1"}]',
-        widget=TextareaInput(rows=3),
+        widget=forms.HiddenInput(),
     )
+    _configure_trailer_fields(form)
 
     initial = build_nfe_transport_form_initial(snapshot)
+    raw_trailers = initial.get("nfe_transport_trailers_json")
+    try:
+        trailers = json.loads(str(raw_trailers)) if raw_trailers else []
+    except ValueError:
+        trailers = []
+    _set_trailer_initial(form, trailers)
     initial.setdefault("freight_mode", str(initial_freight_mode))
     for field_name, value in initial.items():
         form.initial.setdefault(field_name, value)
@@ -58,7 +101,11 @@ def configure_nfe_transport_form(*, form: forms.BaseForm, snapshot: object = Non
 
 def clean_nfe_transport_form(cleaned_data: dict[str, Any]) -> dict[str, Any]:
     try:
-        return build_nfe_transport_snapshot(cleaned_data)
+        normalized_data = dict(cleaned_data)
+        structured_trailers = _build_trailers_from_form(cleaned_data)
+        if structured_trailers or not normalized_data.get("nfe_transport_trailers_json"):
+            normalized_data["nfe_transport_trailers_json"] = json.dumps(structured_trailers, ensure_ascii=False)
+        return build_nfe_transport_snapshot(normalized_data)
     except NfeTransportValidationError as exc:
         raise forms.ValidationError(str(exc)) from exc
 
@@ -94,6 +141,19 @@ def build_nfe_transport_form_layout() -> Any:
             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
         ),
         HTML("<h4 class='font-semibold pt-2'>Reboques</h4>"),
+        HTML("<p class='text-sm text-base-content/70'>Informe até três reboques. Deixe os campos vazios quando não houver reboque.</p>"),
+        *(
+            Div(
+                HTML(f"<p class='col-span-12 text-sm font-medium'>Reboque {index}</p>"),
+                Field(f"transport_trailer_{index}_plate", wrapper_class="col-span-12 lg:col-span-2"),
+                Field(f"transport_trailer_{index}_state", wrapper_class="col-span-12 lg:col-span-2"),
+                Field(f"transport_trailer_{index}_rntc", wrapper_class="col-span-12 lg:col-span-3"),
+                Field(f"transport_trailer_{index}_wagon", wrapper_class="col-span-12 lg:col-span-2"),
+                Field(f"transport_trailer_{index}_ferry", wrapper_class="col-span-12 lg:col-span-3"),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 rounded-xl border border-base-200 p-3",
+            )
+            for index in range(1, MAX_TRANSPORT_TRAILERS + 1)
+        ),
         Field("nfe_transport_trailers_json"),
         css_class="space-y-4 rounded-2xl border border-base-300 p-4",
     )
