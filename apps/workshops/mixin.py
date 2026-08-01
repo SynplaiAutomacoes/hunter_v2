@@ -19,6 +19,7 @@ class WorkshopScopedMixin:
     workshop_permission_codename: str | None = None
     workshop_permission_app_label: str | None = None  # default: model._meta.app_label
     workshop_permission_model: str | None = None  # default: self.model._meta.model_name
+    workshop_permission_fallbacks: tuple[tuple[str, str, str], ...] = ()
     resolve_workshop_from_url_pk: bool = False
 
     def _resolve_workshop(self, request, kwargs):
