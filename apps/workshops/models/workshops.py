@@ -220,6 +220,16 @@ class Workshop(TimeStampedModel):
         return str(self.phone or "").strip()
 
     @property
+    def pdf_name(self) -> str:
+        """Nome exibido em PDFs e páginas públicas: prioriza nome fantasia."""
+        company = self._get_webmania_company()
+        if company is not None:
+            trade_name = str(company.nome_fantasia or "").strip()
+            if trade_name:
+                return trade_name
+        return str(self.name or "").strip() or "-"
+
+    @property
     def webmania_company_unit_display(self) -> str:
         company = self._get_webmania_company()
         if company is None:

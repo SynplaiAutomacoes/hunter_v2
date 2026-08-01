@@ -21,6 +21,12 @@ ALERT_LEAD_TIME_CHOICES: list[tuple[int, str]] = [
     (10080, "1 semana"),
 ]
 
+DEFAULT_ALERT_LEAD_TIMES: list[int] = [60, 1440, 2880]
+
+
+def default_alert_lead_times() -> list[int]:
+    return list(DEFAULT_ALERT_LEAD_TIMES)
+
 
 def _digits_only(value: object) -> str:
     return "".join(character for character in str(value or "") if character.isdigit())
@@ -61,12 +67,12 @@ class Appointment(TimeStampedModel):
     starts_at = models.DateTimeField(verbose_name="Data e hora de entrada")
     ends_at = models.DateTimeField(verbose_name="Data e hora de saída")
     block_color = models.CharField(verbose_name="Cor do bloco", max_length=7, default="#0ea5e9")
-    alert_customer = models.BooleanField(verbose_name="Alertar cliente", default=False)
+    alert_customer = models.BooleanField(verbose_name="Alertar cliente", default=True)
     alert_lead_times = ArrayField(
         models.PositiveIntegerField(choices=ALERT_LEAD_TIME_CHOICES),
         verbose_name="Antecedência do alerta",
         blank=True,
-        default=list,
+        default=default_alert_lead_times,
         help_text="Minutos antes do início do agendamento para enviar o alerta. É possível selecionar mais de uma opção.",
     )
     notes = models.TextField(verbose_name="Observações", blank=True, default="")

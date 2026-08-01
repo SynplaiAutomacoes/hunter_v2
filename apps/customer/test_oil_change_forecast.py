@@ -121,7 +121,7 @@ class OilChangeIntegrationTests(TestCase):
         MessageTemplate.objects.create(
             workshop=self.workshop,
             name="Plano de revisao",
-            message="Ola %%nome%%, revisao do %%modelo%% (%%placa%%) na %%nome_oficina%%.",
+            message="Ola %%nome%%, revisao do %%modelo%% (%%placa%%) na %%nome_fantasia%%.",
             template_type=MessageTemplate.TemplateType.REVIEW_PLAN,
             is_active=True,
         )

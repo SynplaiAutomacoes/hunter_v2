@@ -161,7 +161,7 @@ def visualizar_pdf_checklist(request, pk):
         workshop_cep_city = workshop_cep or workshop_city or "-"
 
     workshop_header = {
-        "name": workshop.name or "-",
+        "name": workshop.pdf_name,
         "address": workshop.address or "-",
         "cep_city": workshop_cep_city,
         "phone": workshop.pdf_phone,

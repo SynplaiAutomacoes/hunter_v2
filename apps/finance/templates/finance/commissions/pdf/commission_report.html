@@ -25,7 +25,7 @@
             <div class="border-b border-gray-200 px-4 py-4">
                 <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Relatório de Comissões</p>
                 <h1 class="mt-1 text-[20px] font-bold uppercase">Apuração de Comissões</h1>
-                <p class="mt-2 text-[12px] font-semibold">{{ workshop.name|default:"-" }}</p>
+                <p class="mt-2 text-[12px] font-semibold">{{ workshop.pdf_name|default:"-" }}</p>
                 <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
                 <p class="text-[11px] text-gray-600">Período: {{ periodo_label }}</p>
                 {% if collaborator_filter %}

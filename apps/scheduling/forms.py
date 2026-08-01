@@ -20,7 +20,7 @@ from apps.customer.models import Customer, Vehicle
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
-from apps.scheduling.models import ALERT_LEAD_TIME_CHOICES, Appointment, AppointmentStatus
+from apps.scheduling.models import ALERT_LEAD_TIME_CHOICES, DEFAULT_ALERT_LEAD_TIMES, Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
 from apps.core.presentation.forms import CoreForm, CoreModelForm
@@ -432,15 +432,20 @@ class AppointmentForm(CoreModelForm):
         all_engine_choices_json = json.dumps(_all_engine_choices)
         all_fuel_choices_json = json.dumps(_all_fuel_choices)
 
-        alert_customer_initial = bool(self.instance.alert_customer) if self.instance and self.instance.pk else bool(self.initial.get("alert_customer", False))
+        alert_customer_initial = bool(self.instance.alert_customer) if self.instance and self.instance.pk else bool(self.initial.get("alert_customer", True))
         if self.is_bound:
             alert_customer_initial = (self.data.get("alert_customer") or "") in {"on", "true", "1", "True"}
 
         alert_lead_times_field = self.fields["alert_lead_times"]
         alert_lead_times_field.required = False
         alert_lead_times_field.label = ""
-        if self.instance and self.instance.pk and self.instance.alert_lead_times and not self.is_bound:
-            alert_lead_times_field.initial = [str(value) for value in self.instance.alert_lead_times]
+        if not self.is_bound:
+            if self.instance and self.instance.pk:
+                alert_lead_times_field.initial = [str(value) for value in (self.instance.alert_lead_times or [])]
+            elif self.initial.get("alert_lead_times") is not None:
+                alert_lead_times_field.initial = [str(value) for value in self.initial["alert_lead_times"]]
+            else:
+                alert_lead_times_field.initial = [str(value) for value in DEFAULT_ALERT_LEAD_TIMES]
 
         customer_vehicle_x_data = json.dumps(
             {

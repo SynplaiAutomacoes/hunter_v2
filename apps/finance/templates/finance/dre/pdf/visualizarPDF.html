@@ -87,7 +87,7 @@
                 </div>
                 <div class="w-[230px] rounded-md bg-gray-50 p-3 text-right text-[11px]">
                     {% if selected_workshop %}
-                        <p class="font-bold">{{ selected_workshop.name }}</p>
+                        <p class="font-bold">{{ selected_workshop.pdf_name }}</p>
                         <p class="mt-1">CNPJ: {{ selected_workshop.cnpj|cnpj_br|default:"-" }}</p>
                         <p>Telefone: {{ selected_workshop.pdf_phone|phone_br|default:"-" }}</p>
                         <p>Endereço: {{ selected_workshop.address|default:"-" }}</p>

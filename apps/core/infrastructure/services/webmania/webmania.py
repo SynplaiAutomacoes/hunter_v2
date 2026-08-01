@@ -104,7 +104,7 @@ def sync_workshop_from_company(workshop, company, sync_name=False, sync_address=
     """Sincroniza dados da WebmaniaCompany de volta para o modelo Workshop."""
     update_fields = []
     if sync_name:
-        name = str(company.razao_social or company.nome_completo or "").strip()
+        name = str(company.nome_fantasia or company.razao_social or company.nome_completo or "").strip()
         if name and workshop.name != name:
             workshop.name = name
             update_fields.append("name")
