@@ -44,7 +44,7 @@ class NfseReceivedDocumentUploadForm(CoreForm):
 class NfseReceivedDocumentBatchUploadForm(CoreForm):
     company = forms.ModelChoiceField(label="Empresa", queryset=WebmaniaCompany.objects.none(), required=True)
     xml_files = MultipleFileField(label="XMLs da NFS-e recebida", required=True, widget=MultipleFileInput(attrs={"multiple": True}))
-    confirmed = forms.BooleanField(label="Confirmo que o lote usa somente XMLs recebidos e nao executa consulta Webmania ou manifestacao automatica.", required=True)
+    confirmed = forms.BooleanField(label="Confirmo que o lote usa somente XMLs recebidos e não executa consulta ou manifestação automatica.", required=True)
 
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -60,9 +60,9 @@ class NfseReceivedDocumentBatchUploadForm(CoreForm):
         for xml_file in files:
             total_size += xml_file.size
             if not xml_file.name.lower().endswith(".xml"):
-                raise forms.ValidationError("Todos os arquivos devem ter extensao .xml.")
+                raise forms.ValidationError("Todos os arquivos devem ter extensão .xml.")
             if xml_file.size == 0:
-                raise forms.ValidationError("Arquivos vazios nao sao aceitos.")
+                raise forms.ValidationError("Arquivos vazios não são aceitos.")
             if xml_file.size > MAX_NFSE_RECEIVED_BATCH_FILE_SIZE:
                 raise forms.ValidationError("Cada XML deve ter no maximo 2 MB.")
         if total_size > MAX_NFSE_RECEIVED_BATCH_TOTAL_SIZE:
@@ -74,7 +74,7 @@ class NfseExternalXmlInboxUploadForm(CoreForm):
     company = forms.ModelChoiceField(label="Empresa", queryset=WebmaniaCompany.objects.none(), required=True)
     source_label = forms.CharField(label="Origem declarada", required=False, max_length=120, help_text="Ex.: anexos recebidos por e-mail, exportacao manual de ERP ou arquivo operacional da oficina.")
     xml_files = MultipleFileField(label="XMLs candidatos", required=True, widget=MultipleFileInput(attrs={"multiple": True}))
-    confirmed = forms.BooleanField(label="Confirmo que a inbox nao importa automaticamente, nao consulta Webmania e nao manifesta documentos.", required=True)
+    confirmed = forms.BooleanField(label="Confirmo que a inbox não importa automaticamente, não consulta e não manifesta documentos.", required=True)
 
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)

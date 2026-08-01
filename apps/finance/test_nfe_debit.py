@@ -51,22 +51,22 @@ def _response(payload: dict[str, Any]) -> Mock:
 class DebitFixtureMixin:
     def build_fixture(self, *, suffix: int = 81) -> FiscalDebitProductPreview:
         self.user = User.objects.create_user(username=f"debit{suffix}", password="test", cpf=f"65432109{suffix:03d}")
-        account = Account.objects.create(name=f"Conta Debito {suffix}", owner=self.user)
+        account = Account.objects.create(name=f"Conta Débito {suffix}", owner=self.user)
         self.user.account = account
         self.user.is_account_owner = True
         self.user.save(update_fields=["account", "is_account_owner"])
-        self.workshop = Workshop.objects.create(account=account, name=f"Oficina Debito {suffix}", cnpj=f"43.345.678/0001-{suffix:02d}", phone="+5511999999999", address="Rua Debito, 1")
+        self.workshop = Workshop.objects.create(account=account, name=f"Oficina Débito {suffix}", cnpj=f"43.345.678/0001-{suffix:02d}", phone="+5511999999999", address="Rua Débito, 1")
         WebmaniaCompany.objects.create(workshop=self.workshop, credit_debit_basis_enabled=True, nfe_debit_emission_enabled=True)
-        customer = Customer.objects.create(workshop=self.workshop, customer_type="PF", name="Cliente Debito", cpf_or_cnpj="12345678901", email="debito@example.test", logradouro="Rua Teste", numero="123", bairro="Centro", cidade="Sao Paulo", estado="SP", cep="01001-000")
+        customer = Customer.objects.create(workshop=self.workshop, customer_type="PF", name="Cliente Débito", cpf_or_cnpj="12345678901", email="débito@example.test", logradouro="Rua Teste", numero="123", bairro="Centro", cidade="São Paulo", estado="SP", cep="01001-000")
         budget = Budget.objects.create(workshop=self.workshop, entry_date="2026-06-22", status=BudgetStatus.APPROVED, customer=customer)
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
         nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder)
         nfe_item = NfeItem.objects.create(workshop=self.workshop, workorder=workorder, request=nfe_request, uuid=f"32345678-1234-4234-8234-123456789{suffix:03d}"[-36:], status="aprovado", access_key=f"35{suffix:042d}"[-44:], raw_payload={"produtos": [{"item": 1}]})
         source = FiscalDocument.objects.create(workshop=self.workshop, account=account, legacy_nfe_item=nfe_item, remote_uuid=str(nfe_item.uuid), access_key=nfe_item.access_key, status=FiscalDocumentStatus.APPROVED)
         basis = FiscalReferencedBasis.objects.create(workshop=self.workshop, source_document=source, source_nfe_item=nfe_item, source_access_key=nfe_item.access_key, source_item_sequence=1, basis_type="debit", fiscal_hypothesis="debit_fine_interest", ibs_cbs_snapshot={"situacao_tributaria": "800", "classificacao_tributaria": "800001"}, status=FiscalReferencedBasisStatus.APPROVED, approved_by=self.user)
-        item = FiscalReferencedBasisItem.objects.create(basis=basis, source_item_sequence=1, source_item_description="Multa e juros debito", source_item_code="MJD-1", source_item_ncm="00000000", source_item_cfop="5949", source_quantity=Decimal("1"), source_unit="UN", source_unit_price=Decimal("7"), source_total_amount=Decimal("7"), fine_amount=Decimal("5"), interest_amount=Decimal("2"), credit_debit_base_amount=Decimal("7"), commercial_snapshot={"source": "xml"}, monetary_snapshot={"fine": "5", "interest": "2"})
+        item = FiscalReferencedBasisItem.objects.create(basis=basis, source_item_sequence=1, source_item_description="Multa e juros débito", source_item_code="MJD-1", source_item_ncm="00000000", source_item_cfop="5949", source_quantity=Decimal("1"), source_unit="UN", source_unit_price=Decimal("7"), source_total_amount=Decimal("7"), fine_amount=Decimal("5"), interest_amount=Decimal("2"), credit_debit_base_amount=Decimal("7"), commercial_snapshot={"source": "xml"}, monetary_snapshot={"fine": "5", "interest": "2"})
         dfe_reference = {"chave": nfe_item.access_key, "item": 1}
-        product = {"nome": "Multa e juros debito", "codigo": "MJD-1", "ncm": "00000000", "quantidade": "1.000000", "unidade": "UN", "subtotal": "7.00", "total": "7.00", "codigo_cfop": "5949", "dfe_referenciado": dfe_reference, "impostos": {"ibs_cbs": basis.ibs_cbs_snapshot}}
+        product = {"nome": "Multa e juros débito", "codigo": "MJD-1", "ncm": "00000000", "quantidade": "1.000000", "unidade": "UN", "subtotal": "7.00", "total": "7.00", "codigo_cfop": "5949", "dfe_referenciado": dfe_reference, "impostos": {"ibs_cbs": basis.ibs_cbs_snapshot}}
         return FiscalDebitProductPreview.objects.create(workshop=self.workshop, basis=basis, basis_item=item, revision=1, source_access_key=nfe_item.access_key, source_item_sequence=1, dfe_referenciado=dfe_reference, product_cfop="5949", product_quantity=Decimal("1"), product_unit_price=Decimal("7"), product_total_amount=Decimal("7"), product_payload=product, ibs_cbs_payload=basis.ibs_cbs_snapshot, preview_payload={"modelo": 1, "finalidade": 6, "tipo_debito": 4, "produtos": [product]}, validation_status=FiscalProductPreviewStatus.APPROVED, explicit_value_confirmation=True, created_by=self.user, approved_by=self.user)
 
     @staticmethod
@@ -133,7 +133,7 @@ class FiscalPhaseTwoDebitTypeFourTests(DebitFixtureMixin, TestCase):
 
     def test_retry_same_preview_is_blocked_without_remote_call(self) -> None:
         self.emit()
-        with patch("apps.finance.services.nfe_debit.requests.post") as post, self.assertRaisesMessage(NfeDebitError, "ja possui"):
+        with patch("apps.finance.services.nfe_debit.requests.post") as post, self.assertRaisesMessage(NfeDebitError, "já possui"):
             create_and_emit_nfe_debit_type_four(preview=self.preview, workshop=self.workshop, requested_by=self.user, legal_confirmation=True)
         post.assert_not_called()
 
@@ -223,7 +223,7 @@ class FiscalPhaseTwoDebitTypeFourTests(DebitFixtureMixin, TestCase):
             self.emit()
 
     def test_rejected_response_with_xml_does_not_become_success(self) -> None:
-        rejected = {**self.success_payload(), "status": "reprovado", "motivo": "Rejeicao fiscal", "xml": "https://example.test/rejected.xml"}
+        rejected = {**self.success_payload(), "status": "reprovado", "motivo": "Rejeição fiscal", "xml": "https://example.test/rejected.xml"}
         with patch("apps.finance.services.nfe_debit._build_headers", return_value={}), patch("apps.finance.services.nfe_debit.requests.post", return_value=_response(rejected)), self.assertRaisesMessage(NfeDebitError, "rejeitada"):
             create_and_emit_nfe_debit_type_four(preview=self.preview, workshop=self.workshop, requested_by=self.user, legal_confirmation=True)
         document = FiscalDocument.objects.get(debit_product_preview=self.preview)

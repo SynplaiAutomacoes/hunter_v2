@@ -42,7 +42,7 @@
     {% if can_prepare_substitution_preview %}
         <a href="{% url 'finance:nfse_substitution_preview_create' %}?original_nfse={{ latest_item.pk }}" class="btn btn-sm btn-outline gap-2">
             <span class="material-icons text-sm">difference</span>
-            Preparar substituicao
+            Preparar substituição
         </a>
     {% endif %}
 {% endblock %}
@@ -168,7 +168,7 @@
                 </div>
             {% else %}
                 <div class="alert alert-warning">
-                    <span>A Nota Fiscal de Serviço ainda nao possui item sincronizado. Aguarde o retorno da Webmania.</span>
+                    <span>A Nota Fiscal de Serviço ainda não possui item sincronizado. Aguarde o retorno do processamento.</span>
                 </div>
             {% endif %}
             {% if nfse_cancellation %}
@@ -205,7 +205,7 @@
                 <form method="post" action="{% url 'finance:nfse_cancel' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
                     {% csrf_token %}
                     <h3 class="text-base font-semibold text-base-content">Cancelar Nota Fiscal de Serviço</h3>
-                    <p class="text-sm text-base-content/70 mt-2">Esta acao cancela somente a NFS-e selecionada e nao realiza substituicao. A substituicao sera disponibilizada em fase posterior.</p>
+                    <p class="text-sm text-base-content/70 mt-2">Esta acao cancela somente a NFS-e selecionada e não realiza substituição. A substituição será disponibilizada em fase posterior.</p>
 
                     <div class="mt-4">
                         <label for="nfse-cancel-reason" class="label">
@@ -213,8 +213,8 @@
                         </label>
                         <select id="nfse-cancel-reason" name="reason_code" class="select select-bordered w-full" required>
                             <option value="" selected>Selecione o motivo</option>
-                            <option value="1">Erro na emissao</option>
-                            <option value="2">Servico nao prestado</option>
+                            <option value="1">Erro na emissão</option>
+                            <option value="2">Serviço não prestado</option>
                             <option value="4">Duplicidade da nota</option>
                         </select>
                     </div>

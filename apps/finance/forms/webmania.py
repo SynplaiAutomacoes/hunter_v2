@@ -219,7 +219,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
 
         self.fields["email"].required = True
 
-        certificate_management_help = "O certificado A1 e gerenciado exclusivamente na configuracao da oficina."
+        certificate_management_help = "O certificado A1 e gerenciado exclusivamente na configuração da oficina."
         for field_name in ("certificado", "certificado_senha"):
             if field_name in self.fields:
                 self.fields[field_name].disabled = True

@@ -29,7 +29,7 @@ class StoredChecklistFile:
 class ChecklistS3FileService:
     def save_file(self, *, content: bytes, filename: str, content_type: str, workshop_id: int) -> StoredChecklistFile:
         if workshop_id <= 0:
-            raise ChecklistFileStorageError("Oficina invalida para salvar arquivo no bucket.")
+            raise ChecklistFileStorageError("Oficina inválida para salvar o arquivo.")
 
         normalized_filename = _normalize_filename(filename)
         normalized_content_type = _normalize_content_type(filename=normalized_filename, content_type=content_type)
@@ -61,12 +61,12 @@ class ChecklistS3FileService:
     def read_file(self, *, file_id: str) -> StoredChecklistFile:
         normalized_file_id = str(file_id or "").strip()
         if not normalized_file_id:
-            raise ChecklistFileStorageError("Identificador invalido do arquivo salvo no bucket.")
+            raise ChecklistFileStorageError("Identificador inválido do arquivo salvo.")
 
         try:
             stored_object = get_storage_service().read_file(normalized_file_id)
         except (StorageConfigurationError, StorageServiceError) as exc:
-            raise ChecklistFileStorageError("Arquivo nao encontrado no bucket configurado. Envie o arquivo novamente.") from exc
+            raise ChecklistFileStorageError("Arquivo não encontrado no armazenamento configurado. Envie o arquivo novamente.") from exc
 
         filename = _normalize_filename(stored_object.metadata.get("filename") or "checklist.pdf")
         content_type = _normalize_content_type(filename=filename, content_type=stored_object.content_type)
@@ -130,11 +130,11 @@ def _read_uploaded_pdf(uploaded_file: UploadedFile) -> tuple[bytes, str, str]:
     filename = _normalize_filename(getattr(uploaded_file, "name", ""))
     content = uploaded_file.read()
     if not content:
-        raise ChecklistFileStorageError("O arquivo enviado esta vazio.")
+        raise ChecklistFileStorageError("O arquivo enviado está vazio.")
 
     content_type = _normalize_content_type(filename=filename, content_type=getattr(uploaded_file, "content_type", ""))
     if content_type != "application/pdf":
-        raise ChecklistFileStorageError("Envie um arquivo PDF valido.")
+        raise ChecklistFileStorageError("Envie um arquivo PDF válido.")
 
     return content, filename, content_type
 

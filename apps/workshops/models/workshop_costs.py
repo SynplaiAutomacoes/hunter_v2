@@ -41,7 +41,7 @@ class WorkshopCost(TimeStampedModel):
     year = models.PositiveIntegerField(verbose_name="Ano")
 
     # --- Mecânicos Produtivos ---
-    mechanic_quantity = models.PositiveIntegerField(verbose_name="Qtd. Mecânicos Produtivos", validators=[MinValueValidator(0)])
+    mechanic_quantity = models.PositiveIntegerField(verbose_name="Qtd. mecânicos produtivos", validators=[MinValueValidator(0)])
     work_hours_per_day = models.DurationField(
         verbose_name="Horas de trabalho/dia",
         validators=[MinValueValidator(timedelta()), MaxValueValidator(timedelta(hours=24))],
@@ -55,7 +55,7 @@ class WorkshopCost(TimeStampedModel):
         help_text="Máximo 31 dias",
     )
     productivity_average = models.DecimalField(
-        verbose_name="Produtividade Média",
+        verbose_name="Produtividade média",
         max_digits=5,
         decimal_places=4,
         default=0.60,
@@ -64,9 +64,9 @@ class WorkshopCost(TimeStampedModel):
     )
 
     # --- Taxas e Impostos ---
-    card_rate = models.DecimalField(verbose_name="Taxa Cartão", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
+    card_rate = models.DecimalField(verbose_name="Taxa cartão", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
     tax_rate = models.DecimalField(verbose_name="Impostos", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
-    profit_margin = models.DecimalField(verbose_name="Margem de Lucro", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
+    profit_margin = models.DecimalField(verbose_name="Margem de lucro", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
     commission_rate = models.DecimalField(
         verbose_name="Comissão",
         max_digits=7,
@@ -78,7 +78,7 @@ class WorkshopCost(TimeStampedModel):
         blank=True,
     )
     risk_coefficient = models.DecimalField(
-        verbose_name="Coeficiente de Risco",
+        verbose_name="Coeficiente de risco",
         max_digits=3,
         decimal_places=2,
         default=1.00,
@@ -89,7 +89,7 @@ class WorkshopCost(TimeStampedModel):
     )
 
     # --- Metas e Indicadores (Inputs manuais) ---
-    parts_purchase_cap = MoneyField(verbose_name="Teto Compras Peças", max_digits=14, decimal_places=2, null=True, blank=True)
+    parts_purchase_cap = MoneyField(verbose_name="Teto compras peças", max_digits=14, decimal_places=2, null=True, blank=True)
     freight_cost = MoneyField(
         verbose_name="Frete",
         max_digits=14,
@@ -97,21 +97,21 @@ class WorkshopCost(TimeStampedModel):
         null=True,
         blank=True,
     )
-    third_party_service_cap = MoneyField(verbose_name="Teto Serviços Terceiros", max_digits=14, decimal_places=2, null=True, blank=True)
+    third_party_service_cap = MoneyField(verbose_name="Teto serviços terceiros", max_digits=14, decimal_places=2, null=True, blank=True)
 
     # --- Calculados (Armazenados para histórico, readonly no form) ---
-    total_value = MoneyField(verbose_name="Valor Total", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    total_monthly_costs = MoneyField(verbose_name="Total Custos Mensais", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    profit_target = MoneyField(verbose_name="Meta de Lucro", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    gross_revenue_target = MoneyField(verbose_name="Faturamento Bruto Meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
+    total_value = MoneyField(verbose_name="Valor total", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    total_monthly_costs = MoneyField(verbose_name="Total custos mensais", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    profit_target = MoneyField(verbose_name="Meta de lucro", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    gross_revenue_target = MoneyField(verbose_name="Faturamento bruto meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    profitability_multiplier = models.DecimalField(verbose_name="Multiplicador lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
     working_hours_per_month = models.DecimalField(verbose_name="Horas úteis/mês", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
-    minimum_hourly_cost = MoneyField(verbose_name="Custo Hora Mínimo", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    hourly_cost_value = MoneyField(verbose_name="Valor Sua Hora", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    minimum_hourly_cost = MoneyField(verbose_name="Custo hora mínimo", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    hourly_cost_value = MoneyField(verbose_name="Valor sua hora", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
 
     class Meta:
-        verbose_name = "Custo da Oficina"
-        verbose_name_plural = "Custos da Oficina"
+        verbose_name = "Custo da oficina"
+        verbose_name_plural = "Custos da oficina"
         ordering = ["-year", "-month"]
         constraints = [models.UniqueConstraint(fields=["workshop", "month", "year"], name="unique_workshop_cost_reference")]
 
@@ -233,19 +233,19 @@ class WorkshopCostItem(models.Model):
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2)
 
     class Meta:
-        verbose_name = "Custo dos Itens da Oficina"
-        verbose_name_plural = "Custos dos Itens da Oficina"
+        verbose_name = "Custo dos itens da oficina"
+        verbose_name_plural = "Custos dos itens da oficina"
         unique_together = ("workshop_cost", "monthly_cost")
 
 
 class WorkshopCostWorkDay(models.Model):
     workshop_cost = models.ForeignKey(WorkshopCost, on_delete=models.CASCADE, related_name="work_days")
     date = models.DateField(verbose_name="Data do dia trabalhado")
-    description = models.CharField(verbose_name="Descricao", max_length=120, blank=True)
+    description = models.CharField(verbose_name="Descrição", max_length=120, blank=True)
 
     class Meta:
-        verbose_name = "Dia Trabalhado do Custo da Oficina"
-        verbose_name_plural = "Dias Trabalhados do Custo da Oficina"
+        verbose_name = "Dia trabalhado do custo da oficina"
+        verbose_name_plural = "Dias trabalhados do custo da oficina"
         ordering = ["date", "pk"]
         constraints = [models.UniqueConstraint(fields=["workshop_cost", "date"], name="unique_workshop_cost_work_day_date")]
 

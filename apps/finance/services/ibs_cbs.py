@@ -67,7 +67,7 @@ def _validate_decimal_nodes(value: Any, *, path: str = "") -> None:
                 try:
                     Decimal(str(item).replace(",", "."))
                 except (InvalidOperation, ValueError) as exc:
-                    raise IbsCbsConfigurationError(f"Valor decimal invalido em IBS/CBS: {child_path}.") from exc
+                    raise IbsCbsConfigurationError(f"Valor decimal inválido em IBS/CBS: {child_path}.") from exc
             _validate_decimal_nodes(item, path=child_path)
         return
     if isinstance(value, list):
@@ -149,9 +149,9 @@ def require_ready_tax_class_for_normal_emission(*, workshop: Any, reference: str
 
     tax_class = TaxClassNfe.objects.filter(workshop=workshop, reference=normalized_reference).first()
     if tax_class is None:
-        raise IbsCbsConfigurationError(f"Classe de imposto '{normalized_reference}' nao encontrada na oficina ativa para {product_label}.")
+        raise IbsCbsConfigurationError(f"Classe de imposto '{normalized_reference}' não encontrada na oficina ativa para {product_label}.")
 
     if not is_tax_class_ibs_cbs_ready(tax_class):
-        raise IbsCbsConfigurationError(f"Classe de imposto '{normalized_reference}' sem configuracao IBS/CBS valida para emissao NF-e/NFC-e.")
+        raise IbsCbsConfigurationError(f"Classe de imposto '{normalized_reference}' sem configuração IBS/CBS válida para emissão NF-e/NFC-e.")
 
     return tax_class

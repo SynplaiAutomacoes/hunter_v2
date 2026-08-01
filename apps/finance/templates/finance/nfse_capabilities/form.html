@@ -1,7 +1,7 @@
 {% extends 'crud/form_page.html' %}
 
 {% block crud_title %}{% if object %}Editar capacidade NFS-e{% else %}Nova capacidade NFS-e{% endif %}{% endblock %}
-{% block crud_subtitle %}A configuracao limita o legado; ela nao habilita substituicao, manifestacao ou emissao manual.{% endblock %}
+{% block crud_subtitle %}A configuração limita o legado; ela não habilita substituição, manifestação ou emissão manual.{% endblock %}
 {% block crud_back_url %}{% url 'finance:nfse_capability_list' %}{% endblock %}
 
 {% block crud_form %}
@@ -9,8 +9,8 @@
         <div class="mb-6 border-b border-base-300 pb-6">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                    <h2 class="text-lg font-semibold">Status remoto do municipio</h2>
-                    <p class="text-sm text-base-content/70">Ultima consulta: {{ object.last_synced_at|date:'d/m/Y H:i'|default:'Nunca consultado' }}</p>
+                    <h2 class="text-lg font-semibold">Status remoto do município</h2>
+                    <p class="text-sm text-base-content/70">Última consulta: {{ object.last_synced_at|date:'d/m/Y H:i'|default:'Nunca consultado' }}</p>
                 </div>
                 <form method="post" action="{% url 'finance:nfse_capability_status' pk=object.pk %}">
                     {% csrf_token %}
@@ -23,7 +23,7 @@
             {% if object.last_status_error %}<p class="mt-3 text-sm text-error">{{ object.last_status_error }}</p>{% endif %}
             {% if object.remote_payload %}
                 <details class="mt-3">
-                    <summary class="cursor-pointer text-sm font-medium">Ver ultimo retorno sanitizado</summary>
+                    <summary class="cursor-pointer text-sm font-medium">Ver último retorno sanitizado</summary>
                     <pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs">{{ object.remote_payload }}</pre>
                 </details>
             {% endif %}

@@ -87,14 +87,14 @@
                 </div>
                 <div class="w-[230px] rounded-md bg-gray-50 p-3 text-right text-[11px]">
                     {% if selected_workshop %}
-                        <p class="font-bold">{{ selected_workshop.name }}</p>
+                        <p class="font-bold">{{ selected_workshop.pdf_name }}</p>
                         <p class="mt-1">CNPJ: {{ selected_workshop.cnpj|cnpj_br|default:"-" }}</p>
                         <p>Telefone: {{ selected_workshop.pdf_phone|phone_br|default:"-" }}</p>
                         <p>Endereço: {{ selected_workshop.address|default:"-" }}</p>
                         <p>UF: {{ selected_workshop.uf|default:"-" }}</p>
                     {% elif is_consolidated_workshops %}
                         <p class="font-bold">Consolidado de {{ selected_workshops|length }} filiais</p>
-                        <p class="mt-1">O PDF considera a soma de todas as filiais disponiveis para o cliente.</p>
+                        <p class="mt-1">O PDF considera a soma de todas as filiais disponíveis para o cliente.</p>
                     {% else %}
                         <p class="font-bold">Sem filial selecionada</p>
                         <p class="mt-1">O PDF considera os filtros informados na consulta.</p>
@@ -146,7 +146,7 @@
                                 {% endfor %}
                             {% else %}
                                 <tr class="border-t border-gray-200">
-                                    <td colspan="3" class="px-4 py-4 text-center text-gray-500">Nao ha dados neste periodo.</td>
+                                    <td colspan="3" class="px-4 py-4 text-center text-gray-500">Não ha dados neste periodo.</td>
                                 </tr>
                             {% endif %}
                         </tbody>
@@ -173,7 +173,7 @@
                                 {% endfor %}
                             {% else %}
                                 <tr class="border-t border-gray-200">
-                                    <td colspan="4" class="px-4 py-4 text-center text-gray-500">Nao ha dados neste periodo.</td>
+                                    <td colspan="4" class="px-4 py-4 text-center text-gray-500">Não ha dados neste periodo.</td>
                                 </tr>
                             {% endif %}
                         </tbody>

@@ -165,12 +165,12 @@ class BudgetReviewDateAutosaveView(LoginRequiredMixin, WorkshopScopedMixin, View
 
         field_name = request.POST.get("field", "")
         if field_name not in self.allowed_fields:
-            return JsonResponse({"ok": False, "error": "Campo de data invalido."}, status=400)
+            return JsonResponse({"ok": False, "error": "Campo de data inválido."}, status=400)
 
         try:
             parsed_value = self.date_field.clean(request.POST.get("value", ""))
         except forms.ValidationError:
-            return JsonResponse({"ok": False, "error": "Informe uma data e hora validas."}, status=400)
+            return JsonResponse({"ok": False, "error": "Informe uma data e hora válidas."}, status=400)
 
         setattr(budget, field_name, parsed_value)
 
@@ -200,7 +200,7 @@ BUDGET_TYPE_BADGE_CLASSES = {
     BudgetType.COURTESY: "badge-info min-w-sm",
     BudgetType.WARRANTY: "badge-error min-w-sm",
 }
-BUDGET_STATUS_REPORT_PDF_TITLE = "Relatorio de Orcamentos Filtrados"
+BUDGET_STATUS_REPORT_PDF_TITLE = "Relatório de Orçamentos Filtrados"
 
 
 def _parse_report_date_param(raw_value: str | None) -> date | None:
@@ -220,8 +220,8 @@ def _build_period_label(*, start_date: date | None, end_date: date | None) -> st
     if start_date:
         return f"A partir de {start_date.strftime('%d/%m/%Y')}"
     if end_date:
-        return f"Ate {end_date.strftime('%d/%m/%Y')}"
-    return "Todo o periodo"
+        return f"Até {end_date.strftime('%d/%m/%Y')}"
+    return "Todo o período"
 
 
 def _parse_positive_int(raw_value: str | None) -> int | None:
@@ -351,7 +351,7 @@ class BudgetStatusReportDataMixin:
             TableColumn("ID", attr="id", search_by="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
-            TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
+            TableColumn("Vinculado a", attr="reference_budget_id", search_by="reference_budget__id"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn(str(Budget.entry_date.field.verbose_name), attr=Budget.entry_date.field.name, search_by="entry_date"),
             TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
@@ -414,15 +414,15 @@ class BudgetStatusReportDataMixin:
 
         raw_vehicle = str(self.request.GET.get("vehicle") or "").strip()
         if raw_vehicle:
-            filter_labels.append(f"Veiculo: {raw_vehicle}")
+            filter_labels.append(f"Veículo: {raw_vehicle}")
 
         raw_collaborator = str(self.request.GET.get("collaborator") or "").strip()
         if raw_collaborator:
             filter_labels.append(f"Colaborador: {raw_collaborator}")
 
         period_label = self._get_status_report_period_label()
-        if period_label != "Todo o periodo":
-            filter_labels.append(f"Periodo: {period_label}")
+        if period_label != "Todo o período":
+            filter_labels.append(f"Período: {period_label}")
 
         return " | ".join(filter_labels)
 
@@ -446,7 +446,7 @@ class BudgetStatusReportDataMixin:
     def _build_status_report_pdf_context(self) -> dict[str, object]:
         selection_report = self._get_selection_report()
         if selection_report is None:
-            raise Http404("Status de orcamento invalido")
+            raise Http404("Status de orçamento inválido")
 
         return {
             "workshop": self.workshop,
@@ -1060,7 +1060,7 @@ def _compute_budget_diff(state_old, state_new):
     field_labels = {
         "discount_value": "Valor do Desconto",
         "discount_percentage": "Percentual do Desconto",
-        "discount_type": "Tipo de Desconto",
+        "discount_type": "Tipo de desconto",
         "problem_description": "Relato Principal do Cliente",
         "technical_diagnosis": "Observações Técnicas",
         "notes": "Observações Complementares",

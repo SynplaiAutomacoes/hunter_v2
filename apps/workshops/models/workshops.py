@@ -42,7 +42,7 @@ class Workshop(TimeStampedModel):
     certificate_file_name = models.CharField(max_length=255, blank=True, default="")
     certificate_content_type = models.CharField(max_length=100, blank=True, default="")
     certificate_uploaded_at = models.DateTimeField(null=True, blank=True)
-    certificate_password = models.CharField(verbose_name="Senha do Certificado", max_length=255, null=True, blank=True)
+    certificate_password = models.CharField(verbose_name="Senha do certificado", max_length=255, null=True, blank=True)
     last_nsu_sefaz = models.CharField(null=True, blank=True, default="0")
     last_sefaz_search_date = models.DateTimeField(null=True, blank=True)
     whatsapp_phone = CharField(
@@ -218,6 +218,16 @@ class Workshop(TimeStampedModel):
             if company_phone:
                 return company_phone
         return str(self.phone or "").strip()
+
+    @property
+    def pdf_name(self) -> str:
+        """Nome exibido em PDFs e páginas públicas: prioriza nome fantasia."""
+        company = self._get_webmania_company()
+        if company is not None:
+            trade_name = str(company.nome_fantasia or "").strip()
+            if trade_name:
+                return trade_name
+        return str(self.name or "").strip() or "-"
 
     @property
     def webmania_company_unit_display(self) -> str:

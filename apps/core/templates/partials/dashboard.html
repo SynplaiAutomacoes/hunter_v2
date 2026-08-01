@@ -153,7 +153,7 @@
             <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title">Projeção <p class="text-sm font-semibold">&nbsp;</p></div>
                 <div class="stat-value text-primary flex items-center gap-2">
-                    {% if projecao is not None %}R$ {{ projecao|floatformat:2 }}{% endif %}
+                    R$ {{ projecao|floatformat:2 }}
                     {% if projecao_vs_meta %}
                         <div class="tooltip" data-tip="{{ projecao_vs_meta.percentual|floatformat:1 }}% da meta">
                             <span class="material-icons text-{{ projecao_vs_meta.cor }} text-5xl">{{ projecao_vs_meta.seta }}</span>
@@ -351,7 +351,6 @@
         </div>
     </div>
 
-    {% if meta_faturamento_bruto is not None %}
     <!-- Financial Goals Section -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
         <div class="stat bg-base-100 shadow rounded-box">
@@ -362,14 +361,14 @@
 
         <div class="stat bg-base-100 shadow rounded-box">
             <div class="stat-title text-base-content/70">Meta de Faturamento Diário</div>
-            <div class="stat-value text-accent mt-2">{% if meta_faturamento_diario is not None %}R$ {{ meta_faturamento_diario|floatformat:2 }}{% else %}-{% endif %}</div>
+            <div class="stat-value text-accent mt-2">R$ {{ meta_faturamento_diario|floatformat:2 }}</div>
             <div class="stat-desc">Valor médio necessário por dia útil para atingir a meta mensal.</div>
         </div>
 
         <div class="stat bg-base-100 shadow rounded-box">
             <div class="stat-title text-base-content/70">Meta Acumulada Diária</div>
             <div class="stat-value text-primary mt-2 flex items-center gap-2">
-                {% if faturamento_real_diario is not None %}R$ {{ faturamento_real_diario|floatformat:2 }}{% else %}-{% endif %}
+                R$ {{ faturamento_real_diario|floatformat:2 }}
                 {% if faturamento_real_diario_vs_meta %}
                     <div class="tooltip" data-tip="Comparação com a meta diária">
                         <span class="material-icons text-{{ faturamento_real_diario_vs_meta.cor }} text-5xl">{{ faturamento_real_diario_vs_meta.seta }}</span>
@@ -385,7 +384,6 @@
             <div class="stat-desc">Total de OS entregue + entrada recebida do dia.</div>
         </div>
     </div>
-    {% endif %}
 
     {% if projecao_warning %}
         <script>
@@ -406,7 +404,7 @@
             diasFaltantes: {{ dias_faltantes }},
             diasUteisMesConfigurados: {% if dias_uteis_mes_configurados is not None %}{{ dias_uteis_mes_configurados }}{% else %}null{% endif %},
             feriadosUteis: {{ feriados_uteis }},
-            projecaoDisponivel: {% if projecao is not None %}true{% else %}false{% endif %}
+            projecaoDisponivel: true
         });
     </script>
 
@@ -417,7 +415,7 @@
             </div>
         </div>
         <form method="dialog" class="modal-backdrop">
-            <button onclick="document.getElementById('dashboard-financial-report-modal-content').innerHTML = '<span class=&quot;loading loading-spinner loading-lg&quot;></span>'">close</button>
+            <button onclick="document.getElementById('dashboard-financial-report-modal-content').innerHTML = '<span class=&quot;loading loading-spinner loading-lg&quot;></span>'">Fechar</button>
         </form>
     </dialog>
 

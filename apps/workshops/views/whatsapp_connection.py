@@ -38,7 +38,8 @@ def _png_data_uri(png_bytes: bytes) -> str:
 
 
 def _is_instance_not_found_error(exc: WhatsAppServiceError) -> bool:
-    return "nao encontrada" in str(exc).lower()
+    message = str(exc).lower()
+    return "nao encontrada" in message or "não encontrada" in message
 
 
 class WhatsAppConnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -61,7 +62,7 @@ class WhatsAppConnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 {
                     "ok": False,
                     "message": (
-                        "Telefone do Assistente Virtual nao configurado. "
+                        "Telefone do Assistente Virtual não configurado. "
                         "Preencha o campo Telefone Assistente Virtual na aba Empresa."
                     ),
                 },
@@ -220,7 +221,7 @@ class WhatsAppQrcodeRefreshView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse(
                 {
                     "ok": False,
-                    "message": "Nenhuma instancia WhatsApp configurada. Conecte novamente.",
+                    "message": "Nenhuma instância WhatsApp configurada. Conecte novamente.",
                 },
                 status=400,
             )
@@ -237,7 +238,7 @@ class WhatsAppQrcodeRefreshView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     {
                         "ok": False,
                         "cleaned_up": True,
-                        "message": "Instancia nao encontrada. Conecte novamente para gerar um novo QR Code.",
+                        "message": "Instância não encontrada. Conecte novamente para gerar um novo QR Code.",
                     },
                     status=404,
                 )
@@ -253,7 +254,7 @@ class WhatsAppQrcodeRefreshView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "ok": False,
                     "connected": True,
                     "state": normalize_instance_state(status_data) or "open",
-                    "message": "Instancia ja conectada. Nao e necessario atualizar o QR Code.",
+                    "message": "Instância já conectada. Não é necessário atualizar o QR Code.",
                 },
                 status=409,
             )
@@ -265,7 +266,7 @@ class WhatsAppQrcodeRefreshView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "ok": False,
                     "cleaned_up": True,
                     "state": "close",
-                    "message": "Instancia desconectada e removida. Conecte novamente para gerar um novo QR Code.",
+                    "message": "Instância desconectada e removida. Conecte novamente para gerar um novo QR Code.",
                 },
                 status=409,
             )
@@ -275,7 +276,7 @@ class WhatsAppQrcodeRefreshView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 {
                     "ok": False,
                     "state": normalize_instance_state(status_data) or "unknown",
-                    "message": "Nao foi possivel atualizar o QR Code neste estado. Conecte novamente.",
+                    "message": "Não foi possível atualizar o QR Code neste estado. Conecte novamente.",
                 },
                 status=409,
             )
@@ -289,7 +290,7 @@ class WhatsAppQrcodeRefreshView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     {
                         "ok": False,
                         "cleaned_up": True,
-                        "message": "Instancia nao encontrada. Conecte novamente para gerar um novo QR Code.",
+                        "message": "Instância não encontrada. Conecte novamente para gerar um novo QR Code.",
                     },
                     status=404,
                 )
@@ -321,7 +322,7 @@ class WhatsAppDisconnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not instance_name:
             # Still attempt worker cancel in case a dispatch is running without a local instance name.
             cleanup_whatsapp_connection(workshop=workshop, cancel_worker=True)
-            return JsonResponse({"ok": True, "message": "Nenhuma instancia para desconectar."})
+            return JsonResponse({"ok": True, "message": "Nenhuma instância para desconectar."})
 
         result = cleanup_whatsapp_connection(workshop=workshop, cancel_worker=True)
         if result.warnings and not result.deleted_instance and not result.cleared_local:
@@ -355,14 +356,14 @@ class WhatsAppPhoneAutosaveView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse(
                 {
                     "ok": True,
-                    "message": "Nenhuma alteracao detectada.",
+                    "message": "Nenhuma alteração detectada.",
                     "whatsapp_phone": current_phone,
                 }
             )
 
         if len(whatsapp_phone) > 20:
             return JsonResponse(
-                {"ok": False, "message": "Telefone Assistente Virtual invalido."},
+                {"ok": False, "message": "Telefone Assistente Virtual inválido."},
                 status=400,
             )
 

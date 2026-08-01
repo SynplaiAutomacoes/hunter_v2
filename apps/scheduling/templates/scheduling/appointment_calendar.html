@@ -6,7 +6,7 @@
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
                 <h1 class="text-3xl font-bold text-base-content">Agendamentos</h1>
-                <p class="text-base-content/70 mt-1">Calendario de entrada e saida de veiculos.</p>
+                <p class="text-base-content/70 mt-1">Calendário de entrada e saída de veículos.</p>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -17,10 +17,10 @@
                         class="btn btn-primary pr-14"
                         onclick="window.openAppointmentCreateModal()"
                     >
-                        Novo Agendamento
+                        Novo agendamento
                     </button>
                     <div class="absolute inset-y-0 right-2 z-10 flex items-center">
-                        {% include 'favorites/partials/favorite_button.html' with favorite_url=appointment_calendar_url|add:'?open=create' favorite_label='Novo Agendamento' favorite_button_class='btn btn-ghost btn-circle btn-xs h-8 min-h-0 w-8 border-0 bg-transparent p-0 text-primary-content/75 shadow-none hover:bg-transparent hover:text-warning focus-visible:bg-transparent focus-visible:text-warning' favorite_icon_class='material-icons text-[18px] leading-none transition-colors' %}
+                        {% include 'favorites/partials/favorite_button.html' with favorite_url=appointment_calendar_url|add:'?open=create' favorite_label='Novo agendamento' favorite_button_class='btn btn-ghost btn-circle btn-xs h-8 min-h-0 w-8 border-0 bg-transparent p-0 text-primary-content/75 shadow-none hover:bg-transparent hover:text-warning focus-visible:bg-transparent focus-visible:text-warning' favorite_icon_class='material-icons text-[18px] leading-none transition-colors' %}
                     </div>
                 </div>
             </div>
@@ -362,7 +362,7 @@
                     today: 'Hoje',
                     day: 'Dia',
                     week: 'Semana',
-                    month: 'Mes',
+                    month: 'Mês',
                     list: 'Ano',
                 },
                 views: {
@@ -377,7 +377,7 @@
                         return getFilters();
                     },
                     failure: function () {
-                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Nao foi possivel carregar os agendamentos.', type: 'error' } }));
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Não foi possível carregar os agendamentos.', type: 'error' } }));
                     },
                 },
                 select: function (selectionInfo) {
@@ -427,7 +427,7 @@
                 })
                 .then(async (response) => {
                     if (!response.ok) {
-                        let message = 'Nao foi possivel atualizar o horario do agendamento.';
+                        let message = 'Não foi possível atualizar o horário do agendamento.';
                         try {
                             const payload = await response.json();
                             if (payload.message) {
@@ -444,7 +444,7 @@
                 })
                 .catch(function () {
                     info.revert();
-                    document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Erro ao salvar alteracao do agendamento.', type: 'error' } }));
+                    document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Erro ao salvar alteração do agendamento.', type: 'error' } }));
                 });
             }
 

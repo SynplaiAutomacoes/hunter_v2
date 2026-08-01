@@ -47,7 +47,7 @@ class Kit(TimeStampedModel):
     total_price = MoneyField(verbose_name="Preço Total", max_digits=14, decimal_places=2, default=0.00)
     total_duration = models.DurationField(verbose_name="Duração Total", null=True, blank=True)
     service_pricing_mode = models.CharField(
-        verbose_name="Escolha qual método esse kit será cobrado",
+        verbose_name="Escolha como este kit será cobrado",
         max_length=20,
         choices=ServicePricingMode.choices,
         default=ServicePricingMode.BY_DURATION,

@@ -27,7 +27,7 @@ class DownloadedWebmaniaDocument:
 def download_webmania_document(*, workshop, url: str) -> DownloadedWebmaniaDocument:
     normalized_url = str(url or "").strip()
     if not normalized_url:
-        raise WebmaniaDocumentDownloadError("O documento ainda nao esta disponivel para download.")
+        raise WebmaniaDocumentDownloadError("O documento ainda não está disponível para download.")
 
     try:
         headers = build_webmania_headers(workshop=workshop)

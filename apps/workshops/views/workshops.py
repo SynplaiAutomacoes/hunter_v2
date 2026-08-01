@@ -328,12 +328,12 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         if has_certificate_file and has_password:
             return {
                 "label": "Certificado A1 configurado",
-                "description": "Arquivo e senha configurados para emissao fiscal.",
+                "description": "Arquivo e senha configurados para emissão fiscal.",
             }
         if has_certificate_file:
             return {
                 "label": "Certificado A1 parcial",
-                "description": "Arquivo enviado, mas falta a senha para completar a configuracao.",
+                "description": "Arquivo enviado, mas falta a senha para completar a configuração.",
             }
         if has_password:
             return {
@@ -342,8 +342,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             }
 
         return {
-            "label": "Certificado A1 nao cadastrado",
-            "description": "Envie um certificado .pfx ou .p12 para consultas da SEFAZ e emissao fiscal.",
+            "label": "Certificado A1 não cadastrado",
+            "description": "Envie um certificado .pfx ou .p12 para consultas da SEFAZ e emissão fiscal.",
         }
 
     def _build_context(self, *, forms_map: dict[str, forms.BaseForm], active_tab: str, active_nf_subtab: str) -> dict[str, object]:
@@ -409,7 +409,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                 tab,
                 getattr(self.request.user, "id", None),
             )
-            messages.info(self.request, "Nenhuma alteracao detectada.")
+            messages.info(self.request, "Nenhuma alteração detectada.")
             return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
         payload = form.build_api_payload()
@@ -467,7 +467,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                 getattr(self.object, "pk", None),
                 getattr(self.request.user, "id", None),
             )
-            messages.info(self.request, "Nenhuma alteracao detectada.")
+            messages.info(self.request, "Nenhuma alteração detectada.")
             return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
         logger.info(
@@ -515,7 +515,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                 tab,
                 getattr(self.request.user, "id", None),
             )
-            messages.info(self.request, "Nenhuma alteracao detectada.")
+            messages.info(self.request, "Nenhuma alteração detectada.")
             return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
         form.save()
@@ -548,7 +548,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                 return JsonResponse({"ok": False, "message": first_error}, status=400)
 
             if not logo_form.changed_data:
-                return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
+                return JsonResponse({"ok": True, "message": "Nenhuma alteração na logo."})
 
             upload_usecase = UploadWorkshopFileUseCase(request=request)
             try:
@@ -559,14 +559,14 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                 if logo_form.has_new_upload():
                     uploaded_logo = logo_form.cleaned_data.get("logo")
                     if uploaded_logo is None or uploaded_logo is False:
-                        return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
+                        return JsonResponse({"ok": True, "message": "Nenhuma alteração na logo."})
                     upload_usecase.upload_logo(workshop=self.object, company=self.company, uploaded_file=uploaded_logo)
                     return JsonResponse({"ok": True, "message": "Logo da oficina atualizada."})
             except (FiscalServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
                 message = to_public_integration_message(str(exc)) if isinstance(exc, FiscalServiceError) else str(exc)
                 return JsonResponse({"ok": False, "message": message}, status=400)
 
-            return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
+            return JsonResponse({"ok": True, "message": "Nenhuma alteração na logo."})
 
         active_tab = self._normalize_tab(request.POST.get("tab"))
         active_nf_subtab = self._normalize_nf_subtab(request.POST.get("nf_tab"))
@@ -617,7 +617,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                     form=assistant_form,
                     tab=active_tab,
                     nf_subtab=active_nf_subtab,
-                    success_message="Configuracoes do assistente virtual atualizadas com sucesso.",
+                    success_message="Configurações do assistente virtual atualizadas com sucesso.",
                 )
         elif active_tab == self.TAB_ENDERECO:
             address_form = cast(WorkshopAddressSectionForm, forms_map[self.TAB_ENDERECO])
@@ -642,10 +642,10 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                     form=pdf_observation_form,
                     tab=active_tab,
                     nf_subtab=active_nf_subtab,
-                    success_message="Observacao do PDF atualizada com sucesso.",
+                    success_message="Observação do PDF atualizada com sucesso.",
                 )
         elif active_tab == self.TAB_CREDENCIAIS:
-            messages.info(request, "As credenciais dessa aba sao apenas para visualizacao.")
+            messages.info(request, "As credenciais desta aba são apenas para visualização.")
             return redirect(self._build_update_url(tab=active_tab, nf_subtab=active_nf_subtab))
 
         context = self._build_context(forms_map=forms_map, active_tab=active_tab, active_nf_subtab=active_nf_subtab)
@@ -662,7 +662,7 @@ class WorkshopLogoView(LoginRequiredMixin, View):
             raise Http404(str(exc)) from exc
 
         if stored_logo is None:
-            raise Http404("Logo nao encontrada.")
+            raise Http404("Logo não encontrada.")
 
         response = HttpResponse(stored_logo.content, content_type=stored_logo.content_type)
         response["Content-Disposition"] = f'inline; filename="{stored_logo.filename}"'
@@ -679,7 +679,7 @@ class PublicWorkshopLogoView(View):
             raise Http404(str(exc)) from exc
 
         if stored_logo is None:
-            raise Http404("Logo nao encontrada.")
+            raise Http404("Logo não encontrada.")
 
         response = HttpResponse(stored_logo.content, content_type=stored_logo.content_type)
         response["Content-Disposition"] = f'inline; filename="{stored_logo.filename}"'
@@ -743,7 +743,7 @@ class WorkshopDeleteView(LoginRequiredMixin, HtmxDeleteResponseMixin, DeleteView
             )
             return response
 
-        messages.success(self.request, "Oficina excluida com sucesso no sistema.")
+        messages.success(self.request, "Oficina excluída com sucesso no sistema.")
         logger.info(
             "workshop_delete_succeeded workshop_id=%s user_id=%s",
             workshop_pk,
@@ -802,7 +802,7 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
             TableColumn(label="IE", attr="webmania_company_ie_display", sortable=False, searchable=False),
             TableColumn(label="Cidade/UF", attr="webmania_company_city_state_display", sortable=False, searchable=False),
             TableColumn(label="Unidade", attr="webmania_company_unit_display", sortable=False, searchable=False),
-            TableColumn(label="Tributacao", attr="webmania_company_tax_type_display", sortable=False, searchable=False),
+            TableColumn(label="Tributação", attr="webmania_company_tax_type_display", sortable=False, searchable=False),
             TableColumn(label=str(Workshop.is_active.field.verbose_name), attr=Workshop.is_active.field.name),
         ]
 
@@ -910,7 +910,7 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):
 
     def post(self, request, *args, **kwargs):
         if not get_fiscal_service().is_homolog_environment():
-            messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
+            messages.error(request, "A sincronização manual está disponível apenas em ambiente de homologação.")
             return self._redirect_after_sync(request)
 
         try:
@@ -925,11 +925,11 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):
             self._set_active_workshop_from_synced_companies(request=request, synced_companies=synced_companies)
             synced_count = len(synced_companies)
             if synced_count <= 0:
-                messages.warning(request, "Sincronizacao concluida, mas nenhuma empresa foi retornada.")
+                messages.warning(request, "Sincronização concluída, mas nenhuma empresa foi retornada.")
             elif synced_count == 1:
-                messages.success(request, "Sincronizacao concluida com sucesso. 1 empresa atualizada.")
+                messages.success(request, "Sincronização concluída com sucesso. 1 empresa atualizada.")
             else:
-                messages.success(request, f"Sincronizacao concluida com sucesso. {synced_count} empresas atualizadas.")
+                messages.success(request, f"Sincronização concluída com sucesso. {synced_count} empresas atualizadas.")
 
         return self._redirect_after_sync(request)
 

@@ -61,7 +61,7 @@ class WorkOrderCollaboratorForm(CoreModelForm):
         if workshop is not None:
             queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name")
         self.fields["collaborators"].queryset = queryset
-        self.fields["collaborators"].help_text = "Selecione os colaboradores responsaveis por esta O.S. A comissao prevista sera calculada a partir desta vinculacao."
+        self.fields["collaborators"].help_text = "Selecione os colaboradores responsáveis por esta O.S. A comissão prevista será calculada a partir desta vinculação."
 
     @property
     def initial_collaborators_json(self) -> str:
@@ -75,9 +75,9 @@ class WorkOrderCollaboratorForm(CoreModelForm):
 
 class WorkOrderPaymentForm(CoreModelForm):
     entry_amount = MoneyField(label="Valor de entrada", required=False, widget=MoneyInput)
-    total_value = forms.CharField(label="Valor Total", required=False, widget=MoneyInput)
-    paid_value = forms.CharField(label="Valor Pago", required=False, widget=MoneyInput)
-    pending_value = forms.CharField(label="Valor Pendente", required=False, widget=MoneyInput)
+    total_value = forms.CharField(label="Valor total", required=False, widget=MoneyInput)
+    paid_value = forms.CharField(label="Valor pago", required=False, widget=MoneyInput)
+    pending_value = forms.CharField(label="Valor pendente", required=False, widget=MoneyInput)
     discount_value = MoneyField(label="Desconto em R$", required=False, widget=MoneyInput)
     discount_percentage = forms.DecimalField(
         label="Desconto em %",
@@ -89,7 +89,7 @@ class WorkOrderPaymentForm(CoreModelForm):
         widget=PercentageInput(decimal_places=2, behavior="digit_stream"),
     )
     discount_type = forms.ChoiceField(
-        label="Selecione o Desconto",
+        label="Selecione o desconto",
         choices=WorkOrderDiscountType.choices,
         required=False,
         widget=RadioButtonGroupInput,
@@ -132,7 +132,7 @@ class WorkOrderPaymentForm(CoreModelForm):
         discount_percentage = Decimal("0.00")
 
         blocked_value_attrs = {"readonly": True, "class": "cursor-not-allowed opacity-75"}
-        fully_paid_value_attrs = {**blocked_value_attrs, "disabled": True, "title": "OS paga por completo"}
+        fully_paid_value_attrs = {**blocked_value_attrs, "disabled": True, "title": "O.S. paga por completo"}
 
         no_payment_required = bool(self.workorder and self.workorder.budget_type in ("warranty", "courtesy"))
 
@@ -204,7 +204,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                     <div class="alert alert-success shadow-lg border-2 border-success">
                         <span class="material-icons">check_circle</span>
                         <div>
-                            <h3 class="font-bold text-sm">{'Ordem de Serviço não exige pagamento' if no_payment_required else 'Ordem de Serviço completamente paga'}</h3>
+                            <h3 class="font-bold text-sm">{'Ordem de serviço não exige pagamento' if no_payment_required else 'Ordem de serviço completamente paga'}</h3>
                             <div class="text-xs">{'Ordens de serviço do tipo Garantia ou Cortesia não exigem pagamento.' if no_payment_required else 'A ordem de serviço foi paga completamente.'}</div>
                         </div>
                     </div>
@@ -239,8 +239,8 @@ class WorkOrderPaymentForm(CoreModelForm):
                         <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
-                                    <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
+                                    <p class="text-sm font-bold text-base-content">Tipo de desconto</p>
+                                    <p class="text-xs text-base-content/60">Selecione onde o desconto será aplicado.</p>
                                 </div>
                                 <span class="material-icons text-base-content/40">filter_alt</span>
                             </div>
@@ -289,14 +289,14 @@ class WorkOrderPaymentForm(CoreModelForm):
                         <div class="alert alert-error shadow-sm border-2 border-error payment-warning-card">
                             <span class="material-icons payment-warning-icon">error_outline</span>
                             <div>
-                                <h3 class="font-bold text-sm payment-warning-title">Valor Não Permitido</h3>
+                                <h3 class="font-bold text-sm payment-warning-title">Valor não permitido</h3>
                                 <div class="text-xs payment-warning-message">
                                 </div>
                             </div>
                         </div>
                     </div>
                 """),
-                Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary self-end lg:shrink-0"),
+                Submit("submit", "Salvar plano de pagamento", css_class="btn-form-save btn-primary self-end lg:shrink-0"),
                 css_class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-end",
             ),
             HTML(f"""

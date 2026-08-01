@@ -20,7 +20,7 @@ from apps.customer.models import Customer, Vehicle
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
-from apps.scheduling.models import ALERT_LEAD_TIME_CHOICES, Appointment, AppointmentStatus
+from apps.scheduling.models import ALERT_LEAD_TIME_CHOICES, DEFAULT_ALERT_LEAD_TIMES, Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
 from apps.core.presentation.forms import CoreForm, CoreModelForm
@@ -165,19 +165,19 @@ def _build_readonly_vehicle_field(*, field_id: str, label: str, value: str, wrap
 class AppointmentForm(CoreModelForm):
     is_customer_registered = forms.BooleanField(label="Cliente cadastrado", required=False, initial=True, widget=CheckboxInput())
     customer = forms.ModelChoiceField(label="Cliente", queryset=Customer.objects.none(), widget=SearchableSelectInput(), required=False)
-    vehicle = forms.ModelChoiceField(label="Veiculo", queryset=Vehicle.objects.none(), widget=SearchableSelectInput(), required=False)
+    vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), widget=SearchableSelectInput(), required=False)
     guest_customer_name = forms.CharField(label="Nome", required=False, widget=_uppercase_text_input())
     guest_customer_cpf = forms.CharField(label="CPF", required=False, widget=CPForCNPJInput(mode="cpf"))
     guest_customer_phone = forms.CharField(label="Telefone", required=False, widget=PhoneInput())
     guest_vehicle_plate = forms.CharField(label="Placa", required=False, widget=PlateInput())
     guest_vehicle_brand = forms.CharField(label="Marca", required=False, widget=SearchableSelectInput(choices=[]))
     guest_vehicle_model = forms.CharField(label="Modelo", required=False, widget=SearchableSelectInput(choices=[]))
-    guest_vehicle_year_fabrication = forms.CharField(label="Ano Fabricacao", required=False, widget=_year_text_input())
-    guest_vehicle_year_model = forms.CharField(label="Ano Modelo", required=False, widget=_year_text_input())
-    guest_vehicle_engine = forms.CharField(label="Motorizacao", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
-    guest_vehicle_fuel = forms.CharField(label="Combustivel", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
-    budget = forms.ModelChoiceField(label="Orcamento vinculado", queryset=Budget.objects.none(), widget=SearchableSelectInput(), required=False)
-    workorder = forms.ModelChoiceField(label="Ordem de servico vinculada", queryset=WorkOrder.objects.none(), widget=SearchableSelectInput(), required=False)
+    guest_vehicle_year_fabrication = forms.CharField(label="Ano de fabricação", required=False, widget=_year_text_input())
+    guest_vehicle_year_model = forms.CharField(label="Ano do modelo", required=False, widget=_year_text_input())
+    guest_vehicle_engine = forms.CharField(label="Motorização", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
+    guest_vehicle_fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
+    budget = forms.ModelChoiceField(label="Orçamento vinculado", queryset=Budget.objects.none(), widget=SearchableSelectInput(), required=False)
+    workorder = forms.ModelChoiceField(label="Ordem de serviço vinculada", queryset=WorkOrder.objects.none(), widget=SearchableSelectInput(), required=False)
     alert_lead_times = forms.MultipleChoiceField(
         label="Antecedência do alerta",
         choices=ALERT_LEAD_TIME_CHOICES,
@@ -335,13 +335,13 @@ class AppointmentForm(CoreModelForm):
         self.fields["guest_customer_name"].error_messages["required"] = "Informe o nome do cliente."
         self.fields["guest_customer_cpf"].error_messages["required"] = "Informe o CPF do cliente."
         self.fields["guest_customer_phone"].error_messages["required"] = "Informe o telefone do cliente."
-        self.fields["guest_vehicle_plate"].error_messages["required"] = "Informe a placa do veiculo."
-        self.fields["guest_vehicle_brand"].error_messages["required"] = "Informe a marca do veiculo."
-        self.fields["guest_vehicle_model"].error_messages["required"] = "Informe o modelo do veiculo."
+        self.fields["guest_vehicle_plate"].error_messages["required"] = "Informe a placa do veículo."
+        self.fields["guest_vehicle_brand"].error_messages["required"] = "Informe a marca do veículo."
+        self.fields["guest_vehicle_model"].error_messages["required"] = "Informe o modelo do veículo."
         self.fields["guest_vehicle_year_fabrication"].error_messages["required"] = "Informe o ano de fabricação."
         self.fields["guest_vehicle_year_model"].error_messages["required"] = "Informe o ano do modelo."
         self.fields["guest_vehicle_engine"].error_messages["required"] = "Informe a motorização ou selecione uma opção."
-        self.fields["guest_vehicle_fuel"].error_messages["required"] = "Informe o combustivel ou selecione uma opção."
+        self.fields["guest_vehicle_fuel"].error_messages["required"] = "Informe o combustível ou selecione uma opção."
 
         selected_customer_id = ""
         selected_vehicle_id = ""
@@ -432,15 +432,20 @@ class AppointmentForm(CoreModelForm):
         all_engine_choices_json = json.dumps(_all_engine_choices)
         all_fuel_choices_json = json.dumps(_all_fuel_choices)
 
-        alert_customer_initial = bool(self.instance.alert_customer) if self.instance and self.instance.pk else bool(self.initial.get("alert_customer", False))
+        alert_customer_initial = bool(self.instance.alert_customer) if self.instance and self.instance.pk else bool(self.initial.get("alert_customer", True))
         if self.is_bound:
             alert_customer_initial = (self.data.get("alert_customer") or "") in {"on", "true", "1", "True"}
 
         alert_lead_times_field = self.fields["alert_lead_times"]
         alert_lead_times_field.required = False
         alert_lead_times_field.label = ""
-        if self.instance and self.instance.pk and self.instance.alert_lead_times and not self.is_bound:
-            alert_lead_times_field.initial = [str(value) for value in self.instance.alert_lead_times]
+        if not self.is_bound:
+            if self.instance and self.instance.pk:
+                alert_lead_times_field.initial = [str(value) for value in (self.instance.alert_lead_times or [])]
+            elif self.initial.get("alert_lead_times") is not None:
+                alert_lead_times_field.initial = [str(value) for value in self.initial["alert_lead_times"]]
+            else:
+                alert_lead_times_field.initial = [str(value) for value in DEFAULT_ALERT_LEAD_TIMES]
 
         customer_vehicle_x_data = json.dumps(
             {
@@ -472,25 +477,25 @@ class AppointmentForm(CoreModelForm):
                 ),
                 _build_readonly_vehicle_field(
                     field_id="id_registered_vehicle_year_fabrication_display",
-                    label="Ano Fabricacao",
+                    label="Ano de fabricação",
                     value=selected_registered_vehicle_details["year_fabrication"],
                     wrapper_class="col-span-12 lg:col-span-3",
                 ),
                 _build_readonly_vehicle_field(
                     field_id="id_registered_vehicle_year_model_display",
-                    label="Ano Modelo",
+                    label="Ano do modelo",
                     value=selected_registered_vehicle_details["year_model"],
                     wrapper_class="col-span-12 lg:col-span-3",
                 ),
                 _build_readonly_vehicle_field(
                     field_id="id_registered_vehicle_engine_display",
-                    label="Motorizacao",
+                    label="Motorização",
                     value=selected_registered_vehicle_details["engine"],
                     wrapper_class="col-span-12 lg:col-span-3",
                 ),
                 _build_readonly_vehicle_field(
                     field_id="id_registered_vehicle_fuel_display",
-                    label="Combustivel",
+                    label="Combustível",
                     value=selected_registered_vehicle_details["fuel"],
                     wrapper_class="col-span-12 lg:col-span-3",
                 ),
@@ -629,7 +634,7 @@ class AppointmentForm(CoreModelForm):
                     async function fetchOptions(url) {
                         const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                         if (!response.ok) {
-                            throw new Error('Falha ao carregar catalogo de veiculos.');
+                            throw new Error('Falha ao carregar catálogo de veículos.');
                         }
                         const payload = await response.json();
                         return Array.isArray(payload) ? payload : [];
@@ -638,7 +643,7 @@ class AppointmentForm(CoreModelForm):
                     async function fetchFuelOptions(url) {
                         const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                         if (!response.ok) {
-                            throw new Error('Falha ao carregar catalogo de veiculos.');
+                            throw new Error('Falha ao carregar catálogo de veículos.');
                         }
                         const payload = await response.json();
                         if (Array.isArray(payload)) {
@@ -731,7 +736,7 @@ class AppointmentForm(CoreModelForm):
 
                             applyRegisteredVehicleDetails(await response.json());
                         } catch (error) {
-                            console.warn('Erro ao carregar detalhes do veiculo:', error);
+                            console.warn('Erro ao carregar detalhes do veículo:', error);
                             clearRegisteredVehicleDetails();
                         }
                     }
@@ -986,7 +991,7 @@ class AppointmentForm(CoreModelForm):
                 """
             ),
             Div(
-                HTML('<div class="col-span-12 mb-1 mt-1 text-sm font-semibold uppercase tracking-wide text-base-content/70">Cliente e Veiculo</div>'),
+                HTML('<div class="col-span-12 mb-1 mt-1 text-sm font-semibold uppercase tracking-wide text-base-content/70">Cliente e veículo</div>'),
                 Field("title", wrapper_class="col-span-12"),
                 Div(
                     HTML('<label for="id_is_customer_registered" class="mb-0 text-sm font-semibold text-base-content">Cliente cadastrado</label>'),
@@ -1058,12 +1063,12 @@ class AppointmentForm(CoreModelForm):
                 HTML(
                     f"""
                     <div x-show="isCustomerRegistered && vehicleId" class="col-span-12 grid grid-cols-12 gap-4 rounded-xl border border-base-300 bg-base-200/20 p-4">
-                        <div class="col-span-12 mb-1 text-sm font-semibold uppercase tracking-wide text-base-content/70">Dados do Veiculo Selecionado</div>
+                        <div class="col-span-12 mb-1 text-sm font-semibold uppercase tracking-wide text-base-content/70">Dados do veículo selecionado</div>
                         {registered_vehicle_fields_html}
                     </div>
                     """
                 ),
-                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Horario e Status</div>'),
+                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Horário e status</div>'),
                 Field("starts_at", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("ends_at", wrapper_class="col-span-12 lg:col-span-6"),
                 Field(
@@ -1085,10 +1090,10 @@ class AppointmentForm(CoreModelForm):
                     css_class="col-span-12 rounded-box border border-base-300 bg-base-200/30 p-4",
                     **{"x-show": "alertCustomer", "x-cloak": True},
                 ),
-                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Vinculos</div>'),
+                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Vínculos</div>'),
                 Field("budget", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("workorder", wrapper_class="col-span-12 lg:col-span-6"),
-                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Observacoes</div>'),
+                HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Observações</div>'),
                 Field("notes", wrapper_class="col-span-12"),
                 x_data=customer_vehicle_x_data,
                 data_appointment_form_shell="1",
@@ -1126,13 +1131,13 @@ class AppointmentForm(CoreModelForm):
                                 console.warn('Erro ao carregar modelos de veiculo:', error);
                             });
                             loadGuestFuelOptions(selectedBrand, '').catch((error) => {
-                                console.warn('Erro ao carregar combustiveis do veiculo:', error);
+                                console.warn('Erro ao carregar combustiveis do veículo:', error);
                             });
                         } else if ($event.target && $event.target.name === 'guest_vehicle_model' && !isCustomerRegistered) {
                             const selectedBrand = (document.getElementById('id_guest_vehicle_brand') || {}).value || '';
                             const selectedModel = $event.target.value || '';
                             loadGuestFuelOptions(selectedBrand, selectedModel).catch((error) => {
-                                console.warn('Erro ao carregar combustiveis do veiculo:', error);
+                                console.warn('Erro ao carregar combustiveis do veículo:', error);
                             });
                         }
                     """,
@@ -1229,7 +1234,7 @@ class AppointmentForm(CoreModelForm):
         else:
             self.errors.pop("customer", None)
             if guest_customer_cpf and not is_valid_cpf(guest_customer_cpf):
-                self.add_error("guest_customer_cpf", "Informe um CPF valido.")
+                self.add_error("guest_customer_cpf", "Informe um CPF válido.")
             self.instance._guest_validation_done = True
             cleaned_data["customer"] = None
             cleaned_data["vehicle"] = None
@@ -1237,10 +1242,10 @@ class AppointmentForm(CoreModelForm):
             cleaned_data["workorder"] = None
 
         if customer and vehicle and getattr(vehicle, "customer_id", None) != getattr(customer, "pk", None):
-            self.add_error("vehicle", "O veiculo deve pertencer ao cliente selecionado.")
+            self.add_error("vehicle", "O veículo deve pertencer ao cliente selecionado.")
 
         if vehicle and customer is None:
-            self.add_error("vehicle", "Selecione um cliente cadastrado para vincular um veiculo.")
+            self.add_error("vehicle", "Selecione um cliente cadastrado para vincular um veículo.")
 
         alert_customer = bool(cleaned_data.get("alert_customer"))
         alert_lead_times = cleaned_data.get("alert_lead_times") or []
@@ -1280,12 +1285,12 @@ class AppointmentForm(CoreModelForm):
 class AppointmentCalendarFilterForm(CoreForm):
     date_from = forms.DateField(
         required=False,
-        label="Data Início",
+        label="Data início",
         widget=forms.DateInput(attrs={"type": "date", "class": "input-theme", "id": "appointment-filter-date-from"}),
     )
     date_to = forms.DateField(
         required=False,
-        label="Data Fim",
+        label="Data fim",
         widget=forms.DateInput(attrs={"type": "date", "class": "input-theme", "id": "appointment-filter-date-to"}),
     )
     customer = forms.ModelChoiceField(
@@ -1296,7 +1301,7 @@ class AppointmentCalendarFilterForm(CoreForm):
     )
     vehicle = forms.ModelChoiceField(
         required=False,
-        label="Veiculo",
+        label="Veículo",
         queryset=Vehicle.objects.none(),
         widget=SearchableSelectInput(attrs={"id": "appointment-filter-vehicle"}),
     )
@@ -1373,7 +1378,7 @@ class AppointmentMoveForm(CoreForm):
             else:
                 messages.append(str(exc))
 
-            raise forms.ValidationError(" ".join(messages) or "Nao foi possivel validar a movimentacao do agendamento.")
+            raise forms.ValidationError(" ".join(messages) or "Não foi possível validar a movimentação do agendamento.")
 
         return cleaned_data
 

@@ -147,10 +147,10 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
                     stock_issue_labels.append(f"{product_name} (+{excess_quantity})")
 
             if stock_issue_labels:
-                blockers.append(f"Existem pecas com quantidade acima do estoque disponivel: {', '.join(stock_issue_labels)}.")
+                blockers.append(f"Existem peças com quantidade acima do estoque disponível: {', '.join(stock_issue_labels)}.")
 
         if invalid_ncm_products:
-            blockers.append(f"Existem produtos com NCM invalido: {', '.join(invalid_ncm_products)}.")
+            blockers.append(f"Existem produtos com NCM inválido: {', '.join(invalid_ncm_products)}.")
 
         if blockers:
             logger.warning(

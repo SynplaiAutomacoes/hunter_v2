@@ -67,5 +67,5 @@ class NfseMunicipalCapabilityForm(CoreModelForm):
             if self.instance.pk:
                 duplicate = duplicate.exclude(pk=self.instance.pk)
             if duplicate.exists():
-                self.add_error("city_code", "Ja existe uma capacidade para este municipio nesta oficina.")
+                self.add_error("city_code", "Já existe uma capacidade para este município nesta oficina.")
         return cleaned_data

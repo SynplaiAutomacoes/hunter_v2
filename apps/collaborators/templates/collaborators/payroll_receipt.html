@@ -50,7 +50,7 @@
                     <div class="min-w-0">
                         <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Demonstrativo mensal</p>
                         <h1 class="mt-1 text-[20px] font-bold uppercase">Resumo do pagamento</h1>
-                        <p class="mt-2 text-[12px] font-semibold">{{ payroll.workshop.name|default:"-" }}</p>
+                        <p class="mt-2 text-[12px] font-semibold">{{ payroll.workshop.pdf_name|default:"-" }}</p>
                         <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ payroll.workshop.cnpj|cnpj_br|default:"-" }}</p>
                         <p class="text-[11px] text-gray-600">Telefone: {{ payroll.workshop.pdf_phone|phone_br|default:"-" }}</p>
                         <p class="text-[11px] text-gray-600">{{ payroll.workshop.address|default:"-" }}</p>
@@ -83,7 +83,7 @@
                 <div class="rounded-md border border-gray-200 bg-white p-3">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Pagamento</p>
                     <p class="mt-2 text-[13px] font-semibold">{{ payroll.due_date|date:"d/m/Y" }}</p>
-                    <p class="mt-1 text-[11px] text-gray-600">Pago: {% if payroll.status == "PAID" %}Pago{% else %}Não Pago{% endif %}</p>
+                    <p class="mt-1 text-[11px] text-gray-600">Pago: {% if payroll.status == "PAID" %}Pago{% else %}Não pago{% endif %}</p>
                 </div>
                 <div class="rounded-md border border-gray-200 bg-white p-3">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">VT e benefícios</p>

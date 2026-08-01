@@ -16,7 +16,7 @@ class EvolutionAPIService:
     def __init__(self, base_url: str) -> None:
         normalized_url = str(base_url or "").strip().rstrip("/")
         if not normalized_url:
-            raise WhatsAppConfigurationError("URL base da Evolution API nao configurada.")
+            raise WhatsAppConfigurationError("URL base da Evolution API não configurada.")
         self._base_url = normalized_url
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
@@ -30,13 +30,13 @@ class EvolutionAPIService:
         response = self._session.post(url, json=payload, timeout=30)
 
         if response.status_code == 502:
-            raise WhatsAppServiceError("Evolution API indisponivel (502 Bad Gateway).")
+            raise WhatsAppServiceError("Evolution API indisponível (502 Bad Gateway).")
         if response.status_code == 503:
-            raise WhatsAppServiceError("Evolution API em manutencao (503 Service Unavailable).")
+            raise WhatsAppServiceError("Evolution API em manutenção (503 Service Unavailable).")
         if response.status_code == 504:
             raise WhatsAppServiceError("Evolution API sem resposta (504 Gateway Timeout).")
         if response.status_code == 409:
-            raise WhatsAppServiceError("Instancia ja existe e esta conectada (409 Conflict).")
+            raise WhatsAppServiceError("Instância já existe e está conectada (409 Conflict).")
 
         response.raise_for_status()
 
@@ -48,13 +48,13 @@ class EvolutionAPIService:
         response = self._session.get(url, timeout=30)
 
         if response.status_code == 404:
-            raise WhatsAppServiceError(f"Instancia '{instance_name}' nao encontrada.")
+            raise WhatsAppServiceError(f"Instância '{instance_name}' não encontrada.")
         if response.status_code == 409:
-            raise WhatsAppServiceError("Instancia ja conectada (409 Conflict).")
+            raise WhatsAppServiceError("Instância já conectada (409 Conflict).")
         if response.status_code == 502:
             raise WhatsAppServiceError("Evolution API sem resposta (502 Bad Gateway).")
         if response.status_code == 503:
-            raise WhatsAppServiceError("Evolution API em manutencao (503 Service Unavailable).")
+            raise WhatsAppServiceError("Evolution API em manutenção (503 Service Unavailable).")
 
         response.raise_for_status()
         return response.content
@@ -64,9 +64,9 @@ class EvolutionAPIService:
         response = self._session.get(url, timeout=30)
 
         if response.status_code == 404:
-            raise WhatsAppServiceError(f"Instancia '{instance_name}' nao encontrada.")
+            raise WhatsAppServiceError(f"Instância '{instance_name}' não encontrada.")
         if response.status_code == 503:
-            raise WhatsAppServiceError("Evolution API em manutencao (503 Service Unavailable).")
+            raise WhatsAppServiceError("Evolution API em manutenção (503 Service Unavailable).")
         if response.status_code == 504:
             raise WhatsAppServiceError("Evolution API sem resposta (504 Gateway Timeout).")
 
@@ -78,7 +78,7 @@ class EvolutionAPIService:
         response = self._session.delete(url, timeout=30)
 
         if response.status_code == 404:
-            raise WhatsAppServiceError(f"Instancia '{instance_name}' nao encontrada.")
+            raise WhatsAppServiceError(f"Instância '{instance_name}' não encontrada.")
 
         response.raise_for_status()
         return response.json()

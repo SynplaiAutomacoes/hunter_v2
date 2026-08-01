@@ -2,19 +2,19 @@
 {% load crispy_forms_tags %}
 
 {% block crud_title %}Emitir NFC-e{% endblock %}
-{% block crud_subtitle %}Emissao manual simples de venda ao consumidor.{% endblock %}
+{% block crud_subtitle %}Emissão manual simples de venda ao consumidor.{% endblock %}
 {% block crud_back_url %}{% url 'finance:nfce_list' %}{% endblock %}
 
 {% block crud_form %}
     <div class="mb-6 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
-        <p>NFC-e e venda ao consumidor. Contingencia/offline, cancelamento por substituicao, PDV, TEF, SAT e MFE nao estao implementados nesta fase.</p>
+        <p>NFC-e e venda ao consumidor. Contingência/offline, cancelamento por substituição, PDV, TEF, SAT e MFE não estao implementados nesta fase.</p>
     </div>
     <form method="post" class="space-y-4">
         {% csrf_token %}
         {{ form|crispy }}
         <div class="rounded-lg border border-base-300 bg-base-200/50 px-4 py-3 text-sm text-base-content/70">
             <p>Produtos devem ser informados como JSON: <code>[{"product_id": 1, "quantidade": "1", "valor_unitario": "100.00", "classe_imposto": "REF000000"}]</code></p>
-            <p>Consumidor/cliente pode ficar vazio quando permitido para consumidor nao identificado.</p>
+            <p>Consumidor/cliente pode ficar vazio quando permitido para consumidor não identificado.</p>
         </div>
         <div class="flex justify-end gap-2">
             <a href="{% url 'finance:nfce_list' %}" class="btn btn-ghost">Cancelar</a>

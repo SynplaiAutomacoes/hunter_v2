@@ -35,7 +35,7 @@ def _assert_consultation_eligible(document: NfseReceivedDocument) -> None:
     if not str(document.xml_hash or "").strip():
         raise NfseReceivedConsultationError("Consulta auxiliar exige hash do XML recebido.")
     if not getattr(document.company, "nfse_received_consultation_enabled", False):
-        raise NfseReceivedConsultationError("Consulta de NFS-e recebida nao esta habilitada para esta empresa.")
+        raise NfseReceivedConsultationError("Consulta de NFS-e recebida não esta habilitada para esta empresa.")
     _select_identifier(document)
 
 
@@ -51,7 +51,7 @@ def is_nfse_received_document_eligible_for_consultation(document: NfseReceivedDo
 
 def nfse_received_document_consultation_block_reason(document: NfseReceivedDocument | None) -> str:
     if document is None:
-        return "Documento recebido indisponivel."
+        return "Documento recebido indisponível."
     try:
         _assert_consultation_eligible(document)
     except NfseReceivedConsultationError as exc:
@@ -139,7 +139,7 @@ def build_received_consultation_divergences(*, document: NfseReceivedDocument, p
 
     municipality_code = str(_first_payload_value(payload, "municipality_code", "codigo_municipio", "codigo_municipio_prestacao") or "").strip()
     if document.municipality_code and municipality_code and municipality_code != document.municipality_code:
-        _append_divergence(divergences, field="municipality_code", local=document.municipality_code, remote=municipality_code, message="Municipio diverge do XML validado.")
+        _append_divergence(divergences, field="municipality_code", local=document.municipality_code, remote=municipality_code, message="Município diverge do XML validado.")
 
     environment = str(_first_payload_value(payload, "ambiente", "environment") or "").strip()
     if document.environment and environment and environment != document.environment:
@@ -147,10 +147,10 @@ def build_received_consultation_divergences(*, document: NfseReceivedDocument, p
 
     remote_amount = _normalize_amount(_first_payload_value(payload, "service_amount", "valor_servicos", "valor_servico", "valor"))
     if document.service_amount is not None and remote_amount is not None and remote_amount != document.service_amount:
-        _append_divergence(divergences, field="service_amount", local=document.service_amount, remote=remote_amount, message="Valor do servico diverge do XML validado.")
+        _append_divergence(divergences, field="service_amount", local=document.service_amount, remote=remote_amount, message="Valor do serviço diverge do XML validado.")
 
     if national_standard_confirmed is False:
-        _append_divergence(divergences, field="national_standard", local="required_for_manifestation", remote="false", message="Consulta nao confirmou Padrao Nacional.")
+        _append_divergence(divergences, field="national_standard", local="required_for_manifestation", remote="false", message="Consulta não confirmou Padrão Nacional.")
 
     return divergences
 

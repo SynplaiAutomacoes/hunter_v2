@@ -122,9 +122,9 @@ def _decimal(value: Any, *, places: Decimal, field_name: str) -> Decimal | None:
     try:
         normalized = Decimal(str(value).replace(",", "."))
     except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValidationError(f"{field_name} do snapshot fiscal e invalido.") from exc
+        raise ValidationError(f"{field_name} do snapshot fiscal e inválido.") from exc
     if normalized < 0:
-        raise ValidationError(f"{field_name} nao pode ser negativo.")
+        raise ValidationError(f"{field_name} não pode ser negativo.")
     return normalized.quantize(places, rounding=ROUND_HALF_UP)
 
 
@@ -134,7 +134,7 @@ def extract_commercial_snapshot(*, document: FiscalDocument, item_sequence: int)
             if _sequence(product, position) != item_sequence:
                 continue
             quantity = _decimal(product.get("quantidade") or product.get("quantity"), places=QUANTITY_QUANTIZER, field_name="Quantidade")
-            unit_price = _decimal(product.get("subtotal") or product.get("valor_unitario") or product.get("unit_value"), places=MONEY_QUANTIZER, field_name="Valor unitario")
+            unit_price = _decimal(product.get("subtotal") or product.get("valor_unitario") or product.get("unit_value"), places=MONEY_QUANTIZER, field_name="Valor unitário")
             total = _decimal(product.get("total") or product.get("valor_total") or product.get("total_value"), places=MONEY_QUANTIZER, field_name="Valor total")
             commercial = {
                 "source_item_sequence": item_sequence,
@@ -190,7 +190,7 @@ def _monetary_values(
         "outros": other_amount.quantize(MONEY_QUANTIZER, rounding=ROUND_HALF_UP),
     }
     if any(value < 0 for value in values.values()):
-        raise ValidationError("Valores da composicao monetaria nao podem ser negativos.")
+        raise ValidationError("Valores da composicao monetária não podem ser negativos.")
     fine_interest = hypothesis in {FiscalHypothesis.CREDIT_FINE_INTEREST, FiscalHypothesis.DEBIT_FINE_INTEREST}
     base = values["multa"] + values["juros"] if fine_interest else sum(values.values(), Decimal("0"))
     rule = "fine_plus_interest" if fine_interest else "principal_plus_fine_plus_interest_plus_other"
@@ -205,16 +205,16 @@ def _basis_type(hypothesis: str) -> str:
         return FiscalReferencedBasisType.CREDIT
     if hypothesis.startswith("debit_"):
         return FiscalReferencedBasisType.DEBIT
-    raise ValidationError("Hipotese fiscal desconhecida.")
+    raise ValidationError("Hipótese fiscal desconhecida.")
 
 
 def validate_hypothesis_sources(*, hypothesis: str, financial_reference: Any | None, stock_reference: Any | None) -> None:
     if hypothesis not in FiscalHypothesis.values:
-        raise ValidationError("Hipotese fiscal desconhecida.")
+        raise ValidationError("Hipótese fiscal desconhecida.")
     if hypothesis in FINANCIAL_REQUIRED_HYPOTHESES and financial_reference is None:
-        raise ValidationError("A hipotese fiscal selecionada exige uma movimentacao financeira vinculada.")
+        raise ValidationError("A hipótese fiscal selecionada exige uma movimentacao financeira vinculada.")
     if hypothesis in STOCK_REQUIRED_HYPOTHESES and stock_reference is None:
-        raise ValidationError("A hipotese fiscal selecionada exige uma movimentacao de estoque vinculada.")
+        raise ValidationError("A hipótese fiscal selecionada exige uma movimentacao de estoque vinculada.")
 
 
 @transaction.atomic
@@ -234,12 +234,12 @@ def create_referenced_basis(
     other_amount: Decimal = Decimal("0"),
 ) -> FiscalReferencedBasis:
     if not is_credit_debit_basis_enabled(workshop=workshop):
-        raise ValidationError("A preparacao de bases fiscais de credito/debito nao esta habilitada para esta oficina.")
+        raise ValidationError("A preparação de bases fiscais de crédito/débito não esta habilitada para esta oficina.")
     locked_document = FiscalDocument.objects.select_for_update().get(pk=source_document.pk, workshop=workshop)
     if locked_document.document_type != FiscalDocumentType.NFE or locked_document.origin != FiscalDocumentOrigin.LOCAL or locked_document.purpose != FiscalDocumentPurpose.NORMAL or locked_document.status != FiscalDocumentStatus.APPROVED:
         raise ValidationError("A base exige NF-e normal local e autorizada da oficina ativa.")
     if not locked_document.access_key or len("".join(char for char in locked_document.access_key if char.isdigit())) != 44:
-        raise ValidationError("A NF-e de origem nao possui chave de acesso valida.")
+        raise ValidationError("A NF-e de origem não possui chave de acesso válida.")
     validate_hypothesis_sources(hypothesis=fiscal_hypothesis, financial_reference=financial_reference, stock_reference=stock_reference)
     for reference, label in ((financial_reference, "financeira"), (stock_reference, "de estoque")):
         if reference is not None and reference.workshop_id != workshop.pk:
@@ -293,23 +293,23 @@ def create_referenced_basis(
 def approve_referenced_basis(*, basis: FiscalReferencedBasis, approved_by: Any) -> FiscalReferencedBasis:
     locked = FiscalReferencedBasis.objects.select_for_update().get(pk=basis.pk, workshop=basis.workshop)
     if not is_credit_debit_basis_enabled(workshop=locked.workshop):
-        raise ValidationError("A preparacao de bases fiscais esta desabilitada para esta oficina.")
+        raise ValidationError("A preparação de bases fiscais esta desabilitada para esta oficina.")
     if locked.status not in {FiscalReferencedBasisStatus.DRAFT, FiscalReferencedBasisStatus.READY}:
         raise ValidationError("Somente bases em rascunho ou prontas podem ser aprovadas.")
     validate_hypothesis_sources(hypothesis=locked.fiscal_hypothesis, financial_reference=locked.financial_reference, stock_reference=locked.stock_reference)
     if not str(locked.ibs_cbs_snapshot.get("situacao_tributaria") or "").strip() or not str(locked.ibs_cbs_snapshot.get("classificacao_tributaria") or "").strip():
-        raise ValidationError("Snapshot IBS/CBS incompleto; situacao e classificacao tributaria sao obrigatorias.")
+        raise ValidationError("Snapshot IBS/CBS incompleto; situacao e classificacao tributaria são obrigatorias.")
     if locked.external_origin and not locked.external_xml_validated:
-        raise ValidationError("Documento externo sem XML/importacao validada nao pode ser aprovado.")
+        raise ValidationError("Documento externo sem XML/importacao validada não pode ser aprovado.")
     if not locked.notes.strip():
-        raise ValidationError("A aprovacao exige evidencia/observacao fiscal registrada.")
+        raise ValidationError("A aprovação exige evidência/observacao fiscal registrada.")
     try:
         basis_item = locked.commercial_item
     except FiscalReferencedBasisItem.DoesNotExist as exc:
-        raise ValidationError("A base nao possui snapshot monetario/comercial por item.") from exc
+        raise ValidationError("A base não possui snapshot monetario/comercial por item.") from exc
     missing = basis_item.approval_errors()
     if missing:
-        raise ValidationError(f"Base monetaria/comercial incompleta: {', '.join(missing)}.")
+        raise ValidationError(f"Base monetária/comercial incompleta: {', '.join(missing)}.")
     basis_item.full_clean()
     locked.status = FiscalReferencedBasisStatus.APPROVED
     locked.approved_by = approved_by

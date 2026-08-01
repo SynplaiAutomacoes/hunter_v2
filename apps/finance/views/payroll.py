@@ -466,7 +466,7 @@ def _mark_payroll_as_unpaid(*, payroll: CollaboratorPayroll) -> CollaboratorPayr
 
 def _payroll_missing_movement_message(*, collaborator_names: list[str], action_label: str) -> str:
     skipped_count = len(collaborator_names)
-    base_message = f"{skipped_count} folha{'s' if skipped_count != 1 else ''} foram ignorada{'s' if skipped_count != 1 else ''} ao {action_label} porque nao possuem movimentacoes financeiras."
+    base_message = f"{skipped_count} folha{'s' if skipped_count != 1 else ''} foram ignorada{'s' if skipped_count != 1 else ''} ao {action_label} porque não possuem movimentacoes financeiras."
     if not collaborator_names:
         return base_message
     return f"{base_message} Colaboradores: {', '.join(collaborator_names)}"
@@ -794,7 +794,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             if not payroll_has_financial_movements(payroll=target_payroll) or target_payroll.financial_movement is None:
                 return _build_hx_toast_response(
-                    message="Nao foi possivel gerar movimentacoes financeiras para esta folha.",
+                    message="Não foi possível gerar movimentacoes financeiras para esta folha.",
                     toast_type="warning",
                     refresh=True,
                     status=400,

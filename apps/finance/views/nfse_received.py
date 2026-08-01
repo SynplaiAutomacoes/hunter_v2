@@ -29,7 +29,7 @@ from apps.workshops.util.workshops import has_workshop_perm
 
 
 class NfseReceivedManifestationForm(CoreForm):
-    EVENT_CHOICES = [("", "Selecione"), ("1", "Confirmacao"), ("2", "Rejeicao")]
+    EVENT_CHOICES = [("", "Selecione"), ("1", "Confirmação"), ("2", "Rejeição")]
     REJECTION_REASON_CHOICES = [("", "Selecione"), ("1", "Motivo 1"), ("2", "Motivo 2"), ("3", "Motivo 3"), ("4", "Motivo 4"), ("5", "Motivo 5"), ("9", "Outros")]
 
     event = forms.ChoiceField(choices=EVENT_CHOICES, required=True)
@@ -43,9 +43,9 @@ class NfseReceivedManifestationForm(CoreForm):
         reason = str(cleaned.get("rejection_reason") or "").strip()
         justification = str(cleaned.get("rejection_justification") or "").strip()
         if event == "2" and not reason:
-            self.add_error("rejection_reason", "Rejeicao exige motivo.")
+            self.add_error("rejection_reason", "Rejeição exige motivo.")
         if event == "1" and (reason or justification):
-            self.add_error("rejection_reason", "Confirmacao nao deve conter motivo de rejeicao.")
+            self.add_error("rejection_reason", "Confirmação não deve conter motivo de rejeição.")
         if reason == "9" and not (15 <= len(justification) <= 255):
             self.add_error("rejection_justification", "Motivo 9 exige justificativa entre 15 e 255 caracteres.")
         if reason and reason != "9" and justification:
@@ -54,7 +54,7 @@ class NfseReceivedManifestationForm(CoreForm):
 
 
 class NfseReceivedConsultationForm(CoreForm):
-    confirmed = forms.BooleanField(label="Confirmo que a consulta Webmania e apenas auxiliar e nao substitui o XML validado.", required=True)
+    confirmed = forms.BooleanField(label="Confirmo que a consulta e apenas auxiliar e não substitui o XML validado.", required=True)
 
 
 class NfseReceivedDocumentPermissionMixin(LoginRequiredMixin, WorkshopScopedMixin):
@@ -126,7 +126,7 @@ class NfseReceivedDocumentBatchImportView(LoginRequiredMixin, WorkshopScopedMixi
             messages.error(self.request, "; ".join(getattr(exc, "messages", [str(exc)])))
             return self.form_invalid(form)
         if batch.error_count:
-            messages.warning(self.request, "Lote processado com erros. Revise o relatorio por arquivo.")
+            messages.warning(self.request, "Lote processado com erros. Revise o relatório por arquivo.")
         else:
             messages.success(self.request, "Lote de XMLs importado com sucesso.")
         return redirect("finance:nfse_received_batch_detail", pk=batch.pk)
@@ -244,9 +244,9 @@ class NfseExternalXmlInboxUploadView(LoginRequiredMixin, WorkshopScopedMixin, Fo
             messages.error(self.request, "; ".join(getattr(exc, "messages", [str(exc)])))
             return self.form_invalid(form)
         if inbox.error_count:
-            messages.warning(self.request, "XMLs candidatos registrados com pendencias. Revise os itens antes de aprovar.")
+            messages.warning(self.request, "XMLs candidatos registrados com pendências. Revise os itens antes de aprovar.")
         else:
-            messages.success(self.request, "XMLs candidatos registrados na inbox para revisao humana.")
+            messages.success(self.request, "XMLs candidatos registrados na inbox para revisão humana.")
         return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
 
 
@@ -318,7 +318,7 @@ class NfseExternalXmlInboxProcessView(LoginRequiredMixin, WorkshopScopedMixin, V
             messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
             return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
         if batch.error_count:
-            messages.warning(request, "Itens aprovados enviados ao lote com erros. Revise os vinculos por item.")
+            messages.warning(request, "Itens aprovados enviados ao lote com erros. Revise os vínculos por item.")
         else:
             messages.success(request, "Itens aprovados processados pelo lote XML.")
         return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
@@ -341,7 +341,7 @@ class NfseExternalXmlInboxBulkActionView(LoginRequiredMixin, WorkshopScopedMixin
             elif action == "process":
                 result = bulk_process_nfse_external_xml_inbox_items(inbox=inbox, item_ids=item_ids, processed_by=request.user)
             else:
-                raise NfseExternalXmlInboxError("Acao em massa invalida.")
+                raise NfseExternalXmlInboxError("Acao em massa inválida.")
         except (NfseExternalXmlInboxError, ValidationError) as exc:
             messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
             return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
@@ -363,7 +363,7 @@ class NfseExternalXmlInboxExportView(NfseExternalXmlInboxPermissionMixin, View):
             .order_by("-inbox__criado_em", "pk")
         )
         response = HttpResponse(content_type="text/csv; charset=utf-8")
-        response["Content-Disposition"] = 'attachment; filename="nfse-inbox-xml-relatorio.csv"'
+        response["Content-Disposition"] = 'attachment; filename="nfse-inbox-xml-relatório.csv"'
         writer = csv.writer(response)
         writer.writerow(["inbox", "item", "status", "arquivo", "hash", "origem", "criado_em", "aprovado_em", "aprovado_por", "descartado_em", "descartado_por", "motivo_descarte", "lote", "documento_recebido", "erro", "uuid", "identificador", "cnpj_prestador", "cnpj_tomador"])
         for item in items:
@@ -445,7 +445,7 @@ def _selected_item_ids(request) -> list[int]:
 
 
 def _message_bulk_result(*, request, result: NfseExternalXmlInboxBulkResult) -> None:
-    message = f"Acao em massa concluida: {result.success_count} sucesso(s), {result.error_count} erro(s)."
+    message = f"Acao em massa concluída: {result.success_count} sucesso(s), {result.error_count} erro(s)."
     if result.error_count:
         details = "; ".join(f"{item.filename}: {item.message}" for item in result.results if not item.success)
         messages.warning(request, f"{message} {details}")
@@ -523,9 +523,9 @@ class NfseReceivedDocumentConsultationIssueView(LoginRequiredMixin, WorkshopScop
             messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
             return redirect("finance:nfse_received_document_detail", pk=document.pk)
         if consultation.divergences:
-            messages.warning(request, "Consulta Webmania concluida com divergencias consultivas. O XML validado nao foi alterado.")
+            messages.warning(request, "Consulta concluída com divergências consultivas. O XML validado não foi alterado.")
         else:
-            messages.success(request, "Consulta Webmania concluida sem substituir o XML validado.")
+            messages.success(request, "Consulta concluída sem substituir o XML validado.")
         return redirect("finance:nfse_received_document_detail", pk=document.pk)
 
 
@@ -558,7 +558,7 @@ class NfseReceivedDocumentManifestationIssueView(LoginRequiredMixin, WorkshopSco
         document = get_object_or_404(NfseReceivedDocument.objects.filter(workshop=self.workshop).select_related("company"), pk=kwargs["pk"])
         form = NfseReceivedManifestationForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Revise os dados da manifestacao NFS-e recebida e confirme explicitamente a operacao.")
+            messages.error(request, "Revise os dados da manifestação NFS-e recebida e confirme explicitamente a operação.")
             return redirect("finance:nfse_received_document_detail", pk=document.pk)
         manifestor = 1 if document.role == NfseReceivedDocument.Role.TAKER else 2
         try:
@@ -574,7 +574,7 @@ class NfseReceivedDocumentManifestationIssueView(LoginRequiredMixin, WorkshopSco
             messages.error(request, str(exc))
             return redirect("finance:nfse_received_document_detail", pk=document.pk)
         if manifestation.status == FiscalEmissionAttemptStatus.SUCCEEDED:
-            messages.success(request, "Manifestacao da NFS-e recebida registrada com sucesso.")
+            messages.success(request, "Manifestação da NFS-e recebida registrada com sucesso.")
         return redirect("finance:nfse_received_document_detail", pk=document.pk)
 
 
@@ -596,11 +596,11 @@ class NfseReceivedDocumentManifestationDownloadView(LoginRequiredMixin, Workshop
     def get(self, request, *args, **kwargs):
         manifestation = get_object_or_404(NfseManifestation, pk=kwargs["manifestation_pk"], received_document_id=kwargs["pk"], workshop=self.workshop)
         if not manifestation.xml_manifestation:
-            raise Http404("XML da manifestacao indisponivel")
+            raise Http404("XML da manifestação indisponível")
         try:
             downloaded = download_webmania_document(workshop=self.workshop, url=manifestation.xml_manifestation)
         except WebmaniaDocumentDownloadError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
-        response["Content-Disposition"] = f'attachment; filename="nfse-recebida-manifestacao-{manifestation.pk}.xml"'
+        response["Content-Disposition"] = f'attachment; filename="nfse-recebida-manifestação-{manifestation.pk}.xml"'
         return response

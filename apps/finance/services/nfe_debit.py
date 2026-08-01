@@ -93,25 +93,25 @@ def _build_consulta_url() -> str:
 
 def _validate_preview(*, preview: FiscalDebitProductPreview, workshop: Any) -> None:
     if not is_nfe_debit_emission_enabled(workshop=workshop):
-        raise NfeDebitError("A emissao de NF-e de debito esta desabilitada para esta oficina.")
+        raise NfeDebitError("A emissão de NF-e de débito esta desabilitada para esta oficina.")
     if preview.workshop_id != workshop.pk:
-        raise NfeDebitError("A previa pertence a outra oficina.")
+        raise NfeDebitError("A prévia pertence a outra oficina.")
     if preview.validation_status != FiscalProductPreviewStatus.APPROVED:
-        raise NfeDebitError("Somente previa fiscal aprovada pode emitir NF-e de debito.")
+        raise NfeDebitError("Somente prévia fiscal aprovada pode emitir NF-e de débito.")
     if preview.operation_type != "debit" or preview.fiscal_purpose_type != "4":
-        raise NfeDebitError("Esta fase suporta somente NF-e de debito tipo 4 por multa/juros.")
+        raise NfeDebitError("Esta fase suporta somente NF-e de débito tipo 4 por multa/juros.")
     if preview.basis.status != FiscalReferencedBasisStatus.APPROVED:
         raise NfeDebitError("A base fiscal referenciada precisa estar aprovada.")
     if preview.basis.workshop_id != workshop.pk or preview.basis_item.basis_id != preview.basis_id:
         raise NfeDebitError("Base fiscal ou item fora do escopo da oficina.")
     source_document = preview.basis.source_document
     if source_document is None or source_document.origin != FiscalDocumentOrigin.LOCAL or source_document.purpose != FiscalDocumentPurpose.NORMAL or source_document.status != FiscalDocumentStatus.APPROVED:
-        raise NfeDebitError("A emissao de debito tipo 4 exige NF-e original local vinculada.")
+        raise NfeDebitError("A emissão de débito tipo 4 exige NF-e original local vinculada.")
     if len(preview.source_access_key) != 44 or not preview.source_access_key.isdigit():
-        raise NfeDebitError("O DF-e referenciado deve possuir chave valida de 44 digitos.")
+        raise NfeDebitError("O DF-e referenciado deve possuir chave válida de 44 digitos.")
     expected_reference = {"chave": preview.source_access_key, "item": preview.source_item_sequence}
     if preview.dfe_referenciado != expected_reference or preview.product_payload.get("dfe_referenciado") != expected_reference:
-        raise NfeDebitError("A previa aprovada nao possui dfe_referenciado valido por produto.")
+        raise NfeDebitError("A prévia aprovada não possui dfe_referenciado válido por produto.")
     if source_document.access_key != preview.source_access_key:
         raise NfeDebitError("A chave do DF-e referenciado diverge da NF-e original local.")
     if preview.product_total_amount <= 0 or preview.basis_item.credit_debit_base_amount <= 0:
@@ -120,12 +120,12 @@ def _validate_preview(*, preview: FiscalDebitProductPreview, workshop: Any) -> N
     if expected_base <= 0 or expected_base != preview.basis_item.credit_debit_base_amount or expected_base != preview.product_total_amount:
         raise NfeDebitError("A composicao multa + juros diverge da base ou do total aprovado.")
     if not preview.basis_item.commercial_snapshot or not preview.basis_item.monetary_snapshot:
-        raise NfeDebitError("A base aprovada nao possui snapshots comercial e monetario completos.")
+        raise NfeDebitError("A base aprovada não possui snapshots comercial e monetario completos.")
     if not isinstance(preview.ibs_cbs_payload, dict) or not preview.ibs_cbs_payload:
-        raise NfeDebitError("A previa aprovada nao possui snapshot IBS/CBS.")
+        raise NfeDebitError("A prévia aprovada não possui snapshot IBS/CBS.")
     forbidden = detect_forbidden_debit_groups(dict(preview.product_payload or {}))
     if forbidden or preview.forbidden_tax_groups_detected:
-        raise NfeDebitError("A previa aprovada contem grupos tributarios proibidos.")
+        raise NfeDebitError("A prévia aprovada contem grupos tributarios proibidos.")
     product = preview.product_payload
     expected_values = {
         "quantidade": format(preview.product_quantity, ".6f"),
@@ -134,7 +134,7 @@ def _validate_preview(*, preview: FiscalDebitProductPreview, workshop: Any) -> N
         "codigo_cfop": preview.product_cfop,
     }
     if any(str(product.get(field) or "") != value for field, value in expected_values.items()):
-        raise NfeDebitError("O produto fiscal diverge dos valores congelados na previa aprovada.")
+        raise NfeDebitError("O produto fiscal diverge dos valores congelados na prévia aprovada.")
     taxes = product.get("impostos")
     if not isinstance(taxes, dict) or taxes.get("ibs_cbs") != preview.ibs_cbs_payload:
         raise NfeDebitError("O produto fiscal diverge do snapshot IBS/CBS aprovado.")
@@ -143,7 +143,7 @@ def _validate_preview(*, preview: FiscalDebitProductPreview, workshop: Any) -> N
 def _build_debit_payload(*, preview: FiscalDebitProductPreview, request: HttpRequest | None = None) -> dict[str, Any]:
     source_document = preview.basis.source_document
     if source_document is None or source_document.legacy_nfe_item_id is None:
-        raise NfeDebitError("A NF-e original local nao possui origem operacional para cliente e pedido.")
+        raise NfeDebitError("A NF-e original local não possui origem operacional para cliente e pedido.")
     nfe_request = source_document.legacy_nfe_item.request
     try:
         cliente = _build_customer_payload(nfe_request)
@@ -155,14 +155,14 @@ def _build_debit_payload(*, preview: FiscalDebitProductPreview, request: HttpReq
     if forbidden:
         raise NfeDebitError(f"Produto fiscal contem campos proibidos: {', '.join(forbidden)}.")
     if product.get("dfe_referenciado") != preview.dfe_referenciado:
-        raise NfeDebitError("O produto fiscal nao preserva o dfe_referenciado aprovado.")
+        raise NfeDebitError("O produto fiscal não preserva o dfe_referenciado aprovado.")
     taxes = product.get("impostos")
     if not isinstance(taxes, dict) or set(taxes) != {"ibs_cbs"}:
-        raise NfeDebitError("NF-e de debito tipo 4 deve enviar somente impostos.ibs_cbs.")
+        raise NfeDebitError("NF-e de débito tipo 4 deve enviar somente impostos.ibs_cbs.")
     payload: dict[str, Any] = {
         "ID": f"debit-preview-{preview.pk}",
         "operacao": 1,
-        "natureza_operacao": "Debito por multa e juros",
+        "natureza_operacao": "Débito por multa e juros",
         "modelo": 1,
         "finalidade": 6,
         "tipo_debito": 4,
@@ -213,12 +213,12 @@ def _is_failed_response(payload: dict[str, Any]) -> bool:
 
 def create_and_emit_nfe_debit_type_four(*, preview: FiscalDebitProductPreview, workshop: Any, requested_by: Any, legal_confirmation: bool, request: HttpRequest | None = None) -> FiscalDocument:
     if not legal_confirmation:
-        raise NfeDebitError("Confirme explicitamente a emissao da NF-e de debito tipo 4.")
+        raise NfeDebitError("Confirme explicitamente a emissão da NF-e de débito tipo 4.")
     with transaction.atomic():
         locked_preview = FiscalDebitProductPreview.objects.select_for_update(of=("self",)).select_related("basis__source_document__legacy_nfe_item__request__workorder__budget__customer", "basis_item").get(pk=preview.pk, workshop=workshop)
         _validate_preview(preview=locked_preview, workshop=workshop)
         if FiscalDocument.objects.filter(debit_product_preview=locked_preview).exists():
-            raise NfeDebitError("Esta previa ja possui uma emissao fiscal ativa ou concluida.")
+            raise NfeDebitError("Esta prévia já possui uma emissão fiscal ativa ou concluída.")
         payload = _build_debit_payload(preview=locked_preview, request=request)
         source_document = locked_preview.basis.source_document
         assert source_document is not None
@@ -260,7 +260,7 @@ def create_and_emit_nfe_debit_type_four(*, preview: FiscalDebitProductPreview, w
         response = requests.post(_build_emission_url(), json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
-        message = "Timeout ao emitir NF-e de debito; estado remoto incerto."
+        message = "Timeout ao emitir NF-e de débito; estado remoto incerto."
         logger.warning("nfe_debit_timeout", extra={"fiscal_document_id": document.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.UNCERTAIN
@@ -269,7 +269,7 @@ def create_and_emit_nfe_debit_type_four(*, preview: FiscalDebitProductPreview, w
         document.save(update_fields=["status", "remote_status", "response_payload", "atualizado_em"])
         raise NfeDebitError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao emitir NF-e de debito", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao emitir NF-e de débito", scope="nfe")
         mark_attempt_failed(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.REPROVED
         document.response_payload = {"error": message}
@@ -278,14 +278,14 @@ def create_and_emit_nfe_debit_type_four(*, preview: FiscalDebitProductPreview, w
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir NF-e de debito; estado remoto incerto."
+        message = "Resposta inválida ao emitir NF-e de débito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.UNCERTAIN
         document.remote_status = FiscalEmissionAttemptStatus.UNCERTAIN
         document.save(update_fields=["status", "remote_status", "atualizado_em"])
         raise NfeDebitError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir NF-e de debito; estado remoto incerto."
+        message = "Resposta inválida ao emitir NF-e de débito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.UNCERTAIN
         document.remote_status = FiscalEmissionAttemptStatus.UNCERTAIN
@@ -293,7 +293,7 @@ def create_and_emit_nfe_debit_type_four(*, preview: FiscalDebitProductPreview, w
         raise NfeDebitError(message)
     document = apply_nfe_debit_document_payload(document=document, response_payload=response_payload)
     if _is_failed_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "NF-e de debito rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "NF-e de débito rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeDebitError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
@@ -306,16 +306,16 @@ def consult_nfe_debit_document(*, document: FiscalDocument) -> dict[str, Any]:
         attempt = document.emission_attempts.exclude(remote_uuid="").order_by("-pk").first()
         identifier = str(attempt.remote_uuid if attempt else "").strip()
     if not identifier:
-        raise NfeDebitError("Nao foi possivel consultar a NF-e de debito sem UUID ou chave.")
+        raise NfeDebitError("Não foi possível consultar a NF-e de débito sem UUID ou chave.")
     params = {"uuid": identifier} if len(identifier) != 44 else {"chave": identifier}
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
         payload = response.json()
     except (requests.RequestException, ValueError) as exc:
-        raise NfeDebitError("Falha ao consultar NF-e de debito na Webmania.") from exc
+        raise NfeDebitError("Falha ao consultar NF-e de débito.") from exc
     if not isinstance(payload, dict):
-        raise NfeDebitError("Resposta invalida da consulta da NF-e de debito.")
+        raise NfeDebitError("Resposta inválida da consulta da NF-e de débito.")
     return payload
 
 

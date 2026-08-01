@@ -80,20 +80,20 @@ def is_nfe_debit_eligible_for_cancellation(document: FiscalDocument | None) -> b
 
 def _assert_eligible(*, document: FiscalDocument) -> None:
     if document.document_type != FiscalDocumentType.NFE or document.origin != FiscalDocumentOrigin.DERIVED or document.purpose != FiscalDocumentPurpose.DEBIT or document.fiscal_purpose_type != "4":
-        raise NfeDebitCancellationError("Cancelamento permitido somente para NF-e de debito tipo 4 emitida pelo Hunter.")
+        raise NfeDebitCancellationError("Cancelamento permitido somente para NF-e de débito tipo 4 emitida pelo Hunter.")
     if not is_nfe_debit_emission_enabled(workshop=document.workshop):
-        raise NfeDebitCancellationError("A emissao de NF-e de debito esta desabilitada para esta oficina.")
+        raise NfeDebitCancellationError("A emissão de NF-e de débito esta desabilitada para esta oficina.")
     if document.status == FiscalDocumentStatus.CANCELED:
-        raise NfeDebitCancellationError("Esta NF-e de debito ja esta cancelada.")
+        raise NfeDebitCancellationError("Esta NF-e de débito já esta cancelada.")
     if document.status == FiscalDocumentStatus.UNCERTAIN:
-        raise NfeDebitCancellationError("NF-e de debito em estado incerto deve ser reconciliada antes do cancelamento.")
+        raise NfeDebitCancellationError("NF-e de débito em estado incerto deve ser reconciliada antes do cancelamento.")
     if document.status != FiscalDocumentStatus.APPROVED:
-        raise NfeDebitCancellationError("Cancelamento permitido somente para NF-e de debito autorizada.")
+        raise NfeDebitCancellationError("Cancelamento permitido somente para NF-e de débito autorizada.")
     if not str(document.access_key or "").strip() and not str(document.remote_uuid or "").strip():
-        raise NfeDebitCancellationError("Nao foi possivel cancelar NF-e de debito sem chave ou UUID.")
+        raise NfeDebitCancellationError("Não foi possível cancelar NF-e de débito sem chave ou UUID.")
     active_statuses = [FiscalDocumentEventStatus.STARTED, FiscalDocumentEventStatus.SENT, FiscalDocumentEventStatus.PROCESSING, FiscalDocumentEventStatus.UNCERTAIN]
     if document.events.filter(event_type=FiscalDocumentEventType.CANCELLATION, status__in=active_statuses).exists():
-        raise NfeDebitCancellationError("Ja existe cancelamento da NF-e de debito em processamento ou estado incerto.")
+        raise NfeDebitCancellationError("Já existe cancelamento da NF-e de débito em processamento ou estado incerto.")
 
 
 def _build_payload(*, document: FiscalDocument, reason: str) -> dict[str, str]:
@@ -112,7 +112,7 @@ def _idempotency_key(*, workshop_id: int, document_id: int, event_id: int) -> st
 
 def create_debit_cancellation_event_attempt(*, document: FiscalDocument, reason: str, requested_by: Any | None, legal_confirmation: bool) -> tuple[FiscalDocumentEvent, FiscalEmissionAttempt, dict[str, str]]:
     if not legal_confirmation:
-        raise NfeDebitCancellationError("Confirme explicitamente o cancelamento da NF-e de debito.")
+        raise NfeDebitCancellationError("Confirme explicitamente o cancelamento da NF-e de débito.")
     normalized_reason = validate_debit_cancellation_reason(reason)
     with transaction.atomic():
         locked = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=document.pk, workshop=document.workshop)
@@ -192,13 +192,13 @@ def cancel_nfe_debit_document(*, document: FiscalDocument, reason: str, requeste
         response = requests.put(_build_cancel_url(), json=payload, headers=_build_headers(workshop=event.document.workshop), timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
-        message = "Timeout ao cancelar NF-e de debito; estado remoto incerto."
+        message = "Timeout ao cancelar NF-e de débito; estado remoto incerto."
         logger.warning("nfe_debit_cancellation_timeout", extra={"fiscal_document_event_id": event.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(event=event, message=message)
         raise NfeDebitCancellationError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar NF-e de debito", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar NF-e de débito", scope="nfe")
         mark_attempt_failed(attempt=attempt, error_message=message)
         event.status = FiscalDocumentEventStatus.FAILED
         event.response_payload = sanitize_fiscal_payload({"error": message})
@@ -207,22 +207,22 @@ def cancel_nfe_debit_document(*, document: FiscalDocument, reason: str, requeste
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida ao cancelar NF-e de debito; estado remoto incerto."
+        message = "Resposta inválida ao cancelar NF-e de débito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(event=event, message=message)
         raise NfeDebitCancellationError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida ao cancelar NF-e de debito; estado remoto incerto."
+        message = "Resposta inválida ao cancelar NF-e de débito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_uncertain(event=event, message=message)
         raise NfeDebitCancellationError(message)
     event = apply_debit_cancellation_payload(event=event, response_payload=response_payload)
     if _failed(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento da NF-e de debito rejeitado."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento da NF-e de débito rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeDebitCancellationError(message)
     if event.status != FiscalDocumentEventStatus.SUCCEEDED:
-        message = "Cancelamento da NF-e de debito sem confirmacao remota; estado incerto."
+        message = "Cancelamento da NF-e de débito sem confirmação remota; estado incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         attempt.response_payload = sanitize_fiscal_payload(response_payload)
         attempt.save(update_fields=["response_payload", "atualizado_em"])
@@ -270,14 +270,14 @@ def reconcile_nfe_debit_cancellation(*, event: FiscalDocumentEvent) -> FiscalDoc
     document = event.document
     identifier = str(document.remote_uuid or document.access_key or "").strip()
     if not identifier:
-        raise NfeDebitCancellationError("Nao foi possivel consultar cancelamento sem chave ou UUID.")
+        raise NfeDebitCancellationError("Não foi possível consultar cancelamento sem chave ou UUID.")
     params = {"uuid": identifier} if len(identifier) != 44 else {"chave": identifier}
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
         payload = response.json()
     except (requests.RequestException, ValueError) as exc:
-        raise NfeDebitCancellationError("Falha ao consultar cancelamento da NF-e de debito.") from exc
+        raise NfeDebitCancellationError("Falha ao consultar cancelamento da NF-e de débito.") from exc
     if not isinstance(payload, dict):
-        raise NfeDebitCancellationError("Resposta invalida da consulta da NF-e de debito.")
+        raise NfeDebitCancellationError("Resposta inválida da consulta da NF-e de débito.")
     return apply_debit_cancellation_payload(event=event, response_payload=payload)

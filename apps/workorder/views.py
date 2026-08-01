@@ -177,7 +177,7 @@ WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.REJECTED: "badge-error min-w-sm",
     WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
 }
-WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico Filtradas"
+WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatório de Ordens de Serviço Filtradas"
 KIT_COMPATIBILITY_BADGE_CLASSES = {
     "compatible": "badge-success",
     "partially_compatible": "badge-accent",
@@ -192,7 +192,7 @@ KIT_COMPATIBILITY_SORT_ORDER = {
     "no_applications": 3,
     "incompatible": 4,
 }
-WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico Filtradas"
+WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatório de Ordens de Serviço Filtradas"
 
 
 def _parse_report_date_param(raw_value: str | None) -> date | None:
@@ -212,8 +212,8 @@ def _build_period_label(*, start_date: date | None, end_date: date | None) -> st
     if start_date:
         return f"A partir de {start_date.strftime('%d/%m/%Y')}"
     if end_date:
-        return f"Ate {end_date.strftime('%d/%m/%Y')}"
-    return "Todo o periodo"
+        return f"Até {end_date.strftime('%d/%m/%Y')}"
+    return "Todo o período"
 
 
 def _build_workorder_payment_status_map(*, workorder: WorkOrder) -> dict[int, dict[str, str]]:
@@ -402,7 +402,7 @@ class WorkOrderStatusReportDataMixin:
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
             TableColumn("Tipo", attr="type_badge", searchable=False, format="status_badge"),
-            TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
+            TableColumn("Valor total", attr="stored_total_amount", searchable=False),
             TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
         ]
 
@@ -475,11 +475,11 @@ class WorkOrderStatusReportDataMixin:
 
         raw_vehicle = str(self.request.GET.get("vehicle") or "").strip()
         if raw_vehicle:
-            filter_labels.append(f"Veiculo: {raw_vehicle}")
+            filter_labels.append(f"Veículo: {raw_vehicle}")
 
         period_label = self._get_status_report_period_label()
-        if period_label != "Todo o periodo":
-            filter_labels.append(f"Periodo: {period_label}")
+        if period_label != "Todo o período":
+            filter_labels.append(f"Período: {period_label}")
 
         return " | ".join(filter_labels)
 
@@ -504,7 +504,7 @@ class WorkOrderStatusReportDataMixin:
     def _build_status_report_pdf_context(self) -> dict[str, object]:
         selection_report = self._get_selection_report()
         if selection_report is None:
-            raise Http404("Status de ordem de servico invalido")
+            raise Http404("Status de ordem de serviço inválido")
 
         return {
             "workshop": self.workshop,
@@ -703,7 +703,7 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
             workorder.refresh_from_db()
         except (ValueError, TypeError, InvalidOperation):
             logger.warning("workorder_discount_invalid_value", extra={"workorder_id": pk, "raw_discount": request.POST.get("discount_value_0"), "raw_discount_percentage": request.POST.get("discount_percentage"), "raw_discount_type": request.POST.get("discount_type")})
-            return JsonResponse({"ok": False, "error": "Valor de desconto invalido."}, status=400)
+            return JsonResponse({"ok": False, "error": "Valor de desconto inválido."}, status=400)
 
         return JsonResponse(
             {
@@ -789,12 +789,12 @@ class WorkOrderItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, T
         workorder = _get_workorder_for_workshop(self.workshop, pk)
 
         map_config = {
-            "product": (Product, "Selecionar Produto", "products"),
-            "service": (Service, "Selecionar Serviço", "services"),
-            "kit": (Kit, "Selecionar Kit", "kits"),
+            "product": (Product, "Selecionar produto", "products"),
+            "service": (Service, "Selecionar serviço", "services"),
+            "kit": (Kit, "Selecionar kit", "kits"),
         }
 
-        model_class, title, active_tab = map_config.get(item_type, (Product, "Selecionar Item", "products"))
+        model_class, title, active_tab = map_config.get(item_type, (Product, "Selecionar item", "products"))
         queryset = model_class.objects.filter(workshop=self.workshop, is_active=True)
         if item_type == "kit":
             queryset = queryset.prefetch_related("applications")
@@ -1335,9 +1335,20 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)
 
+                workorder.refresh_from_db()
+                if workorder.status != WorkOrderStatus.APPROVED:
+                    logger.warning(
+                        "workorder_delivery_status_not_updated",
+                        extra={"workorder_id": workorder.pk, "status": workorder.status},
+                    )
+                    response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+                    response["HX-Trigger"] = json.dumps(
+                        {"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}}
+                    )
+                    return response
+
                 from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
 
-                workorder.refresh_from_db()
                 handle_workorder_delivery_oil_and_mileage(workorder=workorder)
 
                 from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder

@@ -25,11 +25,11 @@
             <div class="mt-1 flex items-start justify-between gap-4">
                 <div>
                     <h1 class="text-[20px] font-bold uppercase">Movimentação Financeira</h1>
-                    <p class="mt-1 text-[12px] font-semibold">{{ workshop.name }}</p>
+                    <p class="mt-1 text-[12px] font-semibold">{{ workshop.pdf_name }}</p>
                     <p class="mt-1 text-gray-600">Gerado em {{ generated_at|date:"d/m/Y H:i" }}</p>
                 </div>
                 <div class="w-[230px] text-right text-[11px] text-gray-700">
-                    <p class="font-bold">{{ workshop.name }}</p>
+                    <p class="font-bold">{{ workshop.pdf_name }}</p>
                     <p>CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
                     <p>Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
                     <p>Endereço: {{ workshop.address|default:"-" }}</p>

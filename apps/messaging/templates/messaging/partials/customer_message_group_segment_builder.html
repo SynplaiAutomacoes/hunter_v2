@@ -46,7 +46,7 @@
                         :class="{ 'border-primary/60 bg-primary/10 text-primary': activePreset === 'workorder_in_progress' }"
                         @click="addPreset('workorder_in_progress')"
                     >
-                        OS em andamento
+                        O.S. em andamento
                     </button>
                 </div>
             </div>
@@ -105,7 +105,7 @@
                             <div x-show="rule.rule_type === 'budget_status'" class="flex items-center gap-1.5">
                                 <select x-model="rule.value" class="input-theme w-48">
                                     <option value="draft">Em Aberto</option>
-                                    <option value="waiting_client">Aguardando Relato</option>
+                                    <option value="waiting_client">Aguardando Relato do Cliente</option>
                                     <option value="waiting_diagnosis">Aguardando Diagnóstico</option>
                                     <option value="waiting_items">Aguardando Itens</option>
                                     <option value="waiting_pricing">Aguardando Precificação</option>
@@ -120,7 +120,7 @@
                             <div x-show="rule.rule_type === 'workorder_status'" class="flex items-center gap-1.5">
                                 <select x-model="rule.value" class="input-theme w-40">
                                     <option value="draft">Em andamento</option>
-                                    <option value="approved">Veículo Entregue</option>
+                                    <option value="approved">Veículo entregue</option>
                                     <option value="rejected">Reprovado</option>
                                     <option value="cancelled">Cancelado</option>
                                 </select>

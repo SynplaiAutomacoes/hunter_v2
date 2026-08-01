@@ -12,7 +12,7 @@ def map_batch_payload(payload: dict) -> dict:
     try:
         rps_quantity = int(raw_quantity)
     except (ValueError, TypeError):
-        logger.warning("Valor invalido para quantidade_rps no payload de lote", extra={"quantidade_rps": raw_quantity})
+        logger.warning("Valor inválido para quantidade_rps no payload de lote", extra={"quantidade_rps": raw_quantity})
         rps_quantity = 0
 
     log_payload = payload.get("log")

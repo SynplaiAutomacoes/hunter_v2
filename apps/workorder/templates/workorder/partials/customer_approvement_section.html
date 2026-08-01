@@ -4,20 +4,20 @@
     {% if workorder.status == 'cancelled' and workorder.cancellation_reason %}
     <div class="alert alert-error shadow-sm mb-6 bg-opacity-20 border-error">
         <div class="flex flex-col gap-1 text-error">
-            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo do Cancelamento</span>
+            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo do cancelamento</span>
             <span class="text-lg text-gray-900">{{ workorder.cancellation_reason }}</span>
         </div>
     </div>
     {% elif workorder.status == 'rejected' and workorder.rejection_reason %}
     <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
         <div class="flex flex-col gap-1 text-warning">
-            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo da Reprovação</span>
+            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo da reprovação</span>
             <span class="text-lg text-gray-900 ">{{ workorder.rejection_reason }}</span>
         </div>
     </div>
     {% endif %}
 
-    <h3 class="font-bold text-2xl pb-2 mb-4">Entrega do Veículo e Encerramento da O.S.</h3>
+    <h3 class="font-bold text-2xl pb-2 mb-4">Entrega do veículo e encerramento da O.S.</h3>
 
     <div class="mt-2 pb-4">
         <h4 class="font-bold text-xl mb-3">KM de entrega e plano de revisão</h4>
@@ -104,7 +104,7 @@
                                 signatureBlockedReason: gate.signatureBlockersDisplay || '',
                                 kmBlocked: !kmValid,
                                 kmBlockedReason: !hasKm
-                                    ? 'É necessário inserir o Km Final para desbloquear o botão'
+                                    ? 'É necessário inserir o KM final para desbloquear o botão'
                                     : (!kmValid ? (el.validationMessage || 'KM final inválido') : ''),
                                 showPdfVariantToggle: {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %},
                                 pdfVariant: '',
@@ -137,7 +137,7 @@
     </div>
 
     <div class="mt-6 pt-4 border-t border-base-300">
-        <h4 class="font-bold text-xl mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
+        <h4 class="font-bold text-xl mb-2 border-b">Atualizar status da ordem de serviço</h4>
 
         <div class="flex flex-wrap gap-3">
             <button type="button" class="btn btn-error" onclick="cancelWorkOrderModal.showModal()" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Cancelar</button>
@@ -145,7 +145,7 @@
             <span
                 id="workorder-delivery-button-tooltip"
                 class="inline-flex {% if workorder.is_status_locked or workorder.has_completion_blockers or workorder.km_final is None %}tooltip tooltip-top{% endif %}"
-                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif workorder.km_final is None %}data-tip="É necessário inserir o Km Final para desbloquear o botão" title="É necessário inserir o Km Final para desbloquear o botão" tabindex="0"{% elif workorder.has_completion_blockers %}data-tip="{{ workorder.completion_blockers_display }}" title="{{ workorder.completion_blockers_display }}" tabindex="0"{% endif %}
+                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif workorder.km_final is None %}data-tip="É necessário inserir o KM final para desbloquear o botão" title="É necessário inserir o KM final para desbloquear o botão" tabindex="0"{% elif workorder.has_completion_blockers %}data-tip="{{ workorder.completion_blockers_display }}" title="{{ workorder.completion_blockers_display }}" tabindex="0"{% endif %}
             >
                 <button
                     type="button"
@@ -155,7 +155,7 @@
                     data-has-completion-blockers="{% if workorder.has_completion_blockers %}true{% else %}false{% endif %}"
                     data-completion-blockers-display="{{ workorder.completion_blockers_display }}"
                     {% if workorder.is_status_locked or workorder.has_completion_blockers or workorder.km_final is None %}disabled{% endif %}
-                    {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif workorder.km_final is None %}title="É necessário inserir o Km Final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
+                    {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif workorder.km_final is None %}title="É necessário inserir o KM final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
                 >
                     Entregar veículo
                 </button>
@@ -170,7 +170,7 @@
 
         {% if workorder_history %}
         <div class="mt-4 rounded-xl border border-base-300 bg-base-200/40 p-4">
-            <h5 class="text-lg font-semibold text-base-content">Histórico da OS</h5>
+            <h5 class="text-lg font-semibold text-base-content">Histórico da O.S.</h5>
             <div class="mt-3 space-y-3">
                 {% for history_entry in workorder_history %}
                     <div class="rounded-lg border border-base-300 bg-base-100 p-3">
@@ -184,7 +184,7 @@
 
         <dialog id="cancelWorkOrderModal" class="modal">
             <div class="modal-box">
-                <h3 class="font-bold text-lg text-error">Cancelar Ordem de Serviço</h3>
+                <h3 class="font-bold text-lg text-error">Cancelar ordem de serviço</h3>
                 <p class="py-4 text-base-content/70">Informe a justificativa do cancelamento antes de concluir esta ação. Esta ação é irreversível.</p>
                 <form
                     id="cancel-workorder-form"
@@ -206,7 +206,7 @@
 
         <dialog id="rejectWorkOrderModal" class="modal">
             <div class="modal-box">
-                <h3 class="font-bold text-lg text-warning">Reprovar Ordem de Serviço</h3>
+                <h3 class="font-bold text-lg text-warning">Reprovar ordem de serviço</h3>
                 <p class="py-4 text-base-content/70">Informe a justificativa da reprovação antes de concluir esta ação.</p>
                 <form
                     id="reject-workorder-form"
@@ -239,7 +239,7 @@
             {% csrf_token %}
             <div class="space-y-1 text-sm text-base-content/80">
                 <p class="font-semibold text-base-content">Reabrir O.S.</p>
-                <p>Ao reabrir, o sistema vai estornar os movimentos financeiros e de estoque vinculados a esta entrega e voltar a O.S. para rascunho.</p>
+                <p>Ao reabrir, o sistema vai estornar os movimentos financeiros e de estoque vinculados a esta entrega e voltar a O.S. para o status Aprovado.</p>
             </div>
             {% crispy reopen_form %}
             <div class="flex flex-wrap gap-3" data-allow-locked="1">
@@ -339,7 +339,7 @@
         let saveTimeout = null;
         let requestController = null;
         let lastSavedValue = kmInput.value;
-        const kmFinalUnlockTooltip = 'É necessário inserir o Km Final para desbloquear o botão';
+        const kmFinalUnlockTooltip = 'É necessário inserir o KM final para desbloquear o botão';
 
         const setDeliveryButtonTooltip = (button, message) => {
             if (message) {
@@ -437,7 +437,7 @@
                     if (data) {
                         data.kb = !kmFinalIsValid;
                         data.kbr = !hasKmFinal
-                            ? 'É necessário inserir o Km Final para desbloquear o botão'
+                            ? 'É necessário inserir o KM final para desbloquear o botão'
                             : (!kmInput.checkValidity() ? (kmInput.validationMessage || 'KM final inválido') : '');
                     }
                 }
@@ -457,7 +457,7 @@
                 if (data) {
                     data.kb = !kmFinalIsValid;
                     data.kbr = !hasKmFinal
-                        ? 'É necessário inserir o Km Final para desbloquear o botão'
+                        ? 'É necessário inserir o KM final para desbloquear o botão'
                         : (!kmInput.checkValidity() ? (kmInput.validationMessage || 'KM final inválido') : '');
                 }
             }
@@ -498,7 +498,7 @@
                 const payload = await response.json();
 
                 if (!response.ok || !payload.ok) {
-                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Nao foi possivel salvar o KM final.';
+                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Não foi possível salvar o KM final.';
                     kmInput.setCustomValidity(errorMessage);
                     window.updateWorkorderDeliveryButtonState();
                     setStatus(errorMessage, 'error');
@@ -520,7 +520,7 @@
                     detail: {
                         kmBlocked: !lastSavedValue || !kmInput.checkValidity(),
                         kmBlockedReason: !lastSavedValue
-                            ? 'É necessário inserir o Km Final para desbloquear o botão'
+                            ? 'É necessário inserir o KM final para desbloquear o botão'
                             : (!kmInput.checkValidity() ? kmInput.validationMessage || 'KM final inválido' : ''),
                         signatureBlocked: Boolean(payload.has_signature_blockers),
                         signatureBlockedReason: payload.signature_blockers_display || '',
@@ -530,7 +530,7 @@
                 if (error.name === 'AbortError') {
                     return;
                 }
-                setStatus('Nao foi possivel salvar o KM final.', 'error');
+                setStatus('Não foi possível salvar o KM final.', 'error');
             }
         };
 

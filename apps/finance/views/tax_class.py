@@ -513,7 +513,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 payload = self._build_nfe_payload(form=nfe_form, formsets=nfe_formsets)
                 is_update = bool(str(payload.get("referencia") or "").strip())
                 if self._is_ibs_cbs_edit_attempt(form=nfe_form, editing_tax_class=editing_tax_class) and not self._can_manage_ibs_cbs_tax_classes():
-                    raise PermissionDenied("Permissao insuficiente para configurar IBS/CBS em classe fiscal NF-e.")
+                    raise PermissionDenied("Permissão insuficiente para configurar IBS/CBS em classe fiscal NF-e.")
 
                 try:
                     saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
@@ -660,14 +660,14 @@ class TaxClassListView(TaxClassManagerView):
                     synced_count,
                 )
                 if synced_count == 1:
-                    messages.success(request, "Sincronizacao concluida com sucesso. 1 classe de imposto atualizada.")
+                    messages.success(request, "Sincronização concluída com sucesso. 1 classe de imposto atualizada.")
                 else:
-                    messages.success(request, f"Sincronizacao concluida com sucesso. {synced_count} classes de imposto atualizadas.")
+                    messages.success(request, f"Sincronização concluída com sucesso. {synced_count} classes de imposto atualizadas.")
 
             return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
 
         if form_action != "delete":
-            messages.error(request, "Acao invalida para a listagem de classe de imposto.")
+            messages.error(request, "Acao inválida para a listagem de classe de imposto.")
             return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
 
         reference = str(request.POST.get("reference") or "").strip()
@@ -721,7 +721,7 @@ class TaxClassDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
             None,
         )
         if tax_class is None:
-            messages.error(request, "Classe de imposto nao encontrada para exclusao.")
+            messages.error(request, "Classe de imposto não encontrada para exclusao.")
             return redirect(self._list_redirect_url(tab=self._normalize_tab(request.GET.get("tab"))))
 
         description = str(tax_class.get("descricao") or "").strip()
@@ -796,7 +796,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
         tax_classes = self._load_tax_classes()
         edit_reference, editing_tax_class = self._resolve_target(tax_classes)
         if self.is_update and editing_tax_class is None:
-            messages.error(request, "Classe de imposto nao encontrada para edicao.")
+            messages.error(request, "Classe de imposto não encontrada para edicao.")
             return redirect(f"{reverse('finance:tax_class_list')}?tab={self._normalize_tab(request.GET.get('tab'))}")
 
         active_tab = self._normalize_tab(request.GET.get("tab"))
@@ -828,7 +828,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
         tax_classes = self._load_tax_classes()
         edit_reference, editing_tax_class = self._resolve_target(tax_classes)
         if self.is_update and editing_tax_class is None:
-            messages.error(request, "Classe de imposto nao encontrada para edicao.")
+            messages.error(request, "Classe de imposto não encontrada para edicao.")
             return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
 
         if self.is_update and editing_tax_class is not None:
@@ -1001,17 +1001,17 @@ class TaxClassPresetListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
         form_action = str(request.POST.get("form_action") or "").strip().lower()
         active_tab = TaxClassManagerView._normalize_tab(request.POST.get("tab") or request.GET.get("tab"))
         if form_action != "delete":
-            messages.error(request, "Acao invalida para a listagem de presets fiscais.")
+            messages.error(request, "Acao inválida para a listagem de presets fiscais.")
             return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
 
         preset_id = str(request.POST.get("preset_id") or "").strip()
         if not preset_id.isdigit():
-            messages.error(request, "Informe um preset valido para excluir.")
+            messages.error(request, "Informe um preset válido para excluir.")
             return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
 
         preset = TaxClassPreset.objects.filter(workshop=self.workshop, pk=int(preset_id)).first()
         if preset is None:
-            messages.error(request, "Preset fiscal nao encontrado.")
+            messages.error(request, "Preset fiscal não encontrado.")
             return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
 
         active_tab = TaxClassManagerView._normalize_tab(preset.kind)
@@ -1108,7 +1108,7 @@ class TaxClassPresetFormBaseView(TaxClassManagerView):
             queryset = queryset.exclude(pk=preset.pk)
 
         if queryset.exists():
-            meta_form.add_error("name", "Ja existe um preset com este nome para este tipo de nota nesta oficina.")
+            meta_form.add_error("name", "Já existe um preset com este nome para este tipo de nota nesta oficina.")
             return False
 
         return True
@@ -1124,7 +1124,7 @@ class TaxClassPresetFormBaseView(TaxClassManagerView):
     def get(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
         preset = self._resolve_preset()
         if self.is_update and preset is None:
-            messages.error(request, "Preset fiscal nao encontrado para edicao.")
+            messages.error(request, "Preset fiscal não encontrado para edicao.")
             return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={self._normalize_tab(request.GET.get('tab'))}")
 
         active_tab = self._normalize_tab(request.GET.get("tab") or getattr(preset, "kind", self.TAB_NFE))
@@ -1137,7 +1137,7 @@ class TaxClassPresetFormBaseView(TaxClassManagerView):
         preset = self._resolve_preset()
         active_tab = self._normalize_tab(request.POST.get("tab") or getattr(preset, "kind", self.TAB_NFE))
         if self.is_update and preset is None:
-            messages.error(request, "Preset fiscal nao encontrado para edicao.")
+            messages.error(request, "Preset fiscal não encontrado para edicao.")
             return redirect(f"{reverse('finance:tax_class_preset_list')}?tab={active_tab}")
 
         if preset is not None:

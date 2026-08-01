@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+import re
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -19,9 +21,15 @@ def is_webmania_homolog_environment() -> bool:
 def to_public_integration_message(raw_message: object) -> str:
     normalized_message = str(raw_message or "").strip()
     if not normalized_message:
-        return "Nao foi possivel concluir a operacao de integracao."
+        return "Não foi possível concluir a operação."
 
-    return normalized_message.replace("WEBMANIA", "integracao").replace("Webmania", "integracao").replace("webmania", "integracao")
+    for token in ("WEBMANIA", "Webmania", "webmania", "integração", "integraçao", "integracao"):
+        normalized_message = normalized_message.replace(token, "")
+
+    normalized_message = re.sub(r"\s{2,}", " ", normalized_message).strip(" ,.;:-")
+    if not normalized_message:
+        return "Não foi possível concluir a operação."
+    return normalized_message
 
 
 def latest_sync_error(companies: list[WebmaniaCompany]) -> str:
@@ -96,7 +104,7 @@ def sync_workshop_from_company(workshop, company, sync_name=False, sync_address=
     """Sincroniza dados da WebmaniaCompany de volta para o modelo Workshop."""
     update_fields = []
     if sync_name:
-        name = str(company.razao_social or company.nome_completo or "").strip()
+        name = str(company.nome_fantasia or company.razao_social or company.nome_completo or "").strip()
         if name and workshop.name != name:
             workshop.name = name
             update_fields.append("name")

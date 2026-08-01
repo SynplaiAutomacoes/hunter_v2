@@ -17,7 +17,7 @@ def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool
 
 
 BUDGET_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Orçamento", "view_name": "budget:budget_create"}
-CREATE_CLIENT_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar Cliente", "view_name": "customer:customer_create"}
+CREATE_CLIENT_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar cliente", "view_name": "customer:customer_create"}
 COLLABORATOR_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar colaborador", "view_name": "collaborators:collaborator_create"}
 SUPPLIER_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar fornecedor", "view_name": "suppliers:supplier_create"}
 PRODUCT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Produto", "view_name": "catalog:product_create"}
@@ -25,21 +25,21 @@ SERVICE_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Serviço", "view_
 KIT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Kit", "view_name": "catalog:kits_create"}
 CATALOG_GROUP_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar grupo", "view_name": "catalog:group_create"}
 CHECKLIST_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Checklist", "view_name": "checklist:checklist_create"}
-APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}}
-STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Importação", "view_name": "stock:import"}
+APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}}
+STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova importação", "view_name": "stock:import"}
 FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movimentação Financeira", "view_name": "finance:financial_movement_create"}
 
 
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {"label": "Orçamentos", "view_name": "budget:budget_list", "favoritable": False},
-    {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False},
+    {"label": "Ordens de serviço", "view_name": "workorder:workorder_list", "favoritable": False},
     {"label": "Agendamentos", "view_name": "scheduling:appointment_calendar", "favoritable": False},
     {
         "label": "Estoque",
         "items": (
-            {"label": "Consulta no Estoque", "view_name": "stock:stock_inquiry"},
-            {"label": "Exportar Itens", "view_name": "stock:transfer"},
-            {"label": "Importar Itens", "view_name": "stock:stock_list"},
+            {"label": "Consulta no estoque", "view_name": "stock:stock_inquiry"},
+            {"label": "Transferência", "view_name": "stock:transfer"},
+            {"label": "Importar itens", "view_name": "stock:stock_list"},
             {"label": "Aprovação", "view_name": "stock:approvals"},
             {"label": "Reabastecimento", "view_name": "stock:replenishment"},
             {"label": "Relatório", "view_name": "stock:report"},
@@ -76,17 +76,17 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Kit", "view_name": "catalog:kits_list"},
             {"label": "Grupo", "view_name": "catalog:group_list"},
             {"label": "Checklist", "view_name": "checklist:checklist_list"},
-            {"label": "Planos de Revisão", "view_name": "workshops:review_plan_list"},
+            {"label": "Planos de revisão", "view_name": "workshops:review_plan_list"},
         ),
     },
     {
         "label": "Gestão",
         "items": (
-            {"label": "Gerenciar Oficinas", "view_name": "workshops:list"},
+            {"label": "Gerenciar oficinas", "view_name": "workshops:list"},
             {"label": "Gerenciar Permissões", "view_name": "iam:role_list"},
-            {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
-            {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
-            {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
+            {"label": "Histórico de emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
+            {"label": "Custo mensal da oficina", "view_name": "workshops:workshop_cost_list"},
+            {"label": "Perguntas investigativas", "view_name": "quote:investigative_question_list"},
             {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list"},
         ),
     },

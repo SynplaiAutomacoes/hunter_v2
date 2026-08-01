@@ -52,7 +52,7 @@ class Command(BaseCommand):
                 with transaction.atomic():
                     workshop = stock_import.workshop
                     resolved_nf_number = stock_import.nf_number_display or "S/N"
-                    source_name = stock_import.supplier_name or "Fornecedor da Importação"
+                    source_name = stock_import.supplier_name or "Fornecedor da importação"
                     source_cnpj = stock_import.supplier_cnpj or ""
                     source, _ = Source.objects.get_or_create(workshop=workshop, name=source_name, defaults={"cnpj": source_cnpj})
 
