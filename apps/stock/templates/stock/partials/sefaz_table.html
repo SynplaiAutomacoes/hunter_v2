@@ -17,16 +17,16 @@
     <div class="text-xs opacity-70 mb-3 flex justify-between items-center">
         <div>
             {% if form.workshop.last_sefaz_search_date %}
-                Ultima sincronizacao: <strong>{{ form.workshop.last_sefaz_search_date|date:"d/m/Y H:i" }}</strong>
+                Última sincronização: <strong>{{ form.workshop.last_sefaz_search_date|date:"d/m/Y H:i" }}</strong>
             {% else %}
-                Nenhuma sincronizacao executada ainda.
+                Nenhuma sincronização executada ainda.
             {% endif %}
             {% if not form.workshop.can_search_sefaz %}
                 <span class="ml-2 text-warning">(Aguarde para nova consulta)</span>
             {% endif %}
         </div>
         <div>
-            Exibindo <strong>{{ form.notas.object_list|length }}</strong> notas nesta pagina
+            Exibindo <strong>{{ form.notas.object_list|length }}</strong> notas nesta página
         </div>
     </div>
 
@@ -70,7 +70,7 @@
                             Selecionar
                         </button>
                         {% else %}
-                        <button class="btn btn-disabled btn-xs px-4" title="Esta nota ja foi importada no estoque">Vincular</button>
+                        <button class="btn btn-disabled btn-xs px-4" title="Esta nota já foi importada no estoque">Vincular</button>
                         {% endif %}
                     </td>
                 </tr>

@@ -26,7 +26,7 @@ KIT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Kit", "view_name": "c
 CATALOG_GROUP_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar grupo", "view_name": "catalog:group_create"}
 CHECKLIST_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Checklist", "view_name": "checklist:checklist_create"}
 APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}}
-STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Importação", "view_name": "stock:import"}
+STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova importação", "view_name": "stock:import"}
 FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movimentação Financeira", "view_name": "finance:financial_movement_create"}
 
 
@@ -37,9 +37,9 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
         "label": "Estoque",
         "items": (
-            {"label": "Consulta no Estoque", "view_name": "stock:stock_inquiry"},
-            {"label": "Exportar Itens", "view_name": "stock:transfer"},
-            {"label": "Importar Itens", "view_name": "stock:stock_list"},
+            {"label": "Consulta no estoque", "view_name": "stock:stock_inquiry"},
+            {"label": "Transferência", "view_name": "stock:transfer"},
+            {"label": "Importar itens", "view_name": "stock:stock_list"},
             {"label": "Aprovação", "view_name": "stock:approvals"},
             {"label": "Reabastecimento", "view_name": "stock:replenishment"},
             {"label": "Relatório", "view_name": "stock:report"},
