@@ -24,7 +24,7 @@ class Service(TimeStampedModel):
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, null=True, blank=True)
 
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
-    last_used_price = MoneyField(verbose_name="Ultimo Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)
+    last_used_price = MoneyField(verbose_name="Último Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)
 
     is_third_party = models.BooleanField(verbose_name="Serviço de Terceiro", default=False)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
