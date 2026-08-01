@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="mx-auto max-w-4xl space-y-5 p-4">
+    <div>
+        <h1 class="text-2xl font-bold">Preparar base fiscal referenciada</h1>
+        <p class="text-sm text-base-content/70">Selecione uma NF-e local autorizada, o sequencial fiscal e informe a composicao monetaria do item.</p>
+    </div>
+    <div class="alert alert-warning">Esta operacao apenas prepara dados. Nenhuma NF-e de credito/debito sera emitida. Os valores financeiros sao evidencias por item e nao sao inferidos automaticamente.</div>
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+        {{ form|crispy }}
+        <div class="flex justify-end gap-2">
+            <a class="btn btn-ghost" href="{% url 'finance:fiscal_referenced_basis_list' %}">Cancelar</a>
+            <button class="btn btn-primary" type="submit">Preparar base</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

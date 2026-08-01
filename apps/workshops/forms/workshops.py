@@ -13,7 +13,6 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 from apps.core.infrastructure.providers import get_fiscal_service
-from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.presentation.widgets import (
     CEPInput,
     CheckboxInput,
@@ -354,6 +353,8 @@ class WorkshopAddressSectionForm(BaseWebmaniaCompanySectionForm):
 
 
 class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
+    secret_fields = ("nfce_id_csc", "nfce_codigo_csc", "nfce_id_csc_dev", "nfce_codigo_csc_dev")
+
     class Meta:
         model = WebmaniaCompany
         fields = [
@@ -361,6 +362,7 @@ class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
             "nfe_serie",
             "nfe_numero",
             "nfe_numero_dev",
+            "nfce_enabled",
             "nfce_serie",
             "nfce_numero",
             "nfce_id_csc",
@@ -383,13 +385,14 @@ class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
             "nfe_serie": NumberInput(),
             "nfe_numero": NumberInput(),
             "nfe_numero_dev": NumberInput(),
+            "nfce_enabled": CheckboxInput(),
             "nfce_serie": NumberInput(),
             "nfce_numero": NumberInput(),
-            "nfce_id_csc": TextInput(),
-            "nfce_codigo_csc": TextInput(),
+            "nfce_id_csc": PasswordInput(),
+            "nfce_codigo_csc": PasswordInput(),
             "nfce_numero_dev": NumberInput(),
-            "nfce_id_csc_dev": TextInput(),
-            "nfce_codigo_csc_dev": TextInput(),
+            "nfce_id_csc_dev": PasswordInput(),
+            "nfce_codigo_csc_dev": PasswordInput(),
             "nfse_rps_serie": TextInput(),
             "nfse_rps_numero": NumberInput(),
             "nfse_lote_rps_numero": NumberInput(),

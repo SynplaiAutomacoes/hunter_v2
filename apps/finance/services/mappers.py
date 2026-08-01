@@ -1,6 +1,7 @@
 import logging
 
 from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfse_batch_status, normalize_nfse_item_status
+from apps.finance.services.nfse_remote_updates import parse_nfse_remote_updated_at
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ def map_batch_payload(payload: dict) -> dict:
         "rps_quantity": rps_quantity,
         "protocol": payload.get("protocolo", ""),
         "log_payload": log_payload,
+        "remote_updated_at": parse_nfse_remote_updated_at(payload.get("atualizado_em") or payload.get("remote_updated_at")),
     }
 
 
@@ -52,6 +54,7 @@ def map_item_payload(payload: dict) -> dict:
         "pdf_nfse_status": normalize_nfse_batch_status(payload.get("pdf_nfse_status") or "processando"),
         "pdf_rps_url": payload.get("pdf_rps", ""),
         "log_payload": log_payload,
+        "remote_updated_at": parse_nfse_remote_updated_at(payload.get("atualizado_em") or payload.get("remote_updated_at")),
     }
 
 
@@ -60,3 +63,10 @@ def extract_items_from_batch(payload: dict) -> list[dict]:
     if not isinstance(items, list):
         return []
     return [map_item_payload(item) for item in items if isinstance(item, dict)]
+
+
+def extract_raw_items_from_batch(payload: dict) -> list[dict]:
+    items = payload.get("info_nfse", [])
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]

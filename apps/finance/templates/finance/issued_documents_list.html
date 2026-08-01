@@ -1,7 +1,7 @@
 {% extends 'crud/list_page.html' %}
 
-{% block crud_title %}Central de Notas Emitidas{% endblock %}
-{% block crud_subtitle %}Filtre Nota Fiscal de Produto e Nota Fiscal de Serviço por periodo, selecione as notas e baixe XMLs ou PDFs em arquivo ZIP.{% endblock %}
+{% block crud_title %}{% if fiscal_operation %}Selecionar NF-e para {{ fiscal_operation_label }}{% else %}Central de Notas{% endif %}{% endblock %}
+{% block crud_subtitle %}{% if fiscal_operation %}Escolha a NF-e de referência para {{ fiscal_operation_label }}. Depois revise os dados e conclua a operação.{% else %}Consulte documentos emitidos, acesse ações fiscais e baixe XMLs ou PDFs. Para criar um novo documento, use Emitir Nota.{% endif %}{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex w-full flex-col gap-3">
@@ -13,6 +13,7 @@
             {% if filter_state.selected_note_type != 'all' %}
                 <input type="hidden" name="tipo" value="{{ filter_state.selected_note_type }}" />
             {% endif %}
+            {% if fiscal_operation %}<input type="hidden" name="operacao" value="{{ fiscal_operation }}" />{% endif %}
             <div class="relative">
                 <div class="flex items-center gap-2 rounded-2xl border border-base-300 bg-base-100 p-3 shadow-sm transition-all duration-200 has-[input:focus]:border-primary has-[input:focus]:ring-2 has-[input:focus]:ring-primary/20">
                     <span class="material-icons text-base-content/40">search</span>
@@ -24,7 +25,7 @@
                         class="input border-0 bg-transparent px-0 focus:outline-none focus:ring-0 grow text-base"
                     />
                     {% if filter_state.search_raw %}
-                        <a href="{% url 'finance:issued_documents_list' %}{% if filter_state.has_selected_period or filter_state.selected_note_type != 'all' %}?{% if filter_state.has_selected_period %}data_inicial={{ filter_state.start_raw }}&data_final={{ filter_state.end_raw }}&{% endif %}{% if filter_state.selected_note_type != 'all' %}tipo={{ filter_state.selected_note_type }}{% endif %}{% endif %}" class="btn btn-ghost btn-sm btn-square shrink-0">
+                        <a href="{% url 'finance:issued_documents_list' %}{% if fiscal_operation %}?tipo=nfe&operacao={{ fiscal_operation }}{% elif filter_state.has_selected_period or filter_state.selected_note_type != 'all' %}?{% if filter_state.has_selected_period %}data_inicial={{ filter_state.start_raw }}&data_final={{ filter_state.end_raw }}&{% endif %}{% if filter_state.selected_note_type != 'all' %}tipo={{ filter_state.selected_note_type }}{% endif %}{% endif %}" class="btn btn-ghost btn-sm btn-square shrink-0">
                             <span class="material-icons text-base-content/50">close</span>
                         </a>
                     {% endif %}
@@ -36,12 +37,23 @@
             </div>
         </form>
         <div class="flex flex-wrap gap-2 xl:justify-end">
+            {% if fiscal_operation %}
+                <a href="{% url 'finance:emission_create' %}" class="btn btn-ghost btn-sm gap-2">
+                    <span class="material-icons text-sm">arrow_back</span>
+                    Trocar operação
+                </a>
+            {% else %}
+                <a href="{% url 'finance:emission_create' %}" class="btn btn-primary btn-sm gap-2">
+                    <span class="material-icons text-sm">add</span>
+                    Emitir Nota
+                </a>
+            {% endif %}
             <button type="button" class="btn btn-outline btn-sm gap-2" onclick="document.getElementById('issued-documents-filter-modal').showModal()">
                 <span class="material-icons text-sm">filter_alt</span>
                 Filtrar
             </button>
             {% if filter_state.has_selected_period or filter_state.selected_note_type != 'all' or filter_state.search_raw %}
-                <a href="{% url 'finance:issued_documents_list' %}" class="btn btn-ghost btn-sm">Limpar Filtros</a>
+                <a href="{% url 'finance:issued_documents_list' %}{% if fiscal_operation %}?tipo=nfe&operacao={{ fiscal_operation }}{% endif %}" class="btn btn-ghost btn-sm">Limpar Filtros</a>
             {% endif %}
 
             <button
@@ -87,6 +99,7 @@
             <h3 class="font-bold text-lg mb-4">Filtrar Notas Emitidas</h3>
             
             <form method="get" class="flex flex-col gap-4">
+                {% if fiscal_operation %}<input type="hidden" name="operacao" value="{{ fiscal_operation }}" />{% endif %}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                         <label for="issued-documents-start-date" class="label pt-0 pb-1">
