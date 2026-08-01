@@ -18,7 +18,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
@@ -36,6 +36,12 @@ class IssuedDocumentsFilterMixin:
         ("nfe", "Nota Fiscal de Produto"),
         ("nfse", "Nota Fiscal Serviço"),
     )
+    FISCAL_OPERATION_LABELS: dict[str, str] = {
+        "return": "Devolução",
+        "correction": "Carta de Correção",
+        "complementary": "Nota Complementar",
+        "adjustment": "Nota de Ajuste",
+    }
 
     DOCUMENT_LABELS_BY_TYPE: dict[str, dict[str, list[tuple[str, str]]]] = {
         "nfe": {
@@ -100,6 +106,9 @@ class IssuedDocumentsFilterMixin:
         end_date = self._parse_date_param(end_raw)
         selected_note_type = self._get_selected_note_type()
         search_raw = str(self.request.GET.get("search") or "").strip()
+        fiscal_operation = str(self.request.GET.get("operacao") or "").strip().lower()
+        if fiscal_operation not in self.FISCAL_OPERATION_LABELS:
+            fiscal_operation = ""
         filter_error = ""
 
         if start_raw or end_raw:
@@ -121,6 +130,8 @@ class IssuedDocumentsFilterMixin:
             "selected_note_type_label": dict(self.NOTE_TYPE_CHOICES).get(selected_note_type, "Todas"),
             "has_selected_period": bool(start_raw and end_raw),
             "search_raw": search_raw,
+            "fiscal_operation": fiscal_operation,
+            "fiscal_operation_label": self.FISCAL_OPERATION_LABELS.get(fiscal_operation, ""),
             "is_valid": is_valid,
             "filter_error": filter_error,
         }
@@ -174,6 +185,7 @@ class IssuedDocumentsFilterMixin:
         if search_raw:
             search_filters = [
                 Q(workorder__budget__customer__name__icontains=search_raw),
+                Q(manual_recipient__name__icontains=search_raw),
                 Q(items__number__icontains=search_raw),
             ]
             if search_raw.isdigit():
@@ -182,7 +194,7 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(reserved_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 
-        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
+        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer", "manual_recipient").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
     def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
         qs = NfseRequest.objects.filter(workshop=self.workshop)
@@ -241,6 +253,7 @@ class IssuedDocumentsFilterMixin:
                 data_final=state["end_raw"],
                 tipo=state["selected_note_type"],
                 search=state["search_raw"],
+                operacao=state["fiscal_operation"],
             ),
         )
 
@@ -261,14 +274,15 @@ class IssuedDocumentsFilterMixin:
             "has_xml": has_xml,
             "has_pdf": has_pdf,
             "is_selectable": has_xml or has_pdf,
-            "number": request_obj.number_display_listing,
+            "number": request_obj.number_display,
             "reference": f"Serie {series_value}",
-            "workorder_id": request_obj.workorder.get_id,
+            "workorder_id": request_obj.workorder.get_id if request_obj.workorder is not None else "Manual",
             "customer_name": request_obj.customer_name,
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfe_request_status_badge,
             "available_documents": available_documents,
             "detail_url": self._build_detail_url(view_name="finance:nfe_detail", pk=request_obj.pk, state=state),
+            "action_label": "Selecionar" if state["fiscal_operation"] else "Abrir",
         }
 
     def _build_nfse_row(self, request_obj: NfseRequest, *, state: dict[str, Any]) -> dict[str, Any]:
@@ -294,7 +308,7 @@ class IssuedDocumentsFilterMixin:
             "has_xml": has_xml,
             "has_pdf": has_pdf,
             "is_selectable": has_xml or has_pdf,
-            "number": "-" if request_obj.status == NfseRequestStatus.REPROVED else (note_number or request_obj.rps_number_display),
+            "number": note_number or request_obj.rps_number_display,
             "reference": " / ".join(reference_parts) if reference_parts else "-",
             "workorder_id": request_obj.workorder.get_id,
             "customer_name": request_obj.customer_name,
@@ -302,6 +316,7 @@ class IssuedDocumentsFilterMixin:
             "status_badge": request_obj.nfse_request_status_badge,
             "available_documents": available_documents,
             "detail_url": self._build_detail_url(view_name="finance:nfse_detail", pk=request_obj.pk, state=state),
+            "action_label": "Abrir",
         }
 
     def _build_rows(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -416,6 +431,8 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
                 "issued_nfse_total": len(nfse_requests),
                 "download_xml_url": reverse("finance:issued_documents_download", kwargs={"document_group": "xml"}),
                 "download_pdfs_url": reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
+                "fiscal_operation": state["fiscal_operation"],
+                "fiscal_operation_label": state["fiscal_operation_label"],
             }
         )
         return context

@@ -12,6 +12,7 @@ from django.forms import formset_factory
 from apps.core.presentation.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import TaxClassPreset
 from apps.core.presentation.forms import CoreForm, CoreModelForm
+from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values, clean_ibs_cbs_details
 from apps.finance.services.tax_classes import (
     NFSE_CODIGO_SERVICO_HELP_TEXT,
     NFSE_CODIGO_SERVICO_INVALID_FORMAT,
@@ -157,6 +158,34 @@ class TaxClassPresetMetaForm(CoreModelForm):
 
 
 class NfeTaxClassForm(TaxClassFormBase):
+    ibs_cbs_enabled = forms.BooleanField(label="Habilitar IBS/CBS", required=False, widget=CheckboxInput())
+    ibs_cbs_situacao_tributaria = forms.CharField(label="IBS/CBS Situação tributária", required=False, max_length=3, widget=TextInput(attrs={"placeholder": "000"}))
+    ibs_cbs_classificacao_tributaria = forms.CharField(label="IBS/CBS Classificação tributária", required=False, max_length=6, widget=TextInput(attrs={"placeholder": "000000"}))
+    ibs_cbs_situacao_tributaria_regular = forms.CharField(label="IBS/CBS Situação regular", required=False, max_length=3, widget=TextInput())
+    ibs_cbs_classificacao_tributaria_regular = forms.CharField(label="IBS/CBS Classificação regular", required=False, max_length=6, widget=TextInput())
+    ibs_cbs_details_json = forms.CharField(label="Detalhes IBS/CBS em JSON", required=False, widget=TextareaInput(rows=5, attrs={"placeholder": '{"ibs_estadual": {"aliquota": "0.10"}, "cbs": {"aliquota": "0.90"}}'}))
+
+    @classmethod
+    def initial_from_tax_class(cls, tax_class: dict[str, Any]) -> dict[str, str]:
+        initial = super().initial_from_tax_class(tax_class)
+        ibs_cbs_payload = tax_class.get("ibs_cbs")
+        if isinstance(ibs_cbs_payload, dict):
+            initial["ibs_cbs_enabled"] = "on"
+            for payload_key, field_name in (
+                ("situacao_tributaria", "ibs_cbs_situacao_tributaria"),
+                ("classificacao_tributaria", "ibs_cbs_classificacao_tributaria"),
+                ("situacao_tributaria_regular", "ibs_cbs_situacao_tributaria_regular"),
+                ("classificacao_tributaria_regular", "ibs_cbs_classificacao_tributaria_regular"),
+            ):
+                value = ibs_cbs_payload.get(payload_key)
+                if value not in (None, ""):
+                    initial[field_name] = str(value)
+
+            details = {key: value for key, value in ibs_cbs_payload.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular"}}
+            if details:
+                initial["ibs_cbs_details_json"] = json.dumps(details, ensure_ascii=False, indent=2)
+        return initial
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
@@ -175,9 +204,57 @@ class NfeTaxClassForm(TaxClassFormBase):
                     Field("informacoes_complementares", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-12 gap-4",
                 ),
+                HTML("<h3 class='font-semibold mt-2'>IBS/CBS - Reforma Tributária</h3>"),
+                Field("ibs_cbs_enabled"),
+                Div(
+                    Field("ibs_cbs_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("ibs_cbs_classificacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("ibs_cbs_situacao_tributaria_regular", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("ibs_cbs_classificacao_tributaria_regular", wrapper_class="col-span-12 lg:col-span-3"),
+                    css_class="grid grid-cols-12 gap-4",
+                ),
+                Field("ibs_cbs_details_json"),
                 Field("base_payload_json"),
                 css_class="space-y-4",
             )
+        )
+
+    def _details_payload(self) -> dict[str, Any]:
+        raw_value = str(self.cleaned_data.get("ibs_cbs_details_json") or "").strip()
+        if not raw_value:
+            return {}
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError as exc:
+            raise IbsCbsConfigurationError("Detalhes IBS/CBS devem ser JSON valido.") from exc
+        return clean_ibs_cbs_details(parsed)
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean() or {}
+        if not cleaned_data.get("ibs_cbs_enabled"):
+            return cleaned_data
+
+        try:
+            build_ibs_cbs_payload_from_values(
+                enabled=True,
+                situacao_tributaria=str(cleaned_data.get("ibs_cbs_situacao_tributaria") or ""),
+                classificacao_tributaria=str(cleaned_data.get("ibs_cbs_classificacao_tributaria") or ""),
+                situacao_tributaria_regular=str(cleaned_data.get("ibs_cbs_situacao_tributaria_regular") or ""),
+                classificacao_tributaria_regular=str(cleaned_data.get("ibs_cbs_classificacao_tributaria_regular") or ""),
+                details=self._details_payload(),
+            )
+        except IbsCbsConfigurationError as exc:
+            self.add_error("ibs_cbs_details_json", str(exc))
+        return cleaned_data
+
+    def build_ibs_cbs_payload(self) -> dict[str, Any]:
+        return build_ibs_cbs_payload_from_values(
+            enabled=bool(self.cleaned_data.get("ibs_cbs_enabled")),
+            situacao_tributaria=str(self.cleaned_data.get("ibs_cbs_situacao_tributaria") or ""),
+            classificacao_tributaria=str(self.cleaned_data.get("ibs_cbs_classificacao_tributaria") or ""),
+            situacao_tributaria_regular=str(self.cleaned_data.get("ibs_cbs_situacao_tributaria_regular") or ""),
+            classificacao_tributaria_regular=str(self.cleaned_data.get("ibs_cbs_classificacao_tributaria_regular") or ""),
+            details=self._details_payload(),
         )
 
 

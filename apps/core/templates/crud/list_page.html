@@ -30,8 +30,7 @@
 
                     wrapper.dataset.queryParamsBound = 'true';
                     wrapper.addEventListener('htmx:configRequest', function (event) {
-                        if (!event.detail || !event.detail.elt) return;
-                        if (event.detail.elt !== wrapper) return;
+                        if (!event.detail || event.detail.elt !== wrapper) return;
 
                         const searchParams = new URLSearchParams(window.location.search);
                         const baseUrl = wrapper.getAttribute('hx-get') || window.location.pathname;
