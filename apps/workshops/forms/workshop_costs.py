@@ -276,7 +276,6 @@ class WorkshopCostForm(CoreModelForm):
                     Field("gross_revenue_target", wrapper_class="col-span-12 lg:col-span-4"),
                     Div(
                         Field("profitability_multiplier"),
-                        HTML('<p id="multiplier-warn" class="hidden text-sm font-medium text-warning">O Multiplicador de Lucratividade não pode ser menor que 3,0. Diminua o Teto de Compra de Peças ou Aumente a Meta de Lucro Mensal</p>'),
                         css_id="multiplier-feedback",
                         css_class="col-span-12 lg:col-span-4",
                     ),

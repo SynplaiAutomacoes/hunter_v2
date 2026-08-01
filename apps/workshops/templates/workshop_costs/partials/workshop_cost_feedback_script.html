@@ -6,8 +6,7 @@
             return;
         }
         const valueInput = document.getElementById('id_profitability_multiplier');
-        const warn = document.getElementById('multiplier-warn');
-        if (!valueInput || !warn) {
+        if (!valueInput) {
             return;
         }
 
@@ -23,7 +22,6 @@
             displayInput.classList.toggle('ring-success', isOk);
             displayInput.classList.toggle('text-success', isOk);
         }
-        warn.classList.toggle('hidden', !isLow);
     };
 
     document.addEventListener('DOMContentLoaded', window.applyProfitabilityFeedback);

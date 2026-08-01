@@ -3,21 +3,20 @@
 
 <div class="col-span-12 mb-4"><span class="badge badge-neutral">Metas e Indicadores</span></div>
 
-<div class="col-span-12 lg:col-span-6">
+<div class="col-span-12 lg:col-span-4">
     {{ form.profit_target|as_crispy_field }}
 </div>
-<div class="col-span-12 lg:col-span-6">
+<div class="col-span-12 lg:col-span-4">
     {{ form.gross_revenue_target|as_crispy_field }}
 </div>
-<div id="multiplier-feedback" class="col-span-12 lg:col-span-6">
+<div id="multiplier-feedback" class="col-span-12 lg:col-span-4">
     {{ form.profitability_multiplier|as_crispy_field }}
-    <p id="multiplier-warn" class="hidden text-sm font-medium text-warning">O Multiplicador de Lucratividade não pode ser menor que 3,0. Diminua o Teto de Compra de Peças ou Aumente a Meta de Lucro Mensal</p>
 </div>
 
 {# Atualização ao vivo dos campos movidos para fora da área de swap HTMX #}
-<div id="div_id_total_value" hx-swap-oob="true" class="col-span-12 lg:col-span-4">
-    <label for="{{ form.total_value.id_for_label }}" class="label">
-        <span class="label-text font-bold">{{ form.total_value.label }}</span>
+<div id="div_id_total_value" hx-swap-oob="true" class="col-span-12 lg:col-span-3 mb-3">
+    <label for="{{ form.total_value.id_for_label }}" class="block text-gray-700 text-sm font-bold mb-2">
+        {{ form.total_value.label }}
     </label>
     {{ form.total_value }}
     {% if form.total_value.errors %}
@@ -25,9 +24,9 @@
     {% endif %}
 </div>
 
-<div id="div_id_total_monthly_costs" hx-swap-oob="true" class="col-span-12 lg:col-span-12">
-    <label for="{{ form.total_monthly_costs.id_for_label }}" class="label">
-        <span class="label-text font-bold">{{ form.total_monthly_costs.label }}</span>
+<div id="div_id_total_monthly_costs" hx-swap-oob="true" class="col-span-12 lg:col-span-12 mb-3">
+    <label for="{{ form.total_monthly_costs.id_for_label }}" class="block text-gray-700 text-sm font-bold mb-2">
+        {{ form.total_monthly_costs.label }}
     </label>
     {{ form.total_monthly_costs }}
     {% if form.total_monthly_costs.errors %}
