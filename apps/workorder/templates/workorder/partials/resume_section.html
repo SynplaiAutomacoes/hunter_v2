@@ -5,7 +5,7 @@
             href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6&reopen=1"
             class="btn btn-outline btn-lg">
             <span class="material-icons mr-2" aria-hidden="true">edit_note</span>
-            Revisar Orçamento
+            Revisar orçamento
         </a>
     </div>
     <div class="p-6">
@@ -34,7 +34,7 @@
                         <p><span class="font-medium">CPF/CNPJ:</span> {{workorder.budget.customer.cpf_or_cnpj}}</p>
                         <p><span class="font-medium">Celular:</span> {{workorder.budget.customer.phone|default:""}}</p>
                         <p class="col-span-2"><span class="font-medium">Endereço:</span> {{workorder.budget.customer.logradouro}}, {{workorder.budget.customer.numero}} / CEP: {{workorder.budget.customer.cep}}</p>
-                        <p class="col-span-2"><span class="font-medium">Email:</span> {{workorder.budget.customer.email|default:""}}</p>
+                        <p class="col-span-2"><span class="font-medium">E-mail:</span> {{workorder.budget.customer.email|default:""}}</p>
                     </div>
                 </div>
                 <div>

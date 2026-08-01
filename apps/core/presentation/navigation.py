@@ -32,7 +32,7 @@ FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movime
 
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {"label": "Orçamentos", "view_name": "budget:budget_list", "favoritable": False},
-    {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False},
+    {"label": "Ordens de serviço", "view_name": "workorder:workorder_list", "favoritable": False},
     {"label": "Agendamentos", "view_name": "scheduling:appointment_calendar", "favoritable": False},
     {
         "label": "Estoque",
