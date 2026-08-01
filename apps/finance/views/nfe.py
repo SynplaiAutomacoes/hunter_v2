@@ -540,6 +540,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
+        can_change_nfe_request = _user_can_change_legacy_nfe_request(user=self.request.user, workshop=self.workshop, request=self.request)
         can_cancel_nferequest = _user_can_cancel_nferequest(user=self.request.user, workshop=self.workshop, request=self.request)
         can_invalidate_nferequest_numbering = _user_can_invalidate_nferequest_numbering(user=self.request.user, workshop=self.workshop, request=self.request)
         can_download_nferequest_xml = _user_can_download_nferequest_xml(user=self.request.user, workshop=self.workshop, request=self.request)
@@ -587,6 +588,8 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
             {
                 "back_url": build_issued_documents_back_url(query_params=self.request.GET, fallback_url=fallback_back_url),
                 "latest_item": latest_item,
+                "can_change_nfe_request": can_change_nfe_request,
+                "can_reconcile_nfe_request": bool(can_change_nfe_request and latest_item),
                 "can_cancel": can_cancel,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),

@@ -5,19 +5,21 @@
 {% block crud_back_url %}{{ back_url }}{% endblock %}
 
 {% block crud_header_actions %}
-    {% if nfe_request.status != 'invalidated' and nfe_request.emission_origin == 'work_order' %}
+    {% if can_change_nfe_request and nfe_request.status != 'invalidated' and nfe_request.emission_origin == 'work_order' %}
         <a href="{% url 'finance:nfe_update' pk=nfe_request.pk %}" class="btn btn-sm btn-primary gap-2">
             <span class="material-icons text-sm">edit</span>
             Editar
         </a>
     {% endif %}
-    <form method="post" action="{% url 'finance:nfe_reconcile' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-outline gap-2">
-            <span class="material-icons text-sm">sync</span>
-            Reconsultar status
-        </button>
-    </form>
+    {% if can_reconcile_nfe_request %}
+        <form method="post" action="{% url 'finance:nfe_reconcile' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline gap-2">
+                <span class="material-icons text-sm">sync</span>
+                Reconsultar status
+            </button>
+        </form>
+    {% endif %}
     {% if can_invalidate %}
         <button type="button" class="btn btn-sm btn-warning gap-2" onclick="invalidate_nfe_modal.showModal()">
             <span class="material-icons text-sm">block</span>
@@ -172,7 +174,7 @@
     {% elif gateway_operation_modal_id %}
         <div class="alert alert-info mb-4">
             <span class="material-icons">route</span>
-            <span>NF-e de referência selecionada. Continue no fluxo existente de {{ gateway_operation_label }}.</span>
+            <span>NF-e de referência selecionada. Revise os dados e conclua {{ gateway_operation_label }} no formulário.</span>
         </div>
     {% endif %}
     <div class="card bg-base-100 shadow-xl">
@@ -787,7 +789,7 @@
                     {% csrf_token %}
                     <h3 class="text-base font-semibold text-base-content">Emitir Nota Complementar</h3>
                     <div class="alert alert-warning mt-4 text-sm">
-                        <span>A Nota Complementar cria um novo documento fiscal e não altera a NF-e original. Nesta fase, somente preço e/ou quantidade estão disponíveis.</span>
+                        <span>A Nota Complementar cria um novo documento fiscal e não altera a NF-e original. Esta operação complementa preço e/ou quantidade.</span>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <div>

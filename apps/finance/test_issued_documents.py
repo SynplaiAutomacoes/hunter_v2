@@ -104,6 +104,7 @@ class IssuedDocumentsNavigationTemplateTests(SimpleTestCase):
         html = self._render_central(operation="return", operation_label="Devolução")
 
         self.assertIn("Selecionar NF-e para Devolução", html)
+        self.assertIn("Escolha a NF-e de referência para Devolução", html)
         self.assertIn(f'href="{reverse("finance:emission_create")}"', html)
         self.assertIn("Trocar operação", html)
 

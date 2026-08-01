@@ -259,6 +259,7 @@ class NfeCorrectionOperationalTests(TestCase):
         with (
             patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
             patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.has_workshop_perm", return_value=True),
         ):
             detail_response = NfeRequestDetailView.as_view()(detail_request, pk=self.item.request_id)
             detail_response.render()
@@ -269,6 +270,9 @@ class NfeCorrectionOperationalTests(TestCase):
         self.assertContains(detail_response, CORRECTION_TEXT, count=2)
         self.assertContains(detail_response, "Evento de carta de correcao registrado", count=2)
         self.assertContains(detail_response, "<td>Aprovado</td>", count=2, html=True)
+        self.assertTrue(detail_response.context_data["can_change_nfe_request"])
+        self.assertTrue(detail_response.context_data["can_reconcile_nfe_request"])
+        self.assertContains(detail_response, "Reconsultar status")
 
     def test_gateway_reference_selection_opens_existing_correction_flow(self) -> None:
         detail_request = RequestFactory().get("/", {"origin": "issued_documents", "tipo": "nfe", "operacao": "correction"})
@@ -284,8 +288,27 @@ class NfeCorrectionOperationalTests(TestCase):
             detail_response.render()
 
         self.assertEqual(detail_response.context_data["gateway_operation_modal_id"], "cce_nfe_modal")
-        self.assertContains(detail_response, "Continue no fluxo existente de Carta de Correção")
+        self.assertContains(detail_response, "Revise os dados e conclua Carta de Correção no formulário")
         self.assertContains(detail_response, "cce_nfe_modal")
+
+    def test_detail_hides_edit_and_reconcile_actions_without_change_permission(self) -> None:
+        detail_request = RequestFactory().get("/")
+        detail_request.user = self.user
+        detail_request.session = {}
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe._user_can_change_legacy_nfe_request", return_value=False),
+        ):
+            detail_response = NfeRequestDetailView.as_view()(detail_request, pk=self.item.request_id)
+            detail_response.render()
+
+        self.assertFalse(detail_response.context_data["can_change_nfe_request"])
+        self.assertFalse(detail_response.context_data["can_reconcile_nfe_request"])
+        self.assertNotContains(detail_response, "Reconsultar status")
+        self.assertNotContains(detail_response, ">Editar</a>")
 
     def test_ambiguous_webhook_does_not_update_events_across_workshops(self) -> None:
         from apps.core.infrastructure.services.webmania.webmania_webhooks import process_webhook_event, store_webhook_event

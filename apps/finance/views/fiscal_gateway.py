@@ -38,45 +38,45 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperationCard(
             value=FiscalOperation.NORMAL,
             label="NF-e Normal",
-            description="Permite escolher emissão por Ordem de Serviço ou Manual, utilizando o mesmo motor fiscal existente.",
+            description="Emita por Ordem de Serviço ou preencha uma NF-e manualmente.",
             icon="receipt_long",
         ),
         FiscalOperationCard(
             value=FiscalOperation.RETURN,
             label="Devolução",
-            description="Abre a Central de Notas para selecionar a NF-e e usar o fluxo existente de devolução ou estorno.",
+            description="Selecione a NF-e original e informe os itens que serão devolvidos ou estornados.",
             icon="assignment_return",
         ),
         FiscalOperationCard(
             value=FiscalOperation.CORRECTION,
             label="Carta de Correção",
-            description="Abre a Central de Notas para selecionar a NF-e e emitir a CC-e pelo fluxo existente.",
+            description="Selecione a NF-e original e informe a correção que deve ser registrada.",
             icon="edit_note",
         ),
         FiscalOperationCard(
             value=FiscalOperation.COMPLEMENTARY,
             label="Nota Complementar",
-            description="Abre a Central de Notas para selecionar a NF-e e usar a emissão complementar existente.",
+            description="Selecione a NF-e original e informe os valores ou quantidades complementares.",
             icon="add_notes",
         ),
         FiscalOperationCard(
             value=FiscalOperation.ADJUSTMENT,
             label="Nota de Ajuste",
-            description="Abre a Central de Notas para acessar a operação de ajuste já disponível no detalhe da NF-e.",
+            description="Selecione uma NF-e de referência e preencha os dados fiscais do ajuste.",
             icon="tune",
         ),
         FiscalOperationCard(
             value=FiscalOperation.TRANSPORT,
             label="Transporte",
-            description="Abre a NF-e normal por Ordem de Serviço, onde modalidade, transportador, veículo e volumes já são configurados.",
+            description="Emita uma NF-e por Ordem de Serviço com modalidade, transportador, veículo, volumes e reboques.",
             icon="local_shipping",
         ),
     )
     EXISTING_OPERATION_MESSAGES: ClassVar[dict[str, str]] = {
-        FiscalOperation.RETURN: "Selecione uma NF-e e abra seus detalhes para usar o atalho Devolução/Estorno.",
-        FiscalOperation.CORRECTION: "Selecione uma NF-e e abra seus detalhes para usar o atalho Carta de Correção.",
-        FiscalOperation.COMPLEMENTARY: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota Complementar.",
-        FiscalOperation.ADJUSTMENT: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota de Ajuste.",
+        FiscalOperation.RETURN: "Selecione a NF-e que será usada como referência para a devolução ou estorno.",
+        FiscalOperation.CORRECTION: "Selecione a NF-e que receberá a Carta de Correção.",
+        FiscalOperation.COMPLEMENTARY: "Selecione a NF-e que será complementada.",
+        FiscalOperation.ADJUSTMENT: "Selecione a NF-e que será vinculada à Nota de Ajuste.",
     }
     OPERATION_PERMISSIONS: ClassVar[dict[str, tuple[tuple[str, str, str], ...]]] = {
         FiscalOperation.RETURN: (
@@ -145,7 +145,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             return HttpResponseRedirect(reverse("finance:emission_origin"))
 
         if operation == FiscalOperation.TRANSPORT:
-            messages.info(self.request, "O transporte faz parte da NF-e. Preencha os dados no fluxo normal já existente.")
+            messages.info(self.request, "O transporte faz parte da NF-e. Preencha os dados na emissão por Ordem de Serviço.")
             query = urlencode({"tipo": "nfe", "reset": 1, "operacao": operation})
             return HttpResponseRedirect(f"{reverse('finance:emission_normal')}?{query}")
 
