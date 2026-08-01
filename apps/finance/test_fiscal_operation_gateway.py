@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
+from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
 
@@ -78,6 +79,20 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.template_name, ["finance/nfe_emission_origin_gateway.html"])
         self.assertEqual([card.value for card in response.context_data["origin_cards"]], [NfeEmissionOrigin.WORK_ORDER, NfeEmissionOrigin.MANUAL])
+        self.assertEqual([card.label for card in response.context_data["origin_cards"]], ["Ordem de Serviço", "Emissão Manual"])
+
+    def test_origin_gateway_no_longer_announces_manual_emission_as_future_work(self) -> None:
+        request = self.factory.get("/finance/emissao/normal/origem/", {"origin": NfeEmissionOrigin.MANUAL})
+        self._prepare_request(request)
+        view = NfeEmissionOriginGatewayView()
+        view.setup(request)
+        view.workshop = SimpleNamespace(pk=20)
+
+        response = view.get(request)
+        html = render_to_string("finance/nfe_emission_origin_gateway.html", response.context_data)
+
+        self.assertNotIn("serão disponibilizados em uma próxima fase", html)
+        self.assertIn("NF-e independente, sem vínculo com OS", html)
 
     def test_work_order_origin_redirects_to_unchanged_wizard_with_reset(self) -> None:
         request = self.factory.post("/finance/emissao/normal/origem/", {"origin": NfeEmissionOrigin.WORK_ORDER})
@@ -196,14 +211,14 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         expected_url = f"{reverse('finance:emission_normal')}?tipo=nfe&reset=1&operacao=transport"
         self.assertRedirects(response, expected_url, fetch_redirect_response=False)
 
-    def test_nfe_specific_redirect_continues_to_open_normal_wizard(self) -> None:
+    def test_nfe_specific_redirect_opens_origin_choice(self) -> None:
         request = self.factory.get("/finance/nfe/create/")
         self._prepare_request(request)
         view = NfeCreateRedirectView()
         view.setup(request)
         view.workshop = SimpleNamespace(pk=20)
 
-        self.assertEqual(view.get_redirect_url(), f"{reverse('finance:emission_normal')}?tipo=nfe&reset=1")
+        self.assertEqual(view.get_redirect_url(), reverse("finance:emission_origin"))
 
     def test_navigation_opens_gateway_without_resetting_normal_wizard(self) -> None:
         finance_menu = next(item for item in NAVBAR_MENU_DEFINITIONS if item.get("label") == "Financeiro")

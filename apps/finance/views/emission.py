@@ -68,7 +68,8 @@ class EmissionCreateRedirectBaseView(LoginRequiredMixin, WorkshopScopedMixin, Re
 
 
 class NfeCreateRedirectView(EmissionCreateRedirectBaseView):
-    emission_note_type = "nfe"
+    def get_redirect_url(self, *args, **kwargs) -> str:
+        return reverse("finance:emission_origin")
 
 
 class NfseCreateRedirectView(EmissionCreateRedirectBaseView):

@@ -127,11 +127,49 @@ class NfeManualEmissionTests(TestCase):
         form = NfeManualEmissionForm(workshop=self.workshop, tax_class_choices=[("REF-MANUAL", "REF-MANUAL - Venda")])
         item_formset = NfeManualItemFormSet(prefix="items", form_kwargs={"workshop": self.workshop})
 
-        html = render_to_string("finance/nfe_manual_emission_form.html", {"form": form, "item_formset": item_formset})
+        html = render_to_string(
+            "finance/nfe_manual_emission_form.html",
+            {
+                "form": form,
+                "item_formset": item_formset,
+                "can_add_customer": True,
+                "can_add_product": True,
+            },
+        )
 
         self.assertIn('id="id_items-TOTAL_FORMS"', html)
         self.assertIn(reverse("customer:quick_create"), html)
         self.assertIn(reverse("finance:emission_manual_quick_product"), html)
+        self.assertIn('data-manual-step="1"', html)
+        self.assertIn('data-manual-step="2"', html)
+        self.assertIn('data-manual-step="3"', html)
+        self.assertIn("Destinatário", html)
+        self.assertIn("Produtos", html)
+        self.assertIn("Revisar e emitir", html)
+
+    def test_manual_template_hides_quick_create_actions_without_catalog_permissions(self) -> None:
+        form = NfeManualEmissionForm(workshop=self.workshop, tax_class_choices=[("REF-MANUAL", "REF-MANUAL - Venda")])
+        item_formset = NfeManualItemFormSet(prefix="items", form_kwargs={"workshop": self.workshop})
+
+        html = render_to_string(
+            "finance/nfe_manual_emission_form.html",
+            {
+                "form": form,
+                "item_formset": item_formset,
+                "can_add_customer": False,
+                "can_add_product": False,
+            },
+        )
+
+        self.assertNotIn(reverse("customer:quick_create"), html)
+        self.assertNotIn(reverse("finance:emission_manual_quick_product"), html)
+
+    def test_manual_views_use_coherent_existing_permissions(self) -> None:
+        self.assertEqual(NfeManualEmissionCreateView.workshop_permission_model, "nferequest")
+        self.assertEqual(NfeManualEmissionCreateView.workshop_permission_codename, "view_nferequest")
+        self.assertIn(("finance", "nfserequest", "view_nfserequest"), NfeManualEmissionCreateView.workshop_permission_fallbacks)
+        self.assertEqual(NfeManualQuickProductCreateView.workshop_permission_model, "product")
+        self.assertEqual(NfeManualQuickProductCreateView.workshop_permission_codename, "add_product")
 
     def test_manual_view_creates_nfe_request_and_calls_existing_fiscal_service(self) -> None:
         request = RequestFactory().post(

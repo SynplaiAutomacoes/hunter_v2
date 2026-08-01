@@ -158,8 +158,9 @@ class NfeEmissionOriginGatewayView(LoginRequiredMixin, WorkshopScopedMixin, Form
     template_name = "finance/nfe_emission_origin_gateway.html"
     form_class = NfeEmissionOriginGatewayForm
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "view_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "view_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
 
     ORIGIN_CARDS: ClassVar[tuple[FiscalOperationCard, ...]] = (
         FiscalOperationCard(
@@ -170,7 +171,7 @@ class NfeEmissionOriginGatewayView(LoginRequiredMixin, WorkshopScopedMixin, Form
         ),
         FiscalOperationCard(
             value=NfeEmissionOrigin.MANUAL,
-            label="Manual",
+            label="Emissão Manual",
             description="Abre a emissão manual com destinatário e múltiplos produtos, usando o mesmo motor fiscal da NF-e por OS.",
             icon="edit_document",
         ),
@@ -186,7 +187,6 @@ class NfeEmissionOriginGatewayView(LoginRequiredMixin, WorkshopScopedMixin, Form
     def get_context_data(self, **kwargs: Any) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
         context["origin_cards"] = self.ORIGIN_CARDS
-        context["manual_extension_pending"] = self.request.GET.get("origin") == NfeEmissionOrigin.MANUAL
         return context
 
     def form_valid(self, form: NfeEmissionOriginGatewayForm) -> HttpResponse:

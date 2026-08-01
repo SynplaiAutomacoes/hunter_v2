@@ -20,6 +20,7 @@ from apps.finance.models import NfeEmissionOrigin, NfeRequest, NfeRequestManualI
 from apps.finance.models.finance import NfeFreightMode, NfeRequestStatus
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import has_workshop_perm
 
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,8 @@ class NfeManualEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormV
     form_class = NfeManualEmissionForm
     workshop_permission_app_label = "finance"
     workshop_permission_model = "nferequest"
-    workshop_permission_codename = "view_nfserequest"
+    workshop_permission_codename = "view_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
 
     def get_item_formset(self) -> Any:
         if not hasattr(self, "_item_formset"):
@@ -55,6 +57,22 @@ class NfeManualEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormV
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["item_formset"] = self.get_item_formset()
+        context["can_add_customer"] = has_workshop_perm(
+            user=self.request.user,
+            workshop=self.workshop,
+            app_label="customer",
+            model="customer",
+            codename="add_customer",
+            request=self.request,
+        )
+        context["can_add_product"] = has_workshop_perm(
+            user=self.request.user,
+            workshop=self.workshop,
+            app_label="catalog",
+            model="product",
+            codename="add_product",
+            request=self.request,
+        )
         return context
 
     def get_form_kwargs(self) -> dict[str, Any]:
@@ -121,9 +139,9 @@ class NfeManualEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormV
 class NfeManualQuickProductCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
     template_name = "finance/partials/nfe_manual_quick_product_modal.html"
     form_class = QuickProductForm
-    workshop_permission_app_label = "finance"
-    workshop_permission_model = "nferequest"
-    workshop_permission_codename = "view_nfserequest"
+    workshop_permission_app_label = "catalog"
+    workshop_permission_model = "product"
+    workshop_permission_codename = "add_product"
 
     def get_form_kwargs(self) -> dict[str, Any]:
         kwargs = super().get_form_kwargs()
