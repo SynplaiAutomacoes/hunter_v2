@@ -141,7 +141,7 @@ VARIABLE_DEFINITIONS: tuple[VariableDefinition, ...] = (
     VariableDefinition(key="rg", group="cliente", label="RG", description="RG do cliente.", resolver=lambda ctx: _customer_attr(ctx, "rg")),
     VariableDefinition(key="data_nascimento", group="cliente", label="Data de nascimento", description="Data de nascimento do cliente.", resolver=lambda ctx: _customer_attr(ctx, "birth_date")),
     VariableDefinition(key="telefone", group="cliente", label="Telefone", description="Telefone principal do cliente.", resolver=_formatted_customer_phone),
-    VariableDefinition(key="email", group="cliente", label="Email", description="Email do cliente.", resolver=lambda ctx: _customer_attr(ctx, "email")),
+    VariableDefinition(key="email", group="cliente", label="E-mail", description="E-mail do cliente.", resolver=lambda ctx: _customer_attr(ctx, "email")),
     VariableDefinition(key="nome_oficina", group="oficina", label="Nome da oficina", description="Nome da oficina ativa.", resolver=_workshop_name),
     VariableDefinition(key="data_agendamento", group="agendamento", label="Data do agendamento", description="Data do agendamento (preenchida nos alertas).", resolver=lambda ctx: _extra(ctx, "data_agendamento")),
     VariableDefinition(key="hora_agendamento", group="agendamento", label="Hora do agendamento", description="Hora do agendamento (preenchida nos alertas).", resolver=lambda ctx: _extra(ctx, "hora_agendamento")),
