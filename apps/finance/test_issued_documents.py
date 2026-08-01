@@ -198,3 +198,23 @@ class IssuedDocumentsArchiveDownloadViewTests(TestCase):
         self.assertTrue(nfse_row["has_pdf"])
         self.assertIn("/finance/notas-emitidas/download/xml/", context["download_xml_url"])
         self.assertIn("/finance/notas-emitidas/download/pdfs/", context["download_pdfs_url"])
+
+    def test_gateway_operation_is_preserved_when_selecting_reference_nfe(self) -> None:
+        nfe_request = self._create_nfe_with_xml(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            number="302",
+            xml_url="https://example.com/gateway.xml",
+        )
+        view = IssuedDocumentsListView()
+        view.workshop = self.workshop
+        view.request = self.factory.get("/finance/notas-emitidas/", {"tipo": "nfe", "operacao": "return"})
+
+        context = view.get_context_data()
+        row = next(row for row in context["issued_note_rows"] if row["request_id"] == nfe_request.pk)
+
+        self.assertEqual(context["fiscal_operation"], "return")
+        self.assertEqual(context["fiscal_operation_label"], "Devolução")
+        self.assertEqual(row["action_label"], "Selecionar")
+        self.assertIn("origin=issued_documents", row["detail_url"])
+        self.assertIn("operacao=return", row["detail_url"])

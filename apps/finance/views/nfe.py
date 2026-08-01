@@ -21,6 +21,7 @@ from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
+from apps.finance.forms.fiscal_gateway import FiscalOperation
 from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventType, FiscalDocumentLinkRole, FiscalDocumentPurpose, NfeEmissionOrigin, NfeItem, NfeRequest, NfeRequestStatus
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
@@ -442,6 +443,14 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         can_view_return_payload = _user_can_view_return_payload(user=self.request.user, workshop=self.workshop, request=self.request)
         can_issue_complementary_price_quantity = bool(latest_item and is_local_nfe_eligible_for_complementary(latest_item) and _user_can_issue_complementary_price_quantity(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_adjustment = _user_can_issue_adjustment(user=self.request.user, workshop=self.workshop, request=self.request)
+        requested_operation = str(self.request.GET.get("operacao") or "").strip().lower()
+        operation_entrypoints = {
+            FiscalOperation.RETURN: ("Devolução", "return_nfe_modal", can_issue_return or can_issue_reversal),
+            FiscalOperation.CORRECTION: ("Carta de Correção", "cce_nfe_modal", can_issue_cce),
+            FiscalOperation.COMPLEMENTARY: ("Nota Complementar", "complementary_nfe_modal", can_issue_complementary_price_quantity),
+            FiscalOperation.ADJUSTMENT: ("Nota de Ajuste", "adjustment_nfe_modal", can_issue_adjustment),
+        }
+        operation_entrypoint = operation_entrypoints.get(requested_operation)
         fiscal_document = FiscalDocument.objects.filter(workshop=self.workshop, legacy_nfe_item=latest_item).first() if latest_item is not None else None
         can_issue_ibs_cbs_event_112110 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112110(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_ibs_cbs_event_112130 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112130(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
@@ -492,6 +501,9 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "can_view_return_payload": can_view_return_payload,
                 "can_issue_complementary_price_quantity": can_issue_complementary_price_quantity,
                 "can_issue_adjustment": can_issue_adjustment,
+                "gateway_operation_label": operation_entrypoint[0] if operation_entrypoint else "",
+                "gateway_operation_modal_id": operation_entrypoint[1] if operation_entrypoint and operation_entrypoint[2] else "",
+                "gateway_operation_unavailable": bool(operation_entrypoint and not operation_entrypoint[2]),
                 "can_issue_ibs_cbs_event_112110": can_issue_ibs_cbs_event_112110,
                 "can_issue_ibs_cbs_event_112130": can_issue_ibs_cbs_event_112130,
                 "can_issue_ibs_cbs_event_112150": can_issue_ibs_cbs_event_112150,

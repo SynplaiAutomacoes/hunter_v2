@@ -63,6 +63,12 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             description="Abre a Central de Notas para acessar a operação de ajuste já disponível no detalhe da NF-e.",
             icon="tune",
         ),
+        FiscalOperationCard(
+            value=FiscalOperation.TRANSPORT,
+            label="Transporte",
+            description="Abre a NF-e normal por Ordem de Serviço, onde modalidade, transportador, veículo e volumes já são configurados.",
+            icon="local_shipping",
+        ),
     )
     EXISTING_OPERATION_MESSAGES: ClassVar[dict[str, str]] = {
         FiscalOperation.RETURN: "Selecione uma NF-e e abra seus detalhes para usar o atalho Devolução/Estorno.",
@@ -100,6 +106,11 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         if operation == FiscalOperation.NORMAL:
             return HttpResponseRedirect(reverse("finance:emission_origin"))
 
+        if operation == FiscalOperation.TRANSPORT:
+            messages.info(self.request, "O transporte faz parte da NF-e. Preencha os dados no fluxo normal já existente.")
+            query = urlencode({"tipo": "nfe", "reset": 1, "operacao": operation})
+            return HttpResponseRedirect(f"{reverse('finance:emission_normal')}?{query}")
+
         messages.info(self.request, self.EXISTING_OPERATION_MESSAGES[operation])
         query = urlencode({"tipo": "nfe", "operacao": operation})
         return HttpResponseRedirect(f"{reverse('finance:issued_documents_list')}?{query}")
@@ -122,7 +133,7 @@ class NfeEmissionOriginGatewayView(LoginRequiredMixin, WorkshopScopedMixin, Form
         FiscalOperationCard(
             value=NfeEmissionOrigin.MANUAL,
             label="Manual",
-            description="Identifica a nova origem arquitetural. O preenchimento manual será implementado em uma fase posterior.",
+            description="Abre a emissão manual com destinatário e múltiplos produtos, usando o mesmo motor fiscal da NF-e por OS.",
             icon="edit_document",
         ),
     )

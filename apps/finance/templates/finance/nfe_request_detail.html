@@ -164,6 +164,17 @@
 {% endblock %}
 
 {% block crud_detail_content %}
+    {% if gateway_operation_unavailable %}
+        <div class="alert alert-warning mb-4">
+            <span class="material-icons">warning</span>
+            <span>A operação {{ gateway_operation_label }} não está disponível para esta NF-e ou para sua permissão atual. Selecione outra nota na Central de Notas.</span>
+        </div>
+    {% elif gateway_operation_modal_id %}
+        <div class="alert alert-info mb-4">
+            <span class="material-icons">route</span>
+            <span>NF-e de referência selecionada. Continue no fluxo existente de {{ gateway_operation_label }}.</span>
+        </div>
+    {% endif %}
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8">
             <div class="flex flex-wrap items-center justify-between gap-4">
@@ -877,5 +888,13 @@
                 </form>
             </div>
         </dialog>
+    {% endif %}
+    {% if gateway_operation_modal_id %}
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const operationModal = document.getElementById('{{ gateway_operation_modal_id }}');
+                if (operationModal && typeof operationModal.showModal === 'function') operationModal.showModal();
+            });
+        </script>
     {% endif %}
 {% endblock %}

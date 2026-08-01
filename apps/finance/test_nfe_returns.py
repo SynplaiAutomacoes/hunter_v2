@@ -219,6 +219,48 @@ class NfeReturnOperationalTests(TestCase):
         self.assertContains(detail_response, "Devolucao autorizada", count=2)
         self.assertContains(detail_response, "<td>Aprovado</td>", count=2, html=True)
 
+    def test_gateway_reference_selection_opens_existing_return_flow(self) -> None:
+        item = self._create_nfe_item()
+        detail_request = RequestFactory().get("/", {"origin": "issued_documents", "tipo": "nfe", "operacao": "return"})
+        detail_request.user = self.user
+        detail_request.session = {}
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.has_workshop_perm", return_value=True),
+        ):
+            detail_response = NfeRequestDetailView.as_view()(detail_request, pk=item.request_id)
+            detail_response.render()
+
+        self.assertEqual(detail_response.context_data["gateway_operation_modal_id"], "return_nfe_modal")
+        self.assertContains(detail_response, "Continue no fluxo existente de Devolução")
+        self.assertContains(detail_response, "return_nfe_modal")
+
+    def test_gateway_reference_selection_reuses_complementary_and_adjustment_flows(self) -> None:
+        item = self._create_nfe_item()
+        expected_modals = {
+            "complementary": "complementary_nfe_modal",
+            "adjustment": "adjustment_nfe_modal",
+        }
+
+        for operation, modal_id in expected_modals.items():
+            with self.subTest(operation=operation):
+                detail_request = RequestFactory().get("/", {"origin": "issued_documents", "tipo": "nfe", "operacao": operation})
+                detail_request.user = self.user
+                detail_request.session = {}
+                with (
+                    patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+                    patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+                    patch("apps.finance.views.nfe.has_workshop_perm", return_value=True),
+                    patch("apps.finance.views.nfe.is_local_nfe_eligible_for_complementary", return_value=True),
+                ):
+                    detail_response = NfeRequestDetailView.as_view()(detail_request, pk=item.request_id)
+                    detail_response.render()
+
+                self.assertEqual(detail_response.context_data["gateway_operation_modal_id"], modal_id)
+                self.assertContains(detail_response, modal_id)
+
     def test_payload_exposes_supported_tax_class_volume_and_information_without_inferred_taxes(self) -> None:
         item = self._create_nfe_item()
         document = self._draft(

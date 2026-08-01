@@ -40,7 +40,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         self.assertIs(gateway_match.func.view_class, FiscalOperationGatewayView)
         self.assertIs(normal_match.func.view_class, EmissionRequestCreateView)
 
-    def test_gateway_renders_all_requested_operations_without_transport_document(self) -> None:
+    def test_gateway_renders_all_requested_operations_including_transport_entrypoint(self) -> None:
         request = self.factory.get("/finance/emissao/")
         view = self._build_view(request)
 
@@ -52,7 +52,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
             [card.value for card in response.context_data["operation_cards"]],
             [value for value, _label in FISCAL_OPERATION_CHOICES],
         )
-        self.assertNotIn("transport", [value for value, _label in FISCAL_OPERATION_CHOICES])
+        self.assertIn(FiscalOperation.TRANSPORT, [value for value, _label in FISCAL_OPERATION_CHOICES])
 
     def test_normal_operation_redirects_to_origin_gateway(self) -> None:
         request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.NORMAL})
@@ -154,6 +154,17 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
         for service_mock in service_mocks:
             service_mock.assert_not_called()
+
+    def test_transport_routes_to_existing_nfe_wizard_without_creating_cte_flow(self) -> None:
+        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.TRANSPORT})
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        response = view.form_valid(form)
+
+        expected_url = f"{reverse('finance:emission_normal')}?tipo=nfe&reset=1&operacao=transport"
+        self.assertRedirects(response, expected_url, fetch_redirect_response=False)
 
     def test_nfe_specific_redirect_continues_to_open_normal_wizard(self) -> None:
         request = self.factory.get("/finance/nfe/create/")
