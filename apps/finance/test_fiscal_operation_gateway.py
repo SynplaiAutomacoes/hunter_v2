@@ -57,6 +57,9 @@ class FiscalOperationGatewayTests(SimpleTestCase):
             [value for value, _label in FISCAL_OPERATION_CHOICES],
         )
         self.assertIn(FiscalOperation.TRANSPORT, [value for value, _label in FISCAL_OPERATION_CHOICES])
+        labels_by_operation = {card.value: card.label for card in response.context_data["operation_cards"]}
+        self.assertEqual(labels_by_operation[FiscalOperation.NORMAL], "Nota Fiscal de Saída")
+        self.assertEqual(dict(FISCAL_OPERATION_CHOICES)[FiscalOperation.NORMAL], "Nota Fiscal de Saída")
 
     def test_normal_operation_redirects_to_origin_gateway(self) -> None:
         request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.NORMAL})

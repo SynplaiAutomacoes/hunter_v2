@@ -16,7 +16,7 @@ class FiscalOperation:
 
 
 FISCAL_OPERATION_CHOICES: tuple[tuple[str, str], ...] = (
-    (FiscalOperation.NORMAL, "NF-e Normal"),
+    (FiscalOperation.NORMAL, "Nota Fiscal de Saída"),
     (FiscalOperation.RETURN, "Devolução"),
     (FiscalOperation.CORRECTION, "Carta de Correção"),
     (FiscalOperation.COMPLEMENTARY, "Nota Complementar"),

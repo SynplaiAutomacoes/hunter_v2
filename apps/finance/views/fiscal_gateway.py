@@ -37,7 +37,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
     OPERATION_CARDS: ClassVar[tuple[FiscalOperationCard, ...]] = (
         FiscalOperationCard(
             value=FiscalOperation.NORMAL,
-            label="NF-e Normal",
+            label="Nota Fiscal de Saída",
             description="Emita por Ordem de Serviço ou preencha uma NF-e manualmente.",
             icon="receipt_long",
         ),
