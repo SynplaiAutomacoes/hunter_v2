@@ -86,7 +86,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Gerenciar Permissões", "view_name": "iam:role_list"},
             {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
-            {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
+            {"label": "Perguntas investigativas", "view_name": "quote:investigative_question_list"},
             {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list"},
         ),
     },
