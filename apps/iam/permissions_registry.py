@@ -60,7 +60,7 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
     ),
     ("catalog", "kit"): PermissionInfo(
         visible=True,
-        description="Gerenciar kits: combos de produtos e serviços para agilizar a criação de orçamentos.",
+        description="Gerenciar kits: pacotes de produtos e serviços para agilizar a criação de orçamentos.",
     ),
     ("catalog", "kitapplication"): PermissionInfo(
         visible=True,
@@ -148,7 +148,7 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
     ("finance", "taxclasssyncstate"): PermissionInfo(visible=False, auto_grant=True),
     ("finance", "taxclasspreset"): PermissionInfo(
         visible=True,
-        description="Gerenciar presets de classes fiscais para agilizar a configuração tributária.",
+        description="Gerenciar modelos de classes fiscais para agilizar a configuração tributária.",
     ),
     ("finance", "webmaniacompany"): PermissionInfo(visible=False, auto_grant=True),
     ("finance", "nfserequest"): PermissionInfo(visible=False, auto_grant=True),
@@ -195,7 +195,7 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
     ),
     ("messaging", "customermessagegroupmembership"): PermissionInfo(
         visible=True,
-        description="Gerenciar a associação de clientes aos grupos de mensagem.",
+        description="Gerenciar a associação de clientes aos grupos de mensagens.",
     ),
     # ---- Triagem ----
     ("quote", "investigativequestion"): PermissionInfo(
