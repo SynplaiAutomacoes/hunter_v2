@@ -25,7 +25,7 @@ SERVICE_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Serviço", "view_
 KIT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Kit", "view_name": "catalog:kits_create"}
 CATALOG_GROUP_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar grupo", "view_name": "catalog:group_create"}
 CHECKLIST_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Checklist", "view_name": "checklist:checklist_create"}
-APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}}
+APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}}
 STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Importação", "view_name": "stock:import"}
 FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movimentação Financeira", "view_name": "finance:financial_movement_create"}
 
