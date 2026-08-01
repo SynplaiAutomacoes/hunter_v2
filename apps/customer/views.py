@@ -272,7 +272,7 @@ def api_vehicle_catalog_fuels(request):
         return JsonResponse(
             {
                 "options": fallback_options,
-                "warning": "Nao foi achado nenhum registro de combustivel para este veiculo. Exibindo todas as opcoes disponiveis.",
+                "warning": "Não foi encontrado nenhum registro de combustível para este veículo. Exibindo todas as opções disponíveis.",
             }
         )
 
@@ -378,7 +378,7 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
             TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted", search_by="cpf_or_cnpj"),
             TableColumn("Endereço", attr="full_address", search_by=("logradouro", "numero", "cidade", "estado")),
-            TableColumn("Qtd. Veículos", attr="vehicles_count", searchable=False),
+            TableColumn("Qtd. veículos", attr="vehicles_count", searchable=False),
         ]
 
         context["actions"] = [
