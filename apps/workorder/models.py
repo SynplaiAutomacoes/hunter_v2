@@ -513,6 +513,16 @@ class WorkOrder(TimeStampedModel):
             self.review_plan = review_plan
             update_fields.append("review_plan")
         self.save(update_fields=update_fields)
+        self._sync_vehicle_km_from_exit()
+
+    def _sync_vehicle_km_from_exit(self) -> None:
+        from apps.customer.services.vehicle_km import sync_vehicle_km_from_exit
+
+        budget = getattr(self, "budget", None)
+        vehicle = getattr(budget, "vehicle", None) if budget is not None else None
+        if vehicle is None:
+            return
+        sync_vehicle_km_from_exit(vehicle=vehicle, km_final=self.km_final)
 
     @property
     def total_products_shipping(self) -> Money:

@@ -4,13 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Obrigado — {{ workshop.name }}</title>
+    <title>Obrigado — {{ workshop.pdf_name }}</title>
     {% tailwind_css %}
 </head>
 <body class="min-h-screen bg-base-200">
     <main class="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-10">
         <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8 text-center">
-            <p class="text-sm font-medium text-primary">{{ workshop.name }}</p>
+            <p class="text-sm font-medium text-primary">{{ workshop.pdf_name }}</p>
             <h1 class="mt-2 text-2xl font-bold text-base-content">
                 {% if already_submitted %}Avaliação já registrada{% else %}Obrigado pela sua avaliação!{% endif %}
             </h1>
