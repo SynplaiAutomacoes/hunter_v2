@@ -3,7 +3,7 @@
 {% if selection_report %}
     <div class="mb-4 flex flex-col gap-4 rounded-box border border-base-300 bg-base-200/40 p-4">
         <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-base-content/60">Resumo da selecao</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-base-content/60">Resumo da seleção</p>
             <p class="mt-1 text-sm text-base-content/70">Confira o total da listagem filtrada antes de imprimir o PDF.</p>
             {% if selection_report.filters_summary %}
                 <p class="mt-2 text-xs text-base-content/60">{{ selection_report.filters_summary }}</p>
@@ -20,7 +20,7 @@
             <div class="flex flex-col gap-3 sm:flex-row">
                 <div class="rounded-box bg-base-100 px-4 py-3 shadow-sm sm:min-w-48">
                     <p class="text-2xl font-semibold leading-none text-base-content">{{ selection_report.count }}</p>
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Orcamentos selecionados</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">Orçamentos selecionados</p>
                 </div>
                 <div class="rounded-box bg-base-100 px-4 py-3 shadow-sm sm:min-w-48">
                     <p class="text-2xl font-semibold leading-none text-base-content">{{ selection_report.total_value|money_br }}</p>
