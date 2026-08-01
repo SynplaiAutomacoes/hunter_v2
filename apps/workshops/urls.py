@@ -26,6 +26,14 @@ from apps.workshops.views.monthly_costs import (
     MonthlyCostUpdateView,
     MonthlyCostDeleteView,
 )
+from apps.workshops.views.review_plans import (
+    ReviewPlanCreateView,
+    ReviewPlanDeleteView,
+    ReviewPlanListView,
+    ReviewPlanUpdateView,
+    QuickReviewPlanCreateView,
+    QuickReviewPlanUpdateView,
+)
 
 from apps.workshops.views.workshop_costs import (
     WorkshopCostCalculateView,
@@ -36,7 +44,6 @@ from apps.workshops.views.workshop_costs import (
     WorkshopCostDeleteView,
     WorkshopCostCopyView,
     WorkshopCostSelectionModalView,
-    WorkshopCostSyncSalaryItemsView,
 )
 
 app_name = "workshops"
@@ -55,6 +62,13 @@ urlpatterns = [
     path("monthly_costs/create/", MonthlyCostCreateView.as_view(), name="cost_create"),
     path("monthly_costs/<int:pk>/edit/", MonthlyCostUpdateView.as_view(), name="cost_update"),
     path("monthly_costs/<int:pk>/delete/", MonthlyCostDeleteView.as_view(), name="cost_delete"),
+    # Review plans
+    path("review_plans/", ReviewPlanListView.as_view(), name="review_plan_list"),
+    path("review_plans/create/", ReviewPlanCreateView.as_view(), name="review_plan_create"),
+    path("review_plans/quick-create/", QuickReviewPlanCreateView.as_view(), name="review_plan_quick_create"),
+    path("review_plans/quick-update/<int:pk>/", QuickReviewPlanUpdateView.as_view(), name="review_plan_quick_update"),
+    path("review_plans/<int:pk>/edit/", ReviewPlanUpdateView.as_view(), name="review_plan_update"),
+    path("review_plans/<int:pk>/delete/", ReviewPlanDeleteView.as_view(), name="review_plan_delete"),
     # Workshop Costs
     path("workshops_costs/", WorkshopCostListView.as_view(), name="workshop_cost_list"),
     path("workshops_costs/create/", WorkshopCostCreateView.as_view(), name="workshop_cost_create"),
@@ -62,7 +76,6 @@ urlpatterns = [
     path("copy/<int:pk>/", WorkshopCostCopyView.as_view(), name="workshop_cost_copy"),
     path("workshops_costs/<int:pk>/delete/", WorkshopCostDeleteView.as_view(), name="workshop_cost_delete"),
     path("workshops_costs/calculate/", WorkshopCostCalculateView.as_view(), name="workshop_cost_calculate"),
-    path("workshops_costs/sync-salary-items/", WorkshopCostSyncSalaryItemsView.as_view(), name="workshop_cost_sync_salary_items"),
     path("workshops_costs/holidays/", WorkshopCostHolidaysView.as_view(), name="workshop_cost_holidays"),
     path("workshops_costs/copy-selection/", WorkshopCostSelectionModalView.as_view(), name="workshop_cost_copy_selection"),
     #

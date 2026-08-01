@@ -1,4 +1,4 @@
-{% load crispy_forms_field %}
+{% load crispy_forms_field l10n %}
 
 <div class="w-full mb-6" x-data="collaboratorField({% if object and object.is_status_locked %}true{% elif form.instance.pk and form.instance.is_status_locked %}true{% else %}false{% endif %})" id="collaborator-field-container" data-budget-lock-scope="collaborators">
     
@@ -32,7 +32,7 @@
                             required>
                         <option value="" disabled>Selecione um colaborador...</option>
                         {% for choice_id, choice_label in field.field.choices %}
-                            <option value="{{ choice_id }}">{{ choice_label }}</option>
+                            <option value="{{ choice_id|unlocalize }}">{{ choice_label }}</option>
                         {% endfor %}
                     </select>
                 </div>

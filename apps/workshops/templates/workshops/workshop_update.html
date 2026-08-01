@@ -29,32 +29,47 @@
             whatsappPolling: null,
             whatsappPhoneSaving: false,
             _whatsappPhoneLastSaved: '',
+            _whatsappPhoneSavePromise: null,
             init() {
                 this.initWhatsappStatus();
                 this.initWhatsappPhoneAutosave();
             },
+            digitsOnlyPhone(value) {
+                return String(value || '').replace(/\D/g, '');
+            },
+            getWhatsappPhoneHiddenInput() {
+                return document.getElementById('{{ company_form.whatsapp_phone.id_for_label }}');
+            },
             initWhatsappPhoneAutosave() {
                 this.$nextTick(() => {
-                    const input = document.getElementById('{{ company_form.whatsapp_phone.id_for_label }}');
-                    if (!input) {
+                    const hidden = this.getWhatsappPhoneHiddenInput();
+                    if (!hidden) {
                         return;
                     }
-                    this._whatsappPhoneLastSaved = String(input.value || '').trim();
-                    input.addEventListener('blur', () => this.autosaveWhatsappPhone(input));
+                    // PhoneInput uses a visible display field; blur must bind there, not on the hidden value.
+                    const display = hidden.closest('div')?.querySelector('input[type=text]');
+                    this._whatsappPhoneLastSaved = this.digitsOnlyPhone(hidden.value);
+                    if (display) {
+                        display.addEventListener('blur', () => this.autosaveWhatsappPhone());
+                    }
                 });
             },
-            autosaveWhatsappPhone(input) {
-                if (!input || this.whatsappPhoneSaving) {
-                    return;
+            autosaveWhatsappPhone() {
+                const hidden = this.getWhatsappPhoneHiddenInput();
+                if (!hidden) {
+                    return Promise.resolve(false);
                 }
-                const value = String(input.value || '').trim();
+                const value = this.digitsOnlyPhone(hidden.value);
                 if (value === this._whatsappPhoneLastSaved) {
-                    return;
+                    return Promise.resolve(true);
+                }
+                if (this._whatsappPhoneSavePromise) {
+                    return this._whatsappPhoneSavePromise.then(() => this.autosaveWhatsappPhone());
                 }
                 this.whatsappPhoneSaving = true;
                 const body = new FormData();
                 body.append('whatsapp_phone', value);
-                fetch('{% url "workshops:autosave_whatsapp_phone" workshop.pk %}', {
+                this._whatsappPhoneSavePromise = fetch('{% url "workshops:autosave_whatsapp_phone" workshop.pk %}', {
                     method: 'POST',
                     headers: { 'X-CSRFToken': '{{ csrf_token }}' },
                     body,
@@ -62,22 +77,28 @@
                     .then(r => r.json().then(data => ({ okHttp: r.ok, data })))
                     .then(({ okHttp, data }) => {
                         if (okHttp && data.ok) {
-                            this._whatsappPhoneLastSaved = String(data.whatsapp_phone || value);
+                            this._whatsappPhoneLastSaved = this.digitsOnlyPhone(data.whatsapp_phone || value);
                             document.body.dispatchEvent(new CustomEvent('showToast', {
                                 detail: { message: data.message || 'Telefone Assistente Virtual salvo.', type: 'success' },
                             }));
-                            return;
+                            return true;
                         }
                         document.body.dispatchEvent(new CustomEvent('showToast', {
                             detail: { message: (data && data.message) || 'Erro ao salvar o telefone.', type: 'error' },
                         }));
+                        return false;
                     })
                     .catch(() => {
                         document.body.dispatchEvent(new CustomEvent('showToast', {
                             detail: { message: 'Erro ao salvar o telefone.', type: 'error' },
                         }));
+                        return false;
                     })
-                    .finally(() => { this.whatsappPhoneSaving = false; });
+                    .finally(() => {
+                        this.whatsappPhoneSaving = false;
+                        this._whatsappPhoneSavePromise = null;
+                    });
+                return this._whatsappPhoneSavePromise;
             },
             initWhatsappStatus() {
                 this.whatsappChecking = true;
@@ -118,9 +139,32 @@
                 // connecting / unknown: keep waiting while modal/polling is active
                 this.whatsappConnected = false;
             },
-            connectWhatsapp() {
+            async connectWhatsapp() {
                 this.whatsappChecking = true;
-                fetch('{% url "workshops:whatsapp_connect" workshop.pk %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+                const phoneSaved = await this.autosaveWhatsappPhone();
+                if (!phoneSaved) {
+                    this.whatsappChecking = false;
+                    return;
+                }
+                const hidden = this.getWhatsappPhoneHiddenInput();
+                const phone = this.digitsOnlyPhone(hidden && hidden.value);
+                if (!phone) {
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message: 'Preencha o campo Telefone Assistente Virtual antes de conectar.',
+                            type: 'error',
+                        },
+                    }));
+                    this.whatsappChecking = false;
+                    return;
+                }
+                const body = new FormData();
+                body.append('whatsapp_phone', phone);
+                fetch('{% url "workshops:whatsapp_connect" workshop.pk %}', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+                    body,
+                })
                     .then(r => r.json())
                     .then(data => {
                         if (data.ok) {
@@ -213,6 +257,7 @@
         <div class="card-body p-6 md:p-8 space-y-6">
             <div class="app-tabs tabs tabs-lift flex-wrap gap-1">
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'empresa' }" @click="activeTab = 'empresa'">Empresa</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'assistente_virtual' }" @click="activeTab = 'assistente_virtual'">Assistente Virtual</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'endereco' }" @click="activeTab = 'endereco'">Endereco</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'nota_fiscal' }" @click="activeTab = 'nota_fiscal'">Nota Fiscal</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'certificado' }" @click="activeTab = 'certificado'">Certificados</button>
@@ -300,6 +345,150 @@
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
                         <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <form method="post" x-show="activeTab === 'assistente_virtual'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="assistente_virtual">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                <div class="alert alert-info mb-4 text-sm">
+                    <span>Configure o seu assistente virtual e horário de funcionamento.</span>
+                </div>
+
+                {% if assistant_virtual_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in assistant_virtual_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="mb-4">
+                    <h3 class="text-base font-semibold">Horário de funcionamento</h3>
+                    <p class="text-xs text-base-content/70 mt-1">Define a janela em que mensagens automáticas podem ser enviadas.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12">
+                        <span class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.weekdays.label }}</span>
+                        <p class="mb-3 text-xs text-base-content/60">{{ assistant_virtual_form.weekdays.help_text }}</p>
+                        <div class="flex flex-wrap items-center gap-2">
+                            {% for checkbox in assistant_virtual_form.weekdays %}
+                                <label class="inline-flex cursor-pointer items-center gap-2 rounded-box border border-base-300 bg-base-100 px-3 py-2 transition hover:border-primary/40 hover:bg-base-200/40">
+                                    {{ checkbox.tag }}
+                                    <span class="text-sm text-base-content whitespace-nowrap">{{ checkbox.choice_label }}</span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                        {% if assistant_virtual_form.weekdays.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.weekdays.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-6">
+                        <label for="{{ assistant_virtual_form.outbound_business_start_time.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.outbound_business_start_time.label }}</label>
+                        {{ assistant_virtual_form.outbound_business_start_time }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.outbound_business_start_time.help_text }}</p>
+                        {% if assistant_virtual_form.outbound_business_start_time.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.outbound_business_start_time.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-6">
+                        <label for="{{ assistant_virtual_form.outbound_business_end_time.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.outbound_business_end_time.label }}</label>
+                        {{ assistant_virtual_form.outbound_business_end_time }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.outbound_business_end_time.help_text }}</p>
+                        {% if assistant_virtual_form.outbound_business_end_time.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.outbound_business_end_time.errors }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="divider my-6"></div>
+
+                <div class="mb-4">
+                    <h3 class="text-base font-semibold">Pesquisa de satisfação</h3>
+                    <p class="text-xs text-base-content/70 mt-1">Após a entrega da O.S., envia automaticamente um link público de avaliação via WhatsApp.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12">
+                        <label for="{{ assistant_virtual_form.satisfaction_survey_enabled.id_for_label }}" class="flex min-h-12 cursor-pointer items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3 transition hover:border-primary/40 hover:bg-base-200/40">
+                            <div>
+                                <span class="block text-sm font-semibold text-base-content">{{ assistant_virtual_form.satisfaction_survey_enabled.label }}</span>
+                                <span class="block text-xs text-base-content/60">Usa a mensagem padrão do sistema (não editável por oficina).</span>
+                            </div>
+                            <input
+                                type="checkbox"
+                                name="{{ assistant_virtual_form.satisfaction_survey_enabled.html_name }}"
+                                id="{{ assistant_virtual_form.satisfaction_survey_enabled.id_for_label }}"
+                                class="toggle toggle-primary"
+                                {% if assistant_virtual_form.satisfaction_survey_enabled.value %}checked{% endif %}
+                            >
+                        </label>
+                        {% if assistant_virtual_form.satisfaction_survey_enabled.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.satisfaction_survey_enabled.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    {% if assistant_virtual_form.satisfaction_survey_send_immediately %}
+                        <div class="col-span-12">
+                            <label for="{{ assistant_virtual_form.satisfaction_survey_send_immediately.id_for_label }}" class="flex min-h-12 cursor-pointer items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3 transition hover:border-primary/40 hover:bg-base-200/40">
+                                <div>
+                                    <span class="block text-sm font-semibold text-base-content">{{ assistant_virtual_form.satisfaction_survey_send_immediately.label }}</span>
+                                    <span class="block text-xs text-base-content/60">Ignora os dias de atraso e agenda o envio no fechamento da O.S.</span>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    name="{{ assistant_virtual_form.satisfaction_survey_send_immediately.html_name }}"
+                                    id="{{ assistant_virtual_form.satisfaction_survey_send_immediately.id_for_label }}"
+                                    class="toggle toggle-primary"
+                                    {% if assistant_virtual_form.satisfaction_survey_send_immediately.value %}checked{% endif %}
+                                >
+                            </label>
+                            {% if assistant_virtual_form.satisfaction_survey_send_immediately.errors %}
+                                <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.satisfaction_survey_send_immediately.errors }}</div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                    <div class="col-span-12 lg:col-span-4">
+                        <label for="{{ assistant_virtual_form.satisfaction_survey_delay_days.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.satisfaction_survey_delay_days.label }}</label>
+                        {{ assistant_virtual_form.satisfaction_survey_delay_days }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.satisfaction_survey_delay_days.help_text }}</p>
+                        {% if assistant_virtual_form.satisfaction_survey_delay_days.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.satisfaction_survey_delay_days.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-4">
+                        <label for="{{ assistant_virtual_form.google_review_min_rating.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.google_review_min_rating.label }}</label>
+                        {{ assistant_virtual_form.google_review_min_rating }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.google_review_min_rating.help_text }}</p>
+                        {% if assistant_virtual_form.google_review_min_rating.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.google_review_min_rating.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-12">
+                        <label for="{{ assistant_virtual_form.google_review_url.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.google_review_url.label }}</label>
+                        {{ assistant_virtual_form.google_review_url }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.google_review_url.help_text }}</p>
+                        {% if assistant_virtual_form.google_review_url.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.google_review_url.errors }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_workshop %}
+                        <button type="submit" class="btn-form-save">Salvar alterações</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Você não possui permissão para alterar o assistente virtual desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
@@ -398,7 +587,6 @@
                 </div>
 
                 <div x-show="nfTab === 'nfce'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_enabled|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_serie|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_numero|as_crispy_field }}</div>
                     {% if fiscal_form.show_homolog_fields %}

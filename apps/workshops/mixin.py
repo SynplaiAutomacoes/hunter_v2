@@ -1,26 +1,41 @@
 from __future__ import annotations
 
 from django.core.exceptions import PermissionDenied, ImproperlyConfigured
+from django.http import Http404
+from django.shortcuts import get_object_or_404
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 
 from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 
 
 class WorkshopScopedMixin:
-    """Mixin para views que SEMPRE devem operar na oficina ativa.
+    """Mixin para views com escopo de oficina.
 
-    - Define `self.workshop` via sessão
-    - Valida permissão por oficina
-    - Filtra o queryset por `workshop=self.workshop`
+    Por padrao resolve `self.workshop` pela oficina ativa na sessao.
+    Com `resolve_workshop_from_url_pk = True`, usa o `pk` da URL (mesmo escopo
+    da tela de edicao da oficina).
     """
 
     workshop_permission_codename: str | None = None
     workshop_permission_app_label: str | None = None  # default: model._meta.app_label
     workshop_permission_model: str | None = None  # default: self.model._meta.model_name
     workshop_permission_fallbacks: tuple[tuple[str, str, str], ...] = ()
+    resolve_workshop_from_url_pk: bool = False
+
+    def _resolve_workshop(self, request, kwargs):
+        if not self.resolve_workshop_from_url_pk:
+            return get_active_workshop_or_404(request)
+
+        # Lazy import avoids circular imports with workshops views module.
+        from apps.workshops.views.workshops import _get_user_workshop_queryset
+
+        pk = kwargs.get("pk")
+        if pk is None:
+            raise Http404
+        return get_object_or_404(_get_user_workshop_queryset(request), pk=pk)
 
     def dispatch(self, request, *args, **kwargs):
-        self.workshop = get_active_workshop_or_404(request)
+        self.workshop = self._resolve_workshop(request, kwargs)
 
         model = getattr(self, "model", None)
         model_name = self.workshop_permission_model

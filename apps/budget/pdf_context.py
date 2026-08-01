@@ -7,7 +7,7 @@ from typing import Any
 
 from djmoney.money import Money
 
-from apps.budget.pricing import _distribute_totals, format_duration_display, money_div, money_from_decimal, zero_money
+from apps.budget.pricing import format_duration_display, money_div, money_from_decimal, zero_money
 from apps.budget.review_display import build_budget_review_display
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.budget.service_costs import calculate_mechanic_service_cost
@@ -198,162 +198,6 @@ def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any
     return servicos
 
 
-def _explode_kit_product_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
-    kit_quantity = kit_item.quantity
-    product_entries: list[tuple[Any, int, Money]] = []
-    for override in kit_item._iter_frozen_kit_product_overrides():
-        total_quantity = int(override.quantity or 0) * int(kit_quantity or 0)
-        if total_quantity <= 0:
-            continue
-        product_entries.append((override, total_quantity, override.product_selling_price * total_quantity))
-
-    allocated_bases = _distribute_totals(
-        base_values=[raw_base for _, _, raw_base in product_entries],
-        target_total=kit_line.allocated_product_base,
-    )
-
-    produtos: list[dict[str, Any]] = []
-    for (override, total_quantity, _), allocated_base in zip(product_entries, allocated_bases, strict=False):
-        product = override.product
-        kit_product_total = allocated_base + override.shipping
-        unit_price = money_div(allocated_base, total_quantity) if total_quantity > 0 else zero_money()
-        produto = {
-            "id": override.product_id,
-            "description": product.name,
-            "quantity": total_quantity,
-            "is_customer_supplied": False,
-            "application": getattr(product, "application", "") or "-",
-            "code": getattr(product, "code", "") or "-",
-            "location": getattr(product, "location", "") or "-",
-            "unit_price": unit_price,
-            "adjusted_unit_price": unit_price,
-            "display_unit_price": money_div(kit_product_total, total_quantity) if total_quantity > 0 else zero_money(),
-            "shipping": override.shipping,
-            "total_price": kit_product_total,
-            "product_cost_price": override.product_cost_price * total_quantity,
-            "profit_value": allocated_base - (override.product_cost_price * total_quantity),
-            "show_kit_duplicate_warning": False,
-            "item_benefit_type": kit_item.item_benefit_type,
-        }
-        if produto["item_benefit_type"] != "normal":
-            produto["profit_value"] = -produto["product_cost_price"]
-        produtos.append(produto)
-    return produtos
-
-
-def _explode_kit_service_rows(*, budget: Any, kit_line, kit_item) -> list[dict[str, Any]]:
-    kit_quantity = kit_item.quantity
-    labor_entries: list[tuple[Any, int, Money, Money]] = []
-    third_party_entries: list[tuple[Any, int]] = []
-
-    for override in kit_item._iter_frozen_kit_service_overrides():
-        total_quantity = int(override.quantity or 0) * int(kit_quantity or 0)
-        if total_quantity <= 0:
-            continue
-        if override.service.is_third_party:
-            third_party_entries.append((override, total_quantity))
-            continue
-        labor_entries.append(
-            (
-                override,
-                total_quantity,
-                override.service_selling_price * total_quantity,
-                override.service_cost_price * total_quantity,
-            )
-        )
-
-    allocated_labor_totals = _distribute_totals(
-        base_values=[raw_total for _, _, raw_total, _ in labor_entries],
-        target_total=kit_line.allocated_labor_total,
-    )
-    allocated_labor_costs = _distribute_totals(
-        base_values=[raw_cost for _, _, _, raw_cost in labor_entries],
-        target_total=kit_line.allocated_labor_cost,
-    )
-
-    servicos: list[dict[str, Any]] = []
-    for (override, total_quantity, _, _), allocated_total, allocated_cost in zip(
-        labor_entries,
-        allocated_labor_totals,
-        allocated_labor_costs,
-        strict=False,
-    ):
-        service = override.service
-        service_shipping = service.shipping or Money(0, "BRL")
-        kit_service_total = allocated_total + service_shipping
-        service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
-            budget=budget,
-            duration=override.duration,
-            quantity=total_quantity,
-            fallback_cost=allocated_cost,
-            is_third_party=False,
-        )
-        unit_price = money_div(allocated_total, total_quantity) if total_quantity > 0 else zero_money()
-        servico = {
-            "id": override.service_id,
-            "description": service.name,
-            "quantity": total_quantity,
-            "unit_price": unit_price,
-            "display_unit_price": money_div(kit_service_total, total_quantity) if total_quantity > 0 else zero_money(),
-            "total_price": kit_service_total,
-            "service_cost_price": allocated_cost,
-            "service_mechanic_cost_price": service_mechanic_cost_price,
-            "profit_value": kit_service_total - service_mechanic_cost_price,
-            "duration_display": format_duration_display(override.duration * total_quantity) if override.duration else "00h 00m",
-            "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
-            "item_benefit_type": kit_item.item_benefit_type,
-            "shipping": service_shipping,
-        }
-        if servico["item_benefit_type"] != "normal":
-            servico["profit_value"] = -servico["service_mechanic_cost_price"]
-        servicos.append(servico)
-
-    third_party_raw_bases = [override.service_selling_price * total_quantity for override, total_quantity in third_party_entries]
-    third_party_cost_bases = [override.service_cost_price * total_quantity for override, total_quantity in third_party_entries]
-    third_party_shippings = [override.service.shipping or Money(0, "BRL") for override, _ in third_party_entries]
-    third_party_shipping_total = sum(third_party_shippings, Money(0, "BRL"))
-    third_party_net_target = kit_line.allocated_third_party_total - third_party_shipping_total
-    if third_party_net_target.amount < 0:
-        third_party_net_target = Money(0, "BRL")
-    allocated_third_party_totals = _distribute_totals(
-        base_values=third_party_raw_bases,
-        target_total=third_party_net_target,
-    )
-    allocated_third_party_costs = _distribute_totals(
-        base_values=third_party_cost_bases,
-        target_total=kit_line.third_party_cost_total,
-    )
-    for (override, total_quantity), allocated_total, allocated_cost, service_shipping in zip(
-        third_party_entries,
-        allocated_third_party_totals,
-        allocated_third_party_costs,
-        third_party_shippings,
-        strict=False,
-    ):
-        service = override.service
-        kit_service_total = allocated_total + service_shipping
-        unit_price = money_div(allocated_total, total_quantity) if total_quantity > 0 else zero_money()
-        servicos.append(
-            {
-                "id": override.service_id,
-                "description": service.name,
-                "quantity": total_quantity,
-                "unit_price": unit_price,
-                "display_unit_price": money_div(kit_service_total, total_quantity) if total_quantity > 0 else zero_money(),
-                "total_price": kit_service_total,
-                "service_cost_price": allocated_cost,
-                "service_mechanic_cost_price": allocated_cost,
-                "profit_value": kit_service_total - allocated_cost,
-                "duration_display": format_duration_display(override.duration * total_quantity) if override.duration else "00h 00m",
-                "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
-                "item_benefit_type": kit_item.item_benefit_type,
-                "shipping": service_shipping,
-            }
-        )
-
-    return servicos
-
-
 def build_workshop_logo_data_uri(*, workshop) -> str:
     from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
 
@@ -388,10 +232,12 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     elif is_warranty_budget:
         warranty_message = "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
 
-    total_produtos = budget.get_total_products_by_slider
-    total_servicos = budget.get_total_services_by_slider
-    desconto = budget.resolved_discount_value
-    total_geral = zero_money() if is_warranty_or_courtesy else budget.total_budget_value
+    total_produtos = budget.selected_items_total_products_without_shipping
+    total_servicos = budget.selected_items_total_services_value
+    desconto = budget.summary_discount_value
+    total_geral = budget.summary_total_before_benefit_value
+    benefit_label = budget.benefit_summary_label
+    benefit_total = budget.benefit_summary_total_value
 
     discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
 
@@ -483,8 +329,77 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         for line in review_display.kits:
             kit_item = line.item
             kit_quantity = kit_item.quantity
-            produtos.extend(_explode_kit_product_rows(kit_line=line, kit_item=kit_item))
-            servicos.extend(_explode_kit_service_rows(budget=budget, kit_line=line, kit_item=kit_item))
+
+            for override in kit_item._iter_frozen_kit_product_overrides():
+                product = override.product
+                quantity = override.quantity
+                total_quantity = quantity * kit_quantity
+                if total_quantity <= 0:
+                    continue
+
+                kit_product_total = (override.product_selling_price * total_quantity) + override.shipping
+
+                produto = {
+                    "id": override.product_id,
+                    "description": product.name,
+                    "quantity": total_quantity,
+                    "is_customer_supplied": False,
+                    "application": getattr(product, "application", "") or "-",
+                    "code": getattr(product, "code", "") or "-",
+                    "location": getattr(product, "location", "") or "-",
+                    "unit_price": override.product_selling_price,
+                    "adjusted_unit_price": override.product_selling_price,
+                    "display_unit_price": money_div(kit_product_total, total_quantity) if total_quantity > 0 else zero_money(),
+                    "shipping": override.shipping,
+                    "total_price": kit_product_total,
+                    "product_cost_price": override.product_cost_price * total_quantity,
+                    "profit_value": (override.product_selling_price * total_quantity) - (override.product_cost_price * total_quantity),
+                    "show_kit_duplicate_warning": False,
+                    "item_benefit_type": kit_item.item_benefit_type,
+                }
+
+                if produto["item_benefit_type"] != "normal":
+                    produto["profit_value"] = -produto["product_cost_price"]
+
+                produtos.append(produto)
+
+            for override in kit_item._iter_frozen_kit_service_overrides():
+                service = override.service
+                quantity = override.quantity
+                total_quantity = quantity * kit_quantity
+                if total_quantity <= 0:
+                    continue
+                service_cost_price = override.service_cost_price * total_quantity
+                service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
+                    budget=budget,
+                    duration=override.duration,
+                    quantity=total_quantity,
+                    fallback_cost=service_cost_price,
+                    is_third_party=service.is_third_party,
+                )
+
+                kit_service_total = (override.service_selling_price * total_quantity) + (service.shipping or Money(0, "BRL"))
+
+                servico = {
+                    "id": override.service_id,
+                    "description": service.name,
+                    "quantity": total_quantity,
+                    "unit_price": override.service_selling_price,
+                    "display_unit_price": money_div(kit_service_total, total_quantity) if total_quantity > 0 else zero_money(),
+                    "total_price": kit_service_total,
+                    "service_cost_price": service_cost_price,
+                    "service_mechanic_cost_price": service_mechanic_cost_price,
+                    "profit_value": (override.service_selling_price * total_quantity) - service_mechanic_cost_price,
+                    "duration_display": format_duration_display(override.duration * total_quantity) if override.duration else "00h 00m",
+                    "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
+                    "item_benefit_type": kit_item.item_benefit_type,
+                    "shipping": service.shipping or Money(0, "BRL"),
+                }
+
+                if servico["item_benefit_type"] != "normal":
+                    servico["profit_value"] = -servico["service_mechanic_cost_price"]
+
+                servicos.append(servico)
 
             kits.append(
                 {
@@ -503,6 +418,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
 
+    total_produtos = sum((p["total_price"] for p in produtos if p.get("item_benefit_type", "normal") in ("normal", "") and not p.get("is_customer_supplied", False)), Money(0, "BRL"))
+    total_servicos = sum((s["total_price"] for s in servicos if s.get("item_benefit_type", "normal") in ("normal", "")), Money(0, "BRL"))
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
@@ -519,6 +436,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         total_services_shipping=total_services_shipping_value,
     )
 
+    total_geral = total_produtos + total_servicos - desconto
     benefit_total = Money(0, "BRL")
     benefit_label = ""
 

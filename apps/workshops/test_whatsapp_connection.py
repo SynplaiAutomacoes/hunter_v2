@@ -57,6 +57,7 @@ class WhatsAppConnectionViewTests(TestCase):
         )
         role = WorkshopRole.objects.create(account=self.account, name="Diretor")
         WorkshopMember.objects.create(user=self.user, workshop=self.workshop, role=role, is_active=True)
+        self.role = role
         self.client.force_login(self.user)
         session = self.client.session
         session["active_workshop_id"] = self.workshop.pk
@@ -203,6 +204,16 @@ class WhatsAppConnectionViewTests(TestCase):
         self.assertEqual(self.workshop.whatsapp_instance_name, "inst-abc")
         self.assertEqual(self.workshop.whatsapp_phone, "5511888777666")
 
+    def test_whatsapp_phone_autosave_stores_digits_only(self) -> None:
+        url = reverse("workshops:autosave_whatsapp_phone", kwargs={"pk": self.workshop.pk})
+        response = self.client.post(url, data={"whatsapp_phone": "+55 (11) 98877-6655"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["whatsapp_phone"], "5511988776655")
+        self.workshop.refresh_from_db()
+        self.assertEqual(self.workshop.whatsapp_phone, "5511988776655")
+
     def test_whatsapp_phone_autosave_is_idempotent_when_unchanged(self) -> None:
         url = reverse("workshops:autosave_whatsapp_phone", kwargs={"pk": self.workshop.pk})
         response = self.client.post(url, data={"whatsapp_phone": "5511999999999"})
@@ -210,6 +221,55 @@ class WhatsAppConnectionViewTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["message"], "Nenhuma alteracao detectada.")
+
+    def test_whatsapp_phone_autosave_normalizes_plus_prefix_as_unchanged(self) -> None:
+        self.workshop.whatsapp_phone = "+5511999999999"
+        self.workshop.save(update_fields=["whatsapp_phone"])
+        url = reverse("workshops:autosave_whatsapp_phone", kwargs={"pk": self.workshop.pk})
+        response = self.client.post(url, data={"whatsapp_phone": "+5511999999999"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["whatsapp_phone"], "5511999999999")
+        self.workshop.refresh_from_db()
+        self.assertEqual(self.workshop.whatsapp_phone, "5511999999999")
+
+    def test_whatsapp_endpoints_use_url_workshop_not_session_active(self) -> None:
+        other = Workshop.objects.create(
+            account=self.account,
+            name="Outra Oficina",
+            cnpj="98.765.432/0001-10",
+            phone="+5511888888888",
+            address="Rua B, 1",
+            whatsapp_phone="",
+            whatsapp_instance_name="",
+        )
+        WorkshopMember.objects.create(user=self.user, workshop=other, role=self.role, is_active=True)
+        session = self.client.session
+        session["active_workshop_id"] = other.pk
+        session.save()
+
+        autosave_url = reverse("workshops:autosave_whatsapp_phone", kwargs={"pk": self.workshop.pk})
+        response = self.client.post(autosave_url, data={"whatsapp_phone": "5511777666555"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        self.workshop.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.workshop.whatsapp_phone, "5511777666555")
+        self.assertEqual(other.whatsapp_phone, "")
+
+        service = MagicMock()
+        service.get_status.return_value = {"connected": True, "state": "open", "instance": "inst-abc"}
+        with patch(
+            "apps.workshops.views.whatsapp_connection.EvolutionAPIServiceFactory.get_service",
+            return_value=service,
+        ):
+            status_response = self.client.get(reverse("workshops:whatsapp_status", kwargs={"pk": self.workshop.pk}))
+
+        self.assertEqual(status_response.status_code, 200)
+        status_payload = status_response.json()
+        self.assertTrue(status_payload["connected"])
+        service.get_status.assert_called_once_with(instance_name="inst-abc")
 
     def test_status_404_runs_cleanup(self) -> None:
         service = MagicMock()

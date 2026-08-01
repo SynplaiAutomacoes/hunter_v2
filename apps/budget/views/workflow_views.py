@@ -22,8 +22,6 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
-from apps.budget.forms.layouts.step5_items_expand import build_step5_products_list_html, build_step5_services_list_html
-from apps.budget.forms.shared import _get_budget_with_prefetched_items
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
@@ -54,7 +52,6 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
-from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -553,29 +550,6 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         return f"{reverse('budget:budget_create')}?{urlencode(query_params)}"
 
-    def _apply_auto_link(self) -> None:
-        auto_ref_id = self.request.POST.get("auto_reference_budget_id", "").strip()
-        if not auto_ref_id or not auto_ref_id.isdigit():
-            return
-        ref_id = int(auto_ref_id)
-        if ref_id == (self.object.pk or 0):
-            return
-
-        budget = find_oldest_open_budget_for_vehicle(
-            workshop_id=self.workshop.pk,
-            vehicle_id=self.object.vehicle_id,
-        )
-        if budget is None or budget.pk != ref_id:
-            return
-
-        if budget.workshop_id != self.workshop.pk:
-            return
-        if self.object.vehicle_id and budget.vehicle_id and budget.vehicle_id != self.object.vehicle_id:
-            return
-
-        self.object.reference_budget = budget
-        self.object.save(update_fields=["reference_budget"])
-
     def _sync_originating_appointment(self) -> None:
         appointment_id = self._get_origin_appointment_id()
         if appointment_id is None or not self.object:
@@ -626,9 +600,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if budget_pk and not requested_step:
             budget = self.get_object()
             if budget:
-                total_steps = len(self.get_steps_config())
-                target_step = total_steps if budget.is_status_locked else budget.current_step
-                target_url = self._build_create_flow_url(step=target_step, budget_id=budget.pk)
+                target_url = self._build_create_flow_url(step=budget.current_step, budget_id=budget.pk)
                 return redirect(target_url)
 
         return super().get(request, *args, **kwargs)
@@ -682,10 +654,6 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        budget = self.model_instance
-        total_steps = len(self.get_steps_config())
-        if budget and budget.is_status_locked:
-            context["max_reached_step"] = total_steps
         context["origin_appointment_id"] = self._get_origin_appointment_id()
         return context
 
@@ -745,15 +713,12 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
 
-        is_creating = form.instance.pk is None
-
-        self.object = form.save()
+        self.object = form.save()  # Salva o progresso atual
         assert self.object is not None
         current_step = self.get_current_step()
 
-        if current_step == 1 and is_creating:
+        if current_step == 1:
             self._sync_originating_appointment()
-            self._apply_auto_link()
 
         # Aplicar status automático em memória; coalesce com current_step abaixo.
         status_changed = False
@@ -838,8 +803,7 @@ class BudgetUpdateView(BudgetCreateView):
         step_na_url = int(request.GET.get("step", 0))
 
         if not step_na_url:
-            total_steps = len(self.get_steps_config())
-            target_step = total_steps if self.object.is_status_locked else self.object.current_step
+            target_step = self.object.current_step
             return redirect(f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={target_step}")
 
         return super().get(request, *args, **kwargs)
@@ -1372,17 +1336,14 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         display_products_value = budget.display_total_products_by_slider
         display_third_party_value = budget.display_total_third_party_by_slider
         display_labor_value = budget.display_total_services_by_slider - display_third_party_value
-        budget_for_lists = _get_budget_with_prefetched_items(budget)
-        products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
-        services_list_html = build_step5_services_list_html(budget=budget_for_lists, oob=True)
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
                     {display_products_value}
                 </span>
-                <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap">
+                <span id="display-venda-terceiros" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300">
                     {display_third_party_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
                     {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
@@ -1394,8 +1355,6 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="valor-final-display" hx-swap-oob="true">
                     {budget.display_total_budget_value}
                 </span>
-                {products_list_html}
-                {services_list_html}
                 """
         return HttpResponse(html)
 
@@ -1437,30 +1396,6 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"success": True, "observation": budget.observations})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
-
-
-class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = Budget
-    workshop_permission_codename = "view_budget"
-
-    def get(self, request):
-        vehicle_id = request.GET.get("vehicle_id", "").strip()
-        if not vehicle_id or not vehicle_id.isdigit():
-            return HttpResponse("")
-
-        budget = find_oldest_open_budget_for_vehicle(
-            workshop_id=self.workshop.pk,
-            vehicle_id=int(vehicle_id),
-        )
-        if budget is None:
-            return HttpResponse("")
-
-        is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
-        context = {
-            "reference_budget_id": budget.pk,
-            "is_workorder": is_workorder,
-        }
-        return render(request, "budget/partials/auto_link_warning.html", context)
 
 
 class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
