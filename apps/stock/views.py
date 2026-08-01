@@ -958,7 +958,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             from apps.sources.models import Source
 
             resolved_nf_number = obj.nf_number_display or "S/N" if hasattr(obj, "nf_number_display") else (obj.nf_number or "S/N")
-            source_name = obj.supplier_name or "Fornecedor da Importação"
+            source_name = obj.supplier_name or "Fornecedor da importação"
             source_cnpj = obj.supplier_cnpj or ""
             source, _ = Source.objects.get_or_create(workshop=self.workshop, name=source_name, defaults={"cnpj": source_cnpj})
 

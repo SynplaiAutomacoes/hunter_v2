@@ -8,7 +8,7 @@ class Source(TimeStampedModel):
     cnpj = BRCNPJField(verbose_name="CNPJ", default="", null=True, blank=True)
     name = models.CharField(verbose_name="Razão Social", max_length=255)
     phone = PhoneNumberField(region="BR", verbose_name="Telefone", max_length=20, default="", null=True, blank=True)
-    email = models.EmailField(verbose_name="Email", default="", null=True, blank=True)
+    email = models.EmailField(verbose_name="E-mail", default="", null=True, blank=True)
 
     class Meta:
         verbose_name = "Origem"
