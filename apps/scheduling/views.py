@@ -271,7 +271,7 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
                 },
                 status=200,
             )
-        messages.error(self.request, "Nao foi possivel salvar o agendamento. Revise os campos informados.")
+        messages.error(self.request, "Não foi possível salvar o agendamento. Revise os campos informados.")
         return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
 
     def get_initial(self):
@@ -385,7 +385,7 @@ class AppointmentUpdateView(AppointmentBaseFormMixin, UpdateView):
                 },
                 status=200,
             )
-        messages.error(self.request, "Nao foi possivel salvar o agendamento. Revise os campos informados.")
+        messages.error(self.request, "Não foi possível salvar o agendamento. Revise os campos informados.")
         return HttpResponse(status=302, headers={"Location": reverse("scheduling:appointment_calendar")})
 
     def get_queryset(self):
@@ -454,7 +454,7 @@ class AppointmentMoveView(LoginRequiredMixin, WorkshopScopedMixin, View):
         form = AppointmentMoveForm(request.POST, instance=appointment)
 
         if not form.is_valid():
-            message = "Nao foi possivel atualizar o horario do agendamento."
+            message = "Não foi possível atualizar o horário do agendamento."
             non_field_errors = form.non_field_errors()
             if non_field_errors:
                 message = " ".join(str(error) for error in non_field_errors)
@@ -470,7 +470,7 @@ class AppointmentMoveView(LoginRequiredMixin, WorkshopScopedMixin, View):
             joined_errors: list[str] = []
             for messages_list in exc.message_dict.values():
                 joined_errors.extend(str(message) for message in messages_list)
-            message = " ".join(joined_errors) or "Nao foi possivel mover o agendamento."
+            message = " ".join(joined_errors) or "Não foi possível mover o agendamento."
             return JsonResponse({"ok": False, "message": message}, status=400)
 
         appointment.save(update_fields=["starts_at", "ends_at", "atualizado_em"])

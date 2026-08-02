@@ -28,7 +28,7 @@ class NfeCreditIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
             validation_status=FiscalProductPreviewStatus.APPROVED,
         )
         if not is_credit_debit_basis_enabled(workshop=self.workshop):
-            messages.error(request, "A emissao de NF-e de credito esta desabilitada para esta oficina.")
+            messages.error(request, "A emissão de NF-e de crédito esta desabilitada para esta oficina.")
             return redirect("finance:fiscal_credit_product_preview_detail", pk=preview.pk)
         try:
             document = create_and_emit_nfe_credit_type_one(
@@ -41,7 +41,7 @@ class NfeCreditIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeCreditError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, f"NF-e de credito tipo 1 registrada com status {document.get_status_display()}.")
+            messages.success(request, f"NF-e de crédito tipo 1 registrada com status {document.get_status_display()}.")
         return redirect("finance:fiscal_credit_product_preview_detail", pk=preview.pk)
 
 
@@ -64,7 +64,7 @@ class NfeCreditDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, *args, **kwargs):
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
         document = get_object_or_404(FiscalDocument, pk=kwargs["pk"], workshop=self.workshop, purpose=FiscalDocumentPurpose.CREDIT, fiscal_purpose_type="1")
         field_name, extension = self.document_fields[document_kind]
         try:
@@ -73,7 +73,7 @@ class NfeCreditDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         identifier = str(document.number or document.access_key or document.remote_uuid or document.pk).replace(" ", "-")
-        response["Content-Disposition"] = f'attachment; filename="nfe-credito-{document_kind}-{identifier}.{extension}"'
+        response["Content-Disposition"] = f'attachment; filename="nfe-crédito-{document_kind}-{identifier}.{extension}"'
         return response
 
 
@@ -94,7 +94,7 @@ class NfeCreditCancellationView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeCreditCancellationError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Cancelamento da NF-e de credito processado.")
+            messages.success(request, "Cancelamento da NF-e de crédito processado.")
         return redirect("finance:fiscal_credit_product_preview_detail", pk=document.credit_product_preview_id)
 
 
@@ -120,5 +120,5 @@ class NfeCreditCancellationDownloadView(LoginRequiredMixin, WorkshopScopedMixin,
         except WebmaniaDocumentDownloadError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
-        response["Content-Disposition"] = f'attachment; filename="nfe-credito-cancelamento-{event.document_id}.xml"'
+        response["Content-Disposition"] = f'attachment; filename="nfe-crédito-cancelamento-{event.document_id}.xml"'
         return response

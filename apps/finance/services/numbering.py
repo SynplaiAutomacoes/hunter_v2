@@ -49,9 +49,9 @@ def reserve_nfe_request_number(*, nfe_request: NfeRequest) -> ReservedNfeNumber:
         counter_field = "nfe_numero_dev" if _is_homolog_environment() else "nfe_numero"
         next_number = getattr(company, counter_field)
         if next_number is None:
-            raise EmissionNumberReservationError("Configure o próximo número Nota Fiscal de Produto da oficina antes de emitir a Nota Fiscal de Produto.")
+            raise EmissionNumberReservationError("Configure o próximo número da Nota Fiscal de Produto da oficina antes de emitir a Nota Fiscal de Produto.")
         if company.nfe_serie is None:
-            raise EmissionNumberReservationError("Configure a série Nota Fiscal de Produto da oficina antes de emitir a Nota Fiscal de Produto.")
+            raise EmissionNumberReservationError("Configure a série da Nota Fiscal de Produto da oficina antes de emitir a Nota Fiscal de Produto.")
 
         locked_request.reserved_number = int(next_number)
         locked_request.reserved_series = company.nfe_serie
@@ -79,7 +79,7 @@ def reserve_nfse_request_rps_number(*, nfse_request: NfseRequest) -> ReservedNfs
         counter_field = "nfse_rps_numero_dev" if _is_homolog_environment() else "nfse_rps_numero"
         next_number = getattr(company, counter_field)
         if next_number is None:
-            raise EmissionNumberReservationError("Configure o próximo RPS Nota Fiscal de Serviço da oficina antes de emitir a Nota Fiscal de Serviço.")
+            raise EmissionNumberReservationError("Configure o próximo RPS da Nota Fiscal de Serviço da oficina antes de emitir a Nota Fiscal de Serviço.")
 
         locked_request.reserved_rps_number = int(next_number)
         locked_request.reserved_rps_series = str(company.nfse_rps_serie or "")

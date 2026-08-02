@@ -186,9 +186,9 @@ def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -
     warnings: list[str] = []
 
     if allocation.products_target <= 0 or not snapshot.product_lines:
-        warnings.append("Com a configuracao atual do slider, nao ha saldo de produtos para emitir Nota Fiscal de Produto.")
+        warnings.append("Com a configuração atual do slider, não ha saldo de produtos para emitir Nota Fiscal de Produto.")
     if allocation.services_target <= 0 or not snapshot.service_lines:
-        warnings.append("Com a configuracao atual do slider, nao ha saldo de servicos para emitir Nota Fiscal de Serviço.")
+        warnings.append("Com a configuração atual do slider, não ha saldo de serviços para emitir Nota Fiscal de Serviço.")
 
     return "".join(f"<div class='alert alert-warning'>{warning}</div>" for warning in warnings)
 
@@ -228,7 +228,7 @@ def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -
     if not service_rows_html:
         service_rows_html = """
         <tr>
-            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum servico encontrado nesta OS.</td>
+            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum serviço encontrado nesta OS.</td>
         </tr>
         """
 
@@ -247,9 +247,9 @@ def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -
                         <table class="table table-zebra">
                             <thead>
                                 <tr>
-                                    <th>Descricao</th>
+                                    <th>Descrição</th>
                                     <th class="text-center">Qtd</th>
-                                    <th class="text-right">Valor Unitario</th>
+                                    <th class="text-right">Valor Unitário</th>
                                     <th class="text-right">Valor Total</th>
                                 </tr>
                             </thead>
@@ -258,14 +258,14 @@ def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -
                     </div>
                 </div>
                 <div class="rounded-xl border border-base-300 bg-base-100 p-4">
-                    <h4 class="mb-3 text-lg font-bold text-base-content">Servicos</h4>
+                    <h4 class="mb-3 text-lg font-bold text-base-content">Serviços</h4>
                     <div class="overflow-x-auto">
                         <table class="table table-zebra">
                             <thead>
                                 <tr>
-                                    <th>Descricao</th>
+                                    <th>Descrição</th>
                                     <th class="text-center">Qtd</th>
-                                    <th class="text-right">Valor Unitario</th>
+                                    <th class="text-right">Valor Unitário</th>
                                     <th class="text-right">Valor Total</th>
                                 </tr>
                             </thead>
@@ -297,7 +297,7 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int, disco
 
     warnings.extend(build_nfe_preview_warning_messages(workorder=workorder, slider_override=selected_slider))
     if allocation.products_target <= 0:
-        warnings.append("A configuracao atual do slider nao deixa saldo de produtos para emitir Nota Fiscal de Produto.")
+        warnings.append("A configuração atual do slider não deixa saldo de produtos para emitir Nota Fiscal de Produto.")
 
     warning_html = "".join(f"<div class='alert alert-warning'>{escape(message)}</div>" for message in warnings)
 
@@ -334,7 +334,7 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int, disco
                             <th>Produto</th>
                             <th>NCM</th>
                             <th class="text-center">Qtd</th>
-                            <th class="text-right">Valor Unitario</th>
+                            <th class="text-right">Valor Unitário</th>
                             <th class="text-right">Valor Total</th>
                         </tr>
                     </thead>
@@ -373,7 +373,7 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int, disc
     allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
     warning_html = ""
     if allocation.services_target <= 0:
-        warning_html = "<div class='alert alert-warning'>A configuracao atual do slider nao deixa saldo de servicos para emitir Nota Fiscal de Serviço.</div>"
+        warning_html = "<div class='alert alert-warning'>A configuração atual do slider não deixa saldo de serviços para emitir Nota Fiscal de Serviço.</div>"
 
     product_discount = compute_product_discount_for_nfe(
         workorder=workorder,
@@ -404,7 +404,7 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int, disc
     if not rows_html:
         rows_html = """
         <tr>
-            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum servico elegivel encontrado para esta OS.</td>
+            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum serviço elegivel encontrado para esta OS.</td>
         </tr>
         """
 
@@ -418,9 +418,9 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int, disc
                 <table class="table table-zebra">
                     <thead>
                         <tr>
-                            <th>Servico</th>
+                            <th>Serviço</th>
                             <th class="text-center">Qtd</th>
-                            <th class="text-right">Valor Unitario</th>
+                            <th class="text-right">Valor Unitário</th>
                             <th class="text-right">Valor Total</th>
                         </tr>
                     </thead>
@@ -441,23 +441,23 @@ class EmissionKitProductComponentForm(CoreForm):
     def __init__(self, *args, parent_quantity: int = 1, **kwargs):
         super().__init__(*args, **kwargs)
         if parent_quantity > 1:
-            self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final sera multiplicado por essa quantidade."
+            self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final será multiplicado por essa quantidade."
 
 
 class EmissionKitServiceComponentForm(CoreForm):
     quantity = forms.IntegerField(label="Quantidade por kit", min_value=0, widget=NumberInput())
-    cost = MoneyField(label="Custo do servico", required=False, widget=MoneyInput())
+    cost = MoneyField(label="Custo do serviço", required=False, widget=MoneyInput())
     price = MoneyField(label="Valor de venda", required=False, widget=MoneyInput())
     duration = forms.DurationField(label="Duracao por kit", required=False, widget=DurationInput())
 
     def __init__(self, *args, parent_quantity: int = 1, **kwargs):
         super().__init__(*args, **kwargs)
         if parent_quantity > 1:
-            self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final sera multiplicado por essa quantidade."
+            self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final será multiplicado por essa quantidade."
 
 
 class EmissionStep1Form(CoreForm):
-    workorder = forms.ModelChoiceField(queryset=WorkOrder.objects.none(), label="Ordem de Servico")
+    workorder = forms.ModelChoiceField(queryset=WorkOrder.objects.none(), label="Ordem de Serviço")
 
     def __init__(self, *args, **kwargs):
         workshop = kwargs.pop("workshop", None)
@@ -484,8 +484,8 @@ class EmissionStep1Form(CoreForm):
 
         def _label_from_instance(workorder: WorkOrder) -> str:
             customer = getattr(getattr(workorder, "budget", None), "customer", None)
-            customer_name = customer.name if customer else "Cliente nao informado"
-            return f"Ordem de Servico {workorder.get_id} - {customer_name}"
+            customer_name = customer.name if customer else "Cliente não informado"
+            return f"Ordem de Serviço {workorder.get_id} - {customer_name}"
 
         field.label_from_instance = _label_from_instance
         field.widget = SearchableSelectInput(choices=list(field.choices))
@@ -511,8 +511,8 @@ class EmissionStep1Form(CoreForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML("<h2 class='text-2xl font-bold'>Selecionar Ordem de Servico</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Selecione a OS aprovada que sera usada na emissão fiscal.</p>"),
+                HTML("<h2 class='text-2xl font-bold'>Selecionar ordem de serviço</h2>"),
+                HTML("<p class='text-base-content/70 mb-6'>Selecione a OS aprovada que será usada na emissão fiscal.</p>"),
                 Field("workorder"),
                 HTML(f"<div id='workorder-warning-container'>{warning_html}</div>"),
                 css_class="space-y-4",
@@ -532,12 +532,12 @@ class EmissionStep2Form(CoreForm):
             customer = budget.customer
             vehicle = budget.vehicle
 
-        customer_name = escape(customer.name) if customer else "Nao informado"
-        customer_doc = escape(customer.cpf_or_cnpj_formatted) if customer else "Nao informado"
-        customer_phone = escape(str(customer.phone)) if customer and customer.phone else "Nao informado"
-        customer_email = escape(customer.email) if customer and customer.email else "Nao informado"
-        customer_address = escape(customer.full_address) if customer else "Nao informado"
-        vehicle_label = escape(str(vehicle)) if vehicle else "Nao informado"
+        customer_name = escape(customer.name) if customer else "Não informado"
+        customer_doc = escape(customer.cpf_or_cnpj_formatted) if customer else "Não informado"
+        customer_phone = escape(str(customer.phone)) if customer and customer.phone else "Não informado"
+        customer_email = escape(customer.email) if customer and customer.email else "Não informado"
+        customer_address = escape(customer.full_address) if customer else "Não informado"
+        vehicle_label = escape(str(vehicle)) if vehicle else "Não informado"
         customer_action_html = _build_modal_action_button(label="Editar cliente", icon="edit", url=reverse("customer:quick_update", kwargs={"pk": customer.pk})) if customer else ""
         vehicle_action_html = _build_modal_action_button(label="Editar veiculo", icon="directions_car_filled", url=reverse("customer:vehicle_quick_update", kwargs={"pk": vehicle.pk})) if vehicle else ""
 
@@ -583,7 +583,7 @@ class EmissionStep2Form(CoreForm):
                                 </div>
                                 {vehicle_action_html}
                             </div>
-                            <p class="text-sm text-base-content/70">As alterações do veiculo sao globais e refletem em toda a oficina.</p>
+                            <p class="text-sm text-base-content/70">As alterações do veiculo são globais e refletem em toda a oficina.</p>
                         </div>
                     </div>
                     """
@@ -648,7 +648,7 @@ class EmissionStep3Form(CoreForm):
         if not services_html:
             services_html = """
             <tr>
-                <td colspan="6" class="py-4 text-center text-base-content/60">Nenhum servico editavel encontrado nesta OS.</td>
+                <td colspan="6" class="py-4 text-center text-base-content/60">Nenhum serviço editavel encontrado nesta OS.</td>
             </tr>
             """
 
@@ -656,8 +656,8 @@ class EmissionStep3Form(CoreForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML("<h2 class='text-2xl font-bold'>Conferir produtos e servicos</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Revise os produtos e servicos da O.S., inclusive os que vieram de kits, e edite rapidamente o que for necessario antes de definir o tipo da nota.</p>"),
+                HTML("<h2 class='text-2xl font-bold'>Conferir produtos e serviços</h2>"),
+                HTML("<p class='text-base-content/70 mb-6'>Revise os produtos e serviços da O.S., inclusive os que vieram de kits, e edite rapidamente o que for necessario antes de definir o tipo da nota.</p>"),
                 HTML(
                     f"""
                     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -666,7 +666,7 @@ class EmissionStep3Form(CoreForm):
                             <table class="table table-zebra">
                                 <thead>
                                     <tr>
-                                        <th>Descricao</th>
+                                        <th>Descrição</th>
                                         <th class="text-center">Qtd</th>
                                         <th class="text-right">Valor Unitário</th>
                                         <th class="text-right">Total</th>
@@ -684,11 +684,11 @@ class EmissionStep3Form(CoreForm):
                             </table>
                         </div>
                         <div class="overflow-x-auto">
-                            <h3 class="font-semibold mb-3">Servicos</h3>
+                            <h3 class="font-semibold mb-3">Serviços</h3>
                             <table class="table table-zebra">
                                 <thead>
                                     <tr>
-                                        <th>Descricao</th>
+                                        <th>Descrição</th>
                                         <th class="text-center">Qtd</th>
                                         <th class="text-right">Valor Unitário</th>
                                         <th class="text-right">Total</th>
@@ -698,7 +698,7 @@ class EmissionStep3Form(CoreForm):
                                 <tbody>{services_html}</tbody>
                                 <tfoot>
                                     <tr>
-                                        <th colspan="4" class="text-right">Total Servicos</th>
+                                        <th colspan="4" class="text-right">Total Serviços</th>
                                         <th class="text-right">{total_services}</th>
                                         <th></th>
                                     </tr>
@@ -760,7 +760,7 @@ class EmissionStep4Form(CoreForm):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Resumo</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Ajuste o slider e revise todos os produtos e servicos com os valores finais da emissão.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Ajuste o slider e revise todos os produtos e serviços com os valores finais da emissão.</p>"),
                 build_step5_summary_layout(prefix="emission", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#emission-form", body_html=body_html) if panel_data is not None else HTML(""),
                 css_class="space-y-4",
             )
@@ -782,7 +782,7 @@ class EmissionStep5Form(CoreForm):
         note_mode_field = self.fields["note_mode"]
         note_mode_field.choices = list(note_mode_choices)
         note_mode_field.widget = SearchableSelectInput(choices=list(note_mode_choices))
-        note_mode_field.help_text = "Escolha se a emissão sera somente de produtos, somente de servicos, ou das duas notas em sequencia."
+        note_mode_field.help_text = "Escolha se a emissão será somente de produtos, somente de serviços, ou das duas notas em sequencia."
 
         selected_note_mode = str((self.data.get("note_mode") if self.is_bound else self.initial.get("note_mode", "")) or "").strip()
         if selected_note_mode not in allowed_note_modes:
@@ -822,9 +822,9 @@ class EmissionStep5Form(CoreForm):
                     <div class="rounded-2xl border border-base-300 bg-base-200/60 p-5 text-base-content/80">
                         <p class="font-semibold mb-2">Como funciona:</p>
                         <ul class="list-disc ml-5 space-y-1 text-sm">
-                            <li><strong>Nota Fiscal de Produto</strong>: abre a etapa de configuracao fiscal dos produtos.</li>
-                            <li><strong>Nota Fiscal de Serviço</strong>: abre a etapa de configuracao fiscal dos servicos.</li>
-                            <li><strong>Ambas</strong>: abre as duas etapas e faz a emissão em sequencia na ultima tela.</li>
+                            <li><strong>Nota Fiscal de Produto</strong>: abre a etapa de configuração fiscal dos produtos.</li>
+                            <li><strong>Nota Fiscal de Serviço</strong>: abre a etapa de configuração fiscal dos serviços.</li>
+                            <li><strong>Ambas</strong>: abre as duas etapas e faz a emissão em sequencia na última tela.</li>
                         </ul>
                     </div>
                     """
@@ -881,11 +881,11 @@ class EmissionNfeConfigForm(CoreForm):
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na Nota Fiscal de Produto."
+        tax_class_field.help_text = "Classe fiscal que será aplicada aos produtos emitidos na Nota Fiscal de Produto."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
         additional_information_field = self.fields["additional_information"]
-        additional_information_field.help_text = "Enviada como informacao complementar junto com a Nota Fiscal de Produto."
+        additional_information_field.help_text = "Enviada como informação complementar junto com a Nota Fiscal de Produto."
 
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs and not self.is_bound:
@@ -914,7 +914,7 @@ class EmissionNfeConfigForm(CoreForm):
     def clean_tax_class(self) -> str:
         tax_class = str(self.cleaned_data.get("tax_class") or "").strip()
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
-            raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
+            raise forms.ValidationError("Selecione uma classe de imposto válida da lista.")
         return tax_class
 
     def clean_additional_information(self) -> str:
@@ -930,7 +930,7 @@ class EmissionNfeConfigForm(CoreForm):
 
 class EmissionNfseConfigForm(CoreForm):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
-    service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
+    service_description = forms.CharField(label="Descrição do serviço", required=False, widget=TextareaInput(rows=4))
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
 
     def __init__(self, *args, **kwargs):
@@ -945,21 +945,21 @@ class EmissionNfseConfigForm(CoreForm):
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe fiscal que sera aplicada ao valor total da Nota Fiscal de Serviço."
+        tax_class_field.help_text = "Classe fiscal que será aplicada ao valor total da Nota Fiscal de Serviço."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs and not self.is_bound:
             self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
 
-        default_service_description = "Prestacao de servico"
+        default_service_description = "Prestação de serviço"
         if workorder is not None:
             default_service_description = build_default_service_description_for_workorder(workorder=workorder)
         if not self.is_bound and not str(self.initial.get("service_description") or "").strip():
             self.initial["service_description"] = default_service_description
 
         additional_information_field = self.fields["additional_information"]
-        additional_information_field.help_text = "Enviada como informacao complementar quando o provedor da Nota Fiscal de Serviço suportar esse campo."
+        additional_information_field.help_text = "Enviada como informação complementar quando o provedor da Nota Fiscal de Serviço suportar esse campo."
 
         warning_html = ""
         preview_html = ""
@@ -987,14 +987,14 @@ class EmissionNfseConfigForm(CoreForm):
     def clean_tax_class(self) -> str:
         tax_class = str(self.cleaned_data.get("tax_class") or "").strip()
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
-            raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
+            raise forms.ValidationError("Selecione uma classe de imposto válida da lista.")
         return tax_class
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}
         service_description = str(cleaned_data.get("service_description") or "").strip()
         if not service_description:
-            self.add_error("service_description", "Informe a descricao do servico para emitir Nota Fiscal de Serviço.")
+            self.add_error("service_description", "Informe a descrição do serviço para emitir Nota Fiscal de Serviço.")
         return cleaned_data
 
     def clean_service_description(self) -> str:

@@ -75,7 +75,7 @@ def sync_payment_entries_with_financial_movements(*, stock_import: Any, entries:
             FinancialMovement.objects.filter(workshop=workshop, pk__in=stale_financial_movement_ids).delete()
 
     resolved_nf_number = getattr(stock_import, "nf_number_display", None) or stock_import.nf_number or "S/N"
-    source_name = stock_import.supplier_name or "Fornecedor da Importação"
+    source_name = stock_import.supplier_name or "Fornecedor da importação"
     source_cnpj = stock_import.supplier_cnpj or ""
     source, _ = Source.objects.get_or_create(workshop=workshop, name=source_name, defaults={"cnpj": source_cnpj})
 

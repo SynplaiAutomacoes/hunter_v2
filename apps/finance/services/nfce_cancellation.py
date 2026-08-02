@@ -57,13 +57,13 @@ def _assert_nfce_cancellation_eligible(*, document: FiscalDocument) -> None:
     if document.document_type != FiscalDocumentType.NFCE or document.origin != FiscalDocumentOrigin.MANUAL or document.purpose != FiscalDocumentPurpose.NORMAL:
         raise NfceCancellationError("Cancelamento permitido somente para NFC-e manual emitida pelo Hunter.")
     if document.status == FiscalDocumentStatus.CANCELED:
-        raise NfceCancellationError("Esta NFC-e ja esta cancelada.")
+        raise NfceCancellationError("Esta NFC-e já esta cancelada.")
     if document.status == FiscalDocumentStatus.UNCERTAIN:
         raise NfceCancellationError("NFC-e em estado incerto deve ser reconciliada antes do cancelamento.")
     if document.status != FiscalDocumentStatus.APPROVED:
         raise NfceCancellationError("Cancelamento permitido somente para NFC-e autorizada.")
     if not str(document.remote_uuid or "").strip() and not str(document.access_key or "").strip():
-        raise NfceCancellationError("Nao foi possivel cancelar NFC-e sem UUID ou chave de acesso.")
+        raise NfceCancellationError("Não foi possível cancelar NFC-e sem UUID ou chave de acesso.")
 
 
 def _assert_no_active_cancellation(*, document: FiscalDocument) -> None:
@@ -74,7 +74,7 @@ def _assert_no_active_cancellation(*, document: FiscalDocument) -> None:
         FiscalDocumentEventStatus.UNCERTAIN,
     ]
     if document.events.filter(event_type=FiscalDocumentEventType.CANCELLATION, status__in=active_statuses).exists():
-        raise NfceCancellationError("Ja existe cancelamento de NFC-e em processamento ou estado incerto.")
+        raise NfceCancellationError("Já existe cancelamento de NFC-e em processamento ou estado incerto.")
 
 
 def _next_cancellation_sequence(*, document: FiscalDocument) -> int:
@@ -208,19 +208,19 @@ def cancel_nfce_document(*, document: FiscalDocument, reason: str, requested_by:
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao cancelar NFC-e; estado remoto incerto."
+        message = "Resposta inválida ao cancelar NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_nfce_cancellation_uncertain(event=event, error_message=message)
         raise NfceCancellationError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao cancelar NFC-e; estado remoto incerto."
+        message = "Resposta inválida ao cancelar NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_nfce_cancellation_uncertain(event=event, error_message=message)
         raise NfceCancellationError(message)
 
     event = apply_nfce_cancellation_event_payload(event=event, response_payload=response_payload)
     if _is_failed_cancellation_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento de NFC-e rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento de NFC-e rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfceCancellationError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
@@ -265,7 +265,7 @@ def reconcile_nfce_cancellation_event(*, event: FiscalDocumentEvent) -> FiscalDo
     elif str(document.access_key or "").strip():
         params["chave"] = str(document.access_key).strip()
     else:
-        raise NfceCancellationError("Nao foi possivel consultar cancelamento de NFC-e sem UUID ou chave.")
+        raise NfceCancellationError("Não foi possível consultar cancelamento de NFC-e sem UUID ou chave.")
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
@@ -275,7 +275,7 @@ def reconcile_nfce_cancellation_event(*, event: FiscalDocumentEvent) -> FiscalDo
     try:
         payload = response.json()
     except ValueError as exc:
-        raise NfceCancellationError("Resposta invalida da API de consulta da NFC-e.") from exc
+        raise NfceCancellationError("Resposta inválida da API de consulta da NFC-e.") from exc
     if not isinstance(payload, dict):
-        raise NfceCancellationError("Resposta invalida da API de consulta da NFC-e.")
+        raise NfceCancellationError("Resposta inválida da API de consulta da NFC-e.")
     return apply_nfce_cancellation_event_payload(event=event, response_payload=payload)

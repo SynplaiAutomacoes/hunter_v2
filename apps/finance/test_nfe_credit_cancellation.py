@@ -48,7 +48,7 @@ class CreditCancellationFixtureMixin(CreditFixtureMixin):
         }
 
     def cancel(self, document: FiscalDocument, **overrides: Any) -> FiscalDocumentEvent:
-        kwargs = {"document": document, "reason": "Cancelamento fiscal de credito validado.", "requested_by": self.user, "legal_confirmation": True}
+        kwargs = {"document": document, "reason": "Cancelamento fiscal de crédito validado.", "requested_by": self.user, "legal_confirmation": True}
         kwargs.update(overrides)
         with patch("apps.finance.services.nfe_credit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_credit_cancellation.requests.put", return_value=_response(self.cancellation_payload())) as put:
             event = cancel_nfe_credit_document(**kwargs)
@@ -69,7 +69,7 @@ class FiscalPhaseTwoCreditTypeOneCancellationTests(CreditCancellationFixtureMixi
         preview_status = self.preview.validation_status
         event = self.cancel(self.document)
         payload = self.put_mock.call_args.kwargs["json"]
-        self.assertEqual(payload, {"chave": self.document.access_key, "motivo": "Cancelamento fiscal de credito validado."})
+        self.assertEqual(payload, {"chave": self.document.access_key, "motivo": "Cancelamento fiscal de crédito validado."})
         self.assertTrue(self.put_mock.call_args.args[0].endswith("/1/nfe/cancelar/"))
         for forbidden in ("ambiente", "finalidade", "tipo_credito", "produtos", "impostos", "ibs_cbs", "cod_evento", "evento_ibs_cbs", "nfce_referenciada"):
             self.assertNotIn(forbidden, payload)
@@ -94,7 +94,7 @@ class FiscalPhaseTwoCreditTypeOneCancellationTests(CreditCancellationFixtureMixi
         FiscalDocument.objects.filter(pk=self.document.pk).update(access_key="")
         self.document.refresh_from_db()
         self.cancel(self.document)
-        self.assertEqual(self.put_mock.call_args.kwargs["json"], {"uuid": self.document.remote_uuid, "motivo": "Cancelamento fiscal de credito validado."})
+        self.assertEqual(self.put_mock.call_args.kwargs["json"], {"uuid": self.document.remote_uuid, "motivo": "Cancelamento fiscal de crédito validado."})
 
     def test_reason_confirmation_and_missing_identifier_are_blocked(self) -> None:
         for reason in ("curto", "x" * 256):
@@ -112,31 +112,31 @@ class FiscalPhaseTwoCreditTypeOneCancellationTests(CreditCancellationFixtureMixi
             FiscalDocument.objects.filter(pk=self.document.pk).update(status=status)
             self.document.refresh_from_db()
             with self.subTest(status=status), patch("apps.finance.services.nfe_credit_cancellation.requests.put") as put, self.assertRaises(NfeCreditCancellationError):
-                cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de credito validado.", requested_by=self.user, legal_confirmation=True)
+                cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de crédito validado.", requested_by=self.user, legal_confirmation=True)
             put.assert_not_called()
         FiscalDocument.objects.filter(pk=self.document.pk).update(status=FiscalDocumentStatus.APPROVED, purpose=FiscalDocumentPurpose.NORMAL)
         self.document.refresh_from_db()
-        with self.assertRaisesMessage(NfeCreditCancellationError, "somente para NF-e de credito"):
+        with self.assertRaisesMessage(NfeCreditCancellationError, "somente para NF-e de crédito"):
             self.cancel(self.document)
         for purpose in (FiscalDocumentPurpose.RETURN, FiscalDocumentPurpose.REVERSAL, FiscalDocumentPurpose.COMPLEMENTARY, FiscalDocumentPurpose.ADJUSTMENT):
             FiscalDocument.objects.filter(pk=self.document.pk).update(document_type=FiscalDocumentType.NFE, purpose=purpose)
             self.document.refresh_from_db()
-            with self.subTest(purpose=purpose), self.assertRaisesMessage(NfeCreditCancellationError, "somente para NF-e de credito"):
+            with self.subTest(purpose=purpose), self.assertRaisesMessage(NfeCreditCancellationError, "somente para NF-e de crédito"):
                 self.cancel(self.document)
 
     def test_disabled_feature_flag_blocks_before_gateway(self) -> None:
         WebmaniaCompany.objects.filter(workshop=self.workshop).update(credit_debit_basis_enabled=False)
         with patch("apps.finance.services.nfe_credit_cancellation.requests.put") as put, self.assertRaisesMessage(NfeCreditCancellationError, "desabilitado"):
-            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de credito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de crédito validado.", requested_by=self.user, legal_confirmation=True)
         put.assert_not_called()
         FiscalDocument.objects.filter(pk=self.document.pk).update(purpose=FiscalDocumentPurpose.CREDIT, document_type=FiscalDocumentType.NFCE)
         self.document.refresh_from_db()
-        with self.assertRaisesMessage(NfeCreditCancellationError, "somente para NF-e de credito"):
+        with self.assertRaisesMessage(NfeCreditCancellationError, "somente para NF-e de crédito"):
             self.cancel(self.document)
 
     def test_timeout_marks_event_attempt_uncertain_and_blocks_retry(self) -> None:
         with patch("apps.finance.services.nfe_credit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_credit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaisesMessage(NfeCreditCancellationError, "incerto"):
-            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de credito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de crédito validado.", requested_by=self.user, legal_confirmation=True)
         event = self.document.events.get(event_type=FiscalDocumentEventType.CANCELLATION)
         self.assertEqual(event.status, FiscalDocumentEventStatus.UNCERTAIN)
         self.assertEqual(event.emission_attempts.get().status, FiscalEmissionAttemptStatus.UNCERTAIN)
@@ -149,7 +149,7 @@ class FiscalPhaseTwoCreditTypeOneCancellationTests(CreditCancellationFixtureMixi
     def test_rejected_response_with_xml_does_not_cancel_document(self) -> None:
         response = self.cancellation_payload(status="rejeitado")
         with patch("apps.finance.services.nfe_credit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_credit_cancellation.requests.put", return_value=_response(response)), self.assertRaises(NfeCreditCancellationError):
-            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de credito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de crédito validado.", requested_by=self.user, legal_confirmation=True)
         event = self.document.events.get()
         self.assertEqual(event.status, FiscalDocumentEventStatus.FAILED)
         self.document.refresh_from_db()
@@ -157,7 +157,7 @@ class FiscalPhaseTwoCreditTypeOneCancellationTests(CreditCancellationFixtureMixi
 
     def test_webhook_updates_only_credit_and_is_idempotent(self) -> None:
         with patch("apps.finance.services.nfe_credit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_credit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaises(NfeCreditCancellationError):
-            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de credito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de crédito validado.", requested_by=self.user, legal_confirmation=True)
         event = self.document.events.get()
         source = self.preview.basis.source_document
         payload = {**self.cancellation_payload(), "modelo": "nfe", "uuid": self.document.remote_uuid, "chave": self.document.access_key}
@@ -173,13 +173,13 @@ class FiscalPhaseTwoCreditTypeOneCancellationTests(CreditCancellationFixtureMixi
 
     def test_ambiguous_webhook_does_not_update_any_credit(self) -> None:
         with patch("apps.finance.services.nfe_credit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_credit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaises(NfeCreditCancellationError):
-            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de credito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de crédito validado.", requested_by=self.user, legal_confirmation=True)
         first_document = self.document
         second_preview = self.build_fixture(suffix=77)
         self.preview = second_preview
         second_document = self.emit_credit()
         with patch("apps.finance.services.nfe_credit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_credit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaises(NfeCreditCancellationError):
-            cancel_nfe_credit_document(document=second_document, reason="Cancelamento fiscal de credito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_credit_document(document=second_document, reason="Cancelamento fiscal de crédito validado.", requested_by=self.user, legal_confirmation=True)
         payload = {**self.cancellation_payload(), "modelo": "nfe", "uuid": first_document.remote_uuid}
         webhook = WebmaniaWebhookEvent.objects.create(model="nfe", event_uuid=first_document.remote_uuid, fingerprint="credit-cancel-ambiguous", payload=payload)
         self.assertFalse(process_webhook_event(webhook))
@@ -191,7 +191,7 @@ class FiscalPhaseTwoCreditTypeOneCancellationTests(CreditCancellationFixtureMixi
 
     def test_reconciliation_queries_without_reissuing_or_mutating_source(self) -> None:
         with patch("apps.finance.services.nfe_credit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_credit_cancellation.requests.put", side_effect=requests.Timeout), self.assertRaises(NfeCreditCancellationError):
-            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de credito validado.", requested_by=self.user, legal_confirmation=True)
+            cancel_nfe_credit_document(document=self.document, reason="Cancelamento fiscal de crédito validado.", requested_by=self.user, legal_confirmation=True)
         event = self.document.events.get()
         source = self.preview.basis.source_document
         with patch("apps.finance.services.nfe_credit_cancellation._build_headers", return_value={}), patch("apps.finance.services.nfe_credit_cancellation.requests.get", return_value=_response(self.cancellation_payload())) as get, patch("apps.finance.services.nfe_credit_cancellation.requests.put") as put:
@@ -203,7 +203,7 @@ class FiscalPhaseTwoCreditTypeOneCancellationTests(CreditCancellationFixtureMixi
         self.assertEqual(source.status, FiscalDocumentStatus.APPROVED)
 
     def test_permission_and_cross_workshop_are_blocked_before_gateway(self) -> None:
-        request = RequestFactory().post("/", {"reason": "Cancelamento fiscal de credito validado.", "legal_confirmation": "on"})
+        request = RequestFactory().post("/", {"reason": "Cancelamento fiscal de crédito validado.", "legal_confirmation": "on"})
         request.user = self.user
         with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), patch("apps.finance.views.nfe_credit.cancel_nfe_credit_document") as service, self.assertRaises(PermissionDenied):
             NfeCreditCancellationView.as_view()(request, pk=self.document.pk)
@@ -245,7 +245,7 @@ class FiscalPhaseTwoCreditTypeOneCancellationConcurrentTests(CreditCancellationF
                 barrier.wait(timeout=5)
                 document = FiscalDocument.objects.get(pk=self.document.pk)
                 user = User.objects.get(pk=self.user.pk)
-                cancel_nfe_credit_document(document=document, reason="Cancelamento fiscal de credito validado.", requested_by=user, legal_confirmation=True)
+                cancel_nfe_credit_document(document=document, reason="Cancelamento fiscal de crédito validado.", requested_by=user, legal_confirmation=True)
             except Exception as exc:
                 with result_lock:
                     errors.append(str(exc))

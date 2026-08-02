@@ -95,7 +95,7 @@ class CustomerMessageGroup(TimeStampedModel):
     )
 
     class Meta:
-        verbose_name = "Grupo de mensagem"
+        verbose_name = "Grupo de mensagens"
         verbose_name_plural = "Grupos de mensagens"
         constraints = [models.UniqueConstraint(fields=("workshop", "name"), name="unique_customer_message_group_name_per_workshop")]
 
@@ -114,8 +114,8 @@ class CustomerMessageGroupMembership(TimeStampedModel):
     customer = models.ForeignKey(Customer, verbose_name="Cliente", on_delete=models.CASCADE, related_name="message_group_memberships")
 
     class Meta:
-        verbose_name = "Cliente do grupo de mensagem"
-        verbose_name_plural = "Clientes do grupo de mensagem"
+        verbose_name = "Cliente do grupo de mensagens"
+        verbose_name_plural = "Clientes do grupo de mensagens"
         constraints = [models.UniqueConstraint(fields=("group", "customer"), name="unique_customer_message_group_membership")]
 
     def __str__(self) -> str:

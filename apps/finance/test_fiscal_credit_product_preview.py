@@ -36,11 +36,11 @@ from apps.workshops.models.workshops import Workshop
 
 def _scope(suffix: int) -> tuple[User, Workshop]:
     user = User.objects.create_user(username=f"preview{suffix}", password="test", cpf=f"87654321{suffix:03d}")
-    account = Account.objects.create(name=f"Conta Preview {suffix}", owner=user)
+    account = Account.objects.create(name=f"Conta Prévia {suffix}", owner=user)
     user.account = account
     user.is_account_owner = True
     user.save(update_fields=["account", "is_account_owner"])
-    workshop = Workshop.objects.create(account=account, name=f"Oficina Preview {suffix}", cnpj=f"22.345.678/0001-{suffix:02d}", phone="+5511999999999", address="Rua Preview, 1")
+    workshop = Workshop.objects.create(account=account, name=f"Oficina Prévia {suffix}", cnpj=f"22.345.678/0001-{suffix:02d}", phone="+5511999999999", address="Rua Prévia, 1")
     return user, workshop
 
 
@@ -94,7 +94,7 @@ class FiscalPhaseTwoCreditProductPreviewTests(TestCase):
             fiscal_hypothesis=FiscalHypothesis.CREDIT_FINE_INTEREST,
             financial_reference=movement,
             created_by=self.user,
-            notes="Multa e juros validados para previa.",
+            notes="Multa e juros validados para prévia.",
             fine_amount=Decimal("5.00"),
             interest_amount=Decimal("2.00"),
         )
@@ -151,7 +151,7 @@ class FiscalPhaseTwoCreditProductPreviewTests(TestCase):
 
     def test_approved_basis_without_item_is_blocked(self) -> None:
         FiscalReferencedBasisItem.objects.filter(pk=self.basis.commercial_item.pk).delete()
-        with self.assertRaisesMessage(ValidationError, "nao possui item"):
+        with self.assertRaisesMessage(ValidationError, "não possui item"):
             self.create_preview()
 
     def test_zero_or_missing_explicit_values_are_blocked(self) -> None:
@@ -162,7 +162,7 @@ class FiscalPhaseTwoCreditProductPreviewTests(TestCase):
             self.create_preview(explicit_value_confirmation=False)
 
     def test_inconsistent_total_or_base_amount_is_blocked(self) -> None:
-        with self.assertRaisesMessage(ValidationError, "Quantidade x valor unitario"):
+        with self.assertRaisesMessage(ValidationError, "Quantidade x valor unitário"):
             self.create_preview(unit_price=Decimal("3.00"))
         with self.assertRaisesMessage(ValidationError, "multa + juros"):
             self.create_preview(quantity=Decimal("1"), unit_price=Decimal("8.00"), total_amount=Decimal("8.00"))
@@ -195,7 +195,7 @@ class FiscalPhaseTwoCreditProductPreviewTests(TestCase):
         preview = approve_credit_product_preview(preview=self.create_preview(), approved_by=self.user)
         preview.product_total_amount = Decimal("8.00")
         preview.product_payload["total"] = "8.00"
-        with self.assertRaisesMessage(ValidationError, "imutaveis"):
+        with self.assertRaisesMessage(ValidationError, "imutáveis"):
             preview.save()
 
     def test_disabled_feature_flag_blocks_preview_and_creates_no_emission(self) -> None:

@@ -50,7 +50,7 @@ class FiscalCreditProductPreviewCreateView(FiscalCreditProductPreviewPermissionM
 
     def _feature_disabled_response(self, request):
         if not is_credit_debit_basis_enabled(workshop=self.workshop):
-            messages.error(request, "A preparacao fiscal de credito/debito esta desabilitada para esta oficina.")
+            messages.error(request, "A preparação fiscal de crédito/débito esta desabilitada para esta oficina.")
             return redirect("finance:fiscal_credit_product_preview_list")
         return None
 
@@ -95,7 +95,7 @@ class FiscalCreditProductPreviewCreateView(FiscalCreditProductPreviewPermissionM
         except ValidationError as exc:
             form.add_error(None, exc)
             return self.form_invalid(form)
-        messages.success(self.request, "Previa fiscal validada localmente. Nenhum documento foi emitido.")
+        messages.success(self.request, "Prévia fiscal validada localmente. Nenhum documento foi emitido.")
         return redirect("finance:fiscal_credit_product_preview_detail", pk=preview.pk)
 
 
@@ -134,7 +134,7 @@ class FiscalCreditProductPreviewApproveView(FiscalCreditProductPreviewPermission
         except ValidationError as exc:
             messages.error(request, "; ".join(exc.messages))
         else:
-            messages.success(request, "Previa aprovada e congelada. A emissao de credito continua indisponivel.")
+            messages.success(request, "Prévia aprovada e congelada. A emissão de crédito continua indisponível.")
         return redirect("finance:fiscal_credit_product_preview_detail", pk=preview.pk)
 
 

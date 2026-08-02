@@ -225,12 +225,12 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Servico de Terceiros</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Serviço de Terceiros</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.sale_third_party_services}</span>
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Servico de Terceiros</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Serviço de Terceiros</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_third_party_services}</span>
                                 </div>
 
@@ -390,12 +390,12 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Servico de Terceiros</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Serviço de Terceiros</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.sale_third_party_services}</span>
                                 </div>
 
                                 <div class="grid grid-cols-12 border border-base-300 bg-base-100">
-                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Servico de Terceiros</span>
+                                    <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Serviço de Terceiros</span>
                                     <span class="col-span-4 p-2 border-l border-base-300">{panel_data.cost_third_party_services}</span>
                                 </div>
 

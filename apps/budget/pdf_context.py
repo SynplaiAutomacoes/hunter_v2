@@ -228,9 +228,9 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
     warranty_message = ""
     if is_courtesy_budget:
-        warranty_message = "Ordem de serviço de cortesia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
+        warranty_message = "Ordem de serviço de cortesia. Documento apenas para visualização; peças e serviços descritos não foram cobrados do cliente."
     elif is_warranty_budget:
-        warranty_message = "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
+        warranty_message = "Ordem de serviço de garantia. Documento apenas para visualização; peças e serviços descritos não foram cobrados do cliente."
 
     total_produtos = budget.selected_items_total_products_without_shipping
     total_servicos = budget.selected_items_total_services_value

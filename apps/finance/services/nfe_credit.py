@@ -78,34 +78,34 @@ def _build_consulta_url() -> str:
 
 def _validate_preview(*, preview: FiscalCreditProductPreview, workshop: Any) -> None:
     if not is_credit_debit_basis_enabled(workshop=workshop):
-        raise NfeCreditError("A emissao fiscal de credito/debito esta desabilitada para esta oficina.")
+        raise NfeCreditError("A emissão fiscal de crédito/débito esta desabilitada para esta oficina.")
     if preview.workshop_id != workshop.pk:
-        raise NfeCreditError("A previa pertence a outra oficina.")
+        raise NfeCreditError("A prévia pertence a outra oficina.")
     if preview.validation_status != FiscalProductPreviewStatus.APPROVED:
-        raise NfeCreditError("Somente previa fiscal aprovada pode emitir NF-e de credito.")
+        raise NfeCreditError("Somente prévia fiscal aprovada pode emitir NF-e de crédito.")
     if preview.operation_type != "credit" or preview.fiscal_purpose_type != "1":
-        raise NfeCreditError("Esta fase suporta somente NF-e de credito tipo 1 por multa/juros.")
+        raise NfeCreditError("Esta fase suporta somente NF-e de crédito tipo 1 por multa/juros.")
     if preview.basis.status != FiscalReferencedBasisStatus.APPROVED:
         raise NfeCreditError("A base fiscal referenciada precisa estar aprovada.")
     if preview.basis.workshop_id != workshop.pk or preview.basis_item.basis_id != preview.basis_id:
         raise NfeCreditError("Base fiscal ou item fora do escopo da oficina.")
     if preview.basis.source_document_id is None:
-        raise NfeCreditError("A emissao de credito tipo 1 exige NF-e original local vinculada.")
+        raise NfeCreditError("A emissão de crédito tipo 1 exige NF-e original local vinculada.")
     if len(preview.source_access_key) != 44 or not preview.source_access_key.isdigit():
-        raise NfeCreditError("A NF-e referenciada deve possuir chave valida de 44 digitos.")
+        raise NfeCreditError("A NF-e referenciada deve possuir chave válida de 44 digitos.")
     if preview.product_total_amount <= 0 or preview.basis_item.credit_debit_base_amount <= 0:
         raise NfeCreditError("O produto fiscal de multa/juros deve possuir total positivo.")
     if not isinstance(preview.ibs_cbs_payload, dict) or not preview.ibs_cbs_payload:
-        raise NfeCreditError("A previa aprovada nao possui snapshot IBS/CBS.")
+        raise NfeCreditError("A prévia aprovada não possui snapshot IBS/CBS.")
     forbidden = detect_forbidden_groups(dict(preview.product_payload or {}))
     if forbidden or preview.forbidden_tax_groups_detected:
-        raise NfeCreditError("A previa aprovada contem grupos tributarios proibidos.")
+        raise NfeCreditError("A prévia aprovada contem grupos tributarios proibidos.")
 
 
 def _build_credit_payload(*, preview: FiscalCreditProductPreview, request: HttpRequest | None = None) -> dict[str, Any]:
     source_document = preview.basis.source_document
     if source_document is None or source_document.legacy_nfe_item_id is None:
-        raise NfeCreditError("A NF-e original local nao possui origem operacional para cliente e pedido.")
+        raise NfeCreditError("A NF-e original local não possui origem operacional para cliente e pedido.")
     nfe_request = source_document.legacy_nfe_item.request
     try:
         cliente = _build_customer_payload(nfe_request)
@@ -119,11 +119,11 @@ def _build_credit_payload(*, preview: FiscalCreditProductPreview, request: HttpR
         raise NfeCreditError(f"Produto fiscal contem campos proibidos: {', '.join(forbidden)}.")
     taxes = product.get("impostos")
     if not isinstance(taxes, dict) or set(taxes) != {"ibs_cbs"}:
-        raise NfeCreditError("NF-e de credito tipo 1 deve enviar somente impostos.ibs_cbs.")
+        raise NfeCreditError("NF-e de crédito tipo 1 deve enviar somente impostos.ibs_cbs.")
     payload: dict[str, Any] = {
         "ID": f"credit-preview-{preview.pk}",
         "operacao": 0,
-        "natureza_operacao": "Credito por multa e juros",
+        "natureza_operacao": "Crédito por multa e juros",
         "modelo": 1,
         "finalidade": 5,
         "tipo_credito": 1,
@@ -175,12 +175,12 @@ def _is_failed_response(payload: dict[str, Any]) -> bool:
 
 def create_and_emit_nfe_credit_type_one(*, preview: FiscalCreditProductPreview, workshop: Any, requested_by: Any, legal_confirmation: bool, request: HttpRequest | None = None) -> FiscalDocument:
     if not legal_confirmation:
-        raise NfeCreditError("Confirme explicitamente a emissao da NF-e de credito tipo 1.")
+        raise NfeCreditError("Confirme explicitamente a emissão da NF-e de crédito tipo 1.")
     with transaction.atomic():
         locked_preview = FiscalCreditProductPreview.objects.select_for_update(of=("self",)).select_related("basis__source_document__legacy_nfe_item__request__workorder__budget__customer", "basis_item").get(pk=preview.pk, workshop=workshop)
         _validate_preview(preview=locked_preview, workshop=workshop)
         if FiscalDocument.objects.filter(credit_product_preview=locked_preview).exists():
-            raise NfeCreditError("Esta previa ja possui uma emissao fiscal ativa ou concluida.")
+            raise NfeCreditError("Esta prévia já possui uma emissão fiscal ativa ou concluída.")
         payload = _build_credit_payload(preview=locked_preview, request=request)
         source_document = locked_preview.basis.source_document
         assert source_document is not None
@@ -222,7 +222,7 @@ def create_and_emit_nfe_credit_type_one(*, preview: FiscalCreditProductPreview, 
         response = requests.post(_build_emission_url(), json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
-        message = "Timeout ao emitir NF-e de credito; estado remoto incerto."
+        message = "Timeout ao emitir NF-e de crédito; estado remoto incerto."
         logger.warning("nfe_credit_timeout", extra={"fiscal_document_id": document.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.UNCERTAIN
@@ -231,7 +231,7 @@ def create_and_emit_nfe_credit_type_one(*, preview: FiscalCreditProductPreview, 
         document.save(update_fields=["status", "remote_status", "response_payload", "atualizado_em"])
         raise NfeCreditError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao emitir NF-e de credito", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao emitir NF-e de crédito", scope="nfe")
         mark_attempt_failed(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.REPROVED
         document.response_payload = {"error": message}
@@ -241,14 +241,14 @@ def create_and_emit_nfe_credit_type_one(*, preview: FiscalCreditProductPreview, 
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir NF-e de credito; estado remoto incerto."
+        message = "Resposta inválida ao emitir NF-e de crédito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.UNCERTAIN
         document.remote_status = FiscalEmissionAttemptStatus.UNCERTAIN
         document.save(update_fields=["status", "remote_status", "atualizado_em"])
         raise NfeCreditError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir NF-e de credito; estado remoto incerto."
+        message = "Resposta inválida ao emitir NF-e de crédito; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         document.status = FiscalDocumentStatus.UNCERTAIN
         document.remote_status = FiscalEmissionAttemptStatus.UNCERTAIN
@@ -256,7 +256,7 @@ def create_and_emit_nfe_credit_type_one(*, preview: FiscalCreditProductPreview, 
         raise NfeCreditError(message)
     document = apply_nfe_credit_document_payload(document=document, response_payload=response_payload)
     if _is_failed_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "NF-e de credito rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "NF-e de crédito rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeCreditError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
@@ -269,16 +269,16 @@ def consult_nfe_credit_document(*, document: FiscalDocument) -> dict[str, Any]:
         attempt = document.emission_attempts.exclude(remote_uuid="").order_by("-pk").first()
         identifier = str(attempt.remote_uuid if attempt else "").strip()
     if not identifier:
-        raise NfeCreditError("Nao foi possivel consultar a NF-e de credito sem UUID ou chave.")
+        raise NfeCreditError("Não foi possível consultar a NF-e de crédito sem UUID ou chave.")
     params = {"uuid": identifier} if len(identifier) != 44 else {"chave": identifier}
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
         payload = response.json()
     except (requests.RequestException, ValueError) as exc:
-        raise NfeCreditError("Falha ao consultar NF-e de credito na Webmania.") from exc
+        raise NfeCreditError("Falha ao consultar NF-e de crédito.") from exc
     if not isinstance(payload, dict):
-        raise NfeCreditError("Resposta invalida da consulta da NF-e de credito.")
+        raise NfeCreditError("Resposta inválida da consulta da NF-e de crédito.")
     return payload
 
 

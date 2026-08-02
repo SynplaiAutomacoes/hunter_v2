@@ -50,7 +50,7 @@ class FiscalReferencedBasisCreateView(FiscalReferencedBasisPermissionMixin, Form
 
     def _feature_disabled_response(self, request):
         if not is_credit_debit_basis_enabled(workshop=self.workshop):
-            messages.error(request, "A preparacao de bases fiscais esta desabilitada para esta oficina.")
+            messages.error(request, "A preparação de bases fiscais esta desabilitada para esta oficina.")
             return redirect("finance:fiscal_referenced_basis_list")
         return None
 
@@ -86,7 +86,7 @@ class FiscalReferencedBasisCreateView(FiscalReferencedBasisPermissionMixin, Form
         except ValidationError as exc:
             form.add_error(None, exc)
             return self.form_invalid(form)
-        messages.success(self.request, "Base fiscal preparada sem emissao de documento.")
+        messages.success(self.request, "Base fiscal preparada sem emissão de documento.")
         return redirect("finance:fiscal_referenced_basis_detail", pk=basis.pk)
 
 
@@ -115,7 +115,7 @@ class FiscalReferencedBasisApproveView(FiscalReferencedBasisPermissionMixin, Vie
         except ValidationError as exc:
             messages.error(request, "; ".join(exc.messages))
         else:
-            messages.success(request, "Base fiscal aprovada. A emissao de credito/debito continua indisponivel.")
+            messages.success(request, "Base fiscal aprovada. A emissão de crédito/débito continua indisponível.")
         return redirect("finance:fiscal_referenced_basis_detail", pk=basis.pk)
 
 
@@ -145,5 +145,5 @@ class FiscalReferencedBasisFeatureToggleView(FiscalReferencedBasisPermissionMixi
         enabled = str(request.POST.get("enabled") or "").lower() in {"1", "true", "on"}
         set_credit_debit_basis_enabled(workshop=self.workshop, enabled=enabled, actor=request.user)
         state = "habilitada" if enabled else "desabilitada"
-        messages.success(request, f"Preparacao de bases fiscais {state}. Nenhuma emissao foi liberada.")
+        messages.success(request, f"Preparação de bases fiscais {state}. Nenhuma emissão foi liberada.")
         return redirect(reverse("finance:fiscal_referenced_basis_list"))

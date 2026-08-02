@@ -19,7 +19,7 @@ def has_invalid_ncm(product: Any | None) -> bool:
 
 def _format_piece_count(quantity: int) -> str:
     suffix = "s" if quantity != 1 else ""
-    return f"{quantity} peca{suffix}"
+    return f"{quantity} peça{suffix}"
 
 
 @dataclass(slots=True)
@@ -41,7 +41,7 @@ class ProductIssue:
         if self.has_stock_issue:
             messages.append(f"Excede o estoque em {_format_piece_count(self.excess_quantity)}.")
         if self.has_invalid_ncm:
-            messages.append("Produto com NCM invalido.")
+            messages.append("Produto com NCM inválido.")
         return tuple(messages)
 
     @property
@@ -79,7 +79,7 @@ class ProductIssueSummary:
             return ""
 
         details = ", ".join(issue.stock_summary_label for issue in stock_issues)
-        return f"Existem pecas com quantidade acima do estoque disponivel: {details}."
+        return f"Existem peças com quantidade acima do estoque disponível: {details}."
 
     def invalid_ncm_block_reason(self) -> str:
         invalid_ncm_issues = self.invalid_ncm_issues
@@ -87,7 +87,7 @@ class ProductIssueSummary:
             return ""
 
         details = ", ".join(issue.description for issue in invalid_ncm_issues)
-        return f"Existem produtos com NCM invalido: {details}."
+        return f"Existem produtos com NCM inválido: {details}."
 
 
 def _product_id_from_item(item: Any) -> int | None:

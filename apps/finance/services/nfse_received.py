@@ -58,17 +58,17 @@ def parse_nfse_received_xml(xml_bytes: bytes) -> NfseReceivedParsedXml:
     try:
         xml_snapshot = normalize_received_xml_for_hash(xml_bytes).decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise NfseReceivedImportError("XML de NFS-e recebida invalido ou ilegivel.") from exc
+        raise NfseReceivedImportError("XML de NFS-e recebida inválido ou ilegivel.") from exc
     if _contains_unsafe_xml_declaration(xml_snapshot):
-        raise NfseReceivedImportError("XML com DTD ou entidade externa nao e aceito nesta importacao.")
+        raise NfseReceivedImportError("XML com DTD ou entidade externa não e aceito nesta importacao.")
     try:
         root = ElementTree.fromstring(xml_snapshot)
     except ElementTree.ParseError as exc:
-        raise NfseReceivedImportError("XML de NFS-e recebida invalido ou ilegivel.") from exc
+        raise NfseReceivedImportError("XML de NFS-e recebida inválido ou ilegivel.") from exc
 
     fields = {
         "uuid": _first_text(root, {"Uuid", "UUID", "IdNfse", "IdentificacaoNfse"}, prefer_attribute=("Id",)),
-        "access_key_or_identifier": _first_text(root, {"ChaveAcesso", "ChaveNfse", "ChaveNFe", "NumeroNfse", "Numero", "InfNfse"}, prefer_attribute=("Id",)),
+        "access_key_or_identifier": _first_text(root, {"ChaveAcesso", "ChaveNfse", "ChaveNFe", "NumeroNfse", "Número", "InfNfse"}, prefer_attribute=("Id",)),
         "verification_code": _first_text(root, {"CodigoVerificacao", "CodigoAutenticidade", "Hash", "CodigoVerificador"}),
         "provider_tax_id": _first_tax_id_under(root, {"Prestador", "Fornecedor", "Emitente"}),
         "taker_tax_id": _first_tax_id_under(root, {"Tomador", "Destinatario", "ServicoTomado"}),
@@ -92,9 +92,9 @@ def parse_nfse_received_xml(xml_bytes: bytes) -> NfseReceivedParsedXml:
 @transaction.atomic
 def import_nfse_received_xml(*, workshop, company: WebmaniaCompany, xml_bytes: bytes, created_by) -> NfseReceivedDocument:
     if company.workshop_id != workshop.pk:
-        raise NfseReceivedImportError("A empresa Webmania pertence a outra oficina.")
+        raise NfseReceivedImportError("A empresa emissora pertence a outra oficina.")
     if not company.nfse_received_import_enabled:
-        raise NfseReceivedImportError("Importacao de NFS-e recebida nao esta habilitada para esta empresa.")
+        raise NfseReceivedImportError("Importacao de NFS-e recebida não esta habilitada para esta empresa.")
 
     parsed = parse_nfse_received_xml(xml_bytes)
     role = resolve_nfse_received_role(company=company, parsed=parsed)
@@ -151,13 +151,13 @@ def resolve_nfse_received_role(*, company: WebmaniaCompany, parsed: NfseReceived
 def validate_nfse_received_import(*, workshop, parsed: NfseReceivedParsedXml, role: str) -> list[str]:
     errors: list[str] = []
     if not (parsed.uuid or parsed.access_key_or_identifier or parsed.verification_code):
-        errors.append("XML sem UUID, chave/identificador ou codigo de verificacao.")
+        errors.append("XML sem UUID, chave/identificador ou código de verificacao.")
     if not (parsed.provider_tax_id or parsed.taker_tax_id or parsed.intermediary_tax_id):
         errors.append("XML sem CPF/CNPJ de prestador, tomador ou intermediario.")
     if role in {NfseReceivedDocument.Role.UNKNOWN, NfseReceivedDocument.Role.MULTIPLE}:
-        errors.append("XML nao identifica de forma segura o papel fiscal da oficina.")
+        errors.append("XML não identifica de forma segura o papel fiscal da oficina.")
     if _status_is_blocked(parsed.remote_status):
-        errors.append("XML indica NFS-e cancelada, substituida ou anulada; esta fase nao importa esse estado.")
+        errors.append("XML indica NFS-e cancelada, substituida ou anulada; esta fase não importa esse estado.")
     errors.extend(_find_local_duplicates(workshop=workshop, parsed=parsed))
     errors.extend(_find_issued_document_collisions(workshop=workshop, parsed=parsed))
     return errors
@@ -176,19 +176,19 @@ def _status_is_blocked(value: str) -> bool:
 def _find_local_duplicates(*, workshop, parsed: NfseReceivedParsedXml) -> list[str]:
     errors: list[str] = []
     if NfseReceivedDocument.objects.filter(workshop=workshop, xml_hash=parsed.xml_hash).exists():
-        errors.append("XML ja importado para esta oficina.")
+        errors.append("XML já importado para esta oficina.")
     if parsed.uuid and NfseReceivedDocument.objects.filter(workshop=workshop, uuid=parsed.uuid).exists():
-        errors.append("UUID de NFS-e recebida ja importado para esta oficina.")
+        errors.append("UUID de NFS-e recebida já importado para esta oficina.")
     if parsed.access_key_or_identifier and NfseReceivedDocument.objects.filter(workshop=workshop, access_key_or_identifier=parsed.access_key_or_identifier).exists():
-        errors.append("Identificador de NFS-e recebida ja importado para esta oficina.")
+        errors.append("Identificador de NFS-e recebida já importado para esta oficina.")
     return errors
 
 
 def _find_issued_document_collisions(*, workshop, parsed: NfseReceivedParsedXml) -> list[str]:
     if parsed.uuid and NfseItem.objects.filter(workshop=workshop, uuid=parsed.uuid).exists():
-        return ["XML recebido corresponde a NFS-e ja emitida localmente."]
+        return ["XML recebido corresponde a NFS-e já emitida localmente."]
     if parsed.uuid and FiscalEmissionAttempt.objects.filter(workshop=workshop, operation_type=FiscalEmissionOperationType.NFSE_MANUAL_EMISSION, remote_uuid=parsed.uuid).exists():
-        return ["XML recebido corresponde a tentativa de emissao NFS-e local."]
+        return ["XML recebido corresponde a tentativa de emissão NFS-e local."]
     return []
 
 

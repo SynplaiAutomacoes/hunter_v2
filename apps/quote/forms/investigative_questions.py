@@ -58,7 +58,7 @@ class InvestigativeQuestionForm(CoreModelForm):
                     Field("is_active", wrapper_class="col-span-12 lg:col-span-1"),
                     # --- Área Dinâmica de Opções (Alpine) ---
                     Div(
-                        HTML('<label class="label"><span class="label-text font-bold mb-2">Opções de Resposta</span></label>'),
+                        HTML('<label class="label"><span class="label-text font-bold mb-2">Opções de resposta</span></label>'),
                         HTML("""
                         <div class="flex gap-2 mb-2">
                             <input type="text" class="input-theme w-full" 

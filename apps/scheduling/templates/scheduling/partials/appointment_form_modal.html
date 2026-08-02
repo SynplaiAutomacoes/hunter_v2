@@ -2,7 +2,7 @@
 
 <div class="modal-box appointment-modal-shell w-[96vw] max-w-7xl overflow-visible border border-base-300 bg-base-100 p-0 shadow-2xl">
     <div class="mb-4 flex items-center justify-between gap-2">
-        <h3 class="text-2xl font-bold">{% if is_update %}Editar Agendamento{% else %}Novo Agendamento{% endif %}</h3>
+        <h3 class="text-2xl font-bold">{% if is_update %}Editar agendamento{% else %}Novo agendamento{% endif %}</h3>
         <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="document.getElementById('appointment_modal').close()">✕</button>
     </div>
 
@@ -45,7 +45,7 @@
             </div>
 
             <div class="rounded-lg border border-base-300 bg-base-100 p-3">
-                <p class="mb-2 text-xs uppercase tracking-wide text-base-content/70">Preview</p>
+                <p class="mb-2 text-xs uppercase tracking-wide text-base-content/70">Prévia</p>
                 <div id="appointment-color-preview" class="h-8 rounded-md bg-sky-500"></div>
             </div>
         </div>
@@ -69,7 +69,7 @@
             {% endif %}
 
             <button type="submit" name="action" value="save_and_create_budget" class="btn btn-secondary mr-auto">
-                Salvar e Cadastrar no Orçamento
+                Salvar e cadastrar no orçamento
             </button>
 
             <button type="button" class="btn btn-ghost" onclick="document.getElementById('appointment_modal').close()">Cancelar</button>

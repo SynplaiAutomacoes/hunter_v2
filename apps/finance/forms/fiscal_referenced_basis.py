@@ -5,7 +5,7 @@ from decimal import Decimal
 from django import forms
 
 from apps.core.presentation.forms import CoreModelForm
-from apps.core.presentation.widgets import CheckboxInput, NumberInput, SearchableSelectInput, TextareaInput
+from apps.core.presentation.widgets import NumberInput, SearchableSelectInput, TextareaInput
 from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalReferencedBasis
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.stock.models import StockMovement
@@ -16,12 +16,6 @@ class FiscalReferencedBasisCreateForm(CoreModelForm):
     fine_amount = forms.DecimalField(label="Valor de multa", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
     interest_amount = forms.DecimalField(label="Valor de juros", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
     other_amount = forms.DecimalField(label="Outros valores", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
-    confirm_preparation_only = forms.BooleanField(
-        required=True,
-        label="Confirmo que esta base nao emite NF-e de credito/debito",
-        widget=CheckboxInput(),
-    )
-
     class Meta:
         model = FiscalReferencedBasis
         fields = ["source_document", "source_item_sequence", "fiscal_hypothesis", "financial_reference", "stock_reference", "notes"]
@@ -48,8 +42,8 @@ class FiscalReferencedBasisCreateForm(CoreModelForm):
         self.fields["stock_reference"].queryset = StockMovement.objects.filter(workshop=workshop).order_by("-criado_em")
         self.fields["financial_reference"].required = False
         self.fields["stock_reference"].required = False
-        self.fields["notes"].help_text = "Registre a evidencia operacional/fiscal. A base nao autoriza emissao."
-        self.fields["principal_amount"].help_text = "Valor explicito por item; nao e preenchido automaticamente pela movimentacao financeira."
+        self.fields["notes"].help_text = "Registre a evidência operacional/fiscal. A base não autoriza emissão."
+        self.fields["principal_amount"].help_text = "Valor explicito por item; não é preenchido automaticamente pela movimentacao financeira."
         self.fields["fine_amount"].help_text = "Para multa/juros, a base futura corresponde somente a multa + juros."
 
     def clean_source_document(self) -> FiscalDocument:

@@ -22,7 +22,7 @@ def _normalize_decimal(value: Any, *, field_name: str) -> Decimal:
     try:
         amount = Decimal(str(value))
     except (InvalidOperation, TypeError) as exc:
-        raise ValidationError(f"{field_name} invalido.") from exc
+        raise ValidationError(f"{field_name} inválido.") from exc
     return amount
 
 
@@ -35,36 +35,36 @@ def _validate_taker(taker: dict[str, Any]) -> None:
 
 def _validate_service(service: dict[str, Any], *, capability: NfseMunicipalCapability) -> None:
     if not str(service.get("discriminacao") or "").strip():
-        raise ValidationError("Servico exige discriminacao.")
-    value = _normalize_decimal(service.get("valor_servicos"), field_name="Valor de servicos")
+        raise ValidationError("Serviço exige discriminacao.")
+    value = _normalize_decimal(service.get("valor_servicos"), field_name="Valor de serviços")
     if value <= 0:
-        raise ValidationError("Valor de servicos deve ser positivo.")
+        raise ValidationError("Valor de serviços deve ser positivo.")
     if capability.requires_service_code and not str(service.get("codigo_servico") or service.get("classe_imposto") or "").strip():
-        raise ValidationError("A capacidade municipal exige codigo de servico ou classe fiscal.")
+        raise ValidationError("A capacidade municipal exige código de serviço ou classe fiscal.")
     if capability.requires_cnae and not str(service.get("cnae") or "").strip():
         raise ValidationError("A capacidade municipal exige CNAE.")
     if not str(service.get("classe_imposto") or "").strip() and not isinstance(service.get("impostos"), dict):
-        raise ValidationError("Servico exige classe de imposto ou tributacao explicita.")
+        raise ValidationError("Serviço exige classe de imposto ou tributação explicita.")
 
 
 def _validate_values(values: dict[str, Any], *, service: dict[str, Any]) -> None:
-    total = _normalize_decimal(values.get("valor_servicos", service.get("valor_servicos")), field_name="Valor de servicos")
+    total = _normalize_decimal(values.get("valor_servicos", service.get("valor_servicos")), field_name="Valor de serviços")
     if total <= 0:
-        raise ValidationError("Valor de servicos deve ser positivo.")
-    service_total = _normalize_decimal(service.get("valor_servicos"), field_name="Valor de servicos")
+        raise ValidationError("Valor de serviços deve ser positivo.")
+    service_total = _normalize_decimal(service.get("valor_servicos"), field_name="Valor de serviços")
     if total != service_total:
-        raise ValidationError("Snapshot de valores diverge do valor de servicos.")
+        raise ValidationError("Snapshot de valores diverge do valor de serviços.")
 
 
 def _validate_taxation(taxation: dict[str, Any], *, capability: NfseMunicipalCapability) -> None:
     if not taxation:
-        raise ValidationError("Tributacao e obrigatoria.")
+        raise ValidationError("Tributação e obrigatoria.")
     if capability.requires_iss_rate:
         iss_rate = taxation.get("aliquota_iss") or taxation.get("aliquota")
         if iss_rate in (None, ""):
             raise ValidationError("A capacidade municipal exige aliquota ISS.")
         if _normalize_decimal(iss_rate, field_name="Aliquota ISS") < 0:
-            raise ValidationError("Aliquota ISS invalida.")
+            raise ValidationError("Aliquota ISS inválida.")
 
 
 def _validate_retention(retention: dict[str, Any]) -> None:
@@ -72,12 +72,12 @@ def _validate_retention(retention: dict[str, Any]) -> None:
         if value in (None, ""):
             continue
         if _normalize_decimal(value, field_name=f"Retencao {key}") < 0:
-            raise ValidationError("Retencoes nao podem ser negativas.")
+            raise ValidationError("Retencoes não podem ser negativas.")
 
 
 def _validate_ibs_cbs(ibs_cbs: dict[str, Any], *, taxation: dict[str, Any]) -> None:
     if taxation.get("ibs_cbs_required") and not ibs_cbs:
-        raise ValidationError("IBS/CBS e obrigatorio para esta preview.")
+        raise ValidationError("IBS/CBS e obrigatório para esta preview.")
 
 
 def _existing_rps_queryset(*, workshop: Any, company: WebmaniaCompany, environment: str, rps_number: int, rps_series: str):
@@ -90,19 +90,19 @@ def _existing_rps_queryset(*, workshop: Any, company: WebmaniaCompany, environme
 def _assert_rps_available(*, workshop: Any, company: WebmaniaCompany, environment: str, rps_number: int, rps_series: str) -> None:
     reserved_requests, emitted_items, approved_previews = _existing_rps_queryset(workshop=workshop, company=company, environment=environment, rps_number=rps_number, rps_series=rps_series)
     if reserved_requests.exists() or emitted_items.exists() or approved_previews.exists():
-        raise ValidationError("Ja existe RPS local conhecido para esta empresa/oficina/ambiente.")
+        raise ValidationError("Já existe RPS local conhecido para esta empresa/oficina/ambiente.")
 
 
 def _assert_company_configured(company: WebmaniaCompany) -> None:
     if not company.pk:
         raise ValidationError("Empresa emissora obrigatoria.")
     if not str(company.webmania_company_id or company.bearer_access_token or company.consumer_key or "").strip():
-        raise ValidationError("Empresa emissora Webmania nao esta configurada.")
+        raise ValidationError("Empresa emissora não esta configurada.")
 
 
 def _assert_capability_enabled(capability: NfseMunicipalCapability) -> None:
     if not capability.is_active or not capability.emission_enabled or not capability.manual_emission_enabled:
-        raise ValidationError("A capacidade municipal nao permite preview de emissao manual NFS-e.")
+        raise ValidationError("A capacidade municipal não permite prévia de emissão manual NFS-e.")
 
 
 @transaction.atomic
@@ -123,26 +123,26 @@ def create_nfse_manual_emission_preview(
     created_by: Any | None = None,
 ) -> NfseManualEmissionPreview:
     if not is_nfse_manual_emission_preview_enabled(workshop=workshop):
-        raise ValidationError("A preview de emissao manual NFS-e esta desabilitada para esta oficina.")
+        raise ValidationError("A prévia de emissão manual NFS-e esta desabilitada para esta oficina.")
     try:
         locked_company = WebmaniaCompany.objects.select_for_update().get(pk=company.pk, workshop=workshop)
         locked_capability = NfseMunicipalCapability.objects.select_for_update().get(pk=municipal_capability.pk, workshop=workshop, company=locked_company)
     except (WebmaniaCompany.DoesNotExist, NfseMunicipalCapability.DoesNotExist) as exc:
-        raise ValidationError("Empresa emissora ou capacidade municipal nao pertence a oficina ativa.") from exc
+        raise ValidationError("Empresa emissora ou capacidade municipal não pertence a oficina ativa.") from exc
     _assert_company_configured(locked_company)
     _assert_capability_enabled(locked_capability)
     if environment not in {"1", "2"}:
-        raise ValidationError("Ambiente invalido para preview NFS-e.")
+        raise ValidationError("Ambiente inválido para preview NFS-e.")
     if rps_number <= 0 or not str(rps_series or "").strip():
-        raise ValidationError("Numero e serie do RPS sao obrigatorios.")
+        raise ValidationError("Número e série do RPS são obrigatórios.")
     if not isinstance(service_payload, dict) or not service_payload:
-        raise ValidationError("Servico e obrigatorio.")
+        raise ValidationError("Serviço e obrigatório.")
     if not isinstance(taker_payload, dict) or not taker_payload:
-        raise ValidationError("Tomador e obrigatorio.")
+        raise ValidationError("Tomador e obrigatório.")
     if not isinstance(values_payload, dict) or not values_payload:
-        raise ValidationError("Valores sao obrigatorios.")
+        raise ValidationError("Valores são obrigatórios.")
     if not isinstance(taxation_payload, dict) or not taxation_payload:
-        raise ValidationError("Tributacao e obrigatoria.")
+        raise ValidationError("Tributação e obrigatoria.")
     retention_payload = retention_payload or {}
     ibs_cbs_payload = ibs_cbs_payload or {}
     _validate_taker(taker_payload)
@@ -185,7 +185,7 @@ def create_nfse_manual_emission_preview(
 def approve_nfse_manual_emission_preview(*, preview: NfseManualEmissionPreview, approved_by: Any) -> NfseManualEmissionPreview:
     locked = NfseManualEmissionPreview.objects.select_for_update().select_related("company", "municipal_capability").get(pk=preview.pk, workshop=preview.workshop)
     if not is_nfse_manual_emission_preview_enabled(workshop=locked.workshop):
-        raise ValidationError("A preview de emissao manual NFS-e esta desabilitada para esta oficina.")
+        raise ValidationError("A prévia de emissão manual NFS-e esta desabilitada para esta oficina.")
     _assert_capability_enabled(locked.municipal_capability)
     if locked.validation_status != FiscalProductPreviewStatus.VALIDATED:
         raise ValidationError("Somente preview validada pode ser aprovada.")

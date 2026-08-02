@@ -9,6 +9,7 @@ from django.test import RequestFactory, TestCase
 
 from apps.accounts.models import Account, User
 from apps.budget.models import Budget, BudgetStatus
+from apps.finance.forms.fiscal_referenced_basis import FiscalReferencedBasisCreateForm
 from apps.finance.models.finance import (
     FiscalDocument,
     FiscalDocumentOrigin,
@@ -44,6 +45,9 @@ def _user_and_workshop(suffix: int) -> tuple[User, Workshop]:
 
 
 class FiscalPhaseTwoCreditDebitBasisTests(TestCase):
+    def test_basis_preparation_does_not_require_redundant_confirmation(self) -> None:
+        self.assertNotIn("confirm_preparation_only", FiscalReferencedBasisCreateForm.base_fields)
+
     def setUp(self) -> None:
         self.user, self.workshop = _user_and_workshop(31)
         self.company = WebmaniaCompany.objects.create(workshop=self.workshop, credit_debit_basis_enabled=True, credit_debit_basis_enabled_by=self.user)
@@ -129,10 +133,10 @@ class FiscalPhaseTwoCreditDebitBasisTests(TestCase):
         self.assertFalse(FiscalReferencedBasis.objects.exists())
 
     def test_approved_snapshot_is_immutable(self) -> None:
-        basis = create_referenced_basis(workshop=self.workshop, source_document=self.document, source_item_sequence=1, fiscal_hypothesis=FiscalHypothesis.CREDIT_REFUSAL, created_by=self.user, notes="Recusa registrada para revisao fiscal.", principal_amount=Decimal("100.00"))
+        basis = create_referenced_basis(workshop=self.workshop, source_document=self.document, source_item_sequence=1, fiscal_hypothesis=FiscalHypothesis.CREDIT_REFUSAL, created_by=self.user, notes="Recusa registrada para revisão fiscal.", principal_amount=Decimal("100.00"))
         basis = approve_referenced_basis(basis=basis, approved_by=self.user)
         basis.ibs_cbs_snapshot = {"situacao_tributaria": "999", "classificacao_tributaria": "999999"}
-        with self.assertRaisesMessage(ValidationError, "imutaveis"):
+        with self.assertRaisesMessage(ValidationError, "imutáveis"):
             basis.save()
 
     def test_financial_and_stock_hypotheses_require_real_references(self) -> None:
@@ -162,7 +166,7 @@ class FiscalPhaseTwoCreditDebitBasisTests(TestCase):
         self.assertFalse(self.company.credit_debit_basis_enabled)
         self.assertEqual(self.company.credit_debit_basis_enabled_by, self.user)
         self.assertIsNotNone(self.company.credit_debit_basis_enabled_at)
-        with self.assertRaisesMessage(ValidationError, "nao esta habilitada"):
+        with self.assertRaisesMessage(ValidationError, "não esta habilitada"):
             create_referenced_basis(workshop=self.workshop, source_document=self.document, source_item_sequence=1, fiscal_hypothesis=FiscalHypothesis.CREDIT_REFUSAL, created_by=self.user)
 
     def test_feature_flag_alone_does_not_emit_credit_or_debit(self) -> None:
@@ -206,7 +210,7 @@ class FiscalPhaseTwoCreditDebitBasisTests(TestCase):
             approve_referenced_basis(basis=basis, approved_by=self.user)
 
     def test_basis_type_must_match_hypothesis(self) -> None:
-        with self.assertRaisesMessage(ValidationError, "nao corresponde"):
+        with self.assertRaisesMessage(ValidationError, "não corresponde"):
             FiscalReferencedBasis.objects.create(
                 workshop=self.workshop,
                 source_document=self.document,
@@ -347,14 +351,14 @@ class FiscalPhaseTwoCreditDebitMonetaryBasisTests(TestCase):
         self.assertEqual(basis.commercial_item.credit_debit_base_amount, Decimal("90.00"))
 
     def test_negative_amount_is_blocked(self) -> None:
-        with self.assertRaisesMessage(ValidationError, "nao podem ser negativos"):
+        with self.assertRaisesMessage(ValidationError, "não podem ser negativos"):
             self.create_basis(fine_amount=Decimal("-1.00"))
         self.assertFalse(FiscalReferencedBasis.objects.exists())
 
     def test_inconsistent_source_total_is_blocked(self) -> None:
         self.nfe_item.raw_payload["produtos"][0]["total"] = "99.00"
         self.nfe_item.save(update_fields=["raw_payload"])
-        with self.assertRaisesMessage(ValidationError, "Quantidade x valor unitario"):
+        with self.assertRaisesMessage(ValidationError, "Quantidade x valor unitário"):
             self.create_basis()
 
     def test_incomplete_commercial_snapshot_remains_draft_and_cannot_be_approved(self) -> None:
@@ -369,19 +373,19 @@ class FiscalPhaseTwoCreditDebitMonetaryBasisTests(TestCase):
         basis = approve_referenced_basis(basis=self.create_basis(), approved_by=self.user)
         item = basis.commercial_item
         item.source_item_cfop = "6102"
-        with self.assertRaisesMessage(ValidationError, "imutaveis"):
+        with self.assertRaisesMessage(ValidationError, "imutáveis"):
             item.save()
         basis.source_item_sequence = 2
-        with self.assertRaisesMessage(ValidationError, "imutaveis"):
+        with self.assertRaisesMessage(ValidationError, "imutáveis"):
             basis.save()
         item.refresh_from_db()
         item.fine_amount = Decimal("6.00")
         item.credit_debit_base_amount = Decimal("8.00")
-        with self.assertRaisesMessage(ValidationError, "imutaveis"):
+        with self.assertRaisesMessage(ValidationError, "imutáveis"):
             item.save()
 
     def test_missing_quantity_unit_price_or_total_keeps_draft_and_blocks_approval(self) -> None:
-        for field, expected_message in (("quantidade", "quantidade"), ("subtotal", "valor unitario"), ("total", "valor total")):
+        for field, expected_message in (("quantidade", "quantidade"), ("subtotal", "valor unitário"), ("total", "valor total")):
             with self.subTest(field=field):
                 product = self.nfe_item.raw_payload["produtos"][0]
                 original = product.pop(field)

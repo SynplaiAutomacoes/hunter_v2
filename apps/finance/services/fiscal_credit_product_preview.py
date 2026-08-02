@@ -75,18 +75,18 @@ def create_credit_product_preview(
     explicit_value_confirmation: bool,
 ) -> FiscalCreditProductPreview:
     if not is_credit_debit_basis_enabled(workshop=workshop):
-        raise ValidationError("A preparacao fiscal de credito/debito esta desabilitada para esta oficina.")
+        raise ValidationError("A preparação fiscal de crédito/débito esta desabilitada para esta oficina.")
     locked_basis = FiscalReferencedBasis.objects.select_for_update().get(pk=basis.pk, workshop=workshop)
     if locked_basis.status != FiscalReferencedBasisStatus.APPROVED:
-        raise ValidationError("A previa exige base fiscal aprovada.")
+        raise ValidationError("A prévia exige base fiscal aprovada.")
     if locked_basis.fiscal_hypothesis != FiscalHypothesis.CREDIT_FINE_INTEREST:
-        raise ValidationError("A previa suporta somente credito tipo 1 por multa/juros.")
+        raise ValidationError("A prévia suporta somente crédito tipo 1 por multa/juros.")
     if locked_basis.external_origin and not locked_basis.external_xml_validated:
         raise ValidationError("Documento externo exige XML/importacao validada.")
     try:
         commercial_item = FiscalReferencedBasisItem.objects.select_for_update().get(basis=locked_basis)
     except FiscalReferencedBasisItem.DoesNotExist as exc:
-        raise ValidationError("A base aprovada nao possui item monetario/comercial congelado.") from exc
+        raise ValidationError("A base aprovada não possui item monetario/comercial congelado.") from exc
     missing_commercial = [
         label
         for label, value in (
@@ -99,7 +99,7 @@ def create_credit_product_preview(
     if missing_commercial:
         raise ValidationError(f"Snapshot comercial insuficiente: {', '.join(missing_commercial)}.")
     if not explicit_value_confirmation:
-        raise ValidationError("Confirme que quantidade, valor unitario, total e CFOP foram definidos explicitamente.")
+        raise ValidationError("Confirme que quantidade, valor unitário, total e CFOP foram definidos explicitamente.")
     normalized_cfop = "".join(char for char in str(cfop or "") if char.isdigit())
     if len(normalized_cfop) != 4:
         raise ValidationError("O CFOP deve possuir 4 digitos e ser informado explicitamente.")
@@ -107,10 +107,10 @@ def create_credit_product_preview(
     unit_price = unit_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     total_amount = total_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     if quantity <= 0 or unit_price <= 0 or total_amount <= 0:
-        raise ValidationError("Quantidade, valor unitario e total devem ser positivos.")
+        raise ValidationError("Quantidade, valor unitário e total devem ser positivos.")
     expected_total = (quantity * unit_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     if abs(expected_total - total_amount) > Decimal("0.01"):
-        raise ValidationError("Quantidade x valor unitario diverge do total alem da tolerancia de R$ 0,01.")
+        raise ValidationError("Quantidade x valor unitário diverge do total alem da tolerancia de R$ 0,01.")
     if total_amount != commercial_item.credit_debit_base_amount:
         raise ValidationError("O total deve ser exatamente igual a multa + juros da base aprovada.")
     product_payload, ibs_cbs_payload = _build_product_payload(basis=locked_basis, basis_item=commercial_item, quantity=quantity, unit_price=unit_price, total_amount=total_amount, cfop=normalized_cfop)
@@ -158,9 +158,9 @@ def create_credit_product_preview(
 def approve_credit_product_preview(*, preview: FiscalCreditProductPreview, approved_by: Any) -> FiscalCreditProductPreview:
     locked = FiscalCreditProductPreview.objects.select_for_update().select_related("basis", "basis_item").get(pk=preview.pk, workshop=preview.workshop)
     if not is_credit_debit_basis_enabled(workshop=locked.workshop):
-        raise ValidationError("A preparacao fiscal de credito/debito esta desabilitada para esta oficina.")
+        raise ValidationError("A preparação fiscal de crédito/débito esta desabilitada para esta oficina.")
     if locked.validation_status != FiscalProductPreviewStatus.VALIDATED:
-        raise ValidationError("Somente previa validada pode ser aprovada.")
+        raise ValidationError("Somente prévia validada pode ser aprovada.")
     locked.full_clean()
     locked.validation_status = FiscalProductPreviewStatus.APPROVED
     locked.approved_by = approved_by

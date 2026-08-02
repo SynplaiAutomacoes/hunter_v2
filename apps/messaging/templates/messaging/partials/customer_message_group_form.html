@@ -19,7 +19,7 @@
     class="space-y-8"
 >
     <div class="tabs tabs-box" role="tablist">
-        <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'dados' }" @click="mainTab = 'dados'" role="tab">Dados do Grupo</button>
+        <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'dados' }" @click="mainTab = 'dados'" role="tab">Dados do grupo</button>
         <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'contatos' }" @click="mainTab = 'contatos'" role="tab">Contatos</button>
         <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'historico' }" @click="mainTab = 'historico'; openLatestLiveBatch()" role="tab">Histórico</button>
     </div>
@@ -52,7 +52,7 @@
                     <label for="{{ form.is_active.id_for_label }}" class="flex min-h-12 cursor-pointer items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3 transition hover:border-primary/40 hover:bg-base-200/40">
                         <div>
                             <span class="block text-sm font-semibold text-base-content">Ativo</span>
-                            <span class="block text-xs text-base-content/60">Disponivel para novos disparos</span>
+                            <span class="block text-xs text-base-content/60">Disponível para novos disparos</span>
                         </div>
                         <input
                             type="checkbox"
@@ -98,7 +98,7 @@
                         </div>
                     </div>
                     {{ form.message_template }}
-                    <p class="mt-2 text-xs text-base-content/60">Selecione uma mensagem ativa ja cadastrada para preencher o campo abaixo ou crie uma nova sem sair desta tela.</p>
+                    <p class="mt-2 text-xs text-base-content/60">Selecione uma mensagem ativa já cadastrada para preencher o campo abaixo ou crie uma nova sem sair desta tela.</p>
                     {% if form.message_template.errors %}
                         <div class="mt-2 text-sm text-error">{{ form.message_template.errors }}</div>
                     {% endif %}
@@ -107,7 +107,7 @@
                 <div class="lg:col-span-12">
                     <label for="{{ form.message.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ form.message.label }}</label>
                     {{ form.message }}
-                    <p class="mt-2 text-xs text-base-content/60">A mensagem salva no grupo e a versao final usada neste publico. Ela pode ser personalizada mesmo quando voce escolher uma mensagem cadastrada.</p>
+                    <p class="mt-2 text-xs text-base-content/60">A mensagem salva no grupo é a versão final usada neste público. Ela pode ser personalizada mesmo quando você escolher uma mensagem cadastrada.</p>
                     {% if form.message.errors %}
                         <div class="mt-2 text-sm text-error">{{ form.message.errors }}</div>
                     {% endif %}
@@ -165,7 +165,7 @@
                     hx-include="#selected-customers-submit-inputs, #customer-message-group-root [name='customer_picker_selection']"
                 >
                     <div class="flex min-h-60 items-center justify-center rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
-                        Carregando clientes disponiveis...
+                        Carregando clientes disponíveis...
                     </div>
                 </div>
             </div>

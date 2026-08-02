@@ -4,14 +4,16 @@ from apps.customer.models import Vehicle
 
 
 def sync_vehicle_km_from_exit(*, vehicle: Vehicle, km_final: int | None) -> bool:
-    """Update the vehicle odometer from a work order exit reading.
+    """Update denormalized vehicle odometer from an OS exit KM.
 
-    The stored odometer is monotonic: an exit reading may initialize or
-    increase it, but never decrease it.
+    The odometer only moves forward: updates when ``vehicle.km`` is empty or
+    ``km_final`` is greater than the current value.
     """
     if km_final is None:
         return False
-    if vehicle.km is not None and km_final <= vehicle.km:
+    if vehicle.km is not None and km_final < vehicle.km:
+        return False
+    if vehicle.km == km_final:
         return False
 
     vehicle.km = km_final

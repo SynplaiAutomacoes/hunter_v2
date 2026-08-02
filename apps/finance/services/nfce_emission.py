@@ -68,23 +68,23 @@ def _require_company_field(company: WebmaniaCompany, field_name: str, label: str
 def validate_nfce_configuration(*, workshop: Any, environment: int) -> WebmaniaCompany:
     company = _company_for_workshop(workshop=workshop)
     if company is None:
-        raise NfceEmissionError("Configure a empresa Webmania da oficina antes de emitir NFC-e.")
+        raise NfceEmissionError("Configure a empresa emissora da oficina antes de emitir NFC-e.")
     if not str(company.webmania_company_id or "").strip():
-        raise NfceEmissionError("Vincule a empresa Webmania da oficina antes de emitir NFC-e.")
+        raise NfceEmissionError("Vincule a empresa emissora da oficina antes de emitir NFC-e.")
     if not company.nfce_enabled:
-        raise NfceEmissionError("Habilite a NFC-e na configuracao fiscal da oficina antes de emitir.")
+        raise NfceEmissionError("Habilite a NFC-e na configuração fiscal da oficina antes de emitir.")
 
     _build_headers(workshop=workshop)
 
     _require_company_field(company, "nfce_serie", "a serie")
     if int(environment) == 1:
-        _require_company_field(company, "nfce_numero", "o proximo numero de producao")
+        _require_company_field(company, "nfce_numero", "o proximo número de producao")
         _require_company_field(company, "nfce_id_csc", "o ID CSC de producao")
-        _require_company_field(company, "nfce_codigo_csc", "o codigo CSC de producao")
+        _require_company_field(company, "nfce_codigo_csc", "o código CSC de producao")
     else:
-        _require_company_field(company, "nfce_numero_dev", "o proximo numero de homologacao")
-        _require_company_field(company, "nfce_id_csc_dev", "o ID CSC de homologacao")
-        _require_company_field(company, "nfce_codigo_csc_dev", "o codigo CSC de homologacao")
+        _require_company_field(company, "nfce_numero_dev", "o proximo número de homologação")
+        _require_company_field(company, "nfce_id_csc_dev", "o ID CSC de homologação")
+        _require_company_field(company, "nfce_codigo_csc_dev", "o código CSC de homologação")
     return company
 
 
@@ -95,11 +95,11 @@ def _decimal(value: Any, *, field_name: str, required_positive: bool = True) -> 
     try:
         decimal_value = Decimal(raw_value.replace(",", "."))
     except InvalidOperation as exc:
-        raise NfceEmissionError(f"Informe {field_name} valido.") from exc
+        raise NfceEmissionError(f"Informe {field_name} válido.") from exc
     if required_positive and decimal_value <= 0:
         raise NfceEmissionError(f"{field_name} deve ser maior que zero.")
     if decimal_value < 0:
-        raise NfceEmissionError(f"{field_name} nao pode ser negativo.")
+        raise NfceEmissionError(f"{field_name} não pode ser negativo.")
     return decimal_value
 
 
@@ -129,16 +129,16 @@ def _build_product_payload(*, workshop: Any, item: dict[str, Any]) -> tuple[dict
     try:
         product = Product.objects.get(pk=int(product_id), workshop=workshop, is_active=True)
     except Product.DoesNotExist as exc:
-        raise NfceEmissionError("Produto nao encontrado na oficina ativa para NFC-e.") from exc
+        raise NfceEmissionError("Produto não encontrado na oficina ativa para NFC-e.") from exc
     quantity = _decimal(item.get("quantidade") or item.get("quantity"), field_name="quantidade")
-    unit_value = _decimal(item.get("valor_unitario") or item.get("unit_value") or item.get("subtotal"), field_name="valor unitario")
+    unit_value = _decimal(item.get("valor_unitario") or item.get("unit_value") or item.get("subtotal"), field_name="valor unitário")
     total_value = (quantity * unit_value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     ncm = _normalize_ncm(product.ncm)
     if len(ncm) != 8:
-        raise NfceEmissionError(f"Produto '{product.name}' sem NCM valido para NFC-e.")
+        raise NfceEmissionError(f"Produto '{product.name}' sem NCM válido para NFC-e.")
     product_code = str(product.code or "").strip()
     if not product_code:
-        raise NfceEmissionError(f"Produto '{product.name}' sem codigo para NFC-e.")
+        raise NfceEmissionError(f"Produto '{product.name}' sem código para NFC-e.")
     tax_class = str(item.get("classe_imposto") or item.get("tax_class") or "").strip()
     if not tax_class:
         raise NfceEmissionError(f"Informe classe de imposto para o produto '{product.name}'.")
@@ -180,7 +180,7 @@ def _build_payment_payload(*, total_value: Decimal, payment_method: str) -> dict
     normalized_method = str(payment_method or "01").strip()
     allowed_methods = {"01", "03", "04", "17", "99"}
     if normalized_method not in allowed_methods:
-        raise NfceEmissionError("Forma de pagamento invalida para NFC-e simples.")
+        raise NfceEmissionError("Forma de pagamento inválida para NFC-e simples.")
     payload: dict[str, Any] = {
         "pagamento": 0,
         "forma_pagamento": normalized_method,
@@ -246,7 +246,7 @@ def create_nfce_draft(
     request: HttpRequest | None = None,
 ) -> FiscalDocument:
     if not legal_confirmation:
-        raise NfceEmissionError("Confirme explicitamente a emissao da NFC-e.")
+        raise NfceEmissionError("Confirme explicitamente a emissão da NFC-e.")
     payload = build_nfce_payload(workshop=workshop, environment=environment, natureza_operacao=natureza_operacao, products=products, customer=customer, payment_method=payment_method, request=request)
     with transaction.atomic():
         document = FiscalDocument.objects.create(
@@ -304,15 +304,15 @@ def _mark_document_uncertain(*, document: FiscalDocument, error_message: str) ->
 
 def _assert_transmittable(*, document: FiscalDocument) -> None:
     if document.document_type != FiscalDocumentType.NFCE or document.origin != FiscalDocumentOrigin.MANUAL or document.purpose != FiscalDocumentPurpose.NORMAL:
-        raise NfceEmissionError("Documento fiscal invalido para transmissao de NFC-e.")
+        raise NfceEmissionError("Documento fiscal inválido para transmissão de NFC-e.")
     existing_attempt = document.emission_attempts.filter(operation_type=FiscalEmissionOperationType.NFCE_EMISSION).order_by("-pk").first()
     if existing_attempt is None:
         return
     if existing_attempt.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-        raise NfceEmissionError("Ja existe tentativa de NFC-e em estado remoto incerto. Reconcilie antes de tentar novamente.")
+        raise NfceEmissionError("Já existe tentativa de NFC-e em estado remoto incerto. Reconcilie antes de tentar novamente.")
     if existing_attempt.status in {FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED}:
-        raise NfceEmissionError("Esta intencao de NFC-e ja possui envio remoto registrado.")
-    raise NfceEmissionError("Esta intencao de NFC-e ja possui tentativa fiscal registrada.")
+        raise NfceEmissionError("Esta intencao de NFC-e já possui envio remoto registrado.")
+    raise NfceEmissionError("Esta intencao de NFC-e já possui tentativa fiscal registrada.")
 
 
 def transmit_nfce_document(*, document: FiscalDocument) -> FiscalDocument:
@@ -359,19 +359,19 @@ def transmit_nfce_document(*, document: FiscalDocument) -> FiscalDocument:
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir NFC-e; estado remoto incerto."
+        message = "Resposta inválida ao emitir NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfceEmissionError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir NFC-e; estado remoto incerto."
+        message = "Resposta inválida ao emitir NFC-e; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfceEmissionError(message)
 
     locked_document = apply_nfce_document_payload(document=locked_document, response_payload=response_payload)
     if _is_failed_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "NFC-e rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "NFC-e rejeitada."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfceEmissionError(message)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
@@ -394,7 +394,7 @@ def consult_nfce_document(*, document: FiscalDocument) -> dict[str, Any]:
         if attempt is not None:
             params["uuid"] = str(attempt.remote_uuid).strip()
     if not params:
-        raise NfceEmissionError("Nao foi possivel consultar a NFC-e sem UUID ou chave de acesso.")
+        raise NfceEmissionError("Não foi possível consultar a NFC-e sem UUID ou chave de acesso.")
     try:
         response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=document.workshop), timeout=30)
         response.raise_for_status()
@@ -404,9 +404,9 @@ def consult_nfce_document(*, document: FiscalDocument) -> dict[str, Any]:
     try:
         payload = response.json()
     except ValueError as exc:
-        raise NfceEmissionError("Resposta invalida da API de consulta da NFC-e.") from exc
+        raise NfceEmissionError("Resposta inválida da API de consulta da NFC-e.") from exc
     if not isinstance(payload, dict):
-        raise NfceEmissionError("Resposta invalida da API de consulta da NFC-e.")
+        raise NfceEmissionError("Resposta inválida da API de consulta da NFC-e.")
     error_message = extract_webmania_error_message(payload.get("error") or payload.get("msg") or payload.get("message"), scope="nfe")
     if error_message:
         raise NfceEmissionError(error_message)

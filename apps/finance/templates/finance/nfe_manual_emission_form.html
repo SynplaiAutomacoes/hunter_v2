@@ -2,6 +2,7 @@
 {% load crispy_forms_tags %}
 
 {% block crud_content %}
+<div id="manual-nfe-page">
     <div class="flex items-center justify-between gap-4">
         <div>
             <p class="text-sm font-medium uppercase tracking-wide text-primary">Nota Fiscal de Saída · Emissão Manual</p>
@@ -18,21 +19,35 @@
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8">
             <ol class="mb-8 grid grid-cols-1 gap-3 md:grid-cols-3" aria-label="Etapas da emissão manual">
-                <li class="manual-step-indicator rounded-xl border border-primary bg-primary/5 p-4" data-step-indicator="1" aria-current="step">
-                    <span class="text-xs font-semibold uppercase tracking-wide text-primary">Etapa 1</span>
-                    <span class="mt-1 block font-semibold">Destinatário</span>
+                <li>
+                    <button type="button" class="manual-step-indicator w-full rounded-xl border border-warning bg-warning/10 p-4 text-left transition-colors" data-step-indicator="1" aria-current="step">
+                        <span class="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide" data-step-status-label><span class="material-icons hidden text-sm" data-step-check>check_circle</span>Etapa 1</span>
+                        <span class="mt-1 block font-semibold">Destinatário</span>
+                    </button>
                 </li>
-                <li class="manual-step-indicator rounded-xl border border-base-300 p-4" data-step-indicator="2">
-                    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Etapa 2</span>
-                    <span class="mt-1 block font-semibold">Produtos</span>
+                <li>
+                    <button type="button" class="manual-step-indicator w-full rounded-xl border border-base-300 p-4 text-left transition-colors" data-step-indicator="2" disabled>
+                        <span class="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide" data-step-status-label><span class="material-icons hidden text-sm" data-step-check>check_circle</span>Etapa 2</span>
+                        <span class="mt-1 block font-semibold">Produtos</span>
+                    </button>
                 </li>
-                <li class="manual-step-indicator rounded-xl border border-base-300 p-4" data-step-indicator="3">
-                    <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Etapa 3</span>
-                    <span class="mt-1 block font-semibold">Revisar e emitir</span>
+                <li>
+                    <button type="button" class="manual-step-indicator w-full rounded-xl border border-base-300 p-4 text-left transition-colors" data-step-indicator="3" disabled>
+                        <span class="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide" data-step-status-label><span class="material-icons hidden text-sm" data-step-check>check_circle</span>Etapa 3</span>
+                        <span class="mt-1 block font-semibold">Revisar e emitir</span>
+                    </button>
                 </li>
             </ol>
 
-            <form method="post" class="space-y-6" id="manual-nfe-form" novalidate>
+            <form
+                method="post"
+                class="space-y-6"
+                id="manual-nfe-form"
+                hx-post="{% url 'finance:emission_manual' %}"
+                hx-target="#manual-nfe-page"
+                hx-swap="outerHTML"
+                novalidate
+            >
                 {% csrf_token %}
 
                 <section class="manual-wizard-step space-y-5" data-manual-step="1" {% if form.recipient.errors %}data-has-errors="true"{% endif %}>
@@ -64,22 +79,16 @@
 
                     <div class="rounded-xl border border-base-300 p-4 md:p-5">
                         <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-                            <p class="text-sm text-base-content/65">Os produtos devem pertencer à oficina ativa e não podem se repetir.</p>
+                            <p class="text-sm text-base-content/65">Use produtos cadastrados da oficina ou crie um produto somente para esta NF-e.</p>
                             <div class="flex gap-2">
-                                {% if can_add_product %}
-                                    <button type="button"
-                                            class="btn btn-outline btn-sm gap-2"
-                                            hx-get="{% url 'finance:emission_manual_quick_product' %}"
-                                            hx-target="#modal-container"
-                                            hx-swap="innerHTML"
-                                            onclick="document.getElementById('form_modal').showModal()">
-                                        <span class="material-icons text-sm">add_box</span>
-                                        Novo produto
-                                    </button>
-                                {% endif %}
-                                <button type="button" class="btn btn-primary btn-sm gap-2" id="add-manual-item">
-                                    <span class="material-icons text-sm">add</span>
-                                    Adicionar item
+                                <button type="button"
+                                        class="btn btn-outline btn-sm gap-2"
+                                        hx-get="{% url 'finance:emission_manual_quick_product' %}"
+                                        hx-target="#modal-container"
+                                        hx-swap="innerHTML"
+                                        onclick="document.getElementById('form_modal').showModal()">
+                                    <span class="material-icons text-sm">add_box</span>
+                                    Novo produto
                                 </button>
                             </div>
                         </div>
@@ -91,11 +100,18 @@
 
                         <div id="manual-items" class="space-y-3">
                             {% for item_form in item_formset %}
-                                <div class="manual-item-row grid grid-cols-1 gap-3 rounded-lg bg-base-200/50 p-4 md:grid-cols-12">
-                                    <div class="md:col-span-6">{{ item_form.product|as_crispy_field }}</div>
-                                    <div class="md:col-span-2">{{ item_form.quantity|as_crispy_field }}</div>
-                                    <div class="md:col-span-3">{{ item_form.unit_price|as_crispy_field }}</div>
-                                    <div class="flex items-center justify-end md:col-span-1">
+                                <div class="manual-item-row relative grid grid-cols-12 gap-3 rounded-lg bg-base-200/50 p-4">
+                                    {{ item_form.item_origin }}
+                                    {{ item_form.fiscal_snapshot }}
+                                    <div class="col-span-12" data-catalog-product-field>{{ item_form.product|as_crispy_field }}</div>
+                                    <div class="col-span-12 hidden rounded-lg border border-success/30 bg-success/10 p-3" data-temporary-product-summary>
+                                        <span class="block text-xs font-semibold uppercase tracking-wide text-success">Produto somente desta NF-e</span>
+                                        <span class="mt-1 block font-semibold" data-temporary-product-label></span>
+                                        <button type="button" class="btn btn-ghost btn-xs mt-2 px-0 text-primary" data-use-catalog-product>Usar produto cadastrado</button>
+                                    </div>
+                                    <div class="col-span-6">{{ item_form.quantity|as_crispy_field }}</div>
+                                    <div class="col-span-6">{{ item_form.unit_price|as_crispy_field }}</div>
+                                    <div class="absolute right-2 top-2">
                                         <div class="hidden">{{ item_form.DELETE }}</div>
                                         <button type="button" class="btn btn-ghost btn-sm text-error remove-manual-item" title="Remover item">
                                             <span class="material-icons">delete</span>
@@ -107,11 +123,18 @@
                         </div>
 
                         <template id="manual-item-empty-form">
-                            <div class="manual-item-row grid grid-cols-1 gap-3 rounded-lg bg-base-200/50 p-4 md:grid-cols-12">
-                                <div class="md:col-span-6">{{ item_formset.empty_form.product|as_crispy_field }}</div>
-                                <div class="md:col-span-2">{{ item_formset.empty_form.quantity|as_crispy_field }}</div>
-                                <div class="md:col-span-3">{{ item_formset.empty_form.unit_price|as_crispy_field }}</div>
-                                <div class="flex items-center justify-end md:col-span-1">
+                            <div class="manual-item-row relative grid grid-cols-12 gap-3 rounded-lg bg-base-200/50 p-4">
+                                {{ item_formset.empty_form.item_origin }}
+                                {{ item_formset.empty_form.fiscal_snapshot }}
+                                <div class="col-span-12" data-catalog-product-field>{{ item_formset.empty_form.product|as_crispy_field }}</div>
+                                <div class="col-span-12 hidden rounded-lg border border-success/30 bg-success/10 p-3" data-temporary-product-summary>
+                                    <span class="block text-xs font-semibold uppercase tracking-wide text-success">Produto somente desta NF-e</span>
+                                    <span class="mt-1 block font-semibold" data-temporary-product-label></span>
+                                    <button type="button" class="btn btn-ghost btn-xs mt-2 px-0 text-primary" data-use-catalog-product>Usar produto cadastrado</button>
+                                </div>
+                                <div class="col-span-6">{{ item_formset.empty_form.quantity|as_crispy_field }}</div>
+                                <div class="col-span-6">{{ item_formset.empty_form.unit_price|as_crispy_field }}</div>
+                                <div class="absolute right-2 top-2">
                                     <div class="hidden">{{ item_formset.empty_form.DELETE }}</div>
                                     <button type="button" class="btn btn-ghost btn-sm text-error remove-manual-item" title="Remover item">
                                         <span class="material-icons">delete</span>
@@ -119,13 +142,23 @@
                                 </div>
                             </div>
                         </template>
+
+                        <button
+                            type="button"
+                            class="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-4 py-3 font-semibold text-primary transition-colors hover:border-primary/60 hover:bg-primary/10"
+                            id="add-manual-item"
+                            data-manual-add-bar="true"
+                        >
+                            <span class="text-xl leading-none" aria-hidden="true">+</span>
+                            Adicionar item
+                        </button>
                     </div>
                 </section>
 
-                <section class="manual-wizard-step hidden space-y-5" data-manual-step="3" {% if form.tax_class.errors or form.additional_information.errors or form.confirmation.errors or form.non_field_errors %}data-has-errors="true"{% endif %}>
+                <section class="manual-wizard-step hidden space-y-5" data-manual-step="3" {% if form.tax_class.errors or form.additional_information.errors or form.non_field_errors %}data-has-errors="true"{% endif %}>
                     <div>
                         <h2 class="text-2xl font-bold">Revisar e emitir</h2>
-                        <p class="mt-1 text-base-content/70">Confira a configuração fiscal e o resumo antes de transmitir a NF-e para a Webmania.</p>
+                        <p class="mt-1 text-base-content/70">Confira a configuração fiscal e o resumo antes de transmitir a NF-e.</p>
                     </div>
 
                     {{ form.tax_class|as_crispy_field }}
@@ -151,7 +184,6 @@
                         </div>
                     </div>
 
-                    {{ form.confirmation|as_crispy_field }}
                     {% if form.non_field_errors %}<div class="alert alert-error">{{ form.non_field_errors }}</div>{% endif %}
                 </section>
 
@@ -170,8 +202,8 @@
                             <span class="material-icons text-sm">arrow_forward</span>
                         </button>
                         <button type="submit" class="btn btn-primary hidden gap-2" id="manual-submit">
-                            <span class="material-icons text-sm">send</span>
-                            Emitir NF-e
+                            <span class="material-icons text-sm">preview</span>
+                            Ver prévia
                         </button>
                     </div>
                 </div>
@@ -196,9 +228,20 @@
             const nextButton = document.getElementById('manual-next-step');
             const submitButton = document.getElementById('manual-submit');
             const exitLink = document.getElementById('manual-exit-link');
-            let currentStep = Number(steps.find(step => step.dataset.hasErrors === 'true')?.dataset.manualStep || 1);
+            let currentStep = Number(steps.find(step => step.dataset.hasErrors === 'true')?.dataset.manualStep || {{ manual_current_step|default:1 }});
+            let maxReachedStep = Number({{ manual_max_reached_step|default:1 }});
 
             const visibleItemRows = () => [...items.querySelectorAll('.manual-item-row')].filter(row => !row.classList.contains('hidden'));
+
+            const temporarySnapshot = row => {
+                const field = row.querySelector('[name$="-fiscal_snapshot"]');
+                if (!field?.value) return null;
+                try {
+                    return JSON.parse(field.value);
+                } catch (_error) {
+                    return null;
+                }
+            };
 
             const fieldLabel = field => {
                 if (!field) return '—';
@@ -216,10 +259,11 @@
                 reviewBody.innerHTML = '';
                 rows.forEach(row => {
                     const product = row.querySelector('[name$="-product"]');
+                    const snapshot = temporarySnapshot(row);
                     const quantity = row.querySelector('[name$="-quantity"]');
                     const unitPrice = row.querySelector('[name$="-unit_price"]');
                     const reviewRow = document.createElement('tr');
-                    [fieldLabel(product), quantity?.value || '—', unitPrice?.value || '—'].forEach((value, index) => {
+                    [snapshot?.description || fieldLabel(product), quantity?.value || '—', unitPrice?.value || '—'].forEach((value, index) => {
                         const cell = document.createElement('td');
                         cell.textContent = value;
                         if (index > 0) cell.className = 'text-right';
@@ -229,14 +273,126 @@
                 });
             };
 
+            const fieldContainer = field => field?.closest('[id^="div_id_"]');
+
+            const visibleField = field => {
+                if (!field) return null;
+                if (field.type !== 'hidden') return field;
+                return field.closest('[x-data]')?.querySelector('[x-ref="searchInput"]') || field;
+            };
+
+            const clearFieldError = field => {
+                const container = fieldContainer(field);
+                if (!container) return;
+                const target = visibleField(field);
+                target?.classList.remove('input-error', 'border-error');
+                target?.removeAttribute('aria-invalid');
+                container.querySelectorAll('[data-manual-validation-error]').forEach(error => error.remove());
+            };
+
+            const markFieldInvalid = ({field, message}) => {
+                if (!field) return;
+                clearFieldError(field);
+                const container = fieldContainer(field);
+                const target = visibleField(field);
+                target?.classList.add('input-error', 'border-error');
+                target?.setAttribute('aria-invalid', 'true');
+                if (!container) return;
+                const error = document.createElement('label');
+                error.className = 'label py-1';
+                error.dataset.manualValidationError = 'true';
+                error.innerHTML = '<span class="label-text-alt text-error flex items-center gap-1 animate-fade-in"><span class="material-icons text-xs">error</span></span>';
+                error.querySelector('span').append(document.createTextNode(message));
+                container.appendChild(error);
+            };
+
+            const bindValidationCleanup = root => {
+                root.querySelectorAll('input, select, textarea').forEach(field => {
+                    if (!field.name) return;
+                    if (field.dataset.manualValidationBound === 'true') return;
+                    field.dataset.manualValidationBound = 'true';
+                    ['input', 'change'].forEach(eventName => field.addEventListener(eventName, () => {
+                        const remainsInvalid = invalidFieldsForStep(currentStep).some(error => error.field === field);
+                        if (!remainsInvalid) clearFieldError(field);
+                    }));
+                });
+            };
+
+            const invalidFieldsForStep = stepNumber => {
+                const invalidFields = [];
+                const addInvalid = (field, label, message) => {
+                    if (field) invalidFields.push({field, label, message});
+                };
+                const parseBrlValue = value => Number(String(value || '').replaceAll('.', '').replace(',', '.'));
+
+                if (stepNumber === 1) {
+                    const recipient = form.elements.recipient;
+                    if (!recipient?.value) addInvalid(recipient, 'Destinatário', 'Selecione o destinatário da NF-e.');
+                }
+
+                if (stepNumber === 2) {
+                    const rows = visibleItemRows();
+                    if (rows.length === 0) {
+                        invalidFields.push({field: null, label: 'Produtos', message: 'Adicione ao menos um produto à NF-e.'});
+                    }
+                    rows.forEach((row, index) => {
+                        const itemNumber = index + 1;
+                        const origin = row.querySelector('[name$="-item_origin"]')?.value || 'catalog';
+                        const product = row.querySelector('[name$="-product"]');
+                        const snapshot = row.querySelector('[name$="-fiscal_snapshot"]');
+                        const quantity = row.querySelector('[name$="-quantity"]');
+                        const unitPrice = row.querySelector('[name$="-unit_price"]');
+                        const quantityValue = Number(quantity?.value);
+                        const unitPriceValue = parseBrlValue(unitPrice?.value);
+                        if (origin === 'catalog' && !product?.value) addInvalid(product, `Produto do item ${itemNumber}`, 'Selecione um produto cadastrado ou crie um produto somente para esta NF-e.');
+                        if (origin === 'temporary' && !snapshot?.value) addInvalid(product, `Produto do item ${itemNumber}`, 'Informe os dados fiscais do produto temporário.');
+                        if (!quantity?.value || !Number.isInteger(quantityValue) || quantityValue < 1 || !quantity.checkValidity()) addInvalid(quantity, `Quantidade do item ${itemNumber}`, 'Informe uma quantidade inteira maior ou igual a 1.');
+                        if (!unitPrice?.value || !Number.isFinite(unitPriceValue) || unitPriceValue <= 0 || !unitPrice.checkValidity()) addInvalid(unitPrice, `Valor unitário do item ${itemNumber}`, 'Informe um valor unitário maior que zero.');
+                    });
+                }
+
+                if (stepNumber === 3) {
+                    const taxClass = form.elements.tax_class;
+                    if (!taxClass?.value) addInvalid(taxClass, 'Classe de imposto', 'Selecione a classe de imposto da NF-e.');
+                }
+                return invalidFields;
+            };
+
+            const showValidationErrors = (invalidFields, stepNumber) => {
+                invalidFields.forEach(markFieldInvalid);
+                const stepTitle = steps.find(step => Number(step.dataset.manualStep) === stepNumber)?.querySelector('h2')?.textContent?.trim() || 'etapa atual';
+                const labels = [...new Set(invalidFields.map(error => error.label))];
+                window.alert(`Não foi possível avançar para a próxima etapa.\n\nPreencha ou corrija os campos obrigatórios de ${stepTitle}:\n\n${labels.map(label => `- ${label}`).join('\n')}\n\nApós preencher os campos indicados, tente novamente.`);
+                visibleField(invalidFields.find(error => error.field)?.field)?.focus();
+            };
+
             const showStep = stepNumber => {
                 currentStep = Math.max(1, Math.min(3, stepNumber));
                 steps.forEach(step => step.classList.toggle('hidden', Number(step.dataset.manualStep) !== currentStep));
                 indicators.forEach(indicator => {
-                    const active = Number(indicator.dataset.stepIndicator) === currentStep;
-                    indicator.classList.toggle('border-primary', active);
-                    indicator.classList.toggle('bg-primary/5', active);
-                    indicator.classList.toggle('border-base-300', !active);
+                    const indicatorStep = Number(indicator.dataset.stepIndicator);
+                    const active = indicatorStep === currentStep;
+                    const completed = indicatorStep < maxReachedStep && !active;
+                    const accessible = indicatorStep <= maxReachedStep;
+                    const statusLabel = indicator.querySelector('[data-step-status-label]');
+                    const check = indicator.querySelector('[data-step-check]');
+
+                    indicator.classList.remove('border-warning', 'bg-warning/10', 'border-success', 'bg-success/10', 'text-success', 'border-base-300', 'opacity-60', 'cursor-pointer');
+                    statusLabel?.classList.remove('text-warning', 'text-success', 'text-base-content/60');
+                    if (active) {
+                        indicator.classList.add('border-warning', 'bg-warning/10');
+                        statusLabel?.classList.add('text-warning');
+                    } else if (completed) {
+                        indicator.classList.add('border-success', 'bg-success/10', 'text-success', 'cursor-pointer');
+                        statusLabel?.classList.add('text-success');
+                    } else {
+                        indicator.classList.add('border-base-300');
+                        statusLabel?.classList.add('text-base-content/60');
+                        if (!accessible) indicator.classList.add('opacity-60');
+                        else indicator.classList.add('cursor-pointer');
+                    }
+                    check?.classList.toggle('hidden', !completed);
+                    indicator.disabled = !accessible;
                     if (active) indicator.setAttribute('aria-current', 'step');
                     else indicator.removeAttribute('aria-current');
                 });
@@ -248,18 +404,10 @@
             };
 
             const validateStep = stepNumber => {
-                const step = steps.find(candidate => Number(candidate.dataset.manualStep) === stepNumber);
-                if (stepNumber === 2 && visibleItemRows().length === 0) {
-                    window.alert('Adicione ao menos um produto para continuar.');
-                    return false;
-                }
-                const fields = [...step.querySelectorAll('input, select, textarea')].filter(field => !field.disabled && field.type !== 'hidden' && !field.closest('.hidden'));
-                const invalidField = fields.find(field => !field.checkValidity());
-                if (invalidField) {
-                    invalidField.reportValidity();
-                    return false;
-                }
-                return true;
+                const invalidFields = invalidFieldsForStep(stepNumber);
+                if (invalidFields.length === 0) return true;
+                showValidationErrors(invalidFields, stepNumber);
+                return false;
             };
 
             const bindRemoveButtons = root => {
@@ -275,10 +423,91 @@
                 });
             };
 
-            nextButton.addEventListener('click', () => {
-                if (validateStep(currentStep)) showStep(currentStep + 1);
+            const syncItemRow = row => {
+                const origin = row.querySelector('[name$="-item_origin"]');
+                const snapshotField = row.querySelector('[name$="-fiscal_snapshot"]');
+                const product = row.querySelector('[name$="-product"]');
+                const catalogField = row.querySelector('[data-catalog-product-field]');
+                const temporarySummary = row.querySelector('[data-temporary-product-summary]');
+                const snapshot = temporarySnapshot(row);
+                const isTemporary = origin?.value === 'temporary' && snapshot;
+
+                catalogField?.classList.toggle('hidden', Boolean(isTemporary));
+                temporarySummary?.classList.toggle('hidden', !isTemporary);
+                const label = temporarySummary?.querySelector('[data-temporary-product-label]');
+                if (label) label.textContent = snapshot?.description || 'Produto temporário';
+
+                if (product && !product.dataset.originBound) {
+                    product.dataset.originBound = '1';
+                    product.addEventListener('change', () => {
+                        if (!product.value) return;
+                        if (origin) origin.value = 'catalog';
+                        if (snapshotField) snapshotField.value = '';
+                        syncItemRow(row);
+                    });
+                }
+
+                const useCatalogButton = row.querySelector('[data-use-catalog-product]');
+                if (useCatalogButton && !useCatalogButton.dataset.bound) {
+                    useCatalogButton.dataset.bound = '1';
+                    useCatalogButton.addEventListener('click', () => {
+                        if (origin) origin.value = 'catalog';
+                        if (snapshotField) snapshotField.value = '';
+                        syncItemRow(row);
+                    });
+                }
+            };
+
+            const saveProgress = async nextStep => {
+                const payload = new FormData(form);
+                payload.set('_save_progress', '1');
+                payload.set('next_step', String(nextStep));
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    body: payload,
+                    headers: {'X-Requested-With': 'XMLHttpRequest'},
+                });
+                if (response.ok) return true;
+                const result = await response.json().catch(() => ({}));
+                const backendErrors = [];
+                const appendBackendErrors = (errorsByField, prefix = '') => {
+                    Object.entries(errorsByField || {}).forEach(([fieldName, errors]) => {
+                        const field = form.elements[`${prefix}${fieldName}`];
+                        const messages = Array.isArray(errors) ? errors.map(error => error.message || String(error)) : [String(errors)];
+                        const itemMatch = prefix.match(/^items-(\d+)-$/);
+                        const defaultLabel = itemMatch ? `${fieldName} do item ${Number(itemMatch[1]) + 1}` : fieldName;
+                        backendErrors.push({field, label: field?.closest('[id^="div_id_"]')?.querySelector('label')?.textContent?.trim() || defaultLabel, message: messages.join(' ')});
+                    });
+                };
+                if (result.errors && !Array.isArray(result.errors)) {
+                    appendBackendErrors(result.errors);
+                } else if (Array.isArray(result.errors)) {
+                    result.errors.forEach((errorsByField, index) => appendBackendErrors(errorsByField, `items-${index}-`));
+                }
+                if (backendErrors.length > 0) showValidationErrors(backendErrors, currentStep);
+                else window.alert(result.error || 'Não foi possível salvar o progresso. Revise os campos desta etapa.');
+                return false;
+            };
+
+            nextButton.addEventListener('click', async () => {
+                if (!validateStep(currentStep)) return;
+                nextButton.disabled = true;
+                try {
+                    if (await saveProgress(currentStep + 1)) {
+                        maxReachedStep = Math.max(maxReachedStep, currentStep + 1);
+                        showStep(currentStep + 1);
+                    }
+                } finally {
+                    nextButton.disabled = false;
+                }
             });
             previousButton.addEventListener('click', () => showStep(currentStep - 1));
+            indicators.forEach(indicator => {
+                indicator.addEventListener('click', () => {
+                    const targetStep = Number(indicator.dataset.stepIndicator);
+                    if (targetStep <= maxReachedStep) showStep(targetStep);
+                });
+            });
             form.addEventListener('submit', event => {
                 if (!validateStep(3)) event.preventDefault();
             });
@@ -288,9 +517,13 @@
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = emptyTemplate.innerHTML.replaceAll('__prefix__', String(index)).trim();
                 const row = wrapper.firstElementChild;
+                const quantity = row.querySelector('[name$="-quantity"]');
+                if (quantity && !quantity.value) quantity.value = '1';
                 items.appendChild(row);
                 totalForms.value = String(index + 1);
                 bindRemoveButtons(row);
+                syncItemRow(row);
+                bindValidationCleanup(row);
                 if (window.htmx) htmx.process(row);
             });
 
@@ -298,6 +531,16 @@
                 const modal = document.getElementById('form_modal');
                 if (modal && modal.open) modal.close();
             };
+            window.closeEmissionModal = closeModal;
+
+            if (!window.manualNfePreviewModalBound) {
+                window.manualNfePreviewModalBound = true;
+                document.body.addEventListener('htmx:afterSwap', event => {
+                    if (event.detail?.target?.id !== 'modal-container') return;
+                    const modal = document.getElementById('form_modal');
+                    if (modal && !modal.open) modal.showModal();
+                });
+            }
 
             const selectRecipient = recipient => {
                 if (!recipient || !recipient.id || !window.Alpine) return;
@@ -333,6 +576,36 @@
                 });
                 const target = visibleItemRows().map(row => row.querySelector('[name$="-product"]')).find(select => !select.value) || visibleItemRows().at(-1)?.querySelector('[name$="-product"]');
                 if (target) target.value = String(product.id);
+                const targetRow = target?.closest('.manual-item-row');
+                const origin = targetRow?.querySelector('[name$="-item_origin"]');
+                const snapshot = targetRow?.querySelector('[name$="-fiscal_snapshot"]');
+                if (origin) origin.value = 'catalog';
+                if (snapshot) snapshot.value = '';
+                if (targetRow) syncItemRow(targetRow);
+            };
+
+            const addTemporaryProduct = product => {
+                if (!product?.snapshot) return;
+                let targetRow = visibleItemRows().find(row => {
+                    const origin = row.querySelector('[name$="-item_origin"]')?.value || 'catalog';
+                    const productField = row.querySelector('[name$="-product"]');
+                    return origin === 'catalog' && !productField?.value;
+                });
+                if (!targetRow) {
+                    document.getElementById('add-manual-item').click();
+                    targetRow = visibleItemRows().at(-1);
+                }
+                if (!targetRow) return;
+
+                const origin = targetRow.querySelector('[name$="-item_origin"]');
+                const productField = targetRow.querySelector('[name$="-product"]');
+                const snapshot = targetRow.querySelector('[name$="-fiscal_snapshot"]');
+                const unitPrice = targetRow.querySelector('[name$="-unit_price"]');
+                if (origin) origin.value = 'temporary';
+                if (productField) productField.value = '';
+                if (snapshot) snapshot.value = JSON.stringify(product.snapshot);
+                if (unitPrice && !unitPrice.value) unitPrice.value = product.unit_price || '';
+                syncItemRow(targetRow);
             };
 
             document.body.addEventListener('customerSaved', event => {
@@ -343,8 +616,15 @@
                 closeModal();
                 addProductOption(event.detail);
             });
+            document.body.addEventListener('manualTemporaryProductCreated', event => {
+                closeModal();
+                addTemporaryProduct(event.detail);
+            });
             bindRemoveButtons(document);
+            bindValidationCleanup(form);
+            visibleItemRows().forEach(syncItemRow);
             showStep(currentStep);
         })();
     </script>
+</div>
 {% endblock %}

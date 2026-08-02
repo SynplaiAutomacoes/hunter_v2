@@ -8,6 +8,10 @@ class MoneyInput(MoneyWidget):
     template_name = "widgets/money_input.html"
 
 
+class BrlCurrencyInput(forms.TextInput):
+    template_name = "widgets/brl_currency_input.html"
+
+
 class CPForCNPJInput(forms.TextInput):
     template_name = "widgets/cpf_or_cpnj_input.html"
 

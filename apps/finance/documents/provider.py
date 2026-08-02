@@ -64,7 +64,7 @@ def build_dre_excel_document(*, context: dict[str, object], filename: str | None
     workbook = Workbook()
     summary_sheet = workbook.active
     if summary_sheet is None:
-        raise ValueError("Nao foi possivel inicializar a planilha de resumo do DRE.")
+        raise ValueError("Não foi possível inicializar a planilha de resumo do DRE.")
     summary_sheet.title = "Resumo"
     details_sheet = workbook.create_sheet("Detalhes")
 
@@ -140,7 +140,7 @@ def _populate_summary_sheet(*, summary_sheet, context: dict[str, object]) -> Non
         summary_sheet[f"B{index}"].border = _THIN_BORDER
 
     table_start = max(8, 8 + len(summary_cards)) + 2
-    headers = ["Descricao", "Formula", "Valor"]
+    headers = ["Descrição", "Formula", "Valor"]
     for column_index, header in enumerate(headers, start=1):
         cell = summary_sheet.cell(row=table_start, column=column_index, value=header)
         cell.fill = _PRIMARY_FILL
@@ -229,7 +229,7 @@ def _populate_details_sheet(*, details_sheet, context: dict[str, object]) -> Non
     if next_row == 4:
         details_sheet.merge_cells("A4:F4")
         empty_cell = details_sheet["A4"]
-        empty_cell.value = "Nao ha detalhes disponiveis para os filtros informados."
+        empty_cell.value = "Não ha detalhes disponíveis para os filtros informados."
         empty_cell.fill = _SECONDARY_FILL
         empty_cell.alignment = Alignment(horizontal="center")
         empty_cell.font = Font(italic=True, color="1E3A8A")

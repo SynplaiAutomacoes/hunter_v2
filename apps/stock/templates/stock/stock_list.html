@@ -2,7 +2,7 @@
 {% block crud_title %}Importações de Estoque{% endblock %}
 {% block crud_header_actions %}
     {% url 'stock:import' as stock_import_url %}
-    {% include 'favorites/partials/favoritable_action_link.html' with action_url=stock_import_url action_label='Nova Importação' favorite_url=stock_import_url favorite_label='Nova Importação' %}
+    {% include 'favorites/partials/favoritable_action_link.html' with action_url=stock_import_url action_label='Nova importação' favorite_url=stock_import_url favorite_label='Nova importação' %}
 {% endblock %}
 {% block crud_table_wrapper_id %}stock-table-wrapper{% endblock %}
 {% block crud_table_hx_get %}{% url 'stock:stock_list' %}{% endblock %}

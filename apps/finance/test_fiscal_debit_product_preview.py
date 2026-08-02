@@ -37,11 +37,11 @@ from apps.workshops.models.workshops import Workshop
 
 def _scope(suffix: int) -> tuple[User, Workshop]:
     user = User.objects.create_user(username=f"debitpreview{suffix}", password="test", cpf=f"76543210{suffix:03d}")
-    account = Account.objects.create(name=f"Conta Debit Preview {suffix}", owner=user)
+    account = Account.objects.create(name=f"Conta Debit Prévia {suffix}", owner=user)
     user.account = account
     user.is_account_owner = True
     user.save(update_fields=["account", "is_account_owner"])
-    workshop = Workshop.objects.create(account=account, name=f"Oficina Debit Preview {suffix}", cnpj=f"32.345.678/0001-{suffix:02d}", phone="+5511999999999", address="Rua Debit Preview, 1")
+    workshop = Workshop.objects.create(account=account, name=f"Oficina Debit Prévia {suffix}", cnpj=f"32.345.678/0001-{suffix:02d}", phone="+5511999999999", address="Rua Debit Prévia, 1")
     return user, workshop
 
 
@@ -63,7 +63,7 @@ class FiscalPhaseTwoDebitProductPreviewTests(TestCase):
                 "produtos": [
                     {
                         "item": 1,
-                        "nome": "Peca historica debito",
+                        "nome": "Peca historica débito",
                         "codigo": "DEBIT-HIST-1",
                         "ncm": "87089990",
                         "codigo_cfop": "5102",
@@ -95,7 +95,7 @@ class FiscalPhaseTwoDebitProductPreviewTests(TestCase):
             fiscal_hypothesis=FiscalHypothesis.DEBIT_FINE_INTEREST,
             financial_reference=movement,
             created_by=self.user,
-            notes="Multa e juros validados para previa de debito.",
+            notes="Multa e juros validados para prévia de débito.",
             fine_amount=Decimal("5.00"),
             interest_amount=Decimal("2.00"),
         )
@@ -135,7 +135,7 @@ class FiscalPhaseTwoDebitProductPreviewTests(TestCase):
     def test_product_uses_explicit_values_and_only_approved_snapshots(self) -> None:
         preview = self.create_preview(quantity=Decimal("4.000000"), unit_price=Decimal("1.75"), total_amount=Decimal("7.00"), cfop="6102")
         product = preview.product_payload
-        self.assertEqual(product["nome"], "Peca historica debito")
+        self.assertEqual(product["nome"], "Peca historica débito")
         self.assertEqual(product["quantidade"], "4.000000")
         self.assertEqual(product["subtotal"], "1.75")
         self.assertEqual(product["total"], "7.00")
@@ -151,13 +151,13 @@ class FiscalPhaseTwoDebitProductPreviewTests(TestCase):
         FiscalReferencedBasis.objects.filter(pk=self.basis.pk).update(status="approved")
         FiscalReferencedBasisItem.objects.filter(pk=self.basis.commercial_item.pk).delete()
         self.basis.refresh_from_db()
-        with self.assertRaisesMessage(ValidationError, "nao possui item"):
+        with self.assertRaisesMessage(ValidationError, "não possui item"):
             self.create_preview()
 
     def test_credit_basis_cannot_be_used_as_debit_preview(self) -> None:
         FiscalReferencedBasis.objects.filter(pk=self.basis.pk).update(fiscal_hypothesis=FiscalHypothesis.CREDIT_FINE_INTEREST, basis_type="credit")
         self.basis.refresh_from_db()
-        with self.assertRaisesMessage(ValidationError, "somente debito tipo 4"):
+        with self.assertRaisesMessage(ValidationError, "somente débito tipo 4"):
             self.create_preview()
         self.assertFalse(FiscalCreditProductPreview.objects.exists())
 
@@ -173,7 +173,7 @@ class FiscalPhaseTwoDebitProductPreviewTests(TestCase):
                 self.create_preview(**{field: value})
         with self.assertRaisesMessage(ValidationError, "definidos explicitamente"):
             self.create_preview(explicit_value_confirmation=False)
-        with self.assertRaisesMessage(ValidationError, "Quantidade x valor unitario"):
+        with self.assertRaisesMessage(ValidationError, "Quantidade x valor unitário"):
             self.create_preview(unit_price=Decimal("3.00"))
         with self.assertRaisesMessage(ValidationError, "multa + juros"):
             self.create_preview(quantity=Decimal("1"), unit_price=Decimal("8.00"), total_amount=Decimal("8.00"))
@@ -208,7 +208,7 @@ class FiscalPhaseTwoDebitProductPreviewTests(TestCase):
         preview = approve_debit_product_preview(preview=self.create_preview(), approved_by=self.user)
         preview.product_total_amount = Decimal("8.00")
         preview.dfe_referenciado["item"] = 2
-        with self.assertRaisesMessage(ValidationError, "imutaveis"):
+        with self.assertRaisesMessage(ValidationError, "imutáveis"):
             preview.save()
         self.assertFalse(FiscalCreditProductPreview.objects.exists())
 

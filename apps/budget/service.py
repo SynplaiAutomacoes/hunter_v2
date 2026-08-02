@@ -88,7 +88,7 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
         raise SuperSignError("Orçamento sem cliente vinculado para assinatura")
 
     if not customer_email:
-        raise SuperSignError("Cliente sem email para assinatura")
+        raise SuperSignError("Cliente sem e-mail para assinatura")
 
     signatory, observers = get_signature_service().build_signatory_and_observers(
         signatory_id=f"customer-{budget.id}",
@@ -108,8 +108,8 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
                 pdf_bytes=pdf_bytes,
                 file_name=file_name,
                 document_ref_id=f"budget-{budget.id}",
-                title=f"Orcamento #{budget.id}",
-                message="Segue orcamento para assinatura.",
+                title=f"Orçamento #{budget.id}",
+                message="Segue orçamento para assinatura.",
                 signatory=signatory,
                 observers=observers,
                 fields=_build_signature_fields(budget),

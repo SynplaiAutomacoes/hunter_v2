@@ -4,26 +4,26 @@
 <div class="mx-auto max-w-7xl space-y-5 p-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-            <h1 class="text-2xl font-bold">Bases fiscais de credito/debito</h1>
-            <p class="text-sm text-base-content/70">Preparacao auditavel. A emissao de NF-e de credito/debito ainda nao esta disponivel.</p>
+            <h1 class="text-2xl font-bold">Bases fiscais de crédito/débito</h1>
+            <p class="text-sm text-base-content/70">Preparação auditável. A emissão de NF-e de crédito/débito ainda não esta disponível.</p>
         </div>
         <div class="flex gap-2">
             {% if can_approve_basis %}
             <form method="post" action="{% url 'finance:fiscal_referenced_basis_toggle' %}">
                 {% csrf_token %}
                 <input type="hidden" name="enabled" value="{% if basis_enabled %}0{% else %}1{% endif %}">
-                <button class="btn btn-outline" type="submit">{% if basis_enabled %}Desabilitar preparacao{% else %}Habilitar preparacao{% endif %}</button>
+                <button class="btn btn-outline" type="submit">{% if basis_enabled %}Desabilitar preparação{% else %}Habilitar preparação{% endif %}</button>
             </form>
             {% endif %}
             {% if basis_enabled and can_prepare_basis %}<a class="btn btn-primary" href="{% url 'finance:fiscal_referenced_basis_create' %}">Preparar base</a>{% endif %}
         </div>
     </div>
 
-    <div class="alert alert-warning">Esta area nao transmite documentos para a Webmania e nao cria NF-e de credito/debito.</div>
+    <div class="alert alert-warning">Esta área não transmite documentos e não cria NF-e de crédito/débito.</div>
 
     <div class="overflow-x-auto">
         <table class="table">
-            <thead><tr><th>Origem</th><th>Item</th><th>Hipotese</th><th>Status</th><th>Criada em</th><th></th></tr></thead>
+            <thead><tr><th>Origem</th><th>Item</th><th>Hipótese</th><th>Status</th><th>Criada em</th><th></th></tr></thead>
             <tbody>
             {% for basis in bases %}
                 <tr>

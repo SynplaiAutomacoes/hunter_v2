@@ -664,7 +664,7 @@ class ProductKitsAssignHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
             response["HX-Trigger"] = json.dumps(
                 {
                     "showToast": {
-                        "message": f"Produto atribuido a {created_assignments} kit(s) com sucesso.",
+                        "message": f"Produto atribuído a {created_assignments} kit(s) com sucesso.",
                         "type": "success",
                     }
                 }
@@ -673,7 +673,7 @@ class ProductKitsAssignHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
             response["HX-Trigger"] = json.dumps(
                 {
                     "showToast": {
-                        "message": "Selecione pelo menos um kit ainda nao atribuido.",
+                        "message": "Selecione pelo menos um kit ainda não atribuído.",
                         "type": "warning",
                     }
                 }
@@ -707,7 +707,7 @@ class ProductKitUnassignHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response["HX-Trigger"] = json.dumps(
             {
                 "showToast": {
-                    "message": "Atribuicao removida com sucesso." if deleted_count else "Este produto nao estava atribuido a este kit.",
+                    "message": "Atribuição removida com sucesso." if deleted_count else "Este produto não estava atribuído a este kit.",
                     "type": "success" if deleted_count else "warning",
                 }
             }

@@ -123,9 +123,9 @@ class IssuedDocumentsFilterMixin:
             if not start_raw or not end_raw:
                 filter_error = "Selecione a data inicial e a data final para consultar as notas."
             elif start_date is None or end_date is None:
-                filter_error = "Informe um periodo valido para consultar as notas."
+                filter_error = "Informe um periodo válido para consultar as notas."
             elif start_date > end_date:
-                filter_error = "A data inicial nao pode ser maior que a data final."
+                filter_error = "A data inicial não pode ser maior que a data final."
 
         is_valid = not bool(filter_error)
 
@@ -485,7 +485,7 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
     def post(self, request, *args, **kwargs):
         document_group = str(kwargs.get("document_group") or "").strip().lower()
         if document_group not in {"xml", "pdfs"}:
-            raise Http404("Grupo de documentos nao suportado")
+            raise Http404("Grupo de documentos não suportado")
 
         nfe_ids, nfse_ids = self._get_selected_request_ids()
         if not nfe_ids and not nfse_ids:
@@ -494,7 +494,7 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
         nfe_requests, nfse_requests = self._get_selected_requests(nfe_ids=nfe_ids, nfse_ids=nfse_ids)
         entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, document_group=document_group)
         if not entries:
-            return HttpResponse("Nenhum documento disponivel para as notas selecionadas.", status=404, content_type="text/plain; charset=utf-8")
+            return HttpResponse("Nenhum documento disponível para as notas selecionadas.", status=404, content_type="text/plain; charset=utf-8")
 
         archive_buffer = BytesIO()
         try:

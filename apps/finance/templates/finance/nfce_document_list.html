@@ -8,7 +8,7 @@
         <a href="{% url 'finance:nfce_manual_emit' %}" class="btn btn-primary">Emitir NFC-e</a>
     {% endif %}
     {% if can_inutilize_nfce %}
-        <a href="{% url 'finance:nfce_inutilization_create' %}" class="btn btn-outline">Inutilizar numeracao NFC-e</a>
+        <a href="{% url 'finance:nfce_inutilization_create' %}" class="btn btn-outline">Inutilizar numeração NFC-e</a>
     {% endif %}
 {% endblock %}
 
@@ -22,14 +22,14 @@
             <thead>
                 <tr>
                     <th>ID</th>
-                    <th>Numero</th>
+                    <th>Número</th>
                     <th>Serie</th>
                     <th>Status</th>
                     <th>Chave</th>
                     <th>Criado em</th>
                     <th>Documentos</th>
                     <th>Cancelamento</th>
-                    <th>Acoes</th>
+                    <th>Ações</th>
                 </tr>
             </thead>
             <tbody>
@@ -75,7 +75,7 @@
     </div>
 
     <div class="mt-8">
-        <h2 class="text-lg font-semibold">Inutilizacoes de numeracao</h2>
+        <h2 class="text-lg font-semibold">Inutilizações de numeração</h2>
         <div class="overflow-x-auto mt-3">
             <table class="table">
                 <thead>
@@ -106,7 +106,7 @@
                             </td>
                         </tr>
                     {% empty %}
-                        <tr><td colspan="7" class="text-center text-base-content/60">Nenhuma inutilizacao registrada.</td></tr>
+                        <tr><td colspan="7" class="text-center text-base-content/60">Nenhuma inutilização registrada.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

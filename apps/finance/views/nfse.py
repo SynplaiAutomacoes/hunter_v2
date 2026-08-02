@@ -81,13 +81,13 @@ def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
 
     provider_name = str(getattr(company, "razao_social", "") or getattr(company, "nome_completo", "") or workshop.name).strip()
     provider_address = _join_address(
-        f"{getattr(company, 'endereco', '')} {getattr(company, 'numero', '')}".strip() if company else workshop.address,
+        f"{getattr(company, 'endereco', '')} {getattr(company, 'número', '')}".strip() if company else workshop.address,
         getattr(company, "complemento", "") if company else "",
         getattr(company, "bairro", "") if company else "",
         f"CEP: {getattr(company, 'cep', '')}" if company and getattr(company, "cep", "") else "",
     )
     customer_address = _join_address(
-        f"{customer.logradouro}, {customer.numero}",
+        f"{customer.logradouro}, {customer.número}",
         customer.complemento,
         customer.bairro,
         f"CEP: {customer.cep}" if customer.cep else "",
@@ -170,8 +170,8 @@ def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
 class NfseCancelForm(CoreForm):
     REASON_CHOICES = [
         ("", "Selecione o motivo"),
-        ("1", "Erro na emissao"),
-        ("2", "Servico nao prestado"),
+        ("1", "Erro na emissão"),
+        ("2", "Serviço não prestado"),
         ("4", "Duplicidade da nota"),
     ]
 
@@ -186,7 +186,7 @@ class NfseCancelForm(CoreForm):
 
 
 class NfseManifestationForm(CoreForm):
-    EVENT_CHOICES = [("", "Selecione"), ("1", "Confirmacao"), ("2", "Rejeicao")]
+    EVENT_CHOICES = [("", "Selecione"), ("1", "Confirmação"), ("2", "Rejeição")]
     MANIFESTOR_CHOICES = [("", "Selecione"), ("1", "Tomador"), ("2", "Intermediario")]
     REJECTION_REASON_CHOICES = [("", "Selecione"), ("1", "Motivo 1"), ("2", "Motivo 2"), ("3", "Motivo 3"), ("4", "Motivo 4"), ("5", "Motivo 5"), ("9", "Outros")]
 
@@ -202,9 +202,9 @@ class NfseManifestationForm(CoreForm):
         reason = str(cleaned.get("rejection_reason") or "").strip()
         justification = str(cleaned.get("rejection_justification") or "").strip()
         if event == "2" and not reason:
-            self.add_error("rejection_reason", "Rejeicao exige motivo.")
+            self.add_error("rejection_reason", "Rejeição exige motivo.")
         if event == "1" and (reason or justification):
-            self.add_error("rejection_reason", "Confirmacao nao deve conter motivo de rejeicao.")
+            self.add_error("rejection_reason", "Confirmação não deve conter motivo de rejeição.")
         if reason == "9" and not (15 <= len(justification) <= 255):
             self.add_error("rejection_justification", "Motivo 9 exige justificativa entre 15 e 255 caracteres.")
         if reason and reason != "9" and justification:
@@ -392,7 +392,7 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfse_request.items.order_by("-id").first()
         if latest_item is None:
-            messages.error(request, "A Nota Fiscal de Serviço ainda nao possui item sincronizado para cancelamento.")
+            messages.error(request, "A Nota Fiscal de Serviço ainda não possui item sincronizado para cancelamento.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         form = NfseCancelForm(request.POST)
@@ -431,7 +431,7 @@ class NfseCancellationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View
     def get(self, request, *args, **kwargs):
         cancellation = get_object_or_404(NfseCancellation, pk=kwargs.get("cancellation_pk"), request_id=kwargs.get("pk"), workshop=self.workshop)
         if not cancellation.xml_url:
-            raise Http404("XML de cancelamento indisponivel")
+            raise Http404("XML de cancelamento indisponível")
         try:
             downloaded = download_webmania_document(workshop=self.workshop, url=cancellation.xml_url)
         except WebmaniaDocumentDownloadError as exc:
@@ -450,11 +450,11 @@ class NfseManifestationIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfse_request.items.order_by("-id").first()
         if latest_item is None:
-            messages.error(request, "A Nota Fiscal de Serviço ainda nao possui item sincronizado para manifestacao.")
+            messages.error(request, "A Nota Fiscal de Serviço ainda não possui item sincronizado para manifestação.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
         form = NfseManifestationForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Revise os dados da manifestacao NFS-e e confirme explicitamente a operacao.")
+            messages.error(request, "Revise os dados da manifestação NFS-e e confirme explicitamente a operação.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
         try:
             manifestation = manifest_nfse_item(
@@ -469,7 +469,7 @@ class NfseManifestationIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, str(exc))
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
         if manifestation.status == FiscalEmissionAttemptStatus.SUCCEEDED:
-            messages.success(request, "Manifestacao NFS-e registrada com sucesso.")
+            messages.success(request, "Manifestação NFS-e registrada com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
 
@@ -491,13 +491,13 @@ class NfseManifestationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, Vie
     def get(self, request, *args, **kwargs):
         manifestation = get_object_or_404(NfseManifestation, pk=kwargs.get("manifestation_pk"), nfse_item__request_id=kwargs.get("pk"), workshop=self.workshop)
         if not manifestation.xml_manifestation:
-            raise Http404("XML da manifestacao indisponivel")
+            raise Http404("XML da manifestação indisponível")
         try:
             downloaded = download_webmania_document(workshop=self.workshop, url=manifestation.xml_manifestation)
         except WebmaniaDocumentDownloadError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
-        response["Content-Disposition"] = f'attachment; filename="nfse-manifestacao-{manifestation.pk}.xml"'
+        response["Content-Disposition"] = f'attachment; filename="nfse-manifestação-{manifestation.pk}.xml"'
         return response
 
 
@@ -511,7 +511,7 @@ class NfseRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         item = nfse_request.items.order_by("-id").first()
         if item is None:
-            messages.error(request, "A Nota Fiscal de Serviço ainda nao possui um item sincronizado para consulta.")
+            messages.error(request, "A Nota Fiscal de Serviço ainda não possui um item sincronizado para consulta.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         service = get_fiscal_service()
@@ -534,7 +534,7 @@ class NfseBatchReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         batch = nfse_request.batches.order_by("-id").first()
         if batch is None:
-            messages.error(request, "A requisicao ainda nao possui lote RPS sincronizado para consulta.")
+            messages.error(request, "A requisicao ainda não possui lote RPS sincronizado para consulta.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         try:
@@ -562,11 +562,11 @@ class NfseDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
-            raise Http404("Documento nao suportado")
+            raise Http404("Documento não suportado")
 
         item = nfse_request.items.order_by("-id").first()
         if item is None:
-            raise Http404("Documento ainda nao disponivel")
+            raise Http404("Documento ainda não disponível")
 
         field_name, extension = self.document_fields[document_kind]
         document_url = str(getattr(item, field_name, "") or "").strip()
@@ -617,7 +617,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     step3_form_class = NfseRequestStep3Form
     preview_initial_fields = ("pricing_slider", "tax_class", "service_description", "additional_information")
     tax_class_kind = "nfse"
-    tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal de Serviço: {error}"
+    tax_class_warning_message = "Não foi possível carregar classes de imposto de Nota Fiscal de Serviço: {error}"
     success_redirect_name = "finance:nfse_list"
     status_by_step = {
         1: NfseRequestStatus.CHECKING_CLIENT,
