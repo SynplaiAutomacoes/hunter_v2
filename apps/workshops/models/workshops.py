@@ -106,6 +106,33 @@ class Workshop(TimeStampedModel):
         default=4,
         help_text="Se a nota do cliente for igual ou maior que este valor (1–5), exibe o link do Google.",
     )
+    # SynplaiSign — API key por oficina (valor criptografado; plaintext só no create remoto)
+    synplaisign_api_key_id = models.CharField(
+        verbose_name="SynplaiSign API Key ID",
+        max_length=64,
+        blank=True,
+        default="",
+    )
+    synplaisign_api_key = models.CharField(
+        verbose_name="SynplaiSign API Key",
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Armazenada criptografada. Criada automaticamente no cadastro da oficina.",
+    )
+    synplaisign_webhook_id = models.CharField(
+        verbose_name="SynplaiSign Webhook ID",
+        max_length=64,
+        blank=True,
+        default="",
+    )
+    synplaisign_webhook_secret = models.CharField(
+        verbose_name="SynplaiSign Webhook Secret",
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Armazenado criptografado. Usado para validar HMAC dos callbacks.",
+    )
 
     class Meta:
         verbose_name = "Oficina"

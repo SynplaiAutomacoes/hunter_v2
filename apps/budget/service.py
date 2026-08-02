@@ -1,9 +1,9 @@
-from django.conf import settings
-
 from apps.budget.documents.provider import render_budget_pdf_document
 from apps.core.domain.contracts.documents import SignatureRecipient
 from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult, SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
+from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
+from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
 
 BUDGET_SIGNATURE_TOKEN_SALT = "budget-signature-file"
@@ -54,8 +54,12 @@ def build_signature_preview_url(*, budget, request=None) -> str:
     )
 
 
-class SuperSignError(Exception):
+class SignatureError(Exception):
     pass
+
+
+# Backward-compatible alias.
+SuperSignError = SignatureError
 
 
 def _calculate_pdf_total_pages(budget) -> int:
@@ -74,7 +78,7 @@ def _build_budget_pdf_bytes(*, budget, request=None) -> bytes:
     try:
         return render_budget_pdf_document(budget=budget, request=request).content
     except Exception as exc:
-        raise SuperSignError(f"Erro ao gerar PDF para assinatura via Playwright: {exc}") from exc
+        raise SignatureError(f"Erro ao gerar PDF para assinatura via Playwright: {exc}") from exc
 
 
 def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
@@ -82,13 +86,13 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
     customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
 
     if not budget.service_expected_completion_at:
-        raise SuperSignError("Não é possível enviar para assinatura antes de definir a data prevista de término do serviço.")
+        raise SignatureError("Não é possível enviar para assinatura antes de definir a data prevista de término do serviço.")
 
     if not budget.customer:
-        raise SuperSignError("Orçamento sem cliente vinculado para assinatura")
+        raise SignatureError("Orçamento sem cliente vinculado para assinatura")
 
     if not customer_email:
-        raise SuperSignError("Cliente sem email para assinatura")
+        raise SignatureError("Cliente sem email para assinatura")
 
     signatory, observers = get_signature_service().build_signatory_and_observers(
         signatory_id=f"customer-{budget.id}",
@@ -101,6 +105,12 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
 
     pdf_bytes = _build_budget_pdf_bytes(budget=budget, request=request)
     file_name = f"orcamento-{budget.id}.pdf"
+    title = f"Orcamento #{budget.id}"
+
+    try:
+        api_key = get_workshop_synplaisign_api_key(budget.workshop)
+    except WorkshopSynplaiSignError as exc:
+        raise SignatureError(str(exc)) from exc
 
     try:
         result = get_signature_service().send_document(
@@ -108,15 +118,22 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
                 pdf_bytes=pdf_bytes,
                 file_name=file_name,
                 document_ref_id=f"budget-{budget.id}",
-                title=f"Orcamento #{budget.id}",
+                title=title,
                 message="Segue orcamento para assinatura.",
                 signatory=signatory,
                 observers=observers,
                 fields=_build_signature_fields(budget),
-                folder_id=getattr(settings, "SUPERSIGN_FOLDER_ID", ""),
+                api_key=api_key,
             )
         )
     except SignatureServiceError as exc:
-        raise SuperSignError(str(exc)) from exc
+        raise SignatureError(str(exc)) from exc
 
+    maybe_dispatch_signature_whatsapp(
+        workshop=budget.workshop,
+        customer=budget.customer,
+        phone=customer_phone,
+        document_title=title,
+        signing_url=result.signing_url,
+    )
     return result

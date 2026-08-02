@@ -160,14 +160,13 @@ Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (def
 | `WEBMANIA_B2B_ACCESS_TOKEN_SECRET` | credencial B2B |
 | `WEBMANIA_WEBHOOK_TOKEN` | token base para autenticacao de webhook |
 
-### SuperSign
+### SynplaiSign
 
 | Variavel | Uso |
 | --- | --- |
-| `SUPERSIGN_BASE_URL` | URL base da API |
-| `SUPERSIGN_ACCOUNT_ID` | conta do provedor |
-| `SUPERSIGN_API_KEY` | chave de integracao |
-| `SUPERSIGN_FOLDER_ID` | pasta/container de documentos |
+| `SYNPLAISIGN_BASE_URL` | URL base da API de assinatura |
+| `SYNPLAISIGN_MASTER_KEY` | Master key para `POST /api-keys` (cria chave por oficina) |
+| `SYNPLAISIGN_WEBHOOK_SECRET` | Fallback global de HMAC (preferir secret por oficina) |
 
 ### Storage Bucket S3 compativel
 
@@ -242,10 +241,9 @@ WEBMANIA_B2B_ACCESS_TOKEN=
 WEBMANIA_B2B_ACCESS_TOKEN_SECRET=
 WEBMANIA_WEBHOOK_TOKEN=
 
-SUPERSIGN_BASE_URL=https://api.sign.supersign.com.br
-SUPERSIGN_ACCOUNT_ID=
-SUPERSIGN_API_KEY=
-SUPERSIGN_FOLDER_ID=
+SYNPLAISIGN_BASE_URL=https://synplaisign.up.railway.app
+SYNPLAISIGN_MASTER_KEY=
+SYNPLAISIGN_WEBHOOK_SECRET=
 
 ACCESS_KEY_ID=
 SECRET_ACCESS_KEY=

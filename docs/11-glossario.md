@@ -98,9 +98,9 @@ Comando de desenvolvimento que popula o ambiente com massa de dados para navegac
 
 Mecanismo de atualizacao/evento usado no contexto do modulo de orcamento.
 
-## SuperSign
+## SynplaiSign
 
-Provedor de assinatura digital usado pelo sistema.
+Provedor interno de assinatura digital usado pelo sistema (substitui a SuperSign).
 
 ## Tenancy
 

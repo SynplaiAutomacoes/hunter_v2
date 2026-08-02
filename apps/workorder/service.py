@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from django.conf import settings
-
 from apps.core.domain.contracts.documents import SignatureRecipient
 from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult, SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
+from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
 from apps.workorder.documents.provider import render_workorder_pdf_document
+from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
 
 WORKORDER_SIGNATURE_TOKEN_SALT = "workorder-signature-file"
@@ -93,6 +93,12 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
 
     pdf_bytes = _build_workorder_pdf_bytes(workorder=workorder)
     file_name = f"ordem_servico-{workorder.get_id}.pdf"
+    title = f"Ordem de servico #{workorder.get_id}"
+
+    try:
+        api_key = get_workshop_synplaisign_api_key(workorder.workshop)
+    except WorkshopSynplaiSignError as exc:
+        raise WorkOrderSignatureError(str(exc)) from exc
 
     try:
         result = get_signature_service().send_document(
@@ -100,15 +106,22 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
                 pdf_bytes=pdf_bytes,
                 file_name=file_name,
                 document_ref_id=f"workorder-{workorder.id}",
-                title=f"Ordem de servico #{workorder.get_id}",
+                title=title,
                 message="Segue ordem de servico para assinatura.",
                 signatory=signatory,
                 observers=observers,
                 fields=_build_signature_fields(workorder),
-                folder_id=getattr(settings, "SUPERSIGN_FOLDER_ID", ""),
+                api_key=api_key,
             )
         )
     except SignatureServiceError as exc:
         raise WorkOrderSignatureError(str(exc)) from exc
 
+    maybe_dispatch_signature_whatsapp(
+        workshop=workorder.workshop,
+        customer=customer,
+        phone=customer_phone,
+        document_title=title,
+        signing_url=result.signing_url,
+    )
     return result

@@ -21,7 +21,8 @@ class SignatureSendRequest:
     signatory: dict[str, Any]
     observers: list[dict[str, Any]]
     fields: list[dict[str, Any]]
-    folder_id: str
+    folder_id: str = ""
+    api_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class SignatureSendResult:
     document_id: str
     provider: str
     raw_response: dict[str, Any]
+    signing_url: str = ""
 
 
 class ISignatureService(ABC):
@@ -38,23 +40,23 @@ class ISignatureService(ABC):
         ...
 
     @abstractmethod
-    def get_signed_document_url(self, *, document_id: str) -> str:
+    def get_signed_document_url(self, *, document_id: str, api_key: str = "") -> str:
         ...
 
     @abstractmethod
-    def download_signed_document(self, *, document_id: str | None = None, envelope_id: str | None = None) -> bytes:
+    def download_signed_document(self, *, document_id: str | None = None, envelope_id: str | None = None, api_key: str = "") -> bytes:
         ...
 
     @abstractmethod
-    def list_webhooks(self) -> list[dict[str, Any]]:
+    def list_webhooks(self, *, api_key: str = "") -> list[dict[str, Any]]:
         ...
 
     @abstractmethod
-    def create_webhook(self, *, url: str, events: list[str] | None = None, is_active: bool = True) -> dict[str, Any]:
+    def create_webhook(self, *, url: str, events: list[str] | None = None, is_active: bool = True, api_key: str = "") -> dict[str, Any]:
         ...
 
     @abstractmethod
-    def ensure_webhook(self, *, webhook_url: str, events: list[str] | None = None) -> dict[str, Any]:
+    def ensure_webhook(self, *, webhook_url: str, events: list[str] | None = None, api_key: str = "") -> dict[str, Any]:
         ...
 
     @abstractmethod

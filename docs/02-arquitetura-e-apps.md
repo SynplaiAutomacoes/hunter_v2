@@ -130,9 +130,9 @@ Comandos administrativos ajudam no bootstrap e na operacao:
 
 Usada para emissao e tratamento de documentos fiscais, com suporte a webhook e conciliacao.
 
-### SuperSign
+### SynplaiSign
 
-Usada para assinatura digital. O sistema possui sincronizacao de webhook e endpoint dedicado para receber eventos de conclusao.
+Usada para assinatura digital. O sistema possui sincronizacao de webhook e endpoint dedicado para receber eventos de conclusao (`ENVELOPE_COMPLETED`), com entrega complementar do link via WhatsApp Evolution da oficina.
 
 ### Bucket S3 compativel
 

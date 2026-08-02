@@ -56,9 +56,11 @@ urlpatterns = [
     path("visualizar-pdf-gestor/<int:pk>", views.visualizar_pdf_gestor, name="visualizar_pdf_gestor"),
     path("download-pdf-gestor/<int:pk>", views.download_pdf_gestor, name="download_pdf_gestor"),
     path("visualizar-pdf-mecanico/<int:pk>", views.visualizar_pdf_mecanico, name="visualizar_pdf_mecanico"),
-    # 10. Webhook SuperSign
-    path("supersign/webhook/ping/", views.SuperSignWebhookView.as_view(), name="supersign_webhook_ping"),
-    path("supersign/webhook/", views.SuperSignWebhookView.as_view(), name="supersign_webhook"),
+    # 10. Webhook SynplaiSign (paths supersign/* kept as aliases during cutover)
+    path("signature/webhook/ping/", views.SignatureWebhookView.as_view(), name="signature_webhook_ping"),
+    path("signature/webhook/", views.SignatureWebhookView.as_view(), name="signature_webhook"),
+    path("supersign/webhook/ping/", views.SignatureWebhookView.as_view(), name="supersign_webhook_ping"),
+    path("supersign/webhook/", views.SignatureWebhookView.as_view(), name="supersign_webhook"),
     # 11. Itens locais e criacao rapida
     path("<int:budget_id>/create-local/<str:item_type>/", views.CreateLocalItemView.as_view(), name="create_local_item"),
     path("<int:budget_id>/register-local/<int:item_id>/", views.RegisterLocalItemView.as_view(), name="register_local_item"),
