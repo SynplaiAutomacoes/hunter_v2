@@ -53,7 +53,7 @@ def _api_headers(*, api_key: str, content_type: str | None = "application/json")
 def create_api_key(*, master_key: str, name: str) -> dict[str, Any]:
     base_url = _require_base_url()
     payload = {"name": name}
-    logger.info("synplaisign_api_key_create_start", extra={"name": name})
+    logger.info("synplaisign_api_key_create_start", extra={"api_key_name": name})
 
     try:
         with observe_dependency_call(
@@ -61,7 +61,7 @@ def create_api_key(*, master_key: str, name: str) -> dict[str, Any]:
             dependency_type="http",
             dependency_name="synplaisign",
             operation="create_api_key",
-            log_context={"name": name},
+            log_context={"api_key_name": name},
         ) as dependency_call:
             response = requests.post(
                 f"{base_url}/api-keys",
@@ -72,7 +72,14 @@ def create_api_key(*, master_key: str, name: str) -> dict[str, Any]:
             dependency_call.set_http_status_code(response.status_code)
             response.raise_for_status()
     except requests.RequestException as exc:
-        response_text = exc.response.text if exc.response is not None else ""
+        response_text = exc.response.text if getattr(exc, "response", None) is not None and exc.response is not None else ""
+        status_code = exc.response.status_code if getattr(exc, "response", None) is not None and exc.response is not None else None
+        if status_code == 401:
+            raise SynplaiSignGatewayError(
+                "SynplaiSign rejeitou a master key (401 Unauthorized em POST /api-keys). "
+                "Confira SYNPLAISIGN_MASTER_KEY — deve ser a MASTER KEY exibida no primeiro boot do SynplaiSign. "
+                f"Resposta: {response_text}"
+            ) from exc
         raise SynplaiSignGatewayError(f"Erro ao criar API key: {exc}. Resposta: {response_text}") from exc
 
     try:
@@ -81,7 +88,7 @@ def create_api_key(*, master_key: str, name: str) -> dict[str, Any]:
         raise SynplaiSignGatewayError("Resposta invalida ao criar API key") from exc
 
     result = payload_data if isinstance(payload_data, dict) else {}
-    logger.info("synplaisign_api_key_create_success", extra={"api_key_id": result.get("id"), "name": name})
+    logger.info("synplaisign_api_key_create_success", extra={"api_key_id": result.get("id"), "api_key_name": name})
     return result
 
 

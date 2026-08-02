@@ -55,12 +55,23 @@ class Command(BaseCommand):
         synced = 0
         failed = 0
         for workshop in workshops.iterator():
+            had_key = bool(str(workshop.synplaisign_api_key or "").strip())
             try:
                 provision_workshop_synplaisign(workshop=workshop, webhook_url=webhook_url)
+                workshop.refresh_from_db(
+                    fields=[
+                        "synplaisign_api_key_id",
+                        "synplaisign_api_key",
+                        "synplaisign_webhook_id",
+                        "synplaisign_webhook_secret",
+                    ]
+                )
                 synced += 1
+                action = "reutilizado" if had_key else "criado"
                 self.stdout.write(
                     self.style.SUCCESS(
-                        f"SynplaiSign provisionado: workshop={workshop.pk} key_id={workshop.synplaisign_api_key_id or '-'} webhook={workshop.synplaisign_webhook_id or '-'}"
+                        f"SynplaiSign ok: workshop={workshop.pk} api_key={action} "
+                        f"key_id={workshop.synplaisign_api_key_id or '-'} webhook={workshop.synplaisign_webhook_id or '-'}"
                     )
                 )
             except WorkshopSynplaiSignError as exc:

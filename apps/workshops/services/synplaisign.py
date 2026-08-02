@@ -47,8 +47,12 @@ def _ensure_workshop_webhook(*, workshop: Workshop, api_key: str, webhook_url: s
                 update_fields.append("synplaisign_webhook_id")
             if update_fields:
                 workshop.save(update_fields=update_fields)
+            # Existing remote webhook matches — never rotate secret.
             return
 
+    # Only create a new webhook (and secret) when none matches the target URL.
+    # If the workshop already has a secret but no matching remote webhook, we still
+    # need a new remote registration; the new secret replaces the stale local one.
     created = gateway.create_webhook(api_key=api_key, url=webhook_url, events=expected_events)
     webhook_id = str(created.get("id") or "").strip()
     secret = str(created.get("secret") or "").strip()
@@ -78,7 +82,12 @@ def provision_workshop_synplaisign(*, workshop: Workshop, webhook_url: str | Non
         with transaction.atomic():
             locked = Workshop.objects.select_for_update().get(pk=workshop.pk)
             api_key = decrypt_secret(locked.synplaisign_api_key)
-            if not api_key:
+            if api_key:
+                logger.info(
+                    "synplaisign_api_key_already_present",
+                    extra={"workshop_id": locked.pk, "api_key_id": locked.synplaisign_api_key_id},
+                )
+            else:
                 created = gateway.create_api_key(
                     master_key=master_key,
                     name=f"workshop-{locked.pk}-{str(locked.name)[:40]}",
@@ -96,10 +105,8 @@ def provision_workshop_synplaisign(*, workshop: Workshop, webhook_url: str | Non
                     extra={"workshop_id": locked.pk, "api_key_id": key_id},
                 )
 
-            if not decrypt_secret(locked.synplaisign_webhook_secret):
-                _ensure_workshop_webhook(workshop=locked, api_key=api_key, webhook_url=resolved_webhook_url)
-            else:
-                _ensure_workshop_webhook(workshop=locked, api_key=api_key, webhook_url=resolved_webhook_url)
+            # Never rotates an existing API key; only ensures webhook for the current key.
+            _ensure_workshop_webhook(workshop=locked, api_key=api_key, webhook_url=resolved_webhook_url)
 
             locked.refresh_from_db()
             workshop.synplaisign_api_key_id = locked.synplaisign_api_key_id
