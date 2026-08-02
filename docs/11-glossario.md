@@ -100,7 +100,7 @@ Mecanismo de atualizacao/evento usado no contexto do modulo de orcamento.
 
 ## SynplaiSign
 
-Provedor interno de assinatura digital usado pelo sistema (substitui a SuperSign).
+Provedor interno de assinatura digital usado pelo sistema (substitui a SuperSign). Entrega por e-mail e/ou WhatsApp via `deliveryChannel` no envelope.
 
 ## Tenancy
 

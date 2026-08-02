@@ -27,15 +27,46 @@ class SynplaiSignGatewayHelperTests(SimpleTestCase):
     def test_build_signing_url(self) -> None:
         self.assertEqual(build_signing_url(token="tok-1"), "https://synplaisign.example/sign/tok-1")
 
-    def test_map_signatories_uses_signature_position(self) -> None:
+    def test_map_signatories_uses_signature_position_and_zero_based_order(self) -> None:
         mapped = _map_signatories(
             signatory={"name": "Cliente", "email": "a@b.com", "signingOrder": 0},
             fields=[{"pageNumber": 2, "position": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0}}],
         )
-        self.assertEqual(mapped[0]["order"], 1)
+        self.assertEqual(mapped[0]["order"], 0)
+        self.assertEqual(mapped[0]["deliveryChannel"], "EMAIL")
+        self.assertNotIn("phone", mapped[0])
         self.assertEqual(mapped[0]["fieldPage"], 2)
         self.assertEqual(mapped[0]["fieldX"], 10.0)
         self.assertEqual(mapped[0]["fieldY"], 20.0)
+
+    def test_map_signatories_sets_both_when_phone_present(self) -> None:
+        mapped = _map_signatories(
+            signatory={
+                "name": "Cliente",
+                "email": "a@b.com",
+                "phoneNumber": "+5511999999999",
+                "signingOrder": 0,
+            },
+            fields=[],
+        )
+        self.assertEqual(mapped[0]["phone"], "5511999999999")
+        self.assertEqual(mapped[0]["deliveryChannel"], "BOTH")
+        self.assertEqual(mapped[0]["order"], 0)
+
+    def test_map_signatories_respects_explicit_delivery_channel(self) -> None:
+        mapped = _map_signatories(
+            signatory={
+                "name": "Cliente",
+                "email": "a@b.com",
+                "phone": "5511888777666",
+                "deliveryChannel": "WHATSAPP",
+                "signingOrder": 1,
+            },
+            fields=[],
+        )
+        self.assertEqual(mapped[0]["deliveryChannel"], "WHATSAPP")
+        self.assertEqual(mapped[0]["phone"], "5511888777666")
+        self.assertEqual(mapped[0]["order"], 1)
 
 
 class SynplaiSignSignatureServiceTests(SimpleTestCase):
@@ -77,6 +108,9 @@ class SynplaiSignSignatureServiceTests(SimpleTestCase):
         self.assertEqual(result.signing_url, "https://synplaisign.example/sign/tok-abc")
         create_envelope_mock.assert_called_once()
         self.assertEqual(create_envelope_mock.call_args.kwargs["api_key"], "sk_live_workshop")
+        signatories = create_envelope_mock.call_args.kwargs["signatories"]
+        self.assertEqual(signatories[0]["order"], 0)
+        self.assertEqual(signatories[0]["deliveryChannel"], "EMAIL")
         send_envelope_mock.assert_called_once_with(api_key="sk_live_workshop", envelope_id="env-1")
 
     @patch("apps.core.infrastructure.services.signature_synplaisign.gateway.download_signed_document", return_value=b"%PDF-1.4")
@@ -243,22 +277,20 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
 
 
 
-class BudgetSignatureSendWhatsAppHookTests(SimpleTestCase):
-    @patch("apps.budget.service.maybe_dispatch_signature_whatsapp")
+class BudgetSignatureSendTests(SimpleTestCase):
     @patch("apps.budget.service.get_signature_service")
     @patch("apps.budget.service.render_budget_pdf_document")
-    def test_send_budget_dispatches_whatsapp_after_provider_success(
+    def test_send_budget_uses_workshop_api_key_without_evolution_dispatch(
         self,
         render_pdf_mock: Mock,
         get_service_mock: Mock,
-        dispatch_mock: Mock,
     ) -> None:
         from apps.budget.service import send_budget_for_signature
 
         render_pdf_mock.return_value = SimpleNamespace(content=b"%PDF")
         service = Mock()
         service.build_signatory_and_observers.return_value = (
-            {"name": "Cliente", "email": "c@example.com", "signingOrder": 0},
+            {"name": "Cliente", "email": "c@example.com", "phoneNumber": "+5511988887777", "signingOrder": 0},
             [],
         )
         service.build_signature_fields.return_value = []
@@ -281,9 +313,8 @@ class BudgetSignatureSendWhatsAppHookTests(SimpleTestCase):
         with patch("apps.budget.service.get_workshop_synplaisign_api_key", return_value="sk_live_x"):
             result = send_budget_for_signature(budget=budget)
         self.assertEqual(result.envelope_id, "env-1")
-        dispatch_mock.assert_called_once()
-        self.assertEqual(dispatch_mock.call_args.kwargs["signing_url"], "https://synplaisign.example/sign/tok")
         self.assertEqual(service.send_document.call_args.args[0].api_key, "sk_live_x")
+        self.assertEqual(service.send_document.call_args.args[0].signatory["phoneNumber"], "+5511988887777")
 
     def tearDown(self) -> None:
         set_signature_service(SynplaiSignSignatureService())

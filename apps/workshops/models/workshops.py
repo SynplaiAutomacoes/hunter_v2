@@ -104,7 +104,7 @@ class Workshop(TimeStampedModel):
     google_review_min_rating = models.PositiveSmallIntegerField(
         verbose_name="Nota mínima para pedir avaliação no Google",
         default=4,
-        help_text="Se a nota do cliente for igual ou maior que este valor (1–5), exibe o link do Google.",
+        help_text="Se a nota do cliente for igual ou maior que este valor (1-5), exibe o link do Google.",
     )
     # SynplaiSign — API key por oficina (valor criptografado; plaintext só no create remoto)
     synplaisign_api_key_id = models.CharField(

@@ -76,7 +76,7 @@ O app de orcamento possui endpoints para:
 
 Isso indica um fluxo completo de assinatura no proprio dominio do orcamento.
 
-O envio cria o envelope na SynplaiSign com a **API key da oficina**, dispara o e-mail via `POST /envelopes/:id/send` e, quando a oficina tem WhatsApp Evolution conectado (`whatsapp_instance_name`) e o cliente tem telefone, tambem enfileira o link `/sign/{token}` pela fila de messaging.
+O envio cria o envelope na SynplaiSign com a **API key da oficina**, inclui `phone` + `deliveryChannel` (`EMAIL` ou `BOTH` quando ha telefone) e dispara a entrega via `POST /envelopes/:id/send`. O WhatsApp de assinatura e nativo da SynplaiSign (organizacao com `whatsappApiUrl` / `whatsappInstance`); o WhatsApp Evolution da oficina (`whatsapp_instance_name`) continua usado apenas por messaging (agendamento, grupos, planos de revisao, etc.).
 
 Cada oficina recebe sua propria API key no cadastro (`POST /api-keys` com `SYNPLAISIGN_MASTER_KEY`), persistida criptografada em `Workshop.synplaisign_api_key`, junto com o secret do webhook daquela chave.
 
@@ -107,7 +107,6 @@ Sem `APP_BASE_URL` correto:
 - `apps/core/infrastructure/services/signature_webhook.py`
 - `apps/core/infrastructure/services/signature_synplaisign.py`
 - `apps/core/infrastructure/gateways/synplaisign.py`
-- `apps/core/infrastructure/services/signature_whatsapp.py`
 
 ## Perguntas que valem ao alterar esse modulo
 

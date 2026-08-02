@@ -132,7 +132,7 @@ Usada para emissao e tratamento de documentos fiscais, com suporte a webhook e c
 
 ### SynplaiSign
 
-Usada para assinatura digital. O sistema possui sincronizacao de webhook e endpoint dedicado para receber eventos de conclusao (`ENVELOPE_COMPLETED`), com entrega complementar do link via WhatsApp Evolution da oficina.
+Usada para assinatura digital. O sistema possui sincronizacao de webhook e endpoint dedicado para receber eventos de conclusao (`ENVELOPE_COMPLETED`). A entrega do link ao signatario usa `deliveryChannel` da SynplaiSign (`EMAIL` / `WHATSAPP` / `BOTH`).
 
 ### Bucket S3 compativel
 

@@ -110,28 +110,47 @@ No primeiro boot, a **MASTER KEY** é exibida no console. Guarde-a!
 | `file` | File (PDF) | ✅ | Arquivo PDF |
 | `title` | string | ✅ | Título do documento |
 | `message` | string | ❌ | Mensagem para os signatários |
+| `expiresAt` | string (ISO date) | ❌ | Data de expiração do envelope |
 | `signatories` | JSON string | ✅ | Array de signatários (ver abaixo) |
 
 **Payload `signatories` (JSON string):**
 ```json
 [
   {
-    "name": "João Silva",
-    "email": "joao@email.com",
-    "order": 1,
+    "name": "Maria Souza",
+    "email": "maria@cliente.com",
+    "phone": "5511999999999",
+    "deliveryChannel": "WHATSAPP",
+    "order": 0,
     "fieldPage": 1,
-    "fieldX": 350,
-    "fieldY": 80,
+    "fieldX": 100,
+    "fieldY": 200,
     "fieldWidth": 200,
-    "fieldHeight": 70
+    "fieldHeight": 60
   },
   {
-    "name": "Maria Souza",
-    "email": "maria@email.com",
+    "name": "Carlos Lima",
+    "email": "carlos@empresa.com",
+    "deliveryChannel": "EMAIL",
+    "order": 1
+  },
+  {
+    "name": "Ana Costa",
+    "email": "ana@empresa.com",
+    "phone": "5521888888888",
+    "deliveryChannel": "BOTH",
     "order": 2
   }
 ]
 ```
+
+> **Canal de entrega (`deliveryChannel`):**
+> - `EMAIL` — padrão; envia apenas por e-mail
+> - `WHATSAPP` — envia apenas por WhatsApp (requer `phone`)
+> - `BOTH` — e-mail + WhatsApp (requer `phone`)
+>
+> `phone` deve estar no formato internacional **sem** `+`: `55 + DDD + número` (ex. `5511999999999`).
+> WhatsApp nativo da SynplaiSign exige a organização configurada (`PATCH /organizations/me` com `whatsappApiUrl` e `whatsappInstance`).
 
 > **Campos de posição da assinatura no PDF (opcionais):**
 > - `fieldPage` — Página onde a assinatura aparece (1 = primeira). **Default:** última página.
@@ -153,9 +172,11 @@ No primeiro boot, a **MASTER KEY** é exibida no console. Guarde-a!
   "signatories": [
     {
       "id": "clSIG_ID_1",
-      "name": "João Silva",
-      "email": "joao@email.com",
-      "order": 1,
+      "name": "Maria Souza",
+      "email": "maria@cliente.com",
+      "phone": "5511999999999",
+      "deliveryChannel": "WHATSAPP",
+      "order": 0,
       "status": "PENDING",
       "token": "clTOKEN_ID",
       "viewedAt": null,
@@ -223,14 +244,15 @@ No primeiro boot, a **MASTER KEY** é exibida no console. Guarde-a!
 
 #### `POST /envelopes/:id/send` — Enviar para Assinatura
 
-> Dispara os emails para os signatários. O envelope passa de `DRAFT` para `SENT`.
+> Dispara a entrega aos signatários conforme `deliveryChannel` (e-mail e/ou WhatsApp). O envelope passa de `DRAFT` para `SENT`.
 
 **Request:** sem body.
 
 **Response `200`:**
 ```json
 {
-  "message": "Envelope enviado. 1 email(s) despachado(s)."
+  "id": "clENVELOPE_ID",
+  "status": "SENT"
 }
 ```
 
@@ -543,3 +565,23 @@ GET /health
   "timestamp": "2026-06-14T20:00:00.000Z"
 }
 ```
+
+---
+
+## 💬 WhatsApp (organização)
+
+Antes de usar `deliveryChannel` `WHATSAPP` ou `BOTH`, configure a organização SynplaiSign:
+
+```
+PATCH /organizations/me
+Authorization: Bearer <JWT>
+```
+
+```json
+{
+  "whatsappApiUrl": "https://wp-api.synplai.online",
+  "whatsappInstance": "a3f9c1"
+}
+```
+
+A instância precisa estar conectada na WhatsApp Sender API. Sem essa configuração, o envelope ainda é criado/enviado, mas apenas o e-mail é entregue.

@@ -3,7 +3,6 @@ from __future__ import annotations
 from apps.core.domain.contracts.documents import SignatureRecipient
 from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult, SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
-from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
 from apps.workorder.documents.provider import render_workorder_pdf_document
 from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
@@ -117,11 +116,4 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
     except SignatureServiceError as exc:
         raise WorkOrderSignatureError(str(exc)) from exc
 
-    maybe_dispatch_signature_whatsapp(
-        workshop=workorder.workshop,
-        customer=customer,
-        phone=customer_phone,
-        document_title=title,
-        signing_url=result.signing_url,
-    )
     return result

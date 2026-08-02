@@ -2,7 +2,6 @@ from apps.budget.documents.provider import render_budget_pdf_document
 from apps.core.domain.contracts.documents import SignatureRecipient
 from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult, SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
-from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
 from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
 
@@ -129,11 +128,4 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
     except SignatureServiceError as exc:
         raise SignatureError(str(exc)) from exc
 
-    maybe_dispatch_signature_whatsapp(
-        workshop=budget.workshop,
-        customer=budget.customer,
-        phone=customer_phone,
-        document_title=title,
-        signing_url=result.signing_url,
-    )
     return result

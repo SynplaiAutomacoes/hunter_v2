@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+import re
+from typing import Any, Literal
 
 from django.http import HttpRequest
 
@@ -25,21 +26,51 @@ from apps.core.infrastructure.services.signature import (
 
 logger = logging.getLogger(__name__)
 
+DeliveryChannel = Literal["EMAIL", "WHATSAPP", "BOTH"]
+
+
+def _phone_digits_for_synplaisign(raw_phone: object) -> str:
+    """SynplaiSign expects international digits without '+' (e.g. 5511999999999)."""
+    digits = re.sub(r"\D", "", str(raw_phone or ""))
+    return digits
+
+
+def _resolve_delivery_channel(*, phone_digits: str, explicit: object = None) -> DeliveryChannel:
+    channels: dict[str, DeliveryChannel] = {
+        "EMAIL": "EMAIL",
+        "WHATSAPP": "WHATSAPP",
+        "BOTH": "BOTH",
+    }
+    if isinstance(explicit, str):
+        resolved = channels.get(explicit.strip().upper())
+        if resolved is not None:
+            return resolved
+    return "BOTH" if phone_digits else "EMAIL"
+
 
 def _map_signatories(*, signatory: dict[str, Any], fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
     order_raw = signatory.get("signingOrder", signatory.get("order", 0))
     try:
-        order = int(order_raw) + 1 if int(order_raw) == 0 else int(order_raw)
+        order = int(order_raw)
     except (TypeError, ValueError):
-        order = 1
-    if order < 1:
-        order = 1
+        order = 0
+    if order < 0:
+        order = 0
+
+    phone_digits = _phone_digits_for_synplaisign(signatory.get("phone") or signatory.get("phoneNumber"))
+    delivery_channel = _resolve_delivery_channel(
+        phone_digits=phone_digits,
+        explicit=signatory.get("deliveryChannel"),
+    )
 
     mapped: dict[str, Any] = {
         "name": str(signatory.get("name") or "").strip(),
         "email": str(signatory.get("email") or "").strip(),
         "order": order,
+        "deliveryChannel": delivery_channel,
     }
+    if phone_digits:
+        mapped["phone"] = phone_digits
 
     field = fields[0] if fields else None
     position = SIGNATURE_POSITION

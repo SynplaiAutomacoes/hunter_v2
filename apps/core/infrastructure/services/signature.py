@@ -59,7 +59,7 @@ def build_signature_signatory_and_observers(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Build provider-neutral signatory payload used by adapters.
 
-    Phone is kept for Hunter-side WhatsApp delivery; SynplaiSign itself uses email.
+    Phone is forwarded to SynplaiSign as digits + deliveryChannel (EMAIL/WHATSAPP/BOTH).
     """
     region = getattr(settings, "PHONENUMBER_DEFAULT_REGION", "BR")
     signatory: dict[str, Any] = {
