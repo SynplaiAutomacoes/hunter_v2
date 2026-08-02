@@ -5,7 +5,7 @@ from decimal import Decimal
 from django import forms
 
 from apps.core.presentation.forms import CoreModelForm
-from apps.core.presentation.widgets import CheckboxInput, NumberInput, SearchableSelectInput, TextareaInput
+from apps.core.presentation.widgets import NumberInput, SearchableSelectInput, TextareaInput
 from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalReferencedBasis
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.stock.models import StockMovement
@@ -16,12 +16,6 @@ class FiscalReferencedBasisCreateForm(CoreModelForm):
     fine_amount = forms.DecimalField(label="Valor de multa", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
     interest_amount = forms.DecimalField(label="Valor de juros", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
     other_amount = forms.DecimalField(label="Outros valores", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
-    confirm_preparation_only = forms.BooleanField(
-        required=True,
-        label="Confirmo que esta base não emite NF-e de crédito/débito",
-        widget=CheckboxInput(),
-    )
-
     class Meta:
         model = FiscalReferencedBasis
         fields = ["source_document", "source_item_sequence", "fiscal_hypothesis", "financial_reference", "stock_reference", "notes"]

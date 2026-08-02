@@ -37,7 +37,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
     OPERATION_CARDS: ClassVar[tuple[FiscalOperationCard, ...]] = (
         FiscalOperationCard(
             value=FiscalOperation.NORMAL,
-            label="NF-e Normal",
+            label="Nota Fiscal de Saída",
             description="Emita por Ordem de Serviço ou preencha uma NF-e manualmente.",
             icon="receipt_long",
         ),
@@ -166,7 +166,7 @@ class NfeEmissionOriginGatewayView(LoginRequiredMixin, WorkshopScopedMixin, Form
         FiscalOperationCard(
             value=NfeEmissionOrigin.WORK_ORDER,
             label="Ordem de Serviço",
-            description="Continua no wizard atual de NF-e, com os mesmos dados, validações e emissão.",
+            description="Utilize os dados de uma Ordem de Serviço para preencher e emitir a Nota Fiscal de Saída.",
             icon="handyman",
         ),
         FiscalOperationCard(
@@ -195,4 +195,5 @@ class NfeEmissionOriginGatewayView(LoginRequiredMixin, WorkshopScopedMixin, Form
             query = urlencode({"reset": 1})
             return HttpResponseRedirect(f"{reverse('finance:emission_normal')}?{query}")
 
-        return HttpResponseRedirect(reverse("finance:emission_manual"))
+        query = urlencode({"new": 1})
+        return HttpResponseRedirect(f"{reverse('finance:emission_manual')}?{query}")

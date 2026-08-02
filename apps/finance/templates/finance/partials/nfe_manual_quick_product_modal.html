@@ -2,15 +2,46 @@
 <div class="modal-box w-11/12 max-w-2xl max-h-[90vh] overflow-y-auto bg-base-100 shadow-2xl border border-base-300">
     <h3 class="mb-2 flex items-center gap-2 text-2xl font-bold">
         <span class="material-icons">add_box</span>
-        Cadastro rápido de produto
+        Produto da emissão
     </h3>
-    <p class="mb-6 text-sm text-base-content/65">O produto será cadastrado no catálogo da oficina. Nenhuma movimentação de estoque será criada.</p>
+    <p class="mb-6 text-sm text-base-content/65">Informe os dados fiscais e escolha se o produto deve permanecer no cadastro ou ser usado somente nesta NF-e.</p>
     <form hx-post="{% url 'finance:emission_manual_quick_product' %}" hx-target="#modal-container" hx-swap="innerHTML" class="space-y-4">
         {% csrf_token %}
         {{ form|crispy }}
+        <div class="alert alert-info py-3 text-sm" id="temporary-product-guidance">
+            <span class="material-icons text-base">info</span>
+            <span id="temporary-product-guidance-text">Produtos salvos ficam disponíveis no catálogo e criam o respectivo registro de estoque, sem movimentar saldo.</span>
+        </div>
         <div class="modal-action">
             <button type="button" class="btn btn-ghost" onclick="document.getElementById('form_modal').close()">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Cadastrar e usar</button>
+            <button type="submit" class="btn btn-primary" id="manual-product-submit">Salvar e usar</button>
         </div>
     </form>
 </div>
+
+<script>
+    (() => {
+        const choices = [...document.querySelectorAll('[name="save_to_catalog"]')];
+        const groupField = document.getElementById('div_id_group');
+        const costField = document.getElementById('div_id_cost_price');
+        const guidance = document.getElementById('temporary-product-guidance-text');
+        const submit = document.getElementById('manual-product-submit');
+
+        const updateMode = () => {
+            const saveToCatalog = choices.find(choice => choice.checked)?.value === 'yes';
+            groupField?.classList.toggle('hidden', !saveToCatalog);
+            costField?.classList.toggle('hidden', !saveToCatalog);
+            groupField?.querySelectorAll('input, select').forEach(field => field.disabled = !saveToCatalog);
+            costField?.querySelectorAll('input, select').forEach(field => field.disabled = !saveToCatalog);
+            if (guidance) {
+                guidance.textContent = saveToCatalog
+                    ? 'O produto ficará disponível no catálogo. O registro de estoque será criado sem movimentar saldo.'
+                    : 'O produto será usado somente nesta NF-e e não será incluído no catálogo nem no estoque.';
+            }
+            if (submit) submit.textContent = saveToCatalog ? 'Salvar e usar' : 'Usar somente nesta NF-e';
+        };
+
+        choices.forEach(choice => choice.addEventListener('change', updateMode));
+        updateMode();
+    })();
+</script>

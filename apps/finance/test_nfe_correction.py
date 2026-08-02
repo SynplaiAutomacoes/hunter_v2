@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import requests
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.http import Http404
@@ -24,7 +25,7 @@ from apps.finance.models.finance import (
     WebmaniaWebhookEvent,
 )
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, reconcile_cce_event, validate_correction_text
-from apps.finance.views.nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeRequestDetailView
+from apps.finance.views.nfe import NfeCorrectionDownloadView, NfeCorrectionForm, NfeCorrectionIssueView, NfeRequestDetailView
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
@@ -120,6 +121,8 @@ class NfeCorrectionOperationalTests(TestCase):
         self.assertEqual(event.remote_event_id, "135260000000001")
         self.assertEqual(event.xml_url, "https://example.test/cce.xml")
         self.assertEqual(event.dacce_url, "https://example.test/dacce.pdf")
+        self.assertTrue(event.legal_confirmation)
+        self.assertIsNotNone(event.confirmed_at)
         self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
         self.assertEqual(event.response_payload["log"]["authorization"], "[REDACTED]")
         self.item.refresh_from_db()
@@ -423,7 +426,7 @@ class NfeCorrectionOperationalTests(TestCase):
         post_mock.assert_not_called()
 
     def test_issue_requires_specific_permission_and_active_workshop_scope(self) -> None:
-        request = RequestFactory().post("/", data={"correction": CORRECTION_TEXT, "confirm_legal_restrictions": "on"})
+        request = RequestFactory().post("/", data={"correction": CORRECTION_TEXT})
         request.user = self.user
 
         with (
@@ -439,6 +442,23 @@ class NfeCorrectionOperationalTests(TestCase):
         ):
             with self.assertRaises(Http404):
                 NfeCorrectionIssueView.as_view()(request, pk=self.item.request_id)
+
+    def test_issue_does_not_require_redundant_ux_confirmation(self) -> None:
+        self.assertNotIn("confirm_legal_restrictions", NfeCorrectionForm.base_fields)
+        request = RequestFactory().post("/", data={"correction": CORRECTION_TEXT})
+        request.user = self.user
+        request.session = {}
+        setattr(request, "_messages", FallbackStorage(request))
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.emit_nfe_correction") as emit_mock,
+        ):
+            response = NfeCorrectionIssueView.as_view()(request, pk=self.item.request_id)
+
+        self.assertEqual(response.status_code, 302)
+        emit_mock.assert_called_once()
 
     def test_history_and_downloads_reuse_existing_detail_and_protected_gateway(self) -> None:
         event = self._emit_success()

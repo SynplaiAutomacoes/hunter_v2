@@ -52,7 +52,6 @@ class NfeAdvancedOperationFormUxTests(TestCase):
                 "return_scope": NfeReturnForm.RETURN_SCOPE_PARTIAL,
                 "natureza_operacao": "Devolução parcial",
                 "codigo_cfop": "1202",
-                "confirm_return": "on",
             }
         )
         data.setlist("return_item_sequence", ["1", "2"])
@@ -71,7 +70,6 @@ class NfeAdvancedOperationFormUxTests(TestCase):
                 "operacao": "1",
                 "natureza_operacao": "Nota Fiscal Complementar",
                 "codigo_cfop": "5102",
-                "confirm_complementary": "on",
             }
         )
         data.setlist("complementary_item_sequence", ["1", "2"])
@@ -102,7 +100,6 @@ class NfeAdvancedOperationFormUxTests(TestCase):
                 "adjustment_client_state": "SP",
                 "adjustment_client_city": "São Paulo",
                 "confirm_adjustment": "on",
-                "confirm_not_sc_es_reversal": "on",
             }
         )
 
@@ -118,6 +115,12 @@ class NfeAdvancedOperationFormUxTests(TestCase):
             },
         )
         self.assertEqual(form.fields["cliente_json"].widget.input_type, "hidden")
+
+    def test_redundant_confirmations_are_removed_and_adjustment_is_consolidated(self) -> None:
+        self.assertNotIn("confirm_return", NfeReturnForm.base_fields)
+        self.assertNotIn("confirm_complementary", NfeComplementaryPriceQuantityForm.base_fields)
+        self.assertIn("confirm_adjustment", NfeAdjustmentForm.base_fields)
+        self.assertNotIn("confirm_not_sc_es_reversal", NfeAdjustmentForm.base_fields)
 
 
 class NfeReturnOperationalTests(TestCase):
@@ -382,7 +385,6 @@ class NfeReturnOperationalTests(TestCase):
                 "volume": "3",
                 "informacoes_fisco": "F" * 2000,
                 "informacoes_complementares": "C" * 5000,
-                "confirm_return": "on",
             }
         )
         self.assertTrue(form.is_valid(), form.errors)
@@ -394,7 +396,6 @@ class NfeReturnOperationalTests(TestCase):
                 "natureza_operacao": "Devolução de mercadoria",
                 "codigo_cfop": "1202",
                 "classe_imposto": "R" * 31,
-                "confirm_return": "on",
             }
         )
         self.assertFalse(invalid_form.is_valid())

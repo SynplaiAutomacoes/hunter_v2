@@ -56,6 +56,11 @@ class FiscalOperationGatewayTests(SimpleTestCase):
             [card.value for card in response.context_data["operation_cards"]],
             [value for value, _label in FISCAL_OPERATION_CHOICES],
         )
+        normal_card = next(card for card in response.context_data["operation_cards"] if card.value == FiscalOperation.NORMAL)
+        self.assertEqual(normal_card.label, "Nota Fiscal de Saída")
+        self.assertIn((FiscalOperation.NORMAL, "Nota Fiscal de Saída"), FISCAL_OPERATION_CHOICES)
+        html = render_to_string("finance/fiscal_operation_gateway.html", response.context_data)
+        self.assertNotIn("NF-e Normal", html)
         self.assertIn(FiscalOperation.TRANSPORT, [value for value, _label in FISCAL_OPERATION_CHOICES])
 
     def test_normal_operation_redirects_to_origin_gateway(self) -> None:
@@ -79,6 +84,11 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.template_name, ["finance/nfe_emission_origin_gateway.html"])
+        html = render_to_string("finance/nfe_emission_origin_gateway.html", response.context_data)
+        self.assertIn("Emitir Nota Fiscal de Saída", html)
+        self.assertIn("Utilize os dados de uma Ordem de Serviço para preencher e emitir a Nota Fiscal de Saída.", html)
+        self.assertNotIn("wizard atual", html)
+        self.assertNotIn("NF-e Normal", html)
         self.assertEqual([card.value for card in response.context_data["origin_cards"]], [NfeEmissionOrigin.WORK_ORDER, NfeEmissionOrigin.MANUAL])
         self.assertEqual([card.label for card in response.context_data["origin_cards"]], ["Ordem de Serviço", "Emissão Manual"])
 
@@ -119,7 +129,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
         response = view.form_valid(form)
 
-        self.assertRedirects(response, reverse("finance:emission_manual"), fetch_redirect_response=False)
+        self.assertRedirects(response, f"{reverse('finance:emission_manual')}?new=1", fetch_redirect_response=False)
 
     def test_legacy_specific_nfe_link_redirects_to_normal_wizard_preserving_query(self) -> None:
         request = self.factory.get("/finance/emissao/", {"tipo": "nfe", "reset": "1"})

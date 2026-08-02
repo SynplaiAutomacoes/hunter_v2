@@ -3,7 +3,7 @@ from __future__ import annotations
 from django import forms
 
 from apps.core.presentation.forms import CoreForm
-from apps.core.presentation.widgets import CheckboxInput, NumberInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import NumberInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.finance import NfseItem, NfseItemStatus
 
 
@@ -15,8 +15,6 @@ class NfseSubstitutionPreviewCreateForm(CoreForm):
     rps_series = forms.CharField(label="Serie do novo RPS", max_length=20, widget=TextInput())
     service_payload = forms.JSONField(label="Serviço do novo RPS", widget=TextareaInput(rows=10), help_text="JSON explicito com discriminacao, valor_servicos e classe_imposto ou impostos/retenções.")
     taker_payload = forms.JSONField(label="Tomador do novo RPS", widget=TextareaInput(rows=8), help_text="JSON explicito com CPF/CNPJ e nome/razao social.")
-    explicit_confirmation = forms.BooleanField(label="Confirmo que este é um novo RPS validado e que nenhuma substituição será transmitida nesta etapa", required=True, widget=CheckboxInput())
-
     def __init__(self, *args, workshop, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.workshop = workshop

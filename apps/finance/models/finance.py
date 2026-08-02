@@ -1,4 +1,5 @@
 import logging
+import re
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
@@ -95,6 +96,11 @@ class NfeFreightMode(models.IntegerChoices):
 class NfeEmissionOrigin(models.TextChoices):
     WORK_ORDER = "work_order", "Ordem de Serviço"
     MANUAL = "manual", "Manual"
+
+
+class NfeManualItemOrigin(models.TextChoices):
+    CATALOG = "catalog", "Produto do catálogo"
+    TEMPORARY = "temporary", "Produto temporário"
 
 
 class NfeRequestStatus(models.TextChoices):
@@ -802,13 +808,20 @@ class NfeRequest(TimeStampedModel):
 
 class NfeRequestManualItem(TimeStampedModel):
     request = models.ForeignKey(NfeRequest, verbose_name="Requisição de NF-e", on_delete=models.CASCADE, related_name="manual_items")
-    product = models.ForeignKey("catalog.Product", verbose_name="Produto", on_delete=models.PROTECT, related_name="manual_nfe_request_items")
+    item_origin = models.CharField(verbose_name="Origem do item", max_length=16, choices=NfeManualItemOrigin.choices, default=NfeManualItemOrigin.CATALOG)
+    product = models.ForeignKey("catalog.Product", verbose_name="Produto", on_delete=models.PROTECT, null=True, blank=True, related_name="manual_nfe_request_items")
+    fiscal_snapshot = models.JSONField(verbose_name="Snapshot fiscal do produto", blank=True, default=dict)
     quantity = models.DecimalField(verbose_name="Quantidade", max_digits=12, decimal_places=4, validators=[MinValueValidator(Decimal("0.0001"))])
     unit_price = models.DecimalField(verbose_name="Valor unitário", max_digits=14, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
 
     class Meta(TimeStampedModel.Meta):
         constraints = [
             models.UniqueConstraint(fields=["request", "product"], name="unique_product_per_manual_nfe_request"),
+            models.CheckConstraint(
+                condition=models.Q(item_origin=NfeManualItemOrigin.CATALOG, product__isnull=False)
+                | models.Q(item_origin=NfeManualItemOrigin.TEMPORARY, product__isnull=True) & ~models.Q(fiscal_snapshot={}),
+                name="nfe_manual_item_origin_matches_product",
+            ),
         ]
 
     def clean(self) -> None:
@@ -817,6 +830,46 @@ class NfeRequestManualItem(TimeStampedModel):
             raise ValidationError({"request": "Itens manuais exigem requisição de NF-e com origem manual."})
         if self.request_id and self.product_id and self.request.workshop_id != self.product.workshop_id:
             raise ValidationError({"product": "O produto pertence a outra oficina."})
+        if self.item_origin == NfeManualItemOrigin.CATALOG:
+            if self.product_id is None:
+                raise ValidationError({"product": "Itens de catálogo exigem um produto cadastrado."})
+        elif self.item_origin == NfeManualItemOrigin.TEMPORARY:
+            if self.product_id is not None:
+                raise ValidationError({"product": "Itens temporários não podem ser vinculados a um produto do catálogo."})
+        else:
+            raise ValidationError({"item_origin": "Selecione uma origem válida para o item manual."})
+
+        if self.item_origin == NfeManualItemOrigin.TEMPORARY or self.fiscal_snapshot:
+            self._validate_fiscal_snapshot()
+
+    def _validate_fiscal_snapshot(self) -> None:
+        snapshot = self.fiscal_snapshot
+        if not isinstance(snapshot, dict) or not snapshot:
+            raise ValidationError({"fiscal_snapshot": "Informe os dados fiscais do produto temporário."})
+
+        errors: list[str] = []
+        description = str(snapshot.get("description") or "").strip()
+        code = str(snapshot.get("code") or "").strip()
+        ncm = re.sub(r"\D", "", str(snapshot.get("ncm") or ""))
+        unit = str(snapshot.get("unit") or "").strip().upper()
+        origin_cst = snapshot.get("origin_cst")
+        cest = str(snapshot.get("cest") or "").strip()
+
+        if not description or len(description) > 120:
+            errors.append("A descrição é obrigatória e deve possuir no máximo 120 caracteres.")
+        if not code or len(code) > 60:
+            errors.append("O código é obrigatório e deve possuir no máximo 60 caracteres.")
+        if len(ncm) != 8:
+            errors.append("O NCM deve possuir 8 dígitos.")
+        if not unit or len(unit) > 5:
+            errors.append("A unidade é obrigatória e deve possuir no máximo 5 caracteres.")
+        if isinstance(origin_cst, bool) or not isinstance(origin_cst, int) or origin_cst not in range(9):
+            errors.append("A origem CST deve ser um código válido entre 0 e 8.")
+        if len(cest) > 10:
+            errors.append("O CEST deve possuir no máximo 10 caracteres.")
+
+        if errors:
+            raise ValidationError({"fiscal_snapshot": errors})
 
     def save(self, *args, **kwargs) -> None:
         self.full_clean()

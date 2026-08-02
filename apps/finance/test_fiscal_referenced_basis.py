@@ -9,6 +9,7 @@ from django.test import RequestFactory, TestCase
 
 from apps.accounts.models import Account, User
 from apps.budget.models import Budget, BudgetStatus
+from apps.finance.forms.fiscal_referenced_basis import FiscalReferencedBasisCreateForm
 from apps.finance.models.finance import (
     FiscalDocument,
     FiscalDocumentOrigin,
@@ -44,6 +45,9 @@ def _user_and_workshop(suffix: int) -> tuple[User, Workshop]:
 
 
 class FiscalPhaseTwoCreditDebitBasisTests(TestCase):
+    def test_basis_preparation_does_not_require_redundant_confirmation(self) -> None:
+        self.assertNotIn("confirm_preparation_only", FiscalReferencedBasisCreateForm.base_fields)
+
     def setUp(self) -> None:
         self.user, self.workshop = _user_and_workshop(31)
         self.company = WebmaniaCompany.objects.create(workshop=self.workshop, credit_debit_basis_enabled=True, credit_debit_basis_enabled_by=self.user)

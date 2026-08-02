@@ -24,7 +24,6 @@ class MultipleFileField(forms.FileField):
 class NfseReceivedDocumentUploadForm(CoreForm):
     company = forms.ModelChoiceField(label="Empresa", queryset=WebmaniaCompany.objects.none(), required=True)
     xml_file = forms.FileField(label="XML da NFS-e recebida", required=True)
-    confirmed = forms.BooleanField(label="Confirmo que este XML representa uma NFS-e recebida de terceiro.", required=True)
 
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -44,7 +43,6 @@ class NfseReceivedDocumentUploadForm(CoreForm):
 class NfseReceivedDocumentBatchUploadForm(CoreForm):
     company = forms.ModelChoiceField(label="Empresa", queryset=WebmaniaCompany.objects.none(), required=True)
     xml_files = MultipleFileField(label="XMLs da NFS-e recebida", required=True, widget=MultipleFileInput(attrs={"multiple": True}))
-    confirmed = forms.BooleanField(label="Confirmo que o lote usa somente XMLs recebidos e não executa consulta ou manifestação automatica.", required=True)
 
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -74,7 +72,6 @@ class NfseExternalXmlInboxUploadForm(CoreForm):
     company = forms.ModelChoiceField(label="Empresa", queryset=WebmaniaCompany.objects.none(), required=True)
     source_label = forms.CharField(label="Origem declarada", required=False, max_length=120, help_text="Ex.: anexos recebidos por e-mail, exportacao manual de ERP ou arquivo operacional da oficina.")
     xml_files = MultipleFileField(label="XMLs candidatos", required=True, widget=MultipleFileInput(attrs={"multiple": True}))
-    confirmed = forms.BooleanField(label="Confirmo que a inbox não importa automaticamente, não consulta e não manifesta documentos.", required=True)
 
     def __init__(self, *args, workshop=None, **kwargs):
         super().__init__(*args, **kwargs)

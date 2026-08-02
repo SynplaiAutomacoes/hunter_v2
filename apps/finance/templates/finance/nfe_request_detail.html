@@ -685,10 +685,10 @@
                         <textarea id="nfe-cce-correction" name="correction" class="textarea textarea-bordered w-full" rows="6" minlength="15" maxlength="1000" required></textarea>
                     </div>
 
-                    <label class="label cursor-pointer justify-start gap-3 mt-3">
-                        <input type="checkbox" name="confirm_legal_restrictions" class="checkbox checkbox-sm" required>
-                        <span class="label-text">Confirmo que a correção respeita as restrições legais da CC-e.</span>
-                    </label>
+                    <div class="alert alert-info mt-3 text-sm">
+                        <span class="material-icons text-base">info</span>
+                        <span>A Carta de Correção deve respeitar as restrições legais apresentadas acima.</span>
+                    </div>
 
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="cce_nfe_modal.close()">Cancelar</button>
@@ -768,11 +768,10 @@
                         </div>
                     </div>
                     <h4 class="mt-5 font-semibold">Revisar e emitir</h4>
-                    <p class="mt-1 text-xs text-base-content/60">Revise finalidade, itens, quantidades e informações fiscais antes de confirmar.</p>
-                    <label class="label cursor-pointer justify-start gap-3 mt-2">
-                        <input type="checkbox" name="confirm_return" class="checkbox checkbox-sm" required>
-                        <span class="label-text">Confirmo que a devolução/estorno cria um novo documento fiscal e não altera a NF-e original.</span>
-                    </label>
+                    <div class="alert alert-info mt-2 text-sm">
+                        <span class="material-icons text-base">info</span>
+                        <span>Revise finalidade, itens, quantidades e informações fiscais. A devolução ou o estorno cria um novo documento fiscal e não altera a NF-e original.</span>
+                    </div>
 
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="return_nfe_modal.close()">Cancelar</button>
@@ -829,11 +828,10 @@
                         </div>
                     </div>
                     <h4 class="mt-5 font-semibold">Revisar e emitir</h4>
-                    <p class="mt-1 text-xs text-base-content/60">Revise a NF-e de referência, os itens e os valores complementares antes de confirmar.</p>
-                    <label class="label cursor-pointer justify-start gap-3 mt-2">
-                        <input type="checkbox" name="confirm_complementary" class="checkbox checkbox-sm" required>
-                        <span class="label-text">Confirmo que a Nota Complementar acrescenta preço e/ou quantidade à NF-e original.</span>
-                    </label>
+                    <div class="alert alert-info mt-2 text-sm">
+                        <span class="material-icons text-base">info</span>
+                        <span>Revise a NF-e de referência, os itens e os valores. A Nota Complementar acrescenta preço e/ou quantidade à NF-e original.</span>
+                    </div>
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="complementary_nfe_modal.close()">Cancelar</button>
                         <button type="submit" class="btn btn-primary">Enviar complementar</button>
@@ -912,11 +910,7 @@
                     <p class="mt-1 text-xs text-base-content/60">Revise os valores fiscais e os dados do destinatário antes de confirmar.</p>
                     <label class="label cursor-pointer justify-start gap-3 mt-2">
                         <input type="checkbox" name="confirm_adjustment" class="checkbox checkbox-sm" required>
-                        <span class="label-text">Confirmo que esta Nota de Ajuste e fiscalmente aplicável e não representa movimento de produtos.</span>
-                    </label>
-                    <label class="label cursor-pointer justify-start gap-3 mt-1">
-                        <input type="checkbox" name="confirm_not_sc_es_reversal" class="checkbox checkbox-sm" required>
-                        <span class="label-text">Confirmo que não se trata de estorno SC/ES que deve usar devolução/estorno.</span>
+                        <span class="label-text">Confirmo que esta Nota de Ajuste é fiscalmente aplicável, não representa movimento de produtos e não se trata de estorno SC/ES, que deve utilizar devolução/estorno.</span>
                     </label>
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="adjustment_nfe_modal.close()">Cancelar</button>

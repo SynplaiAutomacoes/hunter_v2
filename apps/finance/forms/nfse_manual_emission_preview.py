@@ -3,7 +3,7 @@ from __future__ import annotations
 from django import forms
 
 from apps.core.presentation.forms import CoreForm
-from apps.core.presentation.widgets import CheckboxInput, NumberInput, SearchableSelectInput, TextareaInput, TextInput
+from apps.core.presentation.widgets import NumberInput, SearchableSelectInput, TextareaInput, TextInput
 from apps.finance.models.finance import NfseMunicipalCapability, WebmaniaCompany
 
 
@@ -21,8 +21,6 @@ class NfseManualEmissionPreviewCreateForm(CoreForm):
     taxation_payload = forms.JSONField(label="Tributação", widget=TextareaInput(rows=5), help_text="JSON com classe/regras fiscais; use ibs_cbs_required=true quando aplicável.")
     retention_payload = forms.JSONField(label="Retencoes", required=False, widget=TextareaInput(rows=4))
     ibs_cbs_payload = forms.JSONField(label="IBS/CBS", required=False, widget=TextareaInput(rows=4))
-    explicit_confirmation = forms.BooleanField(label="Confirmo que esta preview não emite NFS-e nem transmite o documento", required=True, widget=CheckboxInput())
-
     def __init__(self, *args: object, workshop=None, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
         self.workshop = workshop

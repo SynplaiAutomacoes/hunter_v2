@@ -81,7 +81,6 @@ class NfeInvalidateForm(CoreForm):
 
 class NfeCorrectionForm(CoreForm):
     correction = forms.CharField(min_length=15, max_length=1000)
-    confirm_legal_restrictions = forms.BooleanField(required=True)
 
 
 class NfeReturnForm(CoreForm):
@@ -97,7 +96,6 @@ class NfeReturnForm(CoreForm):
     volume = forms.IntegerField(required=False, min_value=1, max_value=999999999999999)
     informacoes_complementares = forms.CharField(required=False, max_length=5000)
     informacoes_fisco = forms.CharField(required=False, max_length=2000)
-    confirm_return = forms.BooleanField(required=True)
 
     def clean_produtos_json(self):
         raw_value = str(self.cleaned_data.get("produtos_json") or "").strip()
@@ -137,7 +135,6 @@ class NfeComplementaryPriceQuantityForm(CoreForm):
     natureza_operacao = forms.CharField(max_length=120)
     codigo_cfop = forms.CharField(max_length=10)
     itens_json = forms.CharField(required=False, widget=forms.HiddenInput)
-    confirm_complementary = forms.BooleanField(required=True)
 
     def clean_itens_json(self):
         raw_value = str(self.cleaned_data.get("itens_json") or "").strip()
@@ -188,7 +185,6 @@ class NfeAdjustmentForm(CoreForm):
     informacoes_fisco = forms.CharField(required=False, max_length=2000)
     informacoes_complementares = forms.CharField(required=False, max_length=5000)
     confirm_adjustment = forms.BooleanField(required=True)
-    confirm_not_sc_es_reversal = forms.BooleanField(required=True)
 
     def clean_cliente_json(self):
         raw_value = str(self.cleaned_data.get("cliente_json") or "").strip()
@@ -658,7 +654,7 @@ class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         form = NfeCorrectionForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe a correção entre 15 e 1000 caracteres e confirme as restrições legais.")
+            messages.error(request, "Informe a correção entre 15 e 1000 caracteres, respeitando as restrições legais apresentadas.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -903,7 +899,7 @@ class NfeComplementaryPriceQuantityIssueView(LoginRequiredMixin, WorkshopScopedM
 
         form = NfeComplementaryPriceQuantityForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe operação, CFOP, natureza, itens validos e confirme a emissão da Nota Complementar.")
+            messages.error(request, "Informe operação, CFOP, natureza e itens válidos para a Nota Complementar.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -914,7 +910,7 @@ class NfeComplementaryPriceQuantityIssueView(LoginRequiredMixin, WorkshopScopedM
                 operacao=str(form.cleaned_data["operacao"]),
                 natureza_operacao=str(form.cleaned_data["natureza_operacao"]),
                 codigo_cfop=str(form.cleaned_data["codigo_cfop"]),
-                legal_confirmation=bool(form.cleaned_data["confirm_complementary"]),
+                legal_confirmation=True,
                 request=request,
             )
         except NfeComplementaryError as exc:
@@ -937,7 +933,7 @@ class NfeAdjustmentIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         form = NfeAdjustmentForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe os dados obrigatórios da Nota Fiscal de Ajuste e confirme as restrições fiscais.")
+            messages.error(request, "Informe os dados obrigatórios da Nota Fiscal de Ajuste e confirme sua aplicabilidade fiscal.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -956,7 +952,7 @@ class NfeAdjustmentIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 informacoes_complementares=str(form.cleaned_data.get("informacoes_complementares") or ""),
                 related_document=related_document,
                 legal_confirmation=bool(form.cleaned_data["confirm_adjustment"]),
-                estorno_sc_es_confirmation=bool(form.cleaned_data["confirm_not_sc_es_reversal"]),
+                estorno_sc_es_confirmation=True,
                 request=request,
             )
         except NfeAdjustmentError as exc:

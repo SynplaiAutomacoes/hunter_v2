@@ -4,10 +4,22 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase
 
+from apps.finance.forms.nfse_manual_emission_preview import NfseManualEmissionPreviewCreateForm
+from apps.finance.forms.nfse_received import NfseExternalXmlInboxUploadForm, NfseReceivedDocumentBatchUploadForm, NfseReceivedDocumentUploadForm
+from apps.finance.forms.nfse_substitution_preview import NfseSubstitutionPreviewCreateForm
 from apps.finance.views.nfse import NfsePreviewPdfView
+from apps.finance.views.nfse_received import NfseReceivedConsultationForm
 
 
 class NfsePreviewViewTests(SimpleTestCase):
+    def test_preparatory_forms_do_not_require_redundant_confirmations(self) -> None:
+        self.assertNotIn("explicit_confirmation", NfseManualEmissionPreviewCreateForm.base_fields)
+        self.assertNotIn("explicit_confirmation", NfseSubstitutionPreviewCreateForm.base_fields)
+        self.assertNotIn("confirmed", NfseReceivedDocumentUploadForm.base_fields)
+        self.assertNotIn("confirmed", NfseReceivedDocumentBatchUploadForm.base_fields)
+        self.assertNotIn("confirmed", NfseExternalXmlInboxUploadForm.base_fields)
+        self.assertNotIn("confirmed", NfseReceivedConsultationForm.base_fields)
+
     def test_watermarked_template_receives_dynamic_preview_data(self) -> None:
         preview_data = {
             "numero": "PRÉVIA",

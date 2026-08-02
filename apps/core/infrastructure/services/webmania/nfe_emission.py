@@ -11,7 +11,7 @@ from django.conf import settings
 from django.db import transaction
 from django.http import HttpRequest
 
-from apps.finance.models.finance import NfeEmissionOrigin, NfeItem, NfeRequest
+from apps.finance.models.finance import NfeEmissionOrigin, NfeItem, NfeManualItemOrigin, NfeRequest
 from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain
 from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, require_ready_tax_class_for_normal_emission
@@ -354,24 +354,42 @@ def _extract_product_lines(*, workorder: WorkOrder) -> list[ProductEmissionLine]
 
 
 def _build_manual_product_line(item: Any) -> ProductEmissionLine:
-    product = item.product
-    ncm = _normalize_ncm(product.ncm)
-    if len(ncm) != 8:
-        raise NfeEmissionError(f"Produto '{product.name}' sem NCM válido para emissão de Nota Fiscal.")
+    if item.item_origin == NfeManualItemOrigin.TEMPORARY:
+        snapshot = item.fiscal_snapshot
+        description = str(snapshot.get("description") or "Produto")
+        raw_code = snapshot.get("code")
+        raw_ncm = snapshot.get("ncm")
+        raw_cest = snapshot.get("cest")
+        raw_unit = snapshot.get("unit")
+        raw_origin = snapshot.get("origin_cst")
+    else:
+        product = item.product
+        if product is None:
+            raise NfeEmissionError("Item manual de catálogo sem produto vinculado.")
+        description = str(product.name or "Produto")
+        raw_code = product.code
+        raw_ncm = product.ncm
+        raw_cest = product.cest
+        raw_unit = product.unit
+        raw_origin = product.origin_cst
 
-    code = str(product.code or "").strip()
+    ncm = _normalize_ncm(raw_ncm)
+    if len(ncm) != 8:
+        raise NfeEmissionError(f"Produto '{description}' sem NCM válido para emissão de Nota Fiscal.")
+
+    code = str(raw_code or "").strip()
     if not code:
-        raise NfeEmissionError(f"Produto '{product.name}' sem código para emissão de Nota Fiscal.")
+        raise NfeEmissionError(f"Produto '{description}' sem código para emissão de Nota Fiscal.")
 
     quantity = Decimal(item.quantity)
     base_total = _quantize_money(quantity * Decimal(item.unit_price))
     return ProductEmissionLine(
-        description=str(product.name or "Produto")[:120],
+        description=description[:120],
         code=code[:60],
         ncm=ncm,
-        cest=str(product.cest or "").strip(),
-        unit=_unit_for_api(str(product.unit or "")),
-        origin=int(product.origin_cst or 0),
+        cest=str(raw_cest or "").strip(),
+        unit=_unit_for_api(str(raw_unit or "")),
+        origin=int(raw_origin or 0),
         quantity=quantity,
         base_total=base_total,
     )

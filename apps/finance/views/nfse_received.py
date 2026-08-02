@@ -54,7 +54,7 @@ class NfseReceivedManifestationForm(CoreForm):
 
 
 class NfseReceivedConsultationForm(CoreForm):
-    confirmed = forms.BooleanField(label="Confirmo que a consulta e apenas auxiliar e não substitui o XML validado.", required=True)
+    pass
 
 
 class NfseReceivedDocumentPermissionMixin(LoginRequiredMixin, WorkshopScopedMixin):

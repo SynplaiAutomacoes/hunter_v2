@@ -7,7 +7,10 @@
         <h1 class="text-2xl font-bold">Preparar base fiscal referenciada</h1>
         <p class="text-sm text-base-content/70">Selecione uma NF-e local autorizada, o sequencial fiscal e informe a composicao monetária do item.</p>
     </div>
-    <div class="alert alert-warning">Esta operação apenas prepara dados. Nenhuma NF-e de crédito/débito será emitida. Os valores financeiros são evidências por item e não são inferidos automaticamente.</div>
+    <div class="alert alert-info">
+        <span class="material-icons text-base">info</span>
+        <span>Esta etapa apenas prepara a base fiscal. Nenhuma NF-e de crédito ou débito será transmitida neste momento. Os valores financeiros são evidências por item e não são inferidos automaticamente.</span>
+    </div>
     <form method="post" class="space-y-4">
         {% csrf_token %}
         {{ form|crispy }}

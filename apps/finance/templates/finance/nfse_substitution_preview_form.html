@@ -3,7 +3,10 @@
 {% block content %}
 <div class="mx-auto max-w-4xl space-y-5 p-4">
     <div><h1 class="text-2xl font-bold">Preparar substituição NFS-e</h1><p class="text-base-content/70">Monte e valide o novo RPS sem transmitir.</p></div>
-    <div class="alert alert-warning">A NFS-e original permanece imutável. A divergência contratual sobre UUID ainda bloqueia a transmissão remota.</div>
+    <div class="alert alert-info">
+        <span class="material-icons text-base">info</span>
+        <span>Esta etapa apenas prepara e valida o novo RPS. A NFS-e original permanece inalterada e nenhum documento fiscal será transmitido neste momento.</span>
+    </div>
     <form method="post" class="space-y-4">
         {% csrf_token %}{{ form|crispy }}
         <div class="flex justify-end gap-2"><a class="btn btn-ghost" href="{% url 'finance:nfse_substitution_preview_list' %}">Cancelar</a><button class="btn btn-primary" type="submit">Validar preview</button></div>
