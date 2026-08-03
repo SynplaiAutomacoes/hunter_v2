@@ -44,7 +44,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperationCard(
             value=FiscalOperation.RETURN,
             label="Devolução",
-            description="Selecione a NF-e original e informe os itens que serão devolvidos ou estornados.",
+            description="Pesquise uma NF-e de compra recebida e selecione os produtos que serão devolvidos ao fornecedor.",
             icon="assignment_return",
         ),
         FiscalOperationCard(
@@ -73,16 +73,13 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         ),
     )
     EXISTING_OPERATION_MESSAGES: ClassVar[dict[str, str]] = {
-        FiscalOperation.RETURN: "Selecione a NF-e que será usada como referência para a devolução ou estorno.",
+        FiscalOperation.RETURN: "Pesquise e selecione a NF-e de compra recebida pela oficina.",
         FiscalOperation.CORRECTION: "Selecione a NF-e que receberá a Carta de Correção.",
         FiscalOperation.COMPLEMENTARY: "Selecione a NF-e que será complementada.",
         FiscalOperation.ADJUSTMENT: "Selecione a NF-e que será vinculada à Nota de Ajuste.",
     }
     OPERATION_PERMISSIONS: ClassVar[dict[str, tuple[tuple[str, str, str], ...]]] = {
-        FiscalOperation.RETURN: (
-            ("finance", "fiscaldocument", "issue_nfe_return"),
-            ("finance", "fiscaldocument", "issue_nfe_reversal"),
-        ),
+        FiscalOperation.RETURN: (("finance", "fiscaldocument", "issue_nfe_return"),),
         FiscalOperation.CORRECTION: (("finance", "fiscaldocumentevent", "issue_nfe_correction"),),
         FiscalOperation.COMPLEMENTARY: (("finance", "fiscaldocument", "issue_nfe_complementary_price_quantity"),),
         FiscalOperation.ADJUSTMENT: (("finance", "fiscaldocument", "issue_nfe_adjustment"),),
@@ -143,6 +140,9 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             raise PermissionDenied("Usuário sem permissão para iniciar esta operação fiscal.")
         if operation == FiscalOperation.NORMAL:
             return HttpResponseRedirect(reverse("finance:emission_origin"))
+
+        if operation == FiscalOperation.RETURN:
+            return HttpResponseRedirect(reverse("finance:purchase_return_create"))
 
         if operation == FiscalOperation.TRANSPORT:
             messages.info(self.request, "O transporte faz parte da NF-e. Preencha os dados na emissão por Ordem de Serviço.")

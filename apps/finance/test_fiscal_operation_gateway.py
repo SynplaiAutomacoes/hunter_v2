@@ -164,7 +164,6 @@ class FiscalOperationGatewayTests(SimpleTestCase):
             "apps.finance.services.nfe_adjustment.create_and_emit_nfe_adjustment",
         )
         operations = (
-            FiscalOperation.RETURN,
             FiscalOperation.CORRECTION,
             FiscalOperation.COMPLEMENTARY,
             FiscalOperation.ADJUSTMENT,
@@ -186,6 +185,17 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
         for service_mock in service_mocks:
             service_mock.assert_not_called()
+
+    def test_purchase_return_opens_access_key_workflow(self) -> None:
+        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.RETURN})
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        with patch("apps.finance.views.fiscal_gateway.has_workshop_perm", return_value=True):
+            response = view.form_valid(form)
+
+        self.assertRedirects(response, reverse("finance:purchase_return_create"), fetch_redirect_response=False)
 
     def test_gateway_only_exposes_operations_allowed_by_existing_permissions(self) -> None:
         request = self.factory.get("/finance/emissao/")

@@ -16,6 +16,7 @@ from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .fiscal_gateway import FiscalOperationGatewayView, NfeEmissionOriginGatewayView
 from .nfe_manual import NfeManualEmissionCreateView, NfeManualQuickProductCreateView, NfeManualTransmissionView
+from .purchase_return import PurchaseReturnCreateView, PurchaseReturnPreviewPdfView, PurchaseReturnPreviewView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportView, CommissionReportPdfView
 from .nfe import (
@@ -155,6 +156,11 @@ __all__ = [
     "NfeManualEmissionCreateView",
     "NfeManualQuickProductCreateView",
     "NfeManualTransmissionView",
+    "PurchaseReturnCreateView",
+    "PurchaseReturnPreviewPdfView",
+    "PurchaseReturnPreviewView",
+    "PurchaseReturnTransmitView",
+    "PurchaseReturnWorkflowView",
     "EmissionWorkOrderKitComponentUpdateView",
     "EmissionWorkOrderItemUpdateView",
     "FinancialGroupCreateView",
