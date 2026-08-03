@@ -236,20 +236,78 @@ def _linked_stock_products(*, stock_import: StockImport, snapshot_products: list
     }
 
 
-@transaction.atomic
-def ensure_purchase_fiscal_foundation(*, stock_import: StockImport, requested_by: Any | None = None) -> dict[int, StockImportFiscalItem]:
-    locked_import = StockImport.objects.select_for_update(of=("self",)).select_related("workshop").get(pk=stock_import.pk)
-    if locked_import.method == StockImport.ImportMethods.MANUAL:
-        return {}
-    if locked_import.fiscal_validation_status != StockImport.FiscalValidationStatus.VALIDATED:
-        raise PurchaseNfeValidationError("A importação precisa possuir XML de compra validado antes de gerar rastreabilidade fiscal.")
+def _legacy_purchase_snapshot(stock_import: StockImport) -> dict[str, Any]:
+    access_key = _digits(stock_import.nf_key)
+    if stock_import.status != StockImport.ImportStatus.COMPLETED or len(access_key) != 44:
+        raise PurchaseNfeValidationError("A importação histórica precisa estar concluída e possuir chave de acesso válida.")
+    raw_items = stock_import.items_data if isinstance(stock_import.items_data, list) else []
+    if not raw_items:
+        raise PurchaseNfeValidationError("A importação histórica não possui itens para materialização fiscal.")
 
-    snapshot = locked_import.fiscal_snapshot if isinstance(locked_import.fiscal_snapshot, dict) else {}
-    document_snapshot = snapshot.get("document") if isinstance(snapshot.get("document"), dict) else {}
-    issued_at = _parse_issued_at(document_snapshot.get("issued_at"))
-    if locked_import.fiscal_issued_at != issued_at:
-        locked_import.fiscal_issued_at = issued_at
-        locked_import.save(update_fields=["fiscal_issued_at", "atualizado_em"])
+    products: list[dict[str, Any]] = []
+    sequences: set[int] = set()
+    for index, raw_item in enumerate(raw_items, start=1):
+        if not isinstance(raw_item, dict):
+            raise PurchaseNfeValidationError("A importação histórica possui item inválido.")
+        try:
+            sequence = int(raw_item.get("nitem") or raw_item.get("sequence") or index)
+            quantity = Decimal(str(raw_item.get("qtd") or "0"))
+            unit_value = Decimal(str(raw_item.get("valor") or "0"))
+            total_value = Decimal(str(raw_item.get("valor_total") or quantity * unit_value))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise PurchaseNfeValidationError("A importação histórica possui quantidade ou valor inválido.") from exc
+        if sequence <= 0 or sequence in sequences or quantity <= 0 or unit_value < 0 or total_value < 0:
+            raise PurchaseNfeValidationError("A importação histórica possui sequencial, quantidade ou valor inválido.")
+        sequences.add(sequence)
+        description = str(raw_item.get("desc") or raw_item.get("description") or "").strip()
+        if not description:
+            raise PurchaseNfeValidationError("A importação histórica possui item sem descrição.")
+        taxes = raw_item.get("tributos") if isinstance(raw_item.get("tributos"), dict) else {}
+        products.append(
+            {
+                "sequence": sequence,
+                "product_code": str(raw_item.get("ref") or raw_item.get("product_code") or ""),
+                "description": description,
+                "quantity": str(quantity),
+                "unit": str(raw_item.get("unidade") or raw_item.get("unit") or "UN"),
+                "unit_value": str(unit_value),
+                "total_value": str(total_value),
+                "ncm": str(raw_item.get("ncm") or ""),
+                "cfop": str(raw_item.get("cfop") or ""),
+                "taxes": taxes,
+            }
+        )
+
+    issued_at = stock_import.fiscal_issued_at or stock_import.criado_em
+    return {
+        "schema_version": 1,
+        "source": "historical_stock_import",
+        "document": {
+            "model": "55",
+            "access_key": access_key,
+            "number": stock_import.nf_number_display,
+            "series": "",
+            "issued_at": issued_at.isoformat() if issued_at else "",
+            "environment": "",
+            "protocol_status": "historical_import",
+            "protocol_number": "",
+            "cancelled": False,
+        },
+        "issuer": {"document": _digits(stock_import.supplier_cnpj), "name": str(stock_import.supplier_name or "")},
+        "recipient": {"document": _digits(stock_import.workshop.cnpj), "name": str(stock_import.workshop.name)},
+        "products": products,
+    }
+
+
+def _persist_purchase_fiscal_foundation(
+    *,
+    locked_import: StockImport,
+    snapshot: dict[str, Any],
+    requested_by: Any | None,
+    remote_status: str,
+    response_payload: dict[str, Any],
+    externally_confirmed_at: datetime | None,
+) -> dict[int, StockImportFiscalItem]:
     document_snapshot = snapshot.get("document") if isinstance(snapshot.get("document"), dict) else {}
     products = snapshot.get("products") if isinstance(snapshot.get("products"), list) else []
     access_key = str(document_snapshot.get("access_key") or "")
@@ -266,30 +324,25 @@ def ensure_purchase_fiscal_foundation(*, stock_import: StockImport, requested_by
         if linked_import is not None:
             raise PurchaseNfeValidationError("A chave da compra já está vinculada a outra importação de estoque.")
 
-    validated_at = locked_import.fiscal_validated_at or timezone.now()
+    issued_at = _parse_issued_at(document_snapshot.get("issued_at"))
     document_defaults = {
         "account": getattr(locked_import.workshop, "account", None),
         "origin": FiscalDocumentOrigin.EXTERNAL,
         "purpose": FiscalDocumentPurpose.NORMAL,
         "environment": str(document_snapshot.get("environment") or ""),
         "status": FiscalDocumentStatus.APPROVED,
-        "remote_status": "validated_purchase_xml",
+        "remote_status": remote_status,
         "series": str(document_snapshot.get("series") or ""),
         "number": str(document_snapshot.get("number") or locked_import.nf_number or ""),
         "receipt": str(document_snapshot.get("protocol_number") or ""),
         "request_payload": sanitize_fiscal_payload(snapshot),
-        "response_payload": sanitize_fiscal_payload({"source": "purchase_xml", "validated": True, "validated_at": validated_at.isoformat()}),
+        "response_payload": sanitize_fiscal_payload(response_payload),
         "requested_by": requested_by if getattr(requested_by, "is_authenticated", False) else None,
-        "external_confirmation": True,
-        "external_confirmed_at": validated_at,
+        "external_confirmation": externally_confirmed_at is not None,
+        "external_confirmed_at": externally_confirmed_at,
     }
     if existing_document is None:
-        fiscal_document = FiscalDocument.objects.create(
-            workshop=locked_import.workshop,
-            document_type=FiscalDocumentType.NFE,
-            access_key=access_key,
-            **document_defaults,
-        )
+        fiscal_document = FiscalDocument.objects.create(workshop=locked_import.workshop, document_type=FiscalDocumentType.NFE, access_key=access_key, **document_defaults)
     else:
         fiscal_document = existing_document
         for field_name, value in document_defaults.items():
@@ -297,8 +350,13 @@ def ensure_purchase_fiscal_foundation(*, stock_import: StockImport, requested_by
         fiscal_document.save(update_fields=[*document_defaults.keys(), "atualizado_em"])
 
     locked_import.fiscal_document = fiscal_document
-    locked_import.fiscal_validated_at = validated_at
-    locked_import.save(update_fields=["fiscal_document", "fiscal_validated_at", "atualizado_em"])
+    locked_import.fiscal_snapshot = snapshot
+    locked_import.fiscal_issued_at = issued_at
+    import_update_fields = ["fiscal_document", "fiscal_snapshot", "fiscal_issued_at", "atualizado_em"]
+    if externally_confirmed_at is not None:
+        locked_import.fiscal_validated_at = externally_confirmed_at
+        import_update_fields.append("fiscal_validated_at")
+    locked_import.save(update_fields=import_update_fields)
 
     stock_products = _linked_stock_products(stock_import=locked_import, snapshot_products=products)
     fiscal_items: dict[int, StockImportFiscalItem] = {}
@@ -328,6 +386,48 @@ def ensure_purchase_fiscal_foundation(*, stock_import: StockImport, requested_by
     if stale_items.filter(stock_movements__isnull=False).exists():
         raise PurchaseNfeValidationError("A importação possui itens fiscais rastreados que não existem mais no snapshot validado.")
     stale_items.delete()
-    stock_import.fiscal_document = fiscal_document
+    return fiscal_items
+
+
+@transaction.atomic
+def ensure_purchase_fiscal_foundation(*, stock_import: StockImport, requested_by: Any | None = None) -> dict[int, StockImportFiscalItem]:
+    locked_import = StockImport.objects.select_for_update(of=("self",)).select_related("workshop").get(pk=stock_import.pk)
+    if locked_import.method == StockImport.ImportMethods.MANUAL:
+        return {}
+    if locked_import.fiscal_validation_status != StockImport.FiscalValidationStatus.VALIDATED:
+        raise PurchaseNfeValidationError("A importação precisa possuir XML de compra validado antes de gerar rastreabilidade fiscal.")
+
+    snapshot = locked_import.fiscal_snapshot if isinstance(locked_import.fiscal_snapshot, dict) else {}
+    validated_at = locked_import.fiscal_validated_at or timezone.now()
+    fiscal_items = _persist_purchase_fiscal_foundation(
+        locked_import=locked_import,
+        snapshot=snapshot,
+        requested_by=requested_by,
+        remote_status="validated_purchase_xml",
+        response_payload={"source": "purchase_xml", "validated": True, "validated_at": validated_at.isoformat()},
+        externally_confirmed_at=validated_at,
+    )
+    stock_import.fiscal_document = locked_import.fiscal_document
     stock_import.fiscal_validated_at = validated_at
+    return fiscal_items
+
+
+@transaction.atomic
+def ensure_legacy_purchase_fiscal_foundation(*, stock_import: StockImport, requested_by: Any | None = None) -> dict[int, StockImportFiscalItem]:
+    locked_import = StockImport.objects.select_for_update(of=("self",)).select_related("workshop").get(pk=stock_import.pk)
+    if locked_import.fiscal_document_id and locked_import.fiscal_items.exists():
+        stock_import.fiscal_document = locked_import.fiscal_document
+        return {item.sequence: item for item in locked_import.fiscal_items.all()}
+    snapshot = _legacy_purchase_snapshot(locked_import)
+    fiscal_items = _persist_purchase_fiscal_foundation(
+        locked_import=locked_import,
+        snapshot=snapshot,
+        requested_by=requested_by,
+        remote_status="historical_stock_import",
+        response_payload={"source": "historical_stock_import", "validated": False},
+        externally_confirmed_at=None,
+    )
+    stock_import.fiscal_document = locked_import.fiscal_document
+    stock_import.fiscal_snapshot = snapshot
+    stock_import.fiscal_issued_at = locked_import.fiscal_issued_at
     return fiscal_items

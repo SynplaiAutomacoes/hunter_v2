@@ -70,7 +70,7 @@
                                         <td><span class="font-semibold">{{ purchase.supplier_name|default:"—" }}</span></td>
                                         <td>{{ purchase.fiscal_document.number|default:purchase.nf_number_display }}</td>
                                         <td>{{ purchase.fiscal_document.series|default:"—" }}</td>
-                                        <td>{{ purchase.fiscal_issued_at|date:"d/m/Y"|default:"—" }}</td>
+                                        <td>{{ purchase.purchase_issued_at|date:"d/m/Y"|default:"—" }}</td>
                                         <td class="text-right">R$ {{ purchase.purchase_total|floatformat:2 }}</td>
                                         <td class="text-right">{{ purchase.product_count }} {% if purchase.product_count == 1 %}item{% else %}itens{% endif %}</td>
                                         <td class="text-right">

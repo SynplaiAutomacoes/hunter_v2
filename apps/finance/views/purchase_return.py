@@ -21,6 +21,7 @@ from apps.finance.services.purchase_returns import (
     finalize_purchase_return_request,
     find_purchase_by_id,
     get_or_create_purchase_return_request,
+    legacy_purchase_summary,
     search_purchase_imports,
     save_purchase_return_items,
     preview_purchase_return,
@@ -52,7 +53,7 @@ class PurchaseReturnCreateView(PurchaseReturnPermissionMixin, View):
             messages.error(request, "Selecione uma NF-e de compra válida.")
             return HttpResponseRedirect(reverse("finance:purchase_return_create"))
         try:
-            stock_import = find_purchase_by_id(workshop=self.workshop, stock_import_id=selection_form.cleaned_data["stock_import_id"])
+            stock_import = find_purchase_by_id(workshop=self.workshop, stock_import_id=selection_form.cleaned_data["stock_import_id"], requested_by=request.user)
         except PurchaseReturnError as exc:
             messages.error(request, str(exc))
             return HttpResponseRedirect(reverse("finance:purchase_return_create"))
@@ -65,6 +66,9 @@ class PurchaseReturnCreateView(PurchaseReturnPermissionMixin, View):
     def _context(self, *, form: PurchaseReturnSearchForm, filters: dict[str, Any]) -> dict[str, object]:
         queryset = search_purchase_imports(workshop=self.workshop, filters=filters)
         page_obj = Paginator(queryset, self.paginate_by).get_page(self.request.GET.get("page"))
+        for purchase in page_obj.object_list:
+            if purchase.fiscal_document_id is None:
+                purchase.purchase_total, purchase.product_count = legacy_purchase_summary(purchase)
         query_params = self.request.GET.copy()
         query_params.pop("page", None)
         return {

@@ -36,6 +36,7 @@ from apps.workshops.models.workshops import Workshop
 
 
 ACCESS_KEY = "35" + ("7" * 42)
+LEGACY_ACCESS_KEY = "35" + ("8" * 42)
 User = get_user_model()
 
 
@@ -173,6 +174,81 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertFalse(search_purchase_imports(workshop=self.workshop, filters={}).exists())
         with self.assertRaisesMessage(PurchaseReturnError, "não está autorizada"):
             find_purchase_by_access_key(workshop=self.workshop, access_key=ACCESS_KEY)
+
+    def test_lists_and_selects_legacy_purchase_materializing_foundation_on_demand(self) -> None:
+        legacy_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_number="654",
+            nf_key=LEGACY_ACCESS_KEY,
+            supplier_name="Fornecedor Histórico",
+            supplier_cnpj="88777666000155",
+            status=StockImport.ImportStatus.COMPLETED,
+            items_data=[
+                {
+                    "nitem": 1,
+                    "ref": "MOTOR",
+                    "desc": "Motor histórico",
+                    "qtd": "3.0000",
+                    "valor": "1200.00",
+                    "unidade": "UN",
+                    "ncm": "84099190",
+                    "cfop": "5102",
+                    "linked_product_id": self.motor_stock.product_id,
+                }
+            ],
+        )
+        self.motor_stock.current_quantity = Decimal("5.0000")
+        self.motor_stock.save(update_fields=["current_quantity"])
+
+        list_request = self.factory.get(reverse("finance:purchase_return_create"))
+        list_request.user = self.user
+        list_view = PurchaseReturnCreateView()
+        list_view.setup(list_request)
+        list_view.workshop = self.workshop
+        list_response = list_view.get(list_request)
+
+        self.assertContains(list_response, "Fornecedor Teste")
+        self.assertContains(list_response, "Fornecedor Histórico")
+        self.assertContains(list_response, "654")
+        self.assertContains(list_response, "R$ 3.600,00")
+        self.assertIsNone(legacy_import.fiscal_document_id)
+        for filters in (
+            {"supplier": "histórico"},
+            {"number": "654"},
+            {"issued_from": timezone.localdate(), "issued_until": timezone.localdate()},
+            {"product": "motor historico"},
+            {"value_min": Decimal("3599"), "value_max": Decimal("3601")},
+            {"access_key": LEGACY_ACCESS_KEY[-8:]},
+        ):
+            with self.subTest(legacy_filters=filters):
+                self.assertEqual(list(search_purchase_imports(workshop=self.workshop, filters=filters)), [legacy_import])
+
+        selection_request = self.factory.post(reverse("finance:purchase_return_create"), {"stock_import_id": legacy_import.pk})
+        selection_request.user = self.user
+        selection_view = PurchaseReturnCreateView()
+        selection_view.setup(selection_request)
+        selection_view.workshop = self.workshop
+        response = selection_view.post(selection_request)
+
+        legacy_import.refresh_from_db()
+        return_request = PurchaseReturnRequest.objects.get(source_stock_import=legacy_import)
+        self.assertRedirects(response, f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=2", fetch_redirect_response=False)
+        self.assertIsNotNone(legacy_import.fiscal_document_id)
+        self.assertEqual(legacy_import.fiscal_document.origin, FiscalDocumentOrigin.EXTERNAL)
+        self.assertEqual(legacy_import.fiscal_document.status, FiscalDocumentStatus.APPROVED)
+        legacy_item = legacy_import.fiscal_items.get()
+        self.assertEqual(legacy_item.description, "Motor histórico")
+        self.assertEqual(legacy_item.stock_product, self.motor_stock)
+        find_purchase_by_access_key(workshop=self.workshop, access_key=LEGACY_ACCESS_KEY, requested_by=self.user)
+        self.assertEqual(FiscalDocument.objects.filter(access_key=LEGACY_ACCESS_KEY).count(), 1)
+        self.assertEqual(legacy_import.fiscal_items.count(), 1)
+        self.assertEqual(available_purchase_return_quantities(stock_import=legacy_import), {1: Decimal("3.0000")})
+        save_purchase_return_items(request=return_request, quantities={legacy_item.pk: Decimal("1.0000")})
+        finalize_purchase_return_request(request=return_request)
+        self.assertEqual(available_purchase_return_quantities(stock_import=legacy_import), {1: Decimal("2.0000")})
+        self.motor_stock.refresh_from_db()
+        self.assertEqual(self.motor_stock.current_quantity, Decimal("5.0000"))
 
     def test_ready_intention_reserves_balance_and_blocks_overflow(self) -> None:
         first = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)

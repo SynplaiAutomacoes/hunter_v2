@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from apps.core.infrastructure.search import apply_text_search
+from apps.core.text_normalization import normalize_search_text
 from apps.core.infrastructure.services.webmania.nfe_emission import ProductEmissionLine
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
 from apps.finance.models import FiscalDocumentStatus, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus
@@ -16,6 +18,7 @@ from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurp
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfe_returns import NfeReturnError, calculate_available_return_quantities, create_nfe_return_draft, download_nfe_return_preview_document, transmit_nfe_return_document
 from apps.stock.models import StockImport, StockImportFiscalItem
+from apps.stock.services.purchase_fiscal import PurchaseNfeValidationError, ensure_legacy_purchase_fiscal_foundation
 
 
 class PurchaseReturnError(ValueError):
@@ -26,7 +29,36 @@ def normalize_access_key(value: object) -> str:
     return str(value or "").strip()
 
 
-def find_purchase_by_access_key(*, workshop: Any, access_key: str) -> StockImport:
+def legacy_purchase_summary(stock_import: StockImport) -> tuple[Decimal, int]:
+    items = stock_import.items_data if isinstance(stock_import.items_data, list) else []
+    total = Decimal("0")
+    count = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            quantity = Decimal(str(item.get("qtd") or "0"))
+            unit_value = Decimal(str(item.get("valor") or "0"))
+            item_total = Decimal(str(item.get("valor_total") or quantity * unit_value))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if quantity <= 0:
+            continue
+        total += item_total
+        count += 1
+    return total, count
+
+
+def _is_legacy_purchase(stock_import: StockImport) -> bool:
+    return (
+        stock_import.fiscal_document_id is None
+        and stock_import.status == StockImport.ImportStatus.COMPLETED
+        and len(normalize_access_key(stock_import.nf_key)) == 44
+        and bool(stock_import.items_data)
+    )
+
+
+def find_purchase_by_access_key(*, workshop: Any, access_key: str, requested_by: Any | None = None) -> StockImport:
     normalized_key = normalize_access_key(access_key)
     if len(normalized_key) != 44 or not normalized_key.isdigit():
         raise PurchaseReturnError("Informe uma chave de acesso válida com 44 dígitos.")
@@ -39,6 +71,16 @@ def find_purchase_by_access_key(*, workshop: Any, access_key: str) -> StockImpor
     )
     if stock_import is None:
         raise PurchaseReturnError("Não encontramos uma NF-e de compra válida para esta chave.")
+    if _is_legacy_purchase(stock_import):
+        try:
+            ensure_legacy_purchase_fiscal_foundation(stock_import=stock_import, requested_by=requested_by)
+        except PurchaseNfeValidationError as exc:
+            raise PurchaseReturnError(str(exc)) from exc
+        stock_import = (
+            StockImport.objects.select_related("fiscal_document", "workshop")
+            .prefetch_related("fiscal_items__stock_product__product")
+            .get(pk=stock_import.pk)
+        )
     document = stock_import.fiscal_document
     snapshot = stock_import.fiscal_snapshot if isinstance(stock_import.fiscal_snapshot, dict) else {}
     document_snapshot = snapshot.get("document") if isinstance(snapshot.get("document"), dict) else {}
@@ -54,25 +96,33 @@ def find_purchase_by_access_key(*, workshop: Any, access_key: str) -> StockImpor
     return stock_import
 
 
-def find_purchase_by_id(*, workshop: Any, stock_import_id: int) -> StockImport:
+def find_purchase_by_id(*, workshop: Any, stock_import_id: int, requested_by: Any | None = None) -> StockImport:
     access_key = StockImport.objects.filter(workshop=workshop, pk=stock_import_id).values_list("nf_key", flat=True).first()
     if not access_key:
         raise PurchaseReturnError("Não encontramos a NF-e de compra selecionada.")
-    return find_purchase_by_access_key(workshop=workshop, access_key=access_key)
+    return find_purchase_by_access_key(workshop=workshop, access_key=access_key, requested_by=requested_by)
 
 
 def eligible_purchase_imports(*, workshop: Any) -> QuerySet[StockImport]:
+    normalized_purchase = Q(
+        fiscal_document__origin=FiscalDocumentOrigin.EXTERNAL,
+        fiscal_document__status=FiscalDocumentStatus.APPROVED,
+        fiscal_items__isnull=False,
+    ) & (Q(fiscal_snapshot__document__cancelled=False) | Q(fiscal_snapshot__document__cancelled__isnull=True))
+    legacy_purchase = Q(
+        fiscal_document__isnull=True,
+        status=StockImport.ImportStatus.COMPLETED,
+    ) & ~Q(nf_key="") & ~Q(items_data=[])
     return (
-        StockImport.objects.filter(
-            workshop=workshop,
-            fiscal_document__origin=FiscalDocumentOrigin.EXTERNAL,
-            fiscal_document__status=FiscalDocumentStatus.APPROVED,
-            fiscal_items__isnull=False,
-        )
-        .filter(Q(fiscal_snapshot__document__cancelled=False) | Q(fiscal_snapshot__document__cancelled__isnull=True))
+        StockImport.objects.filter(workshop=workshop)
+        .filter(normalized_purchase | legacy_purchase)
         .select_related("fiscal_document")
-        .annotate(purchase_total=Sum("fiscal_items__total_value"), product_count=Count("fiscal_items", distinct=True))
-        .order_by("-fiscal_issued_at", "-pk")
+        .annotate(
+            purchase_total=Sum("fiscal_items__total_value"),
+            product_count=Count("fiscal_items", distinct=True),
+            purchase_issued_at=Coalesce("fiscal_issued_at", "criado_em"),
+        )
+        .order_by("-purchase_issued_at", "-pk")
         .distinct()
     )
 
@@ -90,25 +140,50 @@ def search_purchase_imports(*, workshop: Any, filters: Mapping[str, Any]) -> Que
         queryset = queryset.filter(nf_key__icontains=access_key)
     issued_from = filters.get("issued_from")
     if issued_from:
-        queryset = queryset.filter(fiscal_issued_at__date__gte=issued_from)
+        queryset = queryset.filter(purchase_issued_at__date__gte=issued_from)
     issued_until = filters.get("issued_until")
     if issued_until:
-        queryset = queryset.filter(fiscal_issued_at__date__lte=issued_until)
+        queryset = queryset.filter(purchase_issued_at__date__lte=issued_until)
     value_min = filters.get("value_min")
-    if value_min is not None:
-        queryset = queryset.filter(purchase_total__gte=value_min)
     value_max = filters.get("value_max")
-    if value_max is not None:
-        queryset = queryset.filter(purchase_total__lte=value_max)
     product = str(filters.get("product") or "").strip()
+    if not product and value_min is None and value_max is None:
+        return queryset
+
+    normalized = queryset.filter(fiscal_document__isnull=False)
     if product:
         matching_items = apply_text_search(
             StockImportFiscalItem.objects.filter(stock_import_id=OuterRef("pk")),
             search_value=product,
             lookups=("description", "product_code", "stock_product__product__name"),
         )
-        queryset = queryset.annotate(has_matching_product=Exists(matching_items)).filter(has_matching_product=True)
-    return queryset
+        normalized = normalized.annotate(has_matching_product=Exists(matching_items)).filter(has_matching_product=True)
+    if value_min is not None:
+        normalized = normalized.filter(purchase_total__gte=value_min)
+    if value_max is not None:
+        normalized = normalized.filter(purchase_total__lte=value_max)
+
+    normalized_product = normalize_search_text(product)
+    legacy_ids: list[int] = []
+    legacy_candidates = queryset.filter(fiscal_document__isnull=True).select_related(None).only("pk", "items_data")
+    for legacy in legacy_candidates:
+        total, _count = legacy_purchase_summary(legacy)
+        if value_min is not None and total < value_min:
+            continue
+        if value_max is not None and total > value_max:
+            continue
+        if normalized_product:
+            legacy_items = legacy.items_data if isinstance(legacy.items_data, list) else []
+            searchable_values = [
+                normalize_search_text(value)
+                for item in legacy_items
+                if isinstance(item, dict)
+                for value in (item.get("desc"), item.get("ref"))
+            ]
+            if not any(normalized_product in value for value in searchable_values):
+                continue
+        legacy_ids.append(legacy.pk)
+    return queryset.filter(Q(pk__in=normalized.values("pk")) | Q(pk__in=legacy_ids))
 
 
 def available_purchase_return_quantities(*, stock_import: StockImport, exclude_request: PurchaseReturnRequest | None = None) -> dict[int, Decimal]:
