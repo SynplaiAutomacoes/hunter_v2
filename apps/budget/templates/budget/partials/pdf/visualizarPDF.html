@@ -263,6 +263,13 @@
                 <p class="text-2xl font-bold leading-none m-0">#{{ budget.id }}</p>
                 {% if workorder.delivered_at %}
                     <p class="text-[11px]">Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }}</p>
+                    {% if service_warranty_status_label %}
+                    <p class="text-[11px] mt-1">
+                        Garantia: {{ service_warranty_plan_label }}
+                        {% if service_warranty_expires_at %} — válida até {{ service_warranty_expires_at|date:"d/m/Y" }}{% endif %}
+                        — <strong>{{ service_warranty_status_label }}</strong>
+                    </p>
+                    {% endif %}
                 {% elif budget.customer_agreed_departure_at %}
                     <p class="text-[11px] mt-1">Data prevista de entrega: {{ budget.customer_agreed_departure_at|date:"d/m/Y" }}</p>
                     <small class="block text-[10px] text-gray-500 leading-tight mt-1">Essa data pode ser alterada caso haja algum imprevisto. O cliente será informado caso ocorra qualquer mudança.</small>
@@ -486,6 +493,13 @@
             <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
             {% if workorder and workorder.delivered_at %}
             <p>Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }} hrs</p>
+            {% if service_warranty_status_label %}
+            <p>
+                Garantia: {{ service_warranty_plan_label }}
+                {% if service_warranty_expires_at %} — válida até {{ service_warranty_expires_at|date:"d/m/Y" }}{% endif %}
+                — <span class="font-bold">{{ service_warranty_status_label }}</span>
+            </p>
+            {% endif %}
             {% endif %}
             <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
         </div>

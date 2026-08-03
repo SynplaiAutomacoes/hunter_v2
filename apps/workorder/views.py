@@ -730,7 +730,12 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
-        approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder, require_unsigned_delivery_reason=False)
+        approval_form = WorkOrderCustomerApprovalForm(
+            request.POST,
+            workorder=workorder,
+            require_unsigned_delivery_reason=False,
+            require_warranty_plan=False,
+        )
 
         if not approval_form.is_valid():
             km_final_errors = approval_form.errors.get("km_final", [])
@@ -1330,6 +1335,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     last_oil_change_date=approval_form.cleaned_data.get("last_oil_change_date"),
                     last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
                     review_plan=approval_form.cleaned_data.get("review_plan"),
+                    warranty_plan=approval_form.cleaned_data.get("warranty_plan"),
                 )
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
