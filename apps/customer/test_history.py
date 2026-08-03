@@ -44,6 +44,8 @@ class CustomerHistoryPricingTests(TestCase):
         freeze_mock.assert_not_called()
         for row in context["customer_history_rows"]:
             self.assertIsNotNone(row["total_value"])
+            self.assertIn("delivered_at", row)
+            self.assertIn("warranty_status_label", row)
 
     def test_history_query_count_stays_bounded_with_more_budgets(self) -> None:
         workshop = create_workshop(suffix=2)
