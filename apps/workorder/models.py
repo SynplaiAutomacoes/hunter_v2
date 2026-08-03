@@ -1003,7 +1003,7 @@ class WorkOrderItem(TimeStampedModel):
 
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
+    is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
     product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)

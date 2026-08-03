@@ -1155,7 +1155,7 @@ class BudgetItem(TimeStampedModel):
         blank=True,
         default="",
     )
-    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
+    is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     ## Produto
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
