@@ -14,6 +14,7 @@
         transportDailyDisplay: '',
         workDays: {{ current_work_days }},
         transportTotalDisplay: '{{ current_transport_total }}',
+        pendingSyncSubmit: false,
         parseMoney(value) {
             const parsed = Number.parseFloat(String(value || '').trim());
             return Number.isFinite(parsed) ? parsed : 0;
@@ -29,6 +30,20 @@
             const raw = detailValue !== undefined && detailValue !== null ? detailValue : (amountInput && amountInput.value);
             this.transportDailyDisplay = raw || '';
             this.updateTransportTotal();
+        },
+        handleCollaboratorSubmit(event) {
+            if (this.pendingSyncSubmit) {
+                this.pendingSyncSubmit = false;
+                return;
+            }
+            event.preventDefault();
+            this.$refs.syncMonthlyCostsModal.showModal();
+        },
+        confirmSyncMonthlyCosts(shouldSync) {
+            this.$refs.syncMonthlyCostsInput.value = shouldSync ? '1' : '0';
+            this.pendingSyncSubmit = true;
+            this.$refs.syncMonthlyCostsModal.close();
+            this.$nextTick(() => this.$refs.collaboratorForm.requestSubmit());
         },
         init() {
             const amountInput = document.getElementById('id_transport_allowance_daily_0');
@@ -47,8 +62,9 @@
     }"
     class="space-y-6"
 >
-    <form method="post" novalidate>
+    <form method="post" novalidate x-ref="collaboratorForm" @submit="handleCollaboratorSubmit($event)">
         {% csrf_token %}
+        <input type="hidden" name="sync_monthly_costs" value="" x-ref="syncMonthlyCostsInput">
 
         {% if form.non_field_errors %}
             <div class="alert alert-error">
@@ -127,5 +143,7 @@
             <button type="submit" class="btn-form-save">Salvar</button>
         </div>
     </form>
+
+    {% include 'collaborators/partials/sync_monthly_costs_confirm_modal.html' %}
 </div>
 {% endblock %}
