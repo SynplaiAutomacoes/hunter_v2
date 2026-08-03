@@ -84,6 +84,29 @@ def consult_nfe_item(*, item: NfeItem) -> dict[str, Any]:
         raise NfeConsultaError("Resposta inválida da API de consulta da Nota Fiscal.") from exc
 
 
+def consult_nfe_document(*, workshop: Any, remote_uuid: str = "", access_key: str = "") -> dict[str, Any]:
+    normalized_uuid = str(remote_uuid or "").strip()
+    normalized_key = str(access_key or "").strip()
+    if not normalized_uuid and not normalized_key:
+        raise NfeConsultaError("Não foi possível consultar a Nota Fiscal sem UUID ou chave de acesso.")
+    params = {"uuid": normalized_uuid} if normalized_uuid else {"chave": normalized_key}
+    try:
+        response = requests.get(_build_consulta_url(), params=params, headers=_build_headers(workshop=workshop), timeout=30)
+        response.raise_for_status()
+        payload = response.json()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao consultar status da Nota Fiscal", scope="nfe")
+        raise NfeConsultaError(message) from exc
+    except ValueError as exc:
+        raise NfeConsultaError("Resposta inválida da API de consulta da Nota Fiscal.") from exc
+    if not isinstance(payload, dict):
+        raise NfeConsultaError("Resposta inválida da API de consulta da Nota Fiscal.")
+    error_message = extract_webmania_error_message(payload.get("error") or payload.get("msg") or payload.get("message"), scope="nfe")
+    if error_message:
+        raise NfeConsultaError(error_message)
+    return payload
+
+
 def reconcile_nfe_item(*, item: NfeItem) -> NfeItem:
     try:
         payload = consult_nfe_item(item=item)

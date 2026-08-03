@@ -17,6 +17,7 @@ from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWo
 from .fiscal_gateway import FiscalOperationGatewayView, NfeEmissionOriginGatewayView
 from .nfe_manual import NfeManualEmissionCreateView, NfeManualQuickProductCreateView, NfeManualTransmissionView
 from .purchase_return import PurchaseReturnCreateView, PurchaseReturnPreviewPdfView, PurchaseReturnPreviewView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
+from .transport_request import TransportCreateView, TransportPreviewPdfView, TransportPreviewView, TransportTransmitView, TransportWorkflowView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportView, CommissionReportPdfView
 from .nfe import (
@@ -161,6 +162,11 @@ __all__ = [
     "PurchaseReturnPreviewView",
     "PurchaseReturnTransmitView",
     "PurchaseReturnWorkflowView",
+    "TransportCreateView",
+    "TransportPreviewPdfView",
+    "TransportPreviewView",
+    "TransportTransmitView",
+    "TransportWorkflowView",
     "EmissionWorkOrderKitComponentUpdateView",
     "EmissionWorkOrderItemUpdateView",
     "FinancialGroupCreateView",

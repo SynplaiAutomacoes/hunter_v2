@@ -28,6 +28,7 @@ from apps.finance.services.nfe_returns import (
     validate_nfe_return_document_link,
     validate_nfe_return_payload_identity,
 )
+from apps.finance.services.transport_requests import TransportRequestError, confirm_transport_document_from_payload, is_ambiguous_transport_webhook, resolve_transport_document_for_webhook
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
 from apps.finance.services.nfse_cancellation import NfseCancellationError, confirm_nfse_cancellation_from_payload
@@ -443,6 +444,22 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
             return True
         if is_ambiguous_nfe_return_webhook(payload=payload):
             _mark_event_deferred(event, error=f"Devolucao/estorno NF-e {event_uuid or str(payload.get('chave') or '').strip()} ambiguo entre documentos derivados.")
+            return False
+
+        transport_document = resolve_transport_document_for_webhook(payload=payload)
+        if transport_document is not None:
+            try:
+                with transaction.atomic():
+                    transport_document = transport_document.__class__.objects.select_for_update().get(pk=transport_document.pk)
+                    if not _is_regressive_status(model="nfe", current_status=transport_document.status, incoming_status=str(payload.get("status") or "")):
+                        confirm_transport_document_from_payload(document=transport_document, response_payload=payload)
+            except TransportRequestError as exc:
+                _mark_event_deferred(event, error=str(exc))
+                return False
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_transport_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"Nota de Transporte {event_uuid or str(payload.get('chave') or '').strip()} ambigua entre documentos.")
             return False
 
         nfe_item = _unique_or_none(NfeItem.objects.filter(uuid=event_uuid).select_related("request"))

@@ -68,6 +68,7 @@ class StockMovement(TimeStampedModel):
     class MovementReason(models.TextChoices):
         STANDARD = "STANDARD", "Movimentação padrão"
         PURCHASE_RETURN = "PURCHASE_RETURN", "Saída por devolução de compra"
+        TRANSPORT = "TRANSPORT", "Saída por Nota de Transporte"
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="movements")
     stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça", related_name="movements")
@@ -75,6 +76,7 @@ class StockMovement(TimeStampedModel):
     source_import_item = models.ForeignKey("stock.StockImportFiscalItem", on_delete=models.PROTECT, null=True, blank=True, related_name="stock_movements", verbose_name="Item fiscal de origem")
     fiscal_document = models.ForeignKey("finance.FiscalDocument", on_delete=models.PROTECT, null=True, blank=True, related_name="stock_movements", verbose_name="Documento fiscal")
     purchase_return_item = models.OneToOneField("finance.PurchaseReturnRequestItem", on_delete=models.PROTECT, null=True, blank=True, related_name="stock_movement", verbose_name="Item da devolução de compra")
+    transport_item = models.OneToOneField("finance.TransportRequestItem", on_delete=models.PROTECT, null=True, blank=True, related_name="stock_movement", verbose_name="Item da Nota de Transporte")
     type = models.CharField(max_length=10, choices=MovementType.choices, verbose_name="Tipo")
     reason = models.CharField(max_length=24, choices=MovementReason.choices, default=MovementReason.STANDARD, db_index=True, verbose_name="Motivo")
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, verbose_name="Fornecedor", null=True, blank=True, related_name="movements")
