@@ -3,6 +3,7 @@ from .financial_group import FinancialGroup
 from .payment_method import PaymentMethod
 from .movement_group import MovementGroup
 from .financial_movement import FinancialMovement
+from .purchase_return import PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
 
 __all__ = [
     "FinancialGroup",
@@ -49,6 +50,10 @@ __all__ = [
     "NfseSubstitutionPreview",
     "NfseSubstitution",
     "PaymentMethod",
+    "PurchaseReturnRequest",
+    "PurchaseReturnRequestItem",
+    "PurchaseReturnRequestStatus",
+    "PurchaseReturnStockStatus",
     "TaxClassNfe",
     "TaxClassNfeCofinsScenario",
     "TaxClassNfeIcmsScenario",

@@ -43,6 +43,7 @@ from apps.finance.services.fiscal_attempts import (
 )
 from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values
 from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError
+from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.services.nfe_events import ensure_fiscal_document_for_nfe_item
 from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
@@ -137,7 +138,7 @@ def _decimal(value: Any) -> Decimal:
 
 
 def _product_sequence(product: dict[str, Any], *, fallback_index: int | None = None) -> int:
-    for key in ("sequencial", "sequencia", "numero_item", "item", "produto"):
+    for key in ("sequencial", "sequence", "sequencia", "numero_item", "item", "produto"):
         value = str(product.get(key) or "").strip()
         if value.isdigit() and int(value) > 0:
             return int(value)
@@ -169,6 +170,9 @@ def _extract_products_from_payload(payload: Any) -> list[dict[str, Any]]:
     products = payload.get("produtos")
     if isinstance(products, list):
         return [product for product in products if isinstance(product, dict)]
+    normalized_products = payload.get("products")
+    if isinstance(normalized_products, list):
+        return [product for product in normalized_products if isinstance(product, dict)]
     nested = payload.get("pedido") if isinstance(payload.get("pedido"), dict) else {}
     nested_products = nested.get("produtos") if isinstance(nested, dict) else None
     if isinstance(nested_products, list):
@@ -262,7 +266,7 @@ def _original_quantities(document: FiscalDocument) -> dict[int, Decimal]:
         for index, product in enumerate(_extract_products_from_payload(payload), start=1):
             try:
                 sequence = _product_sequence(product, fallback_index=index)
-                quantity = _decimal(product.get("quantidade"))
+                quantity = _decimal(product.get("quantidade") if product.get("quantidade") is not None else product.get("quantity"))
             except NfeReturnError:
                 continue
             quantities[sequence] = quantity
@@ -461,7 +465,7 @@ def create_nfe_return_draft(
             raise NfeReturnError("Documento original precisa possuir chave de acesso válida.")
         if locked_original.origin == FiscalDocumentOrigin.LOCAL and locked_original.legacy_nfe_item_id and not is_local_nfe_eligible_for_return(locked_original.legacy_nfe_item):
             raise NfeReturnError("Devolução ou estorno permitidos somente para NF-e local autorizada.")
-        if locked_original.origin == FiscalDocumentOrigin.EXTERNAL and products:
+        if locked_original.origin == FiscalDocumentOrigin.EXTERNAL and products and not _original_quantities(locked_original):
             raise NfeReturnError("NF-e externa minima sem itens importados permite somente devolução total ou estorno; devolução parcial exige XML/importacao validada.")
         if purpose == FiscalDocumentPurpose.REVERSAL:
             products = []
@@ -498,6 +502,56 @@ def create_nfe_return_draft(
             metadata=sanitize_fiscal_payload({"operation_type": operation_type}),
         )
         return derived_document
+
+
+def download_nfe_return_preview_document(
+    *,
+    original_document: FiscalDocument,
+    products: list[dict[str, Any]],
+    natureza_operacao: str,
+    codigo_cfop: str,
+    classe_imposto: str = "",
+    informacoes_complementares: str = "",
+    request: HttpRequest | None = None,
+) -> DownloadedWebmaniaDocument:
+    _validate_available_quantities(original_document=original_document, purpose=FiscalDocumentPurpose.RETURN, products=products)
+    payload = _build_return_payload(
+        original_document=original_document,
+        purpose=FiscalDocumentPurpose.RETURN,
+        products=products,
+        natureza_operacao=natureza_operacao,
+        codigo_cfop=codigo_cfop,
+        classe_imposto=classe_imposto,
+        informacoes_complementares=informacoes_complementares,
+        request=request,
+    )
+    payload["previa_danfe"] = True
+    try:
+        response = requests.post(_build_return_url(), json=payload, headers=_build_headers(workshop=original_document.workshop), timeout=60)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao gerar prévia da devolução", scope="nfe")
+        raise NfeReturnError(message) from exc
+
+    content_type = str(response.headers.get("Content-Type") or "application/pdf")
+    if "json" not in content_type.lower():
+        return DownloadedWebmaniaDocument(content=response.content, content_type=content_type, content_disposition=str(response.headers.get("Content-Disposition") or ""))
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NfeReturnError("Resposta inválida da API de prévia da devolução.") from exc
+    if not isinstance(data, dict):
+        raise NfeReturnError("Resposta inválida da API de prévia da devolução.")
+    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
+    if error_message:
+        raise NfeReturnError(error_message)
+    preview_url = str(data.get("preview_url") or data.get("danfe") or data.get("url") or "").strip()
+    if not preview_url:
+        raise NfeReturnError("A API não retornou o PDF da prévia da devolução.")
+    try:
+        return download_webmania_document(workshop=original_document.workshop, url=preview_url)
+    except WebmaniaDocumentDownloadError as exc:
+        raise NfeReturnError(str(exc)) from exc
 
 
 def create_nfe_return_draft_from_item(
@@ -616,6 +670,7 @@ def confirm_nfe_return_document_from_payload(*, document: FiscalDocument, respon
     document = apply_nfe_return_document_payload(document=document, response_payload=response_payload)
     attempt = _return_attempt_for_document(document=document)
     if attempt is None:
+        _sync_purchase_return_workflow(document)
         return document
 
     if document.status == FiscalDocumentStatus.APPROVED:
@@ -623,7 +678,16 @@ def confirm_nfe_return_document_from_payload(*, document: FiscalDocument, respon
     elif document.status in {FiscalDocumentStatus.REPROVED, FiscalDocumentStatus.DENIED}:
         message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolução ou estorno rejeitado."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
+    _sync_purchase_return_workflow(document)
     return document
+
+
+def _sync_purchase_return_workflow(document: FiscalDocument) -> None:
+    if not hasattr(document, "purchase_return_request"):
+        return
+    from apps.finance.services.purchase_returns import sync_purchase_return_status
+
+    sync_purchase_return_status(request_instance=document.purchase_return_request)
 
 
 def validate_nfe_return_payload_identity(
