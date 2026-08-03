@@ -3,6 +3,11 @@ from apps.core.infrastructure.services.dashboard_query_service import (
     INDICATOR_LABELS,
     get_financial_indicator_data,
 )
+from apps.core.infrastructure.services.email import (
+    DjangoSmtpEmailService,
+    EmailServiceFactory,
+    get_email_service,
+)
 from apps.core.infrastructure.services.fiscal.service import WebmaniaFiscalService
 from apps.core.infrastructure.services.signature import (
     SignatureDeliveryServiceError,
@@ -53,4 +58,8 @@ __all__ = [
     "WhatsAppHunterService",
     "WhatsAppServiceFactory",
     "get_whatsapp_service",
+    # Email
+    "DjangoSmtpEmailService",
+    "EmailServiceFactory",
+    "get_email_service",
 ]

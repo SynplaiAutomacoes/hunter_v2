@@ -1,3 +1,5 @@
+import re
+
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm, SetPasswordForm, UserCreationForm, UsernameField
@@ -11,6 +13,19 @@ from apps.core.presentation.widgets import EmailInput, TextInput, CPForCNPJInput
 User = get_user_model()
 
 USER_PLACEHOLDER = {"placeholder": "user123"}
+
+
+def _phone_lookup_q(identifier: str) -> Q | None:
+    digits = re.sub(r"\D", "", identifier)
+    if not digits or len(digits) < 8:
+        return None
+    patterns = [digits]
+    if not digits.startswith("55"):
+        patterns.append("55" + digits)
+    phone_q = Q(phone__regex="\\D*".join(patterns[0]))
+    for pattern in patterns[1:]:
+        phone_q |= Q(phone__regex="\\D*".join(pattern))
+    return phone_q
 
 
 class LoginForm(AuthenticationForm):
@@ -80,8 +95,8 @@ class SignUpForm(UserCreationForm):
 
 class UserIdentificationForm(forms.Form):
     identifier = forms.CharField(
-        label="Usuário ou E-mail",
-        widget=TextInput(attrs={"placeholder": "Digite seu usuário ou e-mail"}),
+        label="Usuário, e-mail ou número de WhatsApp",
+        widget=TextInput(attrs={"placeholder": "Digite seu usuário, e-mail ou WhatsApp"}),
     )
 
     def __init__(self, *args, **kwargs):
@@ -93,15 +108,20 @@ class UserIdentificationForm(forms.Form):
     def clean_identifier(self):
         identifier = str(self.cleaned_data.get("identifier") or "").strip().lower()
         if not identifier:
-            raise forms.ValidationError("Informe seu usuário ou e-mail.")
+            raise forms.ValidationError("Informe seu usuário, e-mail ou número de WhatsApp.")
 
-        try:
-            self.user = User.objects.get(Q(username__iexact=identifier) | Q(email__iexact=identifier))
-        except User.DoesNotExist:
+        base_qs = User.objects.filter(Q(username__iexact=identifier) | Q(email__iexact=identifier))
+        phone_q = _phone_lookup_q(identifier)
+        if phone_q is not None:
+            base_qs = base_qs | User.objects.filter(phone_q)
+
+        users = list(base_qs.distinct())
+        if not users:
             raise forms.ValidationError("Usuário não encontrado.")
-        except User.MultipleObjectsReturned:
+        if len(users) > 1:
             raise forms.ValidationError("Identificação ambígua. Use o e-mail.")
 
+        self.user = users[0]
         return identifier
 
 

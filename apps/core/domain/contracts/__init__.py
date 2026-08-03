@@ -1,4 +1,5 @@
 from apps.core.domain.contracts.documents import *  # noqa: F401, F403
+from apps.core.domain.contracts.email import *  # noqa: F401, F403
 from apps.core.domain.contracts.fiscal import *  # noqa: F401, F403
 from apps.core.domain.contracts.sefaz import *  # noqa: F401, F403
 from apps.core.domain.contracts.messaging import *  # noqa: F401, F403
@@ -19,6 +20,11 @@ __all__ = [
     "FiscalServiceError",
     "DownloadedDocument",
     "IFiscalService",
+    # email
+    "EmailServiceError",
+    "EmailConfigurationError",
+    "SendEmailResponse",
+    "IEmailService",
     # sefaz
     "SefazServiceError",
     "ISefazService",

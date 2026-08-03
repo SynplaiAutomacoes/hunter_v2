@@ -178,6 +178,19 @@ Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (def
 | `ENDPOINT` | endpoint S3 compativel |
 | `REGION` | regiao do bucket, normalmente `auto` |
 
+### E-mail (SMTP)
+
+Usado para envio de e-mails transacionais (fluxos de autenticacao por codigo). O provider `DjangoSmtpEmailService` usa o `EmailBackend` SMTP do Django e le as credenciais destas variaveis:
+
+| Variavel | Uso |
+| --- | --- |
+| `EMAIL_HOST` | host SMTP (default `smtp.gmail.com`) |
+| `EMAIL_PORT` | porta SMTP (default `587`) |
+| `EMAIL_HOST_USER` | usuario/endereco SMTP (ex.: app password do Gmail) |
+| `EMAIL_HOST_PASSWORD` | senha de aplicativo do SMTP (nunca logada) |
+| `EMAIL_USE_TLS` | habilita TLS (`1`/`true`) |
+| `DEFAULT_FROM_EMAIL` | remetente padrao; obrigatorio para `get_email_service()` funcionar |
+
 ### Seguranca e log em producao
 
 | Variavel | Uso |
@@ -250,6 +263,13 @@ SECRET_ACCESS_KEY=
 BUCKET=
 ENDPOINT=https://storage.railway.app
 REGION=auto
+
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+EMAIL_USE_TLS=1
+DEFAULT_FROM_EMAIL=
 
 DJANGO_LOG_LEVEL=DEBUG
 DJANGO_ROOT_LOG_LEVEL=DEBUG
