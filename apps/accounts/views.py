@@ -17,7 +17,7 @@ from .forms import (
     UserIdentificationForm,
 )
 from .forms import LoginForm
-from ..core.infrastructure.services import get_whatsapp_service
+from ..core.infrastructure.services import get_email_service, get_whatsapp_service
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,160 @@ def _send_whatsapp(user, code: str, tipo: str, phone: str | None = None) -> bool
         return False
 
 
+_EMAIL_SUBJECTS = {
+    "password_reset": "Código de recuperação de senha",
+    "login_code": "Código de login",
+}
+
+
+def _mensagem_email(tipo: str, user, code: str) -> str:
+    nome = user.first_name or user.username
+
+    mensagens = {
+        "password_reset": {
+            "titulo": "Código de recuperação de senha",
+            "texto": "Seu código de verificação é",
+            "expira": "15 minutos",
+        },
+        "login_code": {
+            "titulo": "Código de login",
+            "texto": "Seu código de acesso é",
+            "expira": "5 minutos",
+        },
+    }
+
+    data = mensagens[tipo]
+
+    return f"""{data["titulo"]}
+
+Olá {nome}!
+
+{data["texto"]}: {code}
+
+Este código expira em {data["expira"]}.
+
+Se você não solicitou esta ação, ignore esta mensagem.
+
+Equipe Hunter"""
+
+
+def _mask_email(email: str) -> str:
+    if not email:
+        return email
+    local, _, domain = email.partition("@")
+    if len(local) <= 2:
+        return email
+    return local[:2] + "*" * (len(local) - 2) + "@" + domain
+
+
+def _get_user_email(user) -> str | None:
+    email = str(getattr(user, "email", "") or "").strip().lower()
+    return email or None
+
+
+def _send_email(user, code: str, tipo: str, email: str | None = None) -> bool:
+    if not email:
+        email = _get_user_email(user)
+    if not email:
+        logger.warning("user_email_missing", extra={"user_id": user.id, "tipo": tipo})
+        return False
+
+    try:
+        get_email_service().send(to_email=email, subject=_EMAIL_SUBJECTS[tipo], body=_mensagem_email(tipo=tipo, user=user, code=code))
+        logger.info("email_sent", extra={"to": _mask_email(email), "tipo": tipo, "user_id": user.id})
+        return True
+
+    except Exception as e:
+        logger.error("email_send_failed", extra={"user_id": user.id, "tipo": tipo, "error": str(e)})
+        return False
+
+
+def _infer_method(identifier: str, user) -> tuple[str, str | None]:
+    if "@" in identifier:
+        return ("email", _get_user_email(user))
+    phone = _get_user_phone(user)
+    if phone:
+        return ("whatsapp", phone)
+    email = _get_user_email(user)
+    if email:
+        return ("email", email)
+    return ("whatsapp", None)
+
+
+def _method_missing_error(tipo: str, method: str) -> str:
+    if method == "email":
+        if tipo == "password_reset":
+            return "Conta sem e-mail cadastrado. Procure a oficina para recuperar sua senha."
+        return "Conta sem e-mail cadastrado."
+    if tipo == "password_reset":
+        return "Conta sem número de WhatsApp cadastrado. Procure a oficina para recuperar sua senha."
+    return "Conta sem número de WhatsApp cadastrado."
+
+
+def _identify_and_send_code(request, tipo: str, user, identifier: str):
+    session_user_key = f"{tipo}_user_id"
+    session_token_key = f"{tipo}_token_id"
+    session_method_key = f"{tipo}_method"
+
+    from apps.accounts.models import LoginCodeToken, PasswordResetToken
+
+    token_model = LoginCodeToken if tipo == "login_code" else PasswordResetToken
+
+    method, destination = _infer_method(identifier, user)
+
+    if not destination:
+        channel = "email" if method == "email" else "phone"
+        logger.warning(f"{tipo}_user_no_{channel}", extra={"user_id": user.id})
+        return JsonResponse({"success": False, "step": 1, "error": _method_missing_error(tipo, method)}, status=400)
+
+    try:
+        token = token_model.create_token(user)
+    except ValueError as e:
+        logger.warning(f"{tipo}_token_creation_failed", extra={"user_id": user.id, "error": str(e)})
+        return JsonResponse({"success": False, "step": 1, "error": str(e)}, status=400)
+
+    logger.info(f"{tipo}_token_created", extra={"user_id": user.id, "token_id": token.pk})
+
+    if method == "email":
+        sent = _send_email(tipo=tipo, user=user, code=token.code, email=destination)
+        label = "e-mail"
+    else:
+        sent = _send_whatsapp(tipo=tipo, user=user, code=token.code, phone=destination)
+        label = "WhatsApp"
+
+    if not sent:
+        logger.error(f"{tipo}_send_failed", extra={"user_id": user.id, "method": method})
+        return JsonResponse(
+            {"success": False, "step": 1, "error": f"Erro ao enviar código via {label}. Tente novamente."},
+            status=500,
+        )
+
+    request.session[session_user_key] = user.id
+    request.session[session_token_key] = token.pk
+    request.session[session_method_key] = method
+
+    masked = _mask_email(destination) if method == "email" else _mask_phone(destination)
+    return JsonResponse(
+        {
+            "success": True,
+            "step": 2,
+            "method": method,
+            "destination": masked,
+            "message": f"Código enviado via {label}!",
+        }
+    )
+
+
+def _resend_by_method(tipo: str, user, code: str, method: str) -> tuple[bool, str]:
+    if method == "email":
+        email = _get_user_email(user)
+        sent = _send_email(tipo=tipo, user=user, code=code, email=email)
+        return sent, _mask_email(email) if email else ""
+    phone = _get_user_phone(user)
+    sent = _send_whatsapp(tipo=tipo, user=user, code=code, phone=phone)
+    return sent, _mask_phone(phone) if phone else ""
+
+
 class UserLoginView(LoginView):
     template_name = "login.html"
     authentication_form = LoginForm
@@ -163,44 +317,7 @@ class PasswordResetWizardView(View):
             if form.is_valid():
                 user = form.user
                 logger.info("password_reset_user_validated", extra={"user_id": user.id})
-
-                phone = _get_user_phone(user)
-                if not phone:
-                    logger.warning("password_reset_user_no_phone", extra={"user_id": user.id})
-                    return JsonResponse(
-                        {
-                            "success": False,
-                            "step": 1,
-                            "error": "Conta sem número de WhatsApp cadastrado. Procure a oficina para recuperar sua senha.",
-                        },
-                        status=400,
-                    )
-
-                token = PasswordResetToken.create_token(user)
-                logger.info("password_reset_token_created", extra={"user_id": user.id, "token_id": token.pk})
-
-                sent = _send_whatsapp(tipo="password_reset", user=user, code=token.code, phone=phone)
-                if not sent:
-                    logger.error("password_reset_whatsapp_failed", extra={"user_id": user.id})
-                    return JsonResponse(
-                        {
-                            "success": False,
-                            "step": 1,
-                            "error": "Erro ao enviar código via WhatsApp. Tente novamente.",
-                        },
-                        status=500,
-                    )
-
-                request.session["password_reset_user_id"] = user.id
-                request.session["password_reset_token_id"] = token.pk
-                return JsonResponse(
-                    {
-                        "success": True,
-                        "step": 2,
-                        "phone": _mask_phone(phone),
-                        "message": "Código enviado via WhatsApp!",
-                    }
-                )
+                return _identify_and_send_code(request, tipo="password_reset", user=user, identifier=form.cleaned_data["identifier"])
             logger.warning("password_reset_step1_validation_failed", extra={"errors": str(form.errors)})
             return JsonResponse({"success": False, "step": 1, "errors": form.errors}, status=400)
 
@@ -312,13 +429,17 @@ class PasswordResetResendView(View):
         token = PasswordResetToken.create_token(user)
         request.session["password_reset_token_id"] = token.pk
 
-        phone = _get_user_phone(user)
-        _send_whatsapp(tipo="password_reset", user=user, code=token.code, phone=phone)
+        method = request.session.get("password_reset_method", "whatsapp")
+        sent, destination = _resend_by_method(tipo="password_reset", user=user, code=token.code, method=method)
+        if not sent:
+            logger.error("password_reset_resend_failed", extra={"user_id": user_id, "method": method})
+            return JsonResponse({"success": False, "error": "Erro ao reenviar código. Tente novamente."}, status=500)
 
         return JsonResponse(
             {
                 "success": True,
-                "phone": _mask_phone(phone) if phone else "",
+                "method": method,
+                "destination": destination,
                 "message": "Novo código enviado!",
             }
         )
@@ -351,41 +472,7 @@ class LoginCodeWizardView(View):
             if form.is_valid():
                 user = form.user
                 logger.info("login_code_user_validated", extra={"user_id": user.id})
-
-                phone = _get_user_phone(user)
-                if not phone:
-                    logger.warning("login_code_user_no_phone", extra={"user_id": user.id})
-                    return JsonResponse(
-                        {"success": False, "step": 1, "error": "Conta sem número de WhatsApp cadastrado."},
-                        status=400,
-                    )
-
-                from apps.accounts.models import LoginCodeToken
-
-                try:
-                    token = LoginCodeToken.create_token(user)
-                except ValueError as e:
-                    logger.warning("login_code_token_creation_failed", extra={"user_id": user.id, "error": str(e)})
-                    return JsonResponse({"success": False, "step": 1, "error": str(e)}, status=400)
-
-                sent = _send_whatsapp(tipo="login_code", user=user, code=token.code, phone=phone)
-                if not sent:
-                    logger.error("login_code_whatsapp_failed", extra={"user_id": user.id})
-                    return JsonResponse(
-                        {"success": False, "step": 1, "error": "Erro ao enviar código via WhatsApp. Tente novamente."},
-                        status=500,
-                    )
-
-                request.session["login_code_user_id"] = user.id
-                request.session["login_code_token_id"] = token.pk
-                return JsonResponse(
-                    {
-                        "success": True,
-                        "step": 2,
-                        "phone": _mask_phone(phone),
-                        "message": "Código enviado via WhatsApp!",
-                    }
-                )
+                return _identify_and_send_code(request, tipo="login_code", user=user, identifier=form.cleaned_data["identifier"])
             logger.warning("login_code_step1_validation_failed", extra={"errors": str(form.errors)})
             return JsonResponse({"success": False, "step": 1, "errors": form.errors}, status=400)
 
@@ -466,13 +553,17 @@ class LoginCodeResendView(View):
 
         request.session["login_code_token_id"] = token.pk
 
-        phone = _get_user_phone(user)
-        _send_whatsapp(tipo="login_code", user=user, code=token.code, phone=phone)
+        method = request.session.get("login_code_method", "whatsapp")
+        sent, destination = _resend_by_method(tipo="login_code", user=user, code=token.code, method=method)
+        if not sent:
+            logger.error("login_code_resend_failed", extra={"user_id": user_id, "method": method})
+            return JsonResponse({"success": False, "error": "Erro ao reenviar código. Tente novamente."}, status=500)
 
         return JsonResponse(
             {
                 "success": True,
-                "phone": _mask_phone(phone) if phone else "",
+                "method": method,
+                "destination": destination,
                 "message": "Novo código enviado!",
             }
         )
