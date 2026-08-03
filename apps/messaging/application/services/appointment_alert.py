@@ -14,39 +14,126 @@ from apps.scheduling.models import Appointment, AppointmentStatus
 logger = logging.getLogger(__name__)
 
 
-def build_appointment_alert_message(appointment: Appointment) -> str | None:
-    template = get_active_template(appointment.workshop_id, MessageTemplate.TemplateType.APPOINTMENT)
-    if template is None:
-        logger.info(
-            "appointment_alert_skipped_no_active_template",
-            extra={"workshop_id": appointment.workshop_id, "appointment_id": appointment.pk},
-        )
-        return None
+def _first_name(full_name: str) -> str:
+    name = str(full_name or "").strip()
+    if not name:
+        return ""
+    return name.split(None, 1)[0]
 
+
+def build_appointment_message_extras(appointment: Appointment) -> dict[str, str]:
     starts_local = timezone.localtime(appointment.starts_at)
-    customer = appointment.customer
     extras: dict[str, str] = {
         "data_agendamento": starts_local.strftime("%d/%m/%Y"),
         "hora_agendamento": starts_local.strftime("%H:%M"),
     }
-    if customer is None:
-        extras["nome"] = appointment.display_customer_name
+    if getattr(appointment, "customer_id", None):
+        return extras
+
+    full_name = appointment.display_customer_name
+    extras["nome"] = full_name
+    extras["primeiro_nome"] = _first_name(full_name)
+
+    phone = str(appointment.guest_customer_phone or "").strip()
+    if phone:
+        extras["telefone"] = phone
+
+    cpf = str(appointment.display_customer_cpf or "").strip()
+    if cpf:
+        extras["cpf"] = cpf
+
+    guest_vehicle_values = {
+        "placa": appointment.guest_vehicle_plate,
+        "marca": appointment.guest_vehicle_brand,
+        "modelo": appointment.guest_vehicle_model,
+        "ano_fabricacao": appointment.guest_vehicle_year_fabrication,
+        "ano_modelo": appointment.guest_vehicle_year_model,
+        "motorizacao": appointment.guest_vehicle_engine,
+        "combustivel": appointment.guest_vehicle_fuel,
+    }
+    for key, value in guest_vehicle_values.items():
+        text = str(value or "").strip()
+        if text:
+            extras[key] = text
+    return extras
+
+
+def build_appointment_typed_message(appointment: Appointment, template_type: str) -> str | None:
+    template = get_active_template(appointment.workshop_id, template_type)
+    if template is None:
+        logger.info(
+            "appointment_message_skipped_no_active_template",
+            extra={
+                "workshop_id": appointment.workshop_id,
+                "appointment_id": appointment.pk,
+                "template_type": template_type,
+            },
+        )
+        return None
+
     return render_message_template(
         template.message,
-        customer=customer,
+        customer=appointment.customer,
         workshop=appointment.workshop,
-        extras=extras,
+        extras=build_appointment_message_extras(appointment),
     )
+
+
+def build_appointment_alert_message(appointment: Appointment) -> str | None:
+    return build_appointment_typed_message(appointment, MessageTemplate.TemplateType.APPOINTMENT)
 
 
 def resolve_appointment_whatsapp_phone(appointment: Appointment) -> str:
     # Same as message-group dispatch: PhoneNumber.as_e164 without leading '+'.
     if getattr(appointment, "customer_id", None) and appointment.customer and appointment.customer.phone:
-        return appointment.customer.phone.as_e164.lstrip("+")
+        return str(appointment.customer.phone.as_e164).lstrip("+")
     guest_phone = appointment.guest_customer_phone
     if guest_phone:
-        return guest_phone.as_e164.lstrip("+")
+        return str(guest_phone.as_e164).lstrip("+")
     return ""
+
+
+def enqueue_appointment_confirmation(appointment: Appointment) -> ScheduledOutboundMessage | None:
+    """Queue an immediate confirmation message when a new appointment is created."""
+    if appointment.status != AppointmentStatus.SCHEDULED:
+        return None
+
+    if appointment.customer_id and not customer_can_receive_messages(appointment.customer):
+        return None
+
+    existing = (
+        ScheduledOutboundMessage.objects.filter(
+            appointment=appointment,
+            source=ScheduledOutboundMessage.Source.APPOINTMENT_CONFIRMATION,
+            status__in=(
+                ScheduledOutboundMessage.Status.PENDING,
+                ScheduledOutboundMessage.Status.PROCESSING,
+            ),
+        )
+        .order_by("-criado_em")
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    message = build_appointment_typed_message(appointment, MessageTemplate.TemplateType.APPOINTMENT_CONFIRMATION)
+    if not message:
+        return None
+
+    phone = resolve_appointment_whatsapp_phone(appointment)
+    if not phone:
+        return None
+
+    return ScheduledOutboundMessage.objects.create(
+        workshop_id=appointment.workshop_id,
+        appointment=appointment,
+        customer_id=appointment.customer_id,
+        phone=phone,
+        message=message,
+        run_at=timezone.now(),
+        status=ScheduledOutboundMessage.Status.PENDING,
+        source=ScheduledOutboundMessage.Source.APPOINTMENT_CONFIRMATION,
+    )
 
 
 def sync_appointment_alert_schedule(appointment: Appointment) -> list[ScheduledOutboundMessage]:
@@ -78,12 +165,17 @@ def sync_appointment_alert_schedule(appointment: Appointment) -> list[ScheduledO
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
         return []
 
+    now = timezone.now()
     desired_run_ats = {appointment.starts_at - timedelta(minutes=lead_minutes): lead_minutes for lead_minutes in lead_times}
     existing_by_run_at = {row.run_at: row for row in pending_qs.order_by("-criado_em")}
     kept_ids: list[int] = []
     result: list[ScheduledOutboundMessage] = []
 
     for run_at in desired_run_ats:
+        # Do not compensate for lead times whose send window already passed.
+        if run_at <= now:
+            continue
+
         existing = existing_by_run_at.get(run_at)
         if existing is None:
             existing = ScheduledOutboundMessage.objects.create(

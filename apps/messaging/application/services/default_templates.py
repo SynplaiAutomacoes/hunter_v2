@@ -20,6 +20,15 @@ Horário: %%hora_agendamento%%
 
 Até lá!"""
 
+DEFAULT_APPOINTMENT_CONFIRMATION_MESSAGE = """Oi %%primeiro_nome%%, tudo bem?
+
+Seu agendamento na %%nome_fantasia%% foi confirmado.
+
+Data: %%data_agendamento%%
+Horário: %%hora_agendamento%%
+
+Qualquer dúvida, estamos à disposição."""
+
 DEFAULT_REVIEW_PLAN_MESSAGE = """Oi %%primeiro_nome%%, tudo bem?
 
 A revisão do seu veículo %%modelo%% (placa %%placa%%) está chegando perto.
@@ -36,6 +45,7 @@ Clique aqui: %%link-avaliacao%%"""
 DEFAULT_MESSAGE_TEMPLATES: dict[str, tuple[str, str]] = {
     MessageTemplate.TemplateType.BIRTHDAY: ("Aniversário", DEFAULT_BIRTHDAY_MESSAGE),
     MessageTemplate.TemplateType.APPOINTMENT: ("Agendamento", DEFAULT_APPOINTMENT_MESSAGE),
+    MessageTemplate.TemplateType.APPOINTMENT_CONFIRMATION: ("Confirmação de agendamento", DEFAULT_APPOINTMENT_CONFIRMATION_MESSAGE),
     MessageTemplate.TemplateType.REVIEW_PLAN: ("Plano de revisão", DEFAULT_REVIEW_PLAN_MESSAGE),
     MessageTemplate.TemplateType.SATISFACTION: ("Avaliação", DEFAULT_SATISFACTION_MESSAGE),
 }

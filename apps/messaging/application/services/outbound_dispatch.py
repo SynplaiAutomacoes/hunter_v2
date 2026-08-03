@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 _BATCH_SOURCE_BY_OUTBOUND: dict[str, str] = {
     ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT: MessageDispatchBatch.Source.REVIEW_PLAN_ALERT,
     ScheduledOutboundMessage.Source.APPOINTMENT_ALERT: MessageDispatchBatch.Source.APPOINTMENT_ALERT,
+    ScheduledOutboundMessage.Source.APPOINTMENT_CONFIRMATION: MessageDispatchBatch.Source.APPOINTMENT_CONFIRMATION,
     ScheduledOutboundMessage.Source.BIRTHDAY_ALERT: MessageDispatchBatch.Source.BIRTHDAY_ALERT,
     ScheduledOutboundMessage.Source.SATISFACTION_SURVEY: MessageDispatchBatch.Source.SATISFACTION_SURVEY,
 }

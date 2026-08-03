@@ -21,6 +21,7 @@ class MessageTemplate(models.Model):
         REVIEW_PLAN = "review_plan", "Plano de revisão"
         BIRTHDAY = "birthday", "Aniversário"
         APPOINTMENT = "appointment", "Agendamento"
+        APPOINTMENT_CONFIRMATION = "appointment_confirmation", "Confirmação de agendamento"
         SATISFACTION = "satisfaction", "Avaliação"
 
     SPECIAL_TYPES: frozenset[str] = frozenset(
@@ -28,6 +29,7 @@ class MessageTemplate(models.Model):
             TemplateType.REVIEW_PLAN,
             TemplateType.BIRTHDAY,
             TemplateType.APPOINTMENT,
+            TemplateType.APPOINTMENT_CONFIRMATION,
             TemplateType.SATISFACTION,
         }
     )
@@ -126,6 +128,7 @@ class MessageDispatchBatch(TimeStampedModel):
     class Source(models.TextChoices):
         GROUP_MANUAL = "group_manual", "Disparo manual de grupo"
         APPOINTMENT_ALERT = "appointment_alert", "Alerta de agendamento"
+        APPOINTMENT_CONFIRMATION = "appointment_confirmation", "Confirmação de agendamento"
         REVIEW_PLAN_ALERT = "review_plan_alert", "Alerta de plano de revisão"
         BIRTHDAY_ALERT = "birthday_alert", "Alerta de aniversário"
         SATISFACTION_SURVEY = "satisfaction_survey", "Pesquisa de satisfação"
@@ -238,6 +241,7 @@ class MessageDispatchLog(TimeStampedModel):
 class ScheduledOutboundMessage(TimeStampedModel):
     class Source(models.TextChoices):
         APPOINTMENT_ALERT = "appointment_alert", "Alerta de agendamento"
+        APPOINTMENT_CONFIRMATION = "appointment_confirmation", "Confirmação de agendamento"
         REVIEW_PLAN_ALERT = "review_plan_alert", "Alerta de plano de revisão"
         BIRTHDAY_ALERT = "birthday_alert", "Alerta de aniversário"
         SATISFACTION_SURVEY = "satisfaction_survey", "Pesquisa de satisfação"

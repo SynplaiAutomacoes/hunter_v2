@@ -592,7 +592,7 @@ class WorkshopAssistantVirtualSectionForm(CoreModelForm):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        raw_weekdays = str(getattr(self.instance, "outbound_business_weekdays", "") or "0,1,2,3,4")
+        raw_weekdays = str(getattr(self.instance, "outbound_business_weekdays", "") or "0,1,2,3,4,5,6")
         initial_days = [part.strip() for part in raw_weekdays.split(",") if part.strip()]
         self.fields["weekdays"].initial = initial_days
 
@@ -664,7 +664,7 @@ class WorkshopAssistantVirtualSectionForm(CoreModelForm):
 
         workshop = cast(Workshop, super().save(commit=False))
         weekdays = [str(day) for day in (self.cleaned_data.get("weekdays") or [])]
-        workshop.outbound_business_weekdays = ",".join(sorted(weekdays, key=int)) if weekdays else "0,1,2,3,4"
+        workshop.outbound_business_weekdays = ",".join(sorted(weekdays, key=int)) if weekdays else "0,1,2,3,4,5,6"
         workshop.outbound_business_hours_enabled = True
         if not allows_immediate_satisfaction_survey():
             workshop.satisfaction_survey_send_immediately = False

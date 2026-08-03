@@ -140,7 +140,6 @@ class Appointment(TimeStampedModel):
         self.guest_vehicle_fuel = normalize_vehicle_fuel_choice(self.guest_vehicle_fuel)
 
     def clean(self) -> None:
-        skip_guest_vehicle_engine_required_validation = bool(getattr(self, "_skip_guest_vehicle_engine_required_validation", False))
         raw_guest_vehicle_engine = str(self.guest_vehicle_engine or "").strip()
         normalized_guest_vehicle_engine = normalize_vehicle_engine_choice(raw_guest_vehicle_engine)
         raw_guest_vehicle_fuel = str(self.guest_vehicle_fuel or "").strip()
@@ -165,28 +164,19 @@ class Appointment(TimeStampedModel):
         if not customer_id and not guest_validation_done:
             if not self.guest_customer_name.strip():
                 errors.setdefault("guest_customer_name", []).append("Informe o nome do cliente quando ele nao estiver cadastrado.")
-            if len(_digits_only(self.guest_customer_cpf)) != 11:
-                errors.setdefault("guest_customer_cpf", []).append("Informe o CPF do cliente quando ele nao estiver cadastrado.")
             if not str(self.guest_customer_phone or "").strip():
                 errors.setdefault("guest_customer_phone", []).append("Informe o telefone do cliente quando ele nao estiver cadastrado.")
             if not self.guest_vehicle_plate.strip():
                 errors.setdefault("guest_vehicle_plate", []).append("Informe a placa do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_brand.strip():
-                errors.setdefault("guest_vehicle_brand", []).append("Informe a marca do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_model.strip():
-                errors.setdefault("guest_vehicle_model", []).append("Informe o modelo do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_year_fabrication.strip():
-                errors.setdefault("guest_vehicle_year_fabrication", []).append("Informe o ano de fabricacao do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_year_model.strip():
-                errors.setdefault("guest_vehicle_year_model", []).append("Informe o ano do modelo do veiculo quando o cliente nao estiver cadastrado.")
+
+            cpf_digits = _digits_only(self.guest_customer_cpf)
+            if cpf_digits and len(cpf_digits) != 11:
+                errors.setdefault("guest_customer_cpf", []).append("Informe um CPF valido com 11 digitos.")
+
             if raw_guest_vehicle_engine and not normalized_guest_vehicle_engine:
                 errors.setdefault("guest_vehicle_engine", []).append("Selecione uma motorizacao valida.")
-            elif not self.guest_vehicle_engine.strip() and not skip_guest_vehicle_engine_required_validation:
-                errors.setdefault("guest_vehicle_engine", []).append("Informe a motorizacao do veiculo quando o cliente nao estiver cadastrado.")
             if raw_guest_vehicle_fuel and not normalized_guest_vehicle_fuel:
                 errors.setdefault("guest_vehicle_fuel", []).append("Selecione um combustivel valido.")
-            elif not self.guest_vehicle_fuel.strip():
-                errors.setdefault("guest_vehicle_fuel", []).append("Informe o combustivel do veiculo quando o cliente nao estiver cadastrado.")
 
         if vehicle_id and not customer_id:
             errors.setdefault("vehicle", []).append("Selecione um cliente cadastrado para vincular um veiculo.")

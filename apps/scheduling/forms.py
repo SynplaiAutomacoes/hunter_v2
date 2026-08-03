@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import Any
 
 from crispy_forms.helper import FormHelper
@@ -19,7 +20,7 @@ from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicl
 from apps.customer.models import Customer, Vehicle
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.core.text_normalization import name_case, plate_case, sentence_case
-from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
+from apps.messaging.application.services.appointment_alert import enqueue_appointment_confirmation, sync_appointment_alert_schedule
 from apps.scheduling.models import ALERT_LEAD_TIME_CHOICES, DEFAULT_ALERT_LEAD_TIMES, Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
@@ -29,6 +30,18 @@ from apps.core.presentation.forms import CoreForm, CoreModelForm
 def _uppercase_text_input() -> TextInput:
     return TextInput(attrs={"oninput": "this.value = this.value.toUpperCase()", "autocapitalize": "characters"})
 
+
+def default_appointment_ends_at(starts_at: datetime) -> datetime:
+    """Same calendar day at 18:00 local time, or starts_at + 1h when entrada is already at/after 18:00."""
+    local_starts = timezone.localtime(starts_at)
+    candidate = local_starts.replace(hour=18, minute=0, second=0, microsecond=0)
+    if candidate <= local_starts:
+        return starts_at + timedelta(hours=1)
+    return candidate
+
+
+def _format_datetime_local(value: datetime) -> str:
+    return timezone.localtime(value).strftime("%Y-%m-%dT%H:%M")
 
 def _year_text_input() -> TextInput:
     return TextInput(attrs={"inputmode": "numeric", "maxlength": "4"})
@@ -324,8 +337,13 @@ class AppointmentForm(CoreModelForm):
             "guest_vehicle_engine",
             "guest_vehicle_fuel",
         ]
+        required_guest_field_names = {
+            "guest_customer_name",
+            "guest_customer_phone",
+            "guest_vehicle_plate",
+        }
         for field_name in guest_field_names:
-            self.fields[field_name].required = True
+            self.fields[field_name].required = False
         self.fields["customer"].required = True
 
         if is_customer_registered:
@@ -333,18 +351,13 @@ class AppointmentForm(CoreModelForm):
                 self.fields[field_name].required = False
         else:
             self.fields["customer"].required = False
+            for field_name in required_guest_field_names:
+                self.fields[field_name].required = True
 
         customer_field.error_messages["required"] = "Selecione um cliente cadastrado para continuar."
         self.fields["guest_customer_name"].error_messages["required"] = "Informe o nome do cliente."
-        self.fields["guest_customer_cpf"].error_messages["required"] = "Informe o CPF do cliente."
         self.fields["guest_customer_phone"].error_messages["required"] = "Informe o telefone do cliente."
         self.fields["guest_vehicle_plate"].error_messages["required"] = "Informe a placa do veiculo."
-        self.fields["guest_vehicle_brand"].error_messages["required"] = "Informe a marca do veiculo."
-        self.fields["guest_vehicle_model"].error_messages["required"] = "Informe o modelo do veiculo."
-        self.fields["guest_vehicle_year_fabrication"].error_messages["required"] = "Informe o ano de fabricação."
-        self.fields["guest_vehicle_year_model"].error_messages["required"] = "Informe o ano do modelo."
-        self.fields["guest_vehicle_engine"].error_messages["required"] = "Informe a motorização ou selecione uma opção."
-        self.fields["guest_vehicle_fuel"].error_messages["required"] = "Informe o combustivel ou selecione uma opção."
 
         selected_customer_id = ""
         selected_vehicle_id = ""
@@ -426,6 +439,18 @@ class AppointmentForm(CoreModelForm):
                 self.initial["starts_at"] = timezone.localtime(self.instance.starts_at).strftime("%Y-%m-%dT%H:%M")
             if self.instance.ends_at:
                 self.initial["ends_at"] = timezone.localtime(self.instance.ends_at).strftime("%Y-%m-%dT%H:%M")
+        elif self.initial.get("starts_at") and not self.initial.get("ends_at"):
+            starts_initial = self.initial["starts_at"]
+            if isinstance(starts_initial, datetime):
+                self.initial["ends_at"] = _format_datetime_local(default_appointment_ends_at(starts_initial))
+            else:
+                try:
+                    parsed_starts = datetime.strptime(str(starts_initial), "%Y-%m-%dT%H:%M")
+                    if timezone.is_naive(parsed_starts):
+                        parsed_starts = timezone.make_aware(parsed_starts, timezone.get_current_timezone())
+                    self.initial["ends_at"] = _format_datetime_local(default_appointment_ends_at(parsed_starts))
+                except ValueError:
+                    pass
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -456,6 +481,8 @@ class AppointmentForm(CoreModelForm):
                 "vehicleId": selected_vehicle_id,
                 "isCustomerRegistered": is_customer_registered,
                 "alertCustomer": alert_customer_initial,
+                "isUpdate": bool(self.instance and self.instance.pk),
+                "endsAtManuallyEdited": False,
             }
         )
         registered_vehicle_fields_html = "".join(
@@ -522,6 +549,33 @@ class AppointmentForm(CoreModelForm):
                         } catch (error) {
                             return null;
                         }
+                    }
+
+                    function defaultAppointmentEndsAtLocal(startsValue) {
+                        if (!startsValue || typeof startsValue !== 'string') return '';
+                        const match = startsValue.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+                        if (!match) return '';
+                        const year = Number(match[1]);
+                        const month = Number(match[2]) - 1;
+                        const day = Number(match[3]);
+                        const hour = Number(match[4]);
+                        const minute = Number(match[5]);
+                        const pad = (value) => String(value).padStart(2, '0');
+                        if (hour > 18 || (hour === 18 && minute > 0)) {
+                            let endHour = hour + 1;
+                            let endDay = day;
+                            let endMonth = month;
+                            let endYear = year;
+                            if (endHour >= 24) {
+                                endHour -= 24;
+                                const next = new Date(year, month, day + 1);
+                                endYear = next.getFullYear();
+                                endMonth = next.getMonth();
+                                endDay = next.getDate();
+                            }
+                            return `${endYear}-${pad(endMonth + 1)}-${pad(endDay)}T${pad(endHour)}:${pad(minute)}`;
+                        }
+                        return `${year}-${pad(month + 1)}-${pad(day)}T18:00`;
                     }
 
                     function syncAppointmentContextFromInput(name, value) {
@@ -1142,6 +1196,14 @@ class AppointmentForm(CoreModelForm):
                             if (isCustomerRegistered) {
                                 updateRegisteredVehicleDetails(vehicleId);
                             }
+                        } else if ($event.target && $event.target.name === 'starts_at' && !isUpdate && !endsAtManuallyEdited) {
+                            const startsValue = $event.target.value || '';
+                            const endsInput = document.getElementById('id_ends_at');
+                            if (startsValue && endsInput && typeof defaultAppointmentEndsAtLocal === 'function') {
+                                endsInput.value = defaultAppointmentEndsAtLocal(startsValue);
+                            }
+                        } else if ($event.target && $event.target.name === 'ends_at' && !isUpdate) {
+                            endsAtManuallyEdited = true;
                         } else if ($event.target && $event.target.name === 'guest_vehicle_plate' && !isCustomerRegistered) {
                             updateGuestVehicleFields($event.target.value || '');
                         } else if ($event.target && $event.target.name === 'guest_vehicle_brand' && !isCustomerRegistered) {
@@ -1169,9 +1231,7 @@ class AppointmentForm(CoreModelForm):
         guest_vehicle_engine = self.cleaned_data.get("guest_vehicle_engine")
         normalized_guest_vehicle_engine = normalize_vehicle_engine_choice(guest_vehicle_engine)
         if guest_vehicle_engine and not normalized_guest_vehicle_engine:
-            self.instance._skip_guest_vehicle_engine_required_validation = True
             raise forms.ValidationError("Selecione um motor válido.")
-        self.instance._skip_guest_vehicle_engine_required_validation = False
         return normalized_guest_vehicle_engine
 
     def clean_guest_vehicle_fuel(self) -> str:
@@ -1278,6 +1338,7 @@ class AppointmentForm(CoreModelForm):
         return cleaned_data
 
     def save(self, commit: bool = True) -> Appointment:
+        is_create = self.instance.pk is None
         self.instance.workshop = self.workshop
         if self.cleaned_data.get("is_customer_registered"):
             self.instance.guest_customer_name = ""
@@ -1298,6 +1359,8 @@ class AppointmentForm(CoreModelForm):
         appointment = super().save(commit=commit)
         if commit:
             sync_appointment_alert_schedule(appointment)
+            if is_create:
+                enqueue_appointment_confirmation(appointment)
         return appointment
 
 

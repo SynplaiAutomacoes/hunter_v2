@@ -58,7 +58,7 @@ class Workshop(TimeStampedModel):
         default="",
     )
     # Outbound automated alerts send window (America/Sao_Paulo via TIME_ZONE).
-    # End time is exclusive: default 08:00–18:00 means 08:00 <= now < 18:00, Mon–Fri.
+    # End time is exclusive: default 08:00–18:00 means 08:00 <= now < 18:00, all weekdays.
     outbound_business_hours_enabled = BooleanField(
         verbose_name="Respeitar horário de disparo",
         default=True,
@@ -67,7 +67,7 @@ class Workshop(TimeStampedModel):
         verbose_name="Dias de disparo",
         max_length=32,
         blank=False,
-        default="0,1,2,3,4",
+        default="0,1,2,3,4,5,6",
         help_text="Dias da semana (Python: Mon=0 … Sun=6), separados por vírgula.",
     )
     outbound_business_start_time = models.TimeField(

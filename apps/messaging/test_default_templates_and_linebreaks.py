@@ -4,6 +4,7 @@ from django.test import TestCase
 
 from apps.customer.models import Customer
 from apps.messaging.application.services.default_templates import (
+    DEFAULT_APPOINTMENT_CONFIRMATION_MESSAGE,
     DEFAULT_APPOINTMENT_MESSAGE,
     DEFAULT_BIRTHDAY_MESSAGE,
     DEFAULT_MESSAGE_TEMPLATES,
@@ -28,18 +29,19 @@ def create_workshop(*, suffix: int = 1) -> Workshop:
 
 
 class DefaultMessageTemplateTests(TestCase):
-    def test_create_default_message_templates_creates_four_active_templates(self) -> None:
+    def test_create_default_message_templates_creates_five_active_templates(self) -> None:
         workshop = create_workshop(suffix=1)
 
         create_default_message_templates(workshop=workshop)
 
         templates = list(MessageTemplate.objects.filter(workshop=workshop, is_active=True).order_by("template_type"))
-        self.assertEqual(len(templates), 4)
+        self.assertEqual(len(templates), 5)
 
         by_type = {row.template_type: row for row in templates}
         expected = {
             MessageTemplate.TemplateType.BIRTHDAY: ("Aniversário", DEFAULT_BIRTHDAY_MESSAGE),
             MessageTemplate.TemplateType.APPOINTMENT: ("Agendamento", DEFAULT_APPOINTMENT_MESSAGE),
+            MessageTemplate.TemplateType.APPOINTMENT_CONFIRMATION: ("Confirmação de agendamento", DEFAULT_APPOINTMENT_CONFIRMATION_MESSAGE),
             MessageTemplate.TemplateType.REVIEW_PLAN: ("Plano de revisão", DEFAULT_REVIEW_PLAN_MESSAGE),
             MessageTemplate.TemplateType.SATISFACTION: ("Avaliação", DEFAULT_SATISFACTION_MESSAGE),
         }
@@ -62,7 +64,7 @@ class DefaultMessageTemplateTests(TestCase):
 
         created = backfill_missing_default_message_templates(workshop=workshop)
 
-        self.assertEqual(created, 3)
+        self.assertEqual(created, 4)
         birthday = MessageTemplate.objects.get(
             workshop=workshop,
             template_type=MessageTemplate.TemplateType.BIRTHDAY,
@@ -75,7 +77,7 @@ class DefaultMessageTemplateTests(TestCase):
                 template_type__in=DEFAULT_MESSAGE_TEMPLATES.keys(),
                 is_active=True,
             ).count(),
-            4,
+            5,
         )
 
 

@@ -21,13 +21,17 @@ from apps.customer.models import Customer
 from apps.customer.models import Vehicle
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
-from apps.scheduling.forms import AppointmentCalendarFilterForm, AppointmentForm, AppointmentMoveForm, build_budget_create_url
+from apps.scheduling.forms import AppointmentCalendarFilterForm, AppointmentForm, AppointmentMoveForm, build_budget_create_url, default_appointment_ends_at
 from apps.scheduling.models import Appointment
 from apps.workorder.models import WorkOrder
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
 logger = logging.getLogger(__name__)
+
+
+def _format_datetime_local_value(value: datetime) -> str:
+    return timezone.localtime(value).strftime("%Y-%m-%dT%H:%M")
 
 
 def _log_request_context(request, scope: str, **extra) -> None:
@@ -281,9 +285,11 @@ class AppointmentCreateView(AppointmentBaseFormMixin, CreateView):
         ends_at = _parse_wall_datetime(self.request.GET.get("ends_at")) or _parse_request_timestamp(self.request.GET.get("end_ts")) or _parse_request_datetime(self.request.GET.get("ends_at"))
 
         if starts_at:
-            initial["starts_at"] = starts_at.strftime("%Y-%m-%dT%H:%M")
+            initial["starts_at"] = _format_datetime_local_value(starts_at)
         if ends_at:
-            initial["ends_at"] = ends_at.strftime("%Y-%m-%dT%H:%M")
+            initial["ends_at"] = _format_datetime_local_value(ends_at)
+        elif starts_at:
+            initial["ends_at"] = _format_datetime_local_value(default_appointment_ends_at(starts_at))
 
         customer_id = (self.request.GET.get("customer") or "").strip()
         vehicle_id = (self.request.GET.get("vehicle") or "").strip()

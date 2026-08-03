@@ -9,7 +9,11 @@ from unittest.mock import patch
 
 from apps.budget.models import Budget
 from apps.customer.models import Customer, Vehicle
-from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
+from apps.messaging.application.services.appointment_alert import (
+    build_appointment_alert_message,
+    enqueue_appointment_confirmation,
+    sync_appointment_alert_schedule,
+)
 from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
 from apps.messaging.application.services.review_plan_alert import sync_review_plan_alert_schedule
 from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
@@ -201,6 +205,92 @@ class TypedAlertTemplateTests(TestCase):
             ).count(),
             1,
         )
+
+    def test_appointment_alert_skips_past_lead_times(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Past",
+            message="Lembrete %%primeiro_nome%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(minutes=40)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Proximo",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[30, 60, 1440, 2880],
+        )
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0].run_at, starts - timedelta(minutes=30))
+
+    def test_appointment_alert_renders_guest_primeiro_nome_and_placa(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Guest Vars",
+            message="Oi %%primeiro_nome%% placa %%placa%% em %%data_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(hours=5)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            guest_customer_name="Maria Silva",
+            guest_customer_phone="+5511989472983",
+            guest_vehicle_plate="ABC1D23",
+            title="Guest",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[30],
+        )
+        message = build_appointment_alert_message(appointment)
+        self.assertIsNotNone(message)
+        assert message is not None
+        self.assertIn("maria", message.lower())
+        self.assertIn("ABC1D23", message)
+        self.assertNotIn("%%primeiro_nome%%", message)
+        self.assertNotIn("%%placa%%", message)
+
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0].phone, "5511989472983")
+        self.assertIn("maria", scheduled[0].message.lower())
+
+    def test_enqueue_appointment_confirmation_on_create_template(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Confirmacao",
+            message="Confirmado %%primeiro_nome%% em %%hora_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT_CONFIRMATION,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=1)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Confirm",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=False,
+            alert_lead_times=[],
+        )
+        row = enqueue_appointment_confirmation(appointment)
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row.source, ScheduledOutboundMessage.Source.APPOINTMENT_CONFIRMATION)
+        self.assertIn("Cliente", row.message)
+        self.assertEqual(row.status, ScheduledOutboundMessage.Status.PENDING)
+
+        again = enqueue_appointment_confirmation(appointment)
+        self.assertEqual(again.pk, row.pk)
 
 
 class BirthdayAlertTests(TestCase):

@@ -169,6 +169,17 @@ class WorkshopAssistantVirtualFormTests(TestCase):
         self.assertEqual(WEEKDAY_CHOICES[0][1], "Dom")
         self.assertEqual(WEEKDAY_CHOICES[-1][1], "Sáb")
 
+    def test_new_workshop_defaults_all_weekdays(self) -> None:
+        workshop = Workshop.objects.create(
+            name="Oficina All Days",
+            cnpj="12.345.678/0001-99",
+            phone="+5511999999999",
+            address="Rua A, 123",
+        )
+        self.assertEqual(workshop.outbound_business_weekdays, "0,1,2,3,4,5,6")
+        form = WorkshopAssistantVirtualSectionForm(instance=workshop)
+        self.assertEqual(set(form.fields["weekdays"].initial), {"0", "1", "2", "3", "4", "5", "6"})
+
 
 class WorkshopAssistantVirtualTabTests(TestCase):
     def setUp(self) -> None:
