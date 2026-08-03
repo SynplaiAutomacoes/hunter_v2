@@ -43,7 +43,7 @@ def noop_reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("messaging", "0012_merge_20260801_1945"),
+        ("messaging", "0011_default_templates_primeiro_nome"),
     ]
 
     operations = [
