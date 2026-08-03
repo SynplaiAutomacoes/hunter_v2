@@ -72,7 +72,118 @@
 
         {% elif current_step == 3 %}
             <div><h2 class="text-2xl font-bold">Dados de transporte</h2><p class="mt-1 text-base-content/70">Informe transportador, veículo e volumes. Estes dados serão preservados no snapshot da operação.</p></div>
-            <form method="post" class="mt-6 space-y-5" novalidate>{% csrf_token %}{% if transport_form.non_field_errors %}<div class="alert alert-error">{{ transport_form.non_field_errors }}</div>{% endif %}{{ transport_form|crispy }}
+            <form method="post" class="mt-6 space-y-5" novalidate>
+                {% csrf_token %}
+                {% if transport_form.non_field_errors %}<div class="alert alert-error">{{ transport_form.non_field_errors }}</div>{% endif %}
+
+                <section class="rounded-2xl border border-primary/20 bg-primary/5 p-5" aria-labelledby="transport-mode-heading">
+                    <div class="flex items-start gap-3">
+                        <span class="material-icons rounded-xl bg-primary/10 p-2 text-primary">local_shipping</span>
+                        <div class="min-w-0 flex-1">
+                            <h3 id="transport-mode-heading" class="text-lg font-semibold">Modalidade do transporte</h3>
+                            <p class="mt-1 text-sm text-base-content/65">Defina primeiro quem é responsável pelo frete para orientar o preenchimento das demais informações.</p>
+                            <div class="mt-4 max-w-xl">{{ transport_form.freight_mode|as_crispy_field }}</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm" aria-labelledby="carrier-heading">
+                    <div class="flex items-start gap-3 border-b border-base-200 pb-4">
+                        <span class="material-icons rounded-xl bg-base-200 p-2 text-primary">business</span>
+                        <div>
+                            <h3 id="carrier-heading" class="text-lg font-semibold">Transportador</h3>
+                            <p class="mt-1 text-sm text-base-content/65">Identificação e endereço fiscal de quem realizará o transporte.</p>
+                        </div>
+                    </div>
+                    <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        {{ transport_form.transport_person_type|as_crispy_field }}
+                        {{ transport_form.transport_document|as_crispy_field }}
+                        <div class="md:col-span-2">{{ transport_form.transport_name|as_crispy_field }}</div>
+                        {{ transport_form.transport_state_registration|as_crispy_field }}
+                        <div class="md:col-span-2">{{ transport_form.transport_address|as_crispy_field }}</div>
+                        {{ transport_form.transport_postal_code|as_crispy_field }}
+                        {{ transport_form.transport_state|as_crispy_field }}
+                        <div class="md:col-span-2 xl:col-span-3">{{ transport_form.transport_city|as_crispy_field }}</div>
+                    </div>
+                </section>
+
+                <div class="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                    <section class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm" aria-labelledby="vehicle-heading">
+                        <div class="flex items-start gap-3 border-b border-base-200 pb-4">
+                            <span class="material-icons rounded-xl bg-base-200 p-2 text-primary">directions_car</span>
+                            <div>
+                                <h3 id="vehicle-heading" class="text-lg font-semibold">Veículo</h3>
+                                <p class="mt-1 text-sm text-base-content/65">Dados do veículo principal utilizado na operação.</p>
+                            </div>
+                        </div>
+                        <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+                            {{ transport_form.transport_vehicle_plate|as_crispy_field }}
+                            {{ transport_form.transport_vehicle_state|as_crispy_field }}
+                            {{ transport_form.transport_rntc|as_crispy_field }}
+                        </div>
+                    </section>
+
+                    <section class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm" aria-labelledby="volumes-heading">
+                        <div class="flex items-start gap-3 border-b border-base-200 pb-4">
+                            <span class="material-icons rounded-xl bg-base-200 p-2 text-primary">inventory_2</span>
+                            <div>
+                                <h3 id="volumes-heading" class="text-lg font-semibold">Volumes</h3>
+                                <p class="mt-1 text-sm text-base-content/65">Quantidade, tipo e peso da mercadoria transportada.</p>
+                            </div>
+                        </div>
+                        <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                            {{ transport_form.transport_volume_quantity|as_crispy_field }}
+                            {{ transport_form.transport_volume_species|as_crispy_field }}
+                            {{ transport_form.transport_gross_weight|as_crispy_field }}
+                            {{ transport_form.transport_net_weight|as_crispy_field }}
+                        </div>
+                        <details class="mt-2 rounded-xl border border-base-200 bg-base-200/30">
+                            <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold">Detalhes opcionais dos volumes</summary>
+                            <div class="grid grid-cols-1 gap-4 border-t border-base-200 p-4 md:grid-cols-3">
+                                {{ transport_form.transport_volume_brand|as_crispy_field }}
+                                {{ transport_form.transport_volume_numbering|as_crispy_field }}
+                                {{ transport_form.transport_seals|as_crispy_field }}
+                            </div>
+                        </details>
+                    </section>
+                </div>
+
+                <details class="rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+                    <summary class="flex cursor-pointer select-none items-center gap-3 p-5">
+                        <span class="material-icons rounded-xl bg-base-200 p-2 text-primary">rv_hookup</span>
+                        <span>
+                            <span class="block text-lg font-semibold">Reboques</span>
+                            <span class="mt-1 block text-sm font-normal text-base-content/65">Opcional — informe somente quando houver reboque, vagão ou balsa.</span>
+                        </span>
+                    </summary>
+                    <div class="space-y-4 border-t border-base-200 p-5">
+                        {% for index in "123" %}
+                            <div class="rounded-xl border border-base-200 bg-base-200/20 p-4">
+                                <h4 class="mb-4 text-sm font-semibold uppercase tracking-wide text-base-content/70">Reboque {{ index }}</h4>
+                                {% if index == "1" %}
+                                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">{{ transport_form.transport_trailer_1_plate|as_crispy_field }}{{ transport_form.transport_trailer_1_state|as_crispy_field }}{{ transport_form.transport_trailer_1_rntc|as_crispy_field }}{{ transport_form.transport_trailer_1_wagon|as_crispy_field }}{{ transport_form.transport_trailer_1_ferry|as_crispy_field }}</div>
+                                {% elif index == "2" %}
+                                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">{{ transport_form.transport_trailer_2_plate|as_crispy_field }}{{ transport_form.transport_trailer_2_state|as_crispy_field }}{{ transport_form.transport_trailer_2_rntc|as_crispy_field }}{{ transport_form.transport_trailer_2_wagon|as_crispy_field }}{{ transport_form.transport_trailer_2_ferry|as_crispy_field }}</div>
+                                {% else %}
+                                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">{{ transport_form.transport_trailer_3_plate|as_crispy_field }}{{ transport_form.transport_trailer_3_state|as_crispy_field }}{{ transport_form.transport_trailer_3_rntc|as_crispy_field }}{{ transport_form.transport_trailer_3_wagon|as_crispy_field }}{{ transport_form.transport_trailer_3_ferry|as_crispy_field }}</div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </details>
+                {{ transport_form.nfe_transport_trailers_json }}
+
+                <section class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm" aria-labelledby="additional-information-heading">
+                    <div class="flex items-start gap-3 border-b border-base-200 pb-4">
+                        <span class="material-icons rounded-xl bg-base-200 p-2 text-primary">notes</span>
+                        <div>
+                            <h3 id="additional-information-heading" class="text-lg font-semibold">Informações adicionais</h3>
+                            <p class="mt-1 text-sm text-base-content/65">Observações fiscais que devem acompanhar a Nota de Transporte.</p>
+                        </div>
+                    </div>
+                    <div class="mt-5">{{ transport_form.additional_information|as_crispy_field }}</div>
+                </section>
+
                 <div class="flex justify-between"><a href="{% url 'finance:transport_workflow' transport_request.pk %}?step=2" class="btn btn-ghost">Voltar</a><button class="btn btn-primary" type="submit">Continuar</button></div>
             </form>
 
