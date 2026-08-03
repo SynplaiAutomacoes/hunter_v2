@@ -165,7 +165,7 @@ Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (def
 | Variavel | Uso |
 | --- | --- |
 | `SYNPLAISIGN_BASE_URL` | URL base da API de assinatura |
-| `SYNPLAISIGN_MASTER_KEY` | Master key para `POST /api-keys` (cria chave por oficina) |
+| `SYNPLAISIGN_MASTER_KEY` | Master key para `POST /auth/register-with-api-key` (cria org + OWNER + chave por oficina) |
 | `SYNPLAISIGN_WEBHOOK_SECRET` | Fallback global de HMAC (preferir secret por oficina) |
 
 ### Storage Bucket S3 compativel

@@ -99,6 +99,7 @@ class SynplaiSignSignatureServiceTests(SimpleTestCase):
                 observers=[],
                 fields=[{"pageNumber": 1, "position": {"x": 1.0, "y": 2.0, "width": 3.0, "height": 4.0}}],
                 api_key="sk_live_workshop",
+                whatsapp_instance="workshop_19",
             )
         )
 
@@ -108,6 +109,7 @@ class SynplaiSignSignatureServiceTests(SimpleTestCase):
         self.assertEqual(result.signing_url, "https://synplaisign.example/sign/tok-abc")
         create_envelope_mock.assert_called_once()
         self.assertEqual(create_envelope_mock.call_args.kwargs["api_key"], "sk_live_workshop")
+        self.assertEqual(create_envelope_mock.call_args.kwargs["whatsapp_instance"], "workshop_19")
         signatories = create_envelope_mock.call_args.kwargs["signatories"]
         self.assertEqual(signatories[0]["order"], 0)
         self.assertEqual(signatories[0]["deliveryChannel"], "EMAIL")
@@ -314,6 +316,7 @@ class BudgetSignatureSendTests(SimpleTestCase):
             result = send_budget_for_signature(budget=budget)
         self.assertEqual(result.envelope_id, "env-1")
         self.assertEqual(service.send_document.call_args.args[0].api_key, "sk_live_x")
+        self.assertEqual(service.send_document.call_args.args[0].whatsapp_instance, "workshop_2")
         self.assertEqual(service.send_document.call_args.args[0].signatory["phoneNumber"], "+5511988887777")
 
     def tearDown(self) -> None:

@@ -92,6 +92,70 @@ def create_api_key(*, master_key: str, name: str) -> dict[str, Any]:
     return result
 
 
+def register_with_api_key(
+    *,
+    master_key: str,
+    organization_name: str,
+    name: str,
+    email: str,
+    password: str,
+    api_key_name: str,
+) -> dict[str, Any]:
+    """POST /auth/register-with-api-key — org + OWNER + API key (Master Key)."""
+    base_url = _require_base_url()
+    payload = {
+        "organizationName": organization_name,
+        "name": name,
+        "email": email,
+        "password": password,
+        "apiKeyName": api_key_name,
+    }
+    logger.info(
+        "synplaisign_register_with_api_key_start",
+        extra={"organization_name": organization_name, "api_key_name": api_key_name, "email": email},
+    )
+
+    try:
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="synplaisign",
+            operation="register_with_api_key",
+            log_context={"organization_name": organization_name, "api_key_name": api_key_name},
+        ) as dependency_call:
+            response = requests.post(
+                f"{base_url}/auth/register-with-api-key",
+                headers=_api_headers(api_key=master_key),
+                json=payload,
+                timeout=30,
+            )
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if getattr(exc, "response", None) is not None and exc.response is not None else ""
+        status_code = exc.response.status_code if getattr(exc, "response", None) is not None and exc.response is not None else None
+        if status_code == 401:
+            raise SynplaiSignGatewayError(
+                "SynplaiSign rejeitou a master key (401 Unauthorized em POST /auth/register-with-api-key). "
+                "Confira SYNPLAISIGN_MASTER_KEY. "
+                f"Resposta: {response_text}"
+            ) from exc
+        raise SynplaiSignGatewayError(f"Erro ao registrar organizacao com API key: {exc}. Resposta: {response_text}") from exc
+
+    try:
+        payload_data = response.json()
+    except ValueError as exc:
+        raise SynplaiSignGatewayError("Resposta invalida ao registrar organizacao com API key") from exc
+
+    result = payload_data if isinstance(payload_data, dict) else {}
+    api_key_payload = result.get("apiKey") if isinstance(result.get("apiKey"), dict) else {}
+    logger.info(
+        "synplaisign_register_with_api_key_success",
+        extra={"api_key_id": api_key_payload.get("id"), "api_key_name": api_key_name},
+    )
+    return result
+
+
 def create_envelope(
     *,
     api_key: str,
@@ -100,14 +164,18 @@ def create_envelope(
     title: str,
     message: str,
     signatories: list[dict[str, Any]],
+    whatsapp_instance: str = "",
 ) -> SynplaiSignGatewayResult:
     base_url = _require_base_url()
     files = {"file": (file_name or "document.pdf", pdf_bytes, "application/pdf")}
-    data = {
+    data: dict[str, str] = {
         "title": title,
         "message": message,
         "signatories": json.dumps(signatories, ensure_ascii=False),
     }
+    instance_name = str(whatsapp_instance or "").strip()
+    if instance_name:
+        data["whatsappInstance"] = instance_name
 
     logger.info(
         "synplaisign_envelope_create_start",
@@ -116,6 +184,7 @@ def create_envelope(
             "title": title,
             "signatories_count": len(signatories),
             "pdf_bytes_size": len(pdf_bytes),
+            "whatsapp_instance": instance_name or None,
         },
     )
 

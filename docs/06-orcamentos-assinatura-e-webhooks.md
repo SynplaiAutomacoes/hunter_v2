@@ -76,13 +76,13 @@ O app de orcamento possui endpoints para:
 
 Isso indica um fluxo completo de assinatura no proprio dominio do orcamento.
 
-O envio cria o envelope na SynplaiSign com a **API key da oficina**, inclui `phone` + `deliveryChannel` (`EMAIL` ou `BOTH` quando ha telefone) e dispara a entrega via `POST /envelopes/:id/send`. O WhatsApp de assinatura e nativo da SynplaiSign (organizacao com `whatsappApiUrl` / `whatsappInstance`); o WhatsApp Evolution da oficina (`whatsapp_instance_name`) continua usado apenas por messaging (agendamento, grupos, planos de revisao, etc.).
+O envio cria o envelope na SynplaiSign com a **API key da oficina**, inclui `phone` + `deliveryChannel` (`EMAIL` ou `BOTH` quando ha telefone), envia `whatsappInstance` com o `whatsapp_instance_name` da oficina e dispara a entrega via `POST /envelopes/:id/send`. O WhatsApp de assinatura e nativo da SynplaiSign (usando a instancia da oficina); o WhatsApp Evolution da oficina (`whatsapp_instance_name`) continua usado tambem por messaging (agendamento, grupos, planos de revisao, etc.).
 
-Cada oficina recebe sua propria API key no cadastro (`POST /api-keys` com `SYNPLAISIGN_MASTER_KEY`), persistida criptografada em `Workshop.synplaisign_api_key`, junto com o secret do webhook daquela chave.
+Cada oficina recebe sua propria organizacao/API key no cadastro via `POST /auth/register-with-api-key` (Master Key), com `organizationName` = nome fantasia (fallback razao social), dados do Owner da conta e senha aleatoria criptografada em `Workshop.synplaisign_owner_password`. A API key fica em `Workshop.synplaisign_api_key`, junto com o secret do webhook daquela chave.
 
 ## Comando de sincronizacao de webhook
 
-O comando `manage.py webhook`, implementado em `apps/budget/management/commands/webhook.py`, provisiona API keys/webhooks SynplaiSign por oficina (ou `--workshop-id`) para o evento `ENVELOPE_COMPLETED`.
+O comando `manage.py webhook`, implementado em `apps/budget/management/commands/webhook.py`, provisiona API keys/webhooks SynplaiSign por oficina (ou `--workshop-id`) para o evento `ENVELOPE_COMPLETED`. Use `--force-recreate` (obrigatorio com `--workshop-id`) para recriar credenciais locais/remotas e `--show-secrets` para imprimir API key e senha aleatoria do OWNER SynplaiSign.
 
 Pontos importantes do comando:
 

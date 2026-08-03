@@ -133,6 +133,13 @@ class Workshop(TimeStampedModel):
         default="",
         help_text="Armazenado criptografado. Usado para validar HMAC dos callbacks.",
     )
+    synplaisign_owner_password = models.CharField(
+        verbose_name="SynplaiSign Owner Password",
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Senha aleatoria do OWNER na SynplaiSign (criptografada). Nao e a senha do Hunter.",
+    )
 
     class Meta:
         verbose_name = "Oficina"

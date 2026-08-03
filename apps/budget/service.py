@@ -111,6 +111,8 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
     except WorkshopSynplaiSignError as exc:
         raise SignatureError(str(exc)) from exc
 
+    whatsapp_instance = str(getattr(budget.workshop, "whatsapp_instance_name", "") or "").strip()
+
     try:
         result = get_signature_service().send_document(
             SignatureSendRequest(
@@ -123,6 +125,7 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
                 observers=observers,
                 fields=_build_signature_fields(budget),
                 api_key=api_key,
+                whatsapp_instance=whatsapp_instance,
             )
         )
     except SignatureServiceError as exc:

@@ -112,6 +112,7 @@ class SynplaiSignSignatureService(ISignatureService):
                 title=request.title,
                 message=request.message,
                 signatories=signatories,
+                whatsapp_instance=request.whatsapp_instance,
             )
             gateway.send_envelope(api_key=api_key, envelope_id=created.envelope_id)
             signing_url = ""

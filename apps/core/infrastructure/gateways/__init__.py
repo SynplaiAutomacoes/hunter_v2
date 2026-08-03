@@ -8,6 +8,7 @@ from apps.core.infrastructure.gateways.synplaisign import (
     download_signed_document,
     get_signed_document_download_url,
     list_webhooks,
+    register_with_api_key,
     send_envelope,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "download_signed_document",
     "get_signed_document_download_url",
     "list_webhooks",
+    "register_with_api_key",
     "send_envelope",
 ]

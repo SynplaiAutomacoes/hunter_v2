@@ -99,6 +99,8 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
     except WorkshopSynplaiSignError as exc:
         raise WorkOrderSignatureError(str(exc)) from exc
 
+    whatsapp_instance = str(getattr(workorder.workshop, "whatsapp_instance_name", "") or "").strip()
+
     try:
         result = get_signature_service().send_document(
             SignatureSendRequest(
@@ -111,6 +113,7 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
                 observers=observers,
                 fields=_build_signature_fields(workorder),
                 api_key=api_key,
+                whatsapp_instance=whatsapp_instance,
             )
         )
     except SignatureServiceError as exc:

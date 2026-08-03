@@ -23,6 +23,7 @@ class SignatureSendRequest:
     fields: list[dict[str, Any]]
     folder_id: str = ""
     api_key: str = ""
+    whatsapp_instance: str = ""
 
 
 @dataclass(frozen=True)
