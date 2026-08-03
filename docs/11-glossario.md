@@ -100,7 +100,7 @@ Mecanismo de atualizacao/evento usado no contexto do modulo de orcamento.
 
 ## SynplaiSign
 
-Provedor interno de assinatura digital usado pelo sistema (substitui a SuperSign). Entrega por e-mail e/ou WhatsApp via `deliveryChannel` no envelope. O upload do documento para assinatura e o preview sem assinatura usam HTML com `sign-box`; documentos assinados e downloads da API sao sempre PDF.
+Provedor interno de assinatura digital usado pelo sistema (substitui a SuperSign). Entrega por e-mail e/ou WhatsApp via `deliveryChannel` no envelope. O upload do documento para assinatura usa HTML com `sign-box`; preview/download no Hunter e documentos assinados da API sao sempre PDF.
 
 ## Tenancy
 

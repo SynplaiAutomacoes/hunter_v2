@@ -84,6 +84,17 @@
             word-break: break-word;
         }
 
+        .field-value-address {
+            flex: 1;
+            min-width: 0;
+            white-space: normal;
+            overflow: visible;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.25;
+            max-height: none;
+        }
+
         .header-section {
             min-height: 120px;
             height: auto;
@@ -198,6 +209,11 @@
             text-overflow: clip;
         }
 
+        .signature-box {
+            width: 100%;
+            height: 80px;
+        }
+
         @media print {
             body { background-color: white !important; padding: 0 !important; }
             .pdf-content {
@@ -258,12 +274,13 @@
             </div>
         </div>
 
-            <div class="client-vehicle-section grid gap-4 py-8 px-4 border-b border-gray-200" style="grid-template-columns: 2fr 1fr 1fr; align-items: stretch;">            <div>
+            <div class="client-vehicle-section grid gap-4 py-8 px-4 border-b border-gray-200" style="grid-template-columns: 1.7fr 1.3fr 1fr; align-items: stretch;">
+            <div>
                 <h4 class="font-bold mb-2 uppercase">{{ budget.customer.name|default:budget.customer }}</h4>
-                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+                <div class="grid grid-cols-1 gap-y-1">
                     <p class="field-row"><span class="field-label">CPF/CNPJ:</span> <span class="field-value">{{ budget.customer.cpf_or_cnpj|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-label">Telefone:</span> <span class="field-value">{{ budget.customer.phone|default:"-" }}</span></p>
-                    <p class="field-row col-span-2"><span class="field-label">Endereço:</span> <span class="field-value" style="white-space: normal; word-break: break-word;">{{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }} - {{ budget.customer.bairro|default:"-" }} - {{ budget.customer.cidade|default:"-" }} - {{ budget.customer.cep|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Telefone:</span> <span class="field-value fit-important">{{ budget.customer.phone|phone_br|default:"-" }}</span></p>
+                    <p class="field-row multiline"><span class="field-label">Endereço:</span> <span class="field-value field-value-address">{{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }} - {{ budget.customer.bairro|default:"-" }} - {{ budget.customer.cidade|default:"-" }} - {{ budget.customer.cep|default:"-" }}</span></p>
                 </div>
             </div>
             <div>
@@ -278,7 +295,8 @@
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
                 </div>
             </div>
-            <div class="signature-block" sign-box>
+            <div class="signature-block" >
+                <div class="signature-box" sign-box></div>
                 <div class="signature-line">
                     <p class="font-bold mb-1">{{ budget.customer.name|default:budget.customer }}</p>
                     <p class="text-[11px] text-gray-500">Assinatura do cliente ou pessoa por ele autorizada</p>

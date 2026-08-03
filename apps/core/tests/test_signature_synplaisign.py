@@ -390,7 +390,8 @@ class SignatureHtmlDocumentTests(SimpleTestCase):
         from django.template.loader import get_template
 
         template_source = get_template("budget/partials/pdf/visualizarPDF.html").template.source
-        self.assertIn('class="signature-block" sign-box', template_source)
+        self.assertIn("sign-box", template_source)
+        self.assertIn("signature-box", template_source)
 
     @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
     @patch("apps.core.infrastructure.gateways.synplaisign.requests.post")
