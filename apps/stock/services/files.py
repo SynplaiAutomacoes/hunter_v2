@@ -44,10 +44,10 @@ class StoredImportXmlFile:
 class StockImportS3FileService:
     def save_file(self, *, content: bytes, filename: str, content_type: str, workshop_id: int, nf_key: str) -> StoredImportXmlFile:
         if workshop_id <= 0:
-            raise StockImportFileStorageError("Oficina invalida para salvar arquivo no bucket.")
+            raise StockImportFileStorageError("Oficina inválida para salvar o arquivo.")
 
         if not nf_key:
-            raise StockImportFileStorageError("Chave da NF-e é obrigatória para salvar o XML no bucket.")
+            raise StockImportFileStorageError("Chave da NF-e é obrigatória para salvar o XML no armazenamento.")
 
         normalized_filename = _normalize_xml_filename(filename, nf_key)
         normalized_content_type = _normalize_content_type(content_type=content_type)
@@ -82,12 +82,12 @@ class StockImportS3FileService:
     def read_file(self, *, file_id: str) -> StoredImportXmlFile:
         normalized_file_id = str(file_id or "").strip()
         if not normalized_file_id:
-            raise StockImportFileStorageError("Identificador invalido do arquivo salvo no bucket.")
+            raise StockImportFileStorageError("Identificador inválido do arquivo salvo.")
 
         try:
             stored_object = get_storage_service().read_file(normalized_file_id)
         except (StorageConfigurationError, StorageServiceError) as exc:
-            raise StockImportFileStorageError("Arquivo nao encontrado no bucket configurado.") from exc
+            raise StockImportFileStorageError("Arquivo não encontrado no armazenamento configurado.") from exc
 
         filename = stored_object.metadata.get("filename") or "NF-e.xml"
         content_type = _normalize_content_type(content_type=stored_object.content_type)
@@ -116,7 +116,7 @@ class StockImportS3FileService:
     def generate_presigned_url(self, *, file_id: str, expires_in: int = 3600) -> str:
         normalized_file_id = str(file_id or "").strip()
         if not normalized_file_id:
-            raise StockImportFileStorageError("Identificador invalido do arquivo salvo no bucket.")
+            raise StockImportFileStorageError("Identificador inválido do arquivo salvo.")
 
         try:
             return get_storage_service().generate_presigned_url(normalized_file_id, expires_in=expires_in)

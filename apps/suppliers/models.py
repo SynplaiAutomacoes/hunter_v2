@@ -8,12 +8,12 @@ from django.utils import timezone
 class Supplier(TimeStampedModel, Address):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="suppliers")
     cnpj = BRCPFCNPJField(verbose_name="Documento")
-    name = models.CharField(verbose_name="Razão Social", max_length=255)
+    name = models.CharField(verbose_name="Razão social", max_length=255)
     contact_person = models.CharField(verbose_name="Responsável", max_length=255, default="", blank=True)
     phone = PhoneNumberField(region="BR", verbose_name="Telefone", max_length=20, default="", blank=True)
     mobile = PhoneNumberField(region="BR", verbose_name="Celular", max_length=20, default="", blank=True)
-    email = models.EmailField(verbose_name="Email", default="", blank=True)
-    registration_date = models.DateField(verbose_name="Data de Cadastro", default=timezone.now)
+    email = models.EmailField(verbose_name="E-mail", default="", blank=True)
+    registration_date = models.DateField(verbose_name="Data de cadastro", default=timezone.now)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
     @property

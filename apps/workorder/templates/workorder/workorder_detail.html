@@ -4,7 +4,7 @@
 {% block crud_content %}
 <div class="p-6 space-y-6" x-data="{ activeTab: 'resumo' }">
     <div class="items-center">
-        <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.budget.id }}</h2>
+        <h2 class="text-3xl font-bold text-base-content">Ordem de serviço nº: {{ workorder.budget.id }}</h2>
         <p class="text-lg-content/70 mt-1">Status: <span class="badge badge-sm {{ workorder.workorder_status_badge.class|cut:' min-w-sm' }} uppercase font-bold">{{ workorder.workorder_status_badge.text }}</span></p>
     </div>
 
@@ -25,9 +25,9 @@
     <div class="mt-8 space-y-4">
         <div class="app-tabs tabs tabs-lift flex-wrap" role="tablist" aria-label="Seções da ordem de serviço">
             <input type="radio" name="workorder_tabs" value="resumo" class="tab" aria-label="Resumo" x-model="activeTab" checked />
-            <input type="radio" name="workorder_tabs" value="pagamento" class="tab" aria-label="Condição de Pagamento" x-model="activeTab" />
-            <input type="radio" name="workorder_tabs" value="aprovacao" class="tab" aria-label="Aprovação do Cliente" x-model="activeTab" />
-            <input type="radio" name="workorder_tabs" value="historico" class="tab" aria-label="Histórico do Veículo" x-model="activeTab" />
+            <input type="radio" name="workorder_tabs" value="pagamento" class="tab" aria-label="Condição de pagamento" x-model="activeTab" />
+            <input type="radio" name="workorder_tabs" value="aprovacao" class="tab" aria-label="Aprovação do cliente" x-model="activeTab" />
+            <input type="radio" name="workorder_tabs" value="historico" class="tab" aria-label="Histórico do veículo" x-model="activeTab" />
         </div>
 
         <div x-show="activeTab === 'resumo'" x-cloak>
@@ -84,15 +84,15 @@
     </dialog>
 </div>
 
-<dialog id="pdfModal" class="modal"                 x-data="{u:'', d:'', s:false, sl:false, sb:false, sr:'', kb:false, kbr:'', showPdfVariantToggle:false, pdfVariant:'signed', pdfToggleLabel:'Ver nao assinado', signedPdfUrl:'', basePdfUrl:'', signedDownloadUrl:'', baseDownloadUrl:'', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.u = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.d = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver nao assinado'; }}"
-        @open-pdf-modal.window="u=$event.detail.url; d=$event.detail.downloadUrl || ''; s=$event.detail.showSignatureBtn; sl=$event.detail.isStatusLocked || false; sb=$event.detail.signatureBlocked || false; sr=$event.detail.signatureBlockedReason || ''; kb=$event.detail.kmBlocked || false; kbr=$event.detail.kmBlockedReason || ''; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver nao assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
+<dialog id="pdfModal" class="modal"                 x-data="{u:'', d:'', s:false, sl:false, sb:false, sr:'', kb:false, kbr:'', showPdfVariantToggle:false, pdfVariant:'signed', pdfToggleLabel:'Ver não assinado', signedPdfUrl:'', basePdfUrl:'', signedDownloadUrl:'', baseDownloadUrl:'', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.u = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.d = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver não assinado'; }}"
+        @open-pdf-modal.window="u=$event.detail.url; d=$event.detail.downloadUrl || ''; s=$event.detail.showSignatureBtn; sl=$event.detail.isStatusLocked || false; sb=$event.detail.signatureBlocked || false; sr=$event.detail.signatureBlockedReason || ''; kb=$event.detail.kmBlocked || false; kbr=$event.detail.kmBlockedReason || ''; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver não assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
         <div class="modal-box max-w-5xl h-[90vh] p-0 flex flex-col">
             <div class="p-4 border-b flex justify-between items-center bg-base-200">
-                <h3 class="font-bold">Visualização da Ordem de Serviço</h3>
+                <h3 class="font-bold">Visualização da ordem de serviço</h3>
                 <div class="flex gap-2">
                     <button x-show="s" class="btn btn-sm" :class="(sl || kb || sb) ? 'btn-disabled cursor-not-allowed' : 'btn-primary'" :disabled="sl || kb || sb" :title="sl ? 'Reabra a O.S. antes de alterar o status.' : (kbr || sr)"
                         data-url="{% url 'workorder:send_signature' workorder.pk %}"
-                        onclick="sendBudgetForSignature(this)">Enviar para Assinatura</button>
+                        onclick="sendBudgetForSignature(this)">Enviar para assinatura</button>
                     <button class="btn btn-sm btn-outline" x-show="showPdfVariantToggle" @click="togglePdfVariant()" x-text="pdfToggleLabel"></button>
                     <button class="btn btn-sm btn-success" data-allow-locked="1" x-show="d" @click="window.open(d, '_blank')">Baixar PDF</button>
                     <button class="btn btn-sm" data-allow-locked="1" onclick="pdfModal.close()">Fechar</button>

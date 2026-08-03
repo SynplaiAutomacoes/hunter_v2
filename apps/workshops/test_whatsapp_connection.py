@@ -220,7 +220,7 @@ class WhatsAppConnectionViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["message"], "Nenhuma alteracao detectada.")
+        self.assertEqual(payload["message"], "Nenhuma alteração detectada.")
 
     def test_whatsapp_phone_autosave_normalizes_plus_prefix_as_unchanged(self) -> None:
         self.workshop.whatsapp_phone = "+5511999999999"
@@ -273,7 +273,7 @@ class WhatsAppConnectionViewTests(TestCase):
 
     def test_status_404_runs_cleanup(self) -> None:
         service = MagicMock()
-        service.get_status.side_effect = WhatsAppServiceError("Instancia 'inst-abc' nao encontrada.")
+        service.get_status.side_effect = WhatsAppServiceError("Instância 'inst-abc' não encontrada.")
         service.delete_instance.return_value = {"status": "ok"}
 
         with (

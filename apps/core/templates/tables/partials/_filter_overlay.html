@@ -50,7 +50,7 @@
             hx-select="{{ htmx_select }}"
             hx-push-url="{{ htmx_push_url }}"
         >
-            Limpar Filtro
+            Limpar filtro
         </button>
     {% endif %}
 
@@ -70,9 +70,8 @@
             <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                 <button type="button" class="btn-form-cancel" @click="$refs.filterModal.close()">Cancelar</button>
                 <button
-                    type="button"
+                    type="submit"
                     class="btn btn-primary"
-                    @click="$refs.filterModal.closest('form').requestSubmit()"
                 >
                     Filtrar
                 </button>

@@ -1,11 +1,11 @@
 {% extends 'crud/form_page.html' %}
-{% load crispy_forms_tags %}
 
-{% block crud_title %}Editar Custo Mensal da Oficina{% endblock %}
+{% block crud_title %}Editar custo mensal da oficina{% endblock %}
 {% block crud_subtitle %}Ajuste os valores do mês de referência.{% endblock %}
 {% block crud_back_url %}{% url 'workshops:workshop_cost_list' %}{% endblock %}
 
 {% block crud_form %}
     {% crispy form %}
     {% include 'workshop_costs/partials/workshop_cost_salary_sync_script.html' %}
+    {% include 'workshop_costs/partials/workshop_cost_feedback_script.html' %}
 {% endblock %}

@@ -2,7 +2,7 @@
 {% load l10n %}
 
 {% block crud_title %}Presets de Classe de Imposto{% endblock %}
-{% block crud_subtitle %}Monte modelos reutilizáveis de Nota Fiscal de Produto e Nota Fiscal de Serviço para cada oficina sem depender de presets hardcoded.{% endblock %}
+{% block crud_subtitle %}Monte modelos reutilizáveis de Nota Fiscal de Produto e Nota Fiscal de Serviço para cada oficina sem depender de presets fixos no código.{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex flex-wrap gap-2">
@@ -44,9 +44,9 @@
                 <tr>
                     <th>Preset</th>
                     <th>Resumo</th>
-                    <th>Descricao da classe</th>
+                    <th>Descrição da classe</th>
                     <th class="text-center">Status</th>
-                    <th class="text-center">Acoes</th>
+                    <th class="text-center">Ações</th>
                 </tr>
             </thead>
             <tbody>
@@ -58,7 +58,7 @@
                                 <p class="text-xs text-base-content/60">Criado em {{ preset.criado_em|date:'d/m/Y H:i' }}</p>
                             </td>
                             <td>{{ preset.description|default:'-' }}</td>
-                            <td>{{ preset.payload.descricao|default:'-' }}</td>
+                            <td>{{ preset.payload.descrição|default:'-' }}</td>
                             <td class="text-center">
                                 {% if preset.is_active %}
                                     <span class="badge badge-success">Ativo</span>
@@ -96,7 +96,7 @@
                                 <p class="text-xs text-base-content/60">Criado em {{ preset.criado_em|date:'d/m/Y H:i' }}</p>
                             </td>
                             <td>{{ preset.description|default:'-' }}</td>
-                            <td>{{ preset.payload.descricao|default:'-' }}</td>
+                            <td>{{ preset.payload.descrição|default:'-' }}</td>
                             <td class="text-center">
                                 {% if preset.is_active %}
                                     <span class="badge badge-success">Ativo</span>

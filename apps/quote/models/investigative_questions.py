@@ -9,8 +9,8 @@ from apps.workshops.models.workshops import Workshop
 
 class InvestigativeQuestion(TimeStampedModel):
     class ResponseType(models.TextChoices):
-        FREE_TEXT = "TEXT", "Texto Livre"
-        MULTIPLE_CHOICE = "CHOICE", "Múltipla Escolha"
+        FREE_TEXT = "TEXT", "Texto livre"
+        MULTIPLE_CHOICE = "CHOICE", "Múltipla escolha"
         BOOLEAN = "BOOL", "Sim/Não"
         SCALE = "SCALE", "Escala (1-10)"
 
@@ -22,7 +22,7 @@ class InvestigativeQuestion(TimeStampedModel):
 
     text = models.CharField(verbose_name="Pergunta", max_length=255)
     response_type = models.CharField(
-        verbose_name="Tipo de Resposta",
+        verbose_name="Tipo de resposta",
         max_length=10,
         choices=ResponseType.choices,
         default=ResponseType.FREE_TEXT,
@@ -31,13 +31,13 @@ class InvestigativeQuestion(TimeStampedModel):
     # Options for multiple choice questions
     options = JSONField(verbose_name="Opções", default=list, blank=True)
 
-    order = models.PositiveIntegerField(verbose_name="Ordem", default=0, help_text="Ordem em que a pergunta aparecerá (0 = Primeiro)")
+    order = models.PositiveIntegerField(verbose_name="Ordem", default=0, help_text="Ordem em que a pergunta aparecerá (0 = primeiro)")
 
     is_active = models.BooleanField(verbose_name="Ativa", default=True)
 
     class Meta:
-        verbose_name = "Pergunta Investigativa"
-        verbose_name_plural = "Perguntas Investigativas"
+        verbose_name = "Pergunta investigativa"
+        verbose_name_plural = "Perguntas investigativas"
 
     def __str__(self):
         return self.text
@@ -46,12 +46,12 @@ class InvestigativeQuestion(TimeStampedModel):
 class InvestigativeResponse(TimeStampedModel):
     workshop = models.ForeignKey(Workshop, verbose_name="Oficina", on_delete=models.CASCADE, related_name="investigative_responses")
     budget = models.ForeignKey("budget.Budget", verbose_name="Orçamento", on_delete=models.CASCADE, related_name="investigative_responses")
-    question = models.ForeignKey(InvestigativeQuestion, verbose_name="Pergunta Investigativa", on_delete=models.CASCADE, related_name="investigative_responses")
+    question = models.ForeignKey(InvestigativeQuestion, verbose_name="Pergunta investigativa", on_delete=models.CASCADE, related_name="investigative_responses")
     response = models.TextField(verbose_name="Resposta")
 
     class Meta:
-        verbose_name = "Resposta da Pergunta Investigativa"
-        verbose_name_plural = "Respostas das Perguntas Investigativas"
+        verbose_name = "Resposta da pergunta investigativa"
+        verbose_name_plural = "Respostas das perguntas investigativas"
         unique_together = ["budget", "question"]
 
     def __str__(self):

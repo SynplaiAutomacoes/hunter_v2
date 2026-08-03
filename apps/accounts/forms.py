@@ -14,7 +14,7 @@ USER_PLACEHOLDER = {"placeholder": "user123"}
 
 
 class LoginForm(AuthenticationForm):
-    username = UsernameField(label="Usuário", widget=TextInput(attrs=USER_PLACEHOLDER))
+    username = UsernameField(label="Usuário ou e-mail", widget=TextInput(attrs=USER_PLACEHOLDER))
     password = forms.CharField(label="Senha", widget=PasswordInput())
 
     def __init__(self, request=None, *args, **kwargs):
@@ -80,7 +80,7 @@ class SignUpForm(UserCreationForm):
 
 class UserIdentificationForm(forms.Form):
     identifier = forms.CharField(
-        label="Usuário ou E-mail",
+        label="Usuário ou e-mail",
         widget=TextInput(attrs={"placeholder": "Digite seu usuário ou e-mail"}),
     )
 

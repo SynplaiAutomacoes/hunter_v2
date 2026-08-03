@@ -4,10 +4,13 @@ import calendar
 import datetime
 import json
 
+from dataclasses import dataclass
+from decimal import Decimal
 from typing import cast
 
 from django import forms
 from django.urls import reverse
+from djmoney.money import Money
 import holidays
 
 from crispy_forms.helper import FormHelper
@@ -27,14 +30,7 @@ from apps.core.presentation.widgets import (
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostWorkDay, WorkshopCostItem
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.util.monthly_costs import (
-    ADMIN_SALARY_MONTHLY_COST_NAME,
-    MECHANIC_SALARY_MONTHLY_COST_NAME,
-    PRO_LABORE_MONTHLY_COST_ALIASES,
-    PRO_LABORE_MONTHLY_COST_NAME,
-    TRANSPORT_ALLOWANCE_MONTHLY_COST_ALIASES,
-    TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME,
-)
+from apps.workshops.util.monthly_costs import ADMIN_SALARY_MONTHLY_COST_NAME, MECHANIC_SALARY_MONTHLY_COST_NAME
 
 BRAZILIAN_STATE_CHOICES: list[tuple[str, str]] = [
     ("AC", "Acre (AC)"),
@@ -71,14 +67,6 @@ class WorkshopCostForm(CoreModelForm):
     EDIT_WARNING_MESSAGES = {
         MECHANIC_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores produtivos, deseja manter?",
         ADMIN_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores administrativos, deseja manter?",
-    }
-    SALARY_SYNC_COST_KINDS_BY_NAME = {
-        MECHANIC_SALARY_MONTHLY_COST_NAME: "productive",
-        ADMIN_SALARY_MONTHLY_COST_NAME: "administrative",
-        PRO_LABORE_MONTHLY_COST_NAME: "pro_labore",
-        **{alias: "pro_labore" for alias in PRO_LABORE_MONTHLY_COST_ALIASES},
-        TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME: "transport",
-        **{alias: "transport" for alias in TRANSPORT_ALLOWANCE_MONTHLY_COST_ALIASES},
     }
     work_day_dates = forms.CharField(required=False, widget=forms.HiddenInput())
     state = forms.ChoiceField(
@@ -129,7 +117,7 @@ class WorkshopCostForm(CoreModelForm):
             "third_party_service_cap": MoneyInput(),
             "total_value": MoneyInput(attrs={"readonly": True}),
             "total_monthly_costs": MoneyInput(attrs={"readonly": True}),
-            "profit_target": MoneyInput(attrs={"readonly": True}),
+            "profit_target": MoneyInput(),
             "gross_revenue_target": MoneyInput(attrs={"readonly": True}),
             "profitability_multiplier": DecimalInput(decimal_places=2, attrs={"readonly": True}),
         }
@@ -137,15 +125,6 @@ class WorkshopCostForm(CoreModelForm):
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
-
-        if workshop is not None:
-            from apps.workshops.util.monthly_costs import (
-                unify_pro_labore_monthly_cost,
-                unify_transport_allowance_monthly_cost,
-            )
-
-            unify_pro_labore_monthly_cost(workshop=workshop)
-            unify_transport_allowance_monthly_cost(workshop=workshop)
 
         if not self.instance.pk and not self.data:
             today = datetime.date.today()
@@ -162,7 +141,6 @@ class WorkshopCostForm(CoreModelForm):
         self.initial.setdefault("state", "SP")
 
         self.cost_fields_names = []
-        self.cost_fields_by_name: dict[str, MonthlyCost] = {}
         for cost in self.active_costs:
             cost_id = cost.pk
             if cost_id is None:
@@ -170,7 +148,6 @@ class WorkshopCostForm(CoreModelForm):
 
             field_name = f"cost_item_{cost_id}"
             self.cost_fields_names.append(field_name)
-            self.cost_fields_by_name[field_name] = cost
 
             self.fields[field_name] = MoneyField(label=cost.name, required=False, widget=MoneyInput())
 
@@ -178,31 +155,17 @@ class WorkshopCostForm(CoreModelForm):
                 self.initial[field_name] = saved_values[cost_id]
 
             self._set_cost_field_restore_metadata(field_name=field_name, cost_name=cost.name, original_value=saved_values.get(cost_id))
-            self._set_cost_field_salary_sync_metadata(field_name=field_name, monthly_cost=cost)
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
         self.helper.layout = self.get_layout()
-
-    @classmethod
-    def salary_sync_kind_for_cost_name(cls, cost_name: str) -> str | None:
-        from apps.workshops.util.monthly_costs import _normalize_cost_name
-
-        target = _normalize_cost_name(cost_name)
-        for canonical_name, kind in cls.SALARY_SYNC_COST_KINDS_BY_NAME.items():
-            if _normalize_cost_name(canonical_name) == target:
-                return kind
-        return None
-
-    def _build_cost_fields_layout(self) -> list[Field]:
-        return [Field(field_name, wrapper_class="col-span-12 lg:col-span-3") for field_name in self.cost_fields_names]
 
     def get_layout(self) -> Layout:
         cancel_url = reverse("workshops:workshop_cost_list")
         calculate_url = reverse("workshops:workshop_cost_calculate")
         copy_modal_url = reverse("workshops:workshop_cost_copy_selection")
 
-        cost_fields_layout = self._build_cost_fields_layout()
+        cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-3") for name in self.cost_fields_names]
 
         copy_btn_html = ""
         if not self.instance.pk:
@@ -240,7 +203,8 @@ class WorkshopCostForm(CoreModelForm):
                     Field("work_day_dates", type="hidden"),
                     Field("state", wrapper_class="col-span-12 lg:col-span-3"),
                     HTML(self._build_work_days_calendar_html()),
-                    Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
+                    Field("productivity_average", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-6"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Despesas Mensais</h3>'),
                     Div(
@@ -249,16 +213,17 @@ class WorkshopCostForm(CoreModelForm):
                     ),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Taxas e Impostos</h3>'),
-                    Field("card_rate", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("tax_rate", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("profit_margin", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("commission_rate", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("card_rate", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("tax_rate", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("commission_rate", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("risk_coefficient", wrapper_class="col-span-12 lg:col-span-12"),
+                    Field("total_monthly_costs", wrapper_class="col-span-12 lg:col-span-12"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Metas e Indicadores</h3>'),
-                    Field("parts_purchase_cap", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("freight_cost", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("third_party_service_cap", wrapper_class="col-span-12 lg:col-span-4"),
+                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Teto de Compras</h3>'),
+                    Field("parts_purchase_cap", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("freight_cost", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("third_party_service_cap", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("total_value", wrapper_class="col-span-12 lg:col-span-3"),
                     hx_post=calculate_url,
                     hx_trigger="input delay:100ms, change delay:100ms",
                     hx_target="#calculation-results",
@@ -266,14 +231,16 @@ class WorkshopCostForm(CoreModelForm):
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start col-span-12",
                 ),
                 Div(
-                    HTML('<div class="col-span-12 mb-4"><span class="badge badge-neutral">Cálculos Automáticos</span></div>'),
-                    Field("total_value", wrapper_class="col-span-12"),
-                    Field("total_monthly_costs", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("profit_target", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("gross_revenue_target", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("profitability_multiplier", wrapper_class="col-span-12 lg:col-span-6"),
+                    HTML('<div class="col-span-12 mb-4"><span class="badge badge-neutral">Metas e Indicadores</span></div>'),
+                    Field("profit_target", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("gross_revenue_target", wrapper_class="col-span-12 lg:col-span-4"),
+                    Div(
+                        Field("profitability_multiplier"),
+                        css_id="multiplier-feedback",
+                        css_class="col-span-12 lg:col-span-4",
+                    ),
                     css_id="calculation-results",
-                    css_class="col-span-12 bg-base-300 p-6 rounded-box grid grid-cols-1 lg:grid-cols-12 gap-4 items-start mt-4",
+                    css_class="col-span-12 bg-success/10 border border-success/20 rounded-box p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start mt-4",
                 ),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
@@ -300,24 +267,6 @@ class WorkshopCostForm(CoreModelForm):
         field.widget.attrs["restore_original_value"] = self._serialize_money_value(original_value)
         field.widget.attrs["restore_warning_message"] = warning_message
 
-    def _set_cost_field_salary_sync_metadata(self, *, field_name: str, monthly_cost: MonthlyCost) -> None:
-        if monthly_cost.pk is None:
-            return
-
-        cost_kind = self.salary_sync_kind_for_cost_name(monthly_cost.name)
-        if cost_kind is None:
-            return
-
-        field = self.fields.get(field_name)
-        if field is None:
-            return
-
-        field.widget.attrs["salary_sync_url"] = reverse("workshops:workshop_cost_sync_salary_items")
-        field.widget.attrs["salary_sync_vals"] = json.dumps(
-            {"cost_kind": cost_kind, "monthly_cost_id": str(monthly_cost.pk)}
-        )
-        field.widget.attrs["salary_sync_label"] = f"Atualizar {monthly_cost.name}"
-
     @staticmethod
     def _serialize_money_value(value: object | None) -> str:
         if value is None:
@@ -343,7 +292,50 @@ class WorkshopCostForm(CoreModelForm):
             if qs.exists():
                 raise forms.ValidationError("Já existe um custo mensal para este Mês/Ano.")
 
+        self._validate_profitability_multiplier(cleaned_data)
+
         return cleaned_data
+
+    def _validate_profitability_multiplier(self, cleaned_data: dict[str, object]) -> None:
+        @dataclass
+        class MockItem:
+            amount: Money
+
+        instance = self.instance
+        for field_name in (
+            "parts_purchase_cap",
+            "freight_cost",
+            "third_party_service_cap",
+            "card_rate",
+            "tax_rate",
+            "commission_rate",
+            "risk_coefficient",
+        ):
+            setattr(instance, field_name, cleaned_data.get(field_name))
+
+        cost_items: list[MockItem] = []
+        for cost in self.active_costs:
+            cost_id = cost.pk
+            if cost_id is None:
+                continue
+            amount = cleaned_data.get(f"cost_item_{cost_id}")
+            if amount is None:
+                amount = Money(0, "BRL")
+            cost_items.append(MockItem(amount=amount))
+
+        total_value = instance.calculate_total_value()
+        total_monthly_costs = instance.calculate_total_monthly_costs(items=cost_items)
+        profit_target = cleaned_data.get("profit_target")
+        if profit_target is None:
+            profit_target = Money(0, "BRL")
+        gross_revenue_target = instance.calculate_gross_revenue_target(total_monthly_costs, profit_target, total_value)
+        multiplier = instance.calculate_profitability_multiplier(gross_revenue_target, total_value)
+
+        if multiplier < Decimal("3.0"):
+            self.add_error(
+                "profitability_multiplier",
+                "O Multiplicador de Lucratividade não pode ser menor que 3,0. Diminua o Teto de Compra de Peças ou Aumente a Meta de Lucro Mensal",
+            )
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -545,7 +537,7 @@ class WorkshopCostForm(CoreModelForm):
                             button.type = 'button';
                             button.textContent = String(day);
                             button.dataset.date = dateValue;
-                            
+
                             let buttonClass = 'h-7 w-7 rounded-sm border text-[11px] font-semibold transition cursor-pointer ';
                             if (isSelected) {{
                                 buttonClass += 'cal-day-selected border-success bg-success/25 text-success-content hover:bg-success/35';

@@ -196,7 +196,7 @@ class ImportStep1Form(CoreModelForm):
                         )
                         nf_data["xml_file_key"] = stored.file_id
                     except StockImportFileStorageError:
-                        self.add_error("xml_file", "Erro ao salvar o XML no bucket. Verifique as configurações de storage.")
+                        self.add_error("xml_file", "Erro ao salvar o XML no armazenamento. Verifique as configurações de armazenamento.")
 
         if method == "KEY":
             key = cleaned_data.get("access_key")
@@ -245,7 +245,7 @@ class ImportStep1Form(CoreModelForm):
                             )
                             nf_data["xml_file_key"] = stored.file_id
                         except StockImportFileStorageError:
-                            self.add_error("access_key", "Erro ao salvar o XML no bucket. Verifique as configurações de storage.")
+                            self.add_error("access_key", "Erro ao salvar o XML no armazenamento. Verifique as configurações de armazenamento.")
                             return cleaned_data
                 except Exception:
                     self.add_error("access_key", "Erro ao buscar chave na SEFAZ ou chave inválida.")
@@ -640,7 +640,7 @@ class ImportStepPaymentForm(CoreModelForm):
                         <div class="alert alert-error shadow-lg border-2 border-error">
                             <span class="material-icons">error_outline</span>
                             <div>
-                                <h3 class="font-bold text-sm">Valor Não Permitido</h3>
+                                <h3 class="font-bold text-sm">Valor não permitido</h3>
                                 <div class="text-xs payment-warning-message">
                                     O valor a ser pago não pode exceder o saldo disponível de <strong>R$ {valor_pendente:,.2f}</strong>.
                                 </div>
@@ -1349,8 +1349,8 @@ class ManualLinkItemEditForm(CoreForm):
         if self.has_existing_link:
             return "Salvar alterações"
         if self.is_linking_imported_item:
-            return "Salvar e Vincular"
-        return "Salvar e Inserir"
+            return "Salvar e vincular"
+        return "Salvar e inserir"
 
     @property
     def submit_icon(self) -> str:
@@ -1363,19 +1363,19 @@ class ManualLinkItemEditForm(CoreForm):
     @property
     def save_help_text(self) -> str:
         if self.has_existing_link:
-            return "Ao salvar, este item sera atualizado na tabela desta etapa."
+            return "Ao salvar, este item será atualizado na tabela desta etapa."
         if self.is_linking_imported_item:
-            return "Ao salvar, o produto sera vinculado ao item importado e os dados informados ficarao salvos nesta etapa."
-        return "Ao salvar, este item sera adicionado a tabela desta etapa e continuara editavel depois."
+            return "Ao salvar, o produto será vinculado ao item importado e os dados informados ficarão salvos nesta etapa."
+        return "Ao salvar, este item será adicionado à tabela desta etapa e continuará editável depois."
 
     @property
     def success_message(self) -> str:
         if self.has_existing_link:
-            message = "atualizado na importacao manual" if self.is_manual_import else "atualizado na importacao"
+            message = "atualizado na importação manual" if self.is_manual_import else "atualizado na importação"
         elif self.is_linking_imported_item:
-            message = "vinculado na importacao"
+            message = "vinculado na importação"
         else:
-            message = "adicionado a importacao manual"
+            message = "adicionado à importação manual"
 
         return f"{self.product.name} {message}."
 
@@ -1799,8 +1799,8 @@ class ImportManualItemsForm(CoreModelForm):
                 <div class="p-6 border-b border-base-200 flex items-start gap-3 bg-base-50">
                     <span class="material-icons text-warning text-3xl">warning</span>
                     <div>
-                        <h3 class="font-bold text-xl">Confirmar valor abaixo do ultimo uso</h3>
-                        <p class="text-sm text-base-content/80 mt-2">O valor de venda informado para <span id="manual-import-lower-price-product" class="font-semibold">este produto</span> está abaixo do ultimo valor utilizado.</p>
+                        <h3 class="font-bold text-xl">Confirmar valor abaixo do último uso</h3>
+                        <p class="text-sm text-base-content/80 mt-2">O valor de venda informado para <span id="manual-import-lower-price-product" class="font-semibold">este produto</span> está abaixo do último valor utilizado.</p>
                         <p class="text-sm text-base-content/80 mt-1" id="manual-import-lower-price-last-used"></p>
                         <p class="text-sm text-base-content/80 mt-1">Deseja continuar mesmo assim?</p>
                     </div>
@@ -1862,7 +1862,7 @@ class ImportManualItemsForm(CoreModelForm):
                     const lastUsedPrice = Number.parseFloat(input.dataset.lastUsedPrice || '0') || 0;
 
                     if (!modal || typeof modal.showModal !== 'function') {
-                        return window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este produto. Deseja continuar mesmo assim?');
+                        return window.confirm('O valor informado está abaixo do último valor utilizado para este produto. Deseja continuar mesmo assim?');
                     }
 
                     if (productLabel) {
@@ -1959,7 +1959,7 @@ class TransferStepOperationForm(CoreModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML('<h2 class="text-2xl font-bold mb-6">Tipo de Operação</h2>'),
+                HTML('<h2 class="text-2xl font-bold mb-6">Tipo de operação</h2>'),
                 Field("operation_type"),
             )
         )
@@ -2115,7 +2115,7 @@ class TransferStepReasonForm(CoreModelForm):
         self.helper.layout = Layout(
             Div(
                 HTML('<h2 class="text-2xl font-bold mb-2 text-base-content">Motivo da Baixa</h2>'),
-                HTML('<p class="text-sm text-base-content/70 mb-6">Selecione o item e explique por que estes item esta saindo do estoque.</p>'),
+                HTML('<p class="text-sm text-base-content/70 mb-6">Selecione o item e explique por que este item está saindo do estoque.</p>'),
                 Div(
                     # Coluna da Esquerda: Busca e Seleção
                     Div(HTML(self._render_search_and_list_html()), css_class="col-span-12 lg:col-span-7"),
@@ -2125,7 +2125,7 @@ class TransferStepReasonForm(CoreModelForm):
                         Field("reason"),
                         HTML("""<div class="alert bg-warning/10 text-warning border-none mt-4">
                             <span class="material-icons">info</span>
-                            <span class="text-xs">A baixa irá alterar a quantidade do item selecionado permanentemente do estoque.</span>
+                            <span class="text-xs">A baixa alterará permanentemente a quantidade do item selecionado no estoque.</span>
                         </div> """),
                         css_class="col-span-12 lg:col-span-5 bg-base-200/30 p-4 rounded-xl border border-base-300",
                     ),
@@ -2270,7 +2270,7 @@ class TransferItemsForm(CoreModelForm):
             <tr class="border-b border-base-300 {row_class}">
                 <td>
                     <div class="font-semibold">{product.name}</div>
-                    <div class="text-xs opacity-60">{product.code or "Sem codigo"}</div>
+                    <div class="text-xs opacity-60">{product.code or "Sem código"}</div>
                 </td>
                 <td class="text-center"><span class="badge badge-ghost font-mono">{available_quantity}</span></td>
                 <td class="text-right">
@@ -2287,11 +2287,11 @@ class TransferItemsForm(CoreModelForm):
                         <h3 class="text-base font-bold uppercase">Origem</h3>
                         <span class="badge badge-outline">{self.instance.source_workshop.name}</span>
                     </div>
-                    <p class="text-sm text-base-content/70">Selecione os itens que vao sair do estoque.</p>
+                    <p class="text-sm text-base-content/70">Selecione os itens que vão sair do estoque.</p>
                 </div>
                 <label class="form-control w-full">
                     <input type="text" name="source_search" value="{search_query}" class="input input-bordered w-full"
-                           placeholder="Buscar por codigo, nome ou marca"
+                           placeholder="Buscar por código, nome ou marca"
                            hx-get="{search_url}"
                            hx-include="this"
                            hx-vals='{{"pk": "{self.instance.pk}"}}'
@@ -2305,7 +2305,7 @@ class TransferItemsForm(CoreModelForm):
                             <tr>
                                 <th>Produto</th>
                                 <th class="text-center">Estoque</th>
-                                <th class="text-right">Acao</th>
+                                <th class="text-right">Ação</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -2368,7 +2368,7 @@ class TransferItemsForm(CoreModelForm):
             <tr class="border-b border-base-300 align-top">
                 <td>
                     <div class="font-semibold">{source_product.name}</div>
-                    <div class="text-xs opacity-60">{source_product.code or "Sem codigo"}</div>
+                    <div class="text-xs opacity-60">{source_product.code or "Sem código"}</div>
                 </td>
                 <td class="text-center">
                     <span class="badge badge-ghost font-mono">{available_quantity}</span>
@@ -2404,11 +2404,11 @@ class TransferItemsForm(CoreModelForm):
                                 <th class="text-center">Quantidade</th>
                                 <th>Produto no Destino</th>
                                 <th class="text-right">Subtotal</th>
-                                <th class="text-right">Acao</th>
+                                <th class="text-right">Ação</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {rows or '<tr><td colspan="6" class="text-center italic py-8">Selecione itens na coluna da esquerda para montar a transferencia.</td></tr>'}
+                            {rows or '<tr><td colspan="6" class="text-center italic py-8">Selecione itens na coluna da esquerda para montar a transferência.</td></tr>'}
                         </tbody>
                     </table>
                 </div>

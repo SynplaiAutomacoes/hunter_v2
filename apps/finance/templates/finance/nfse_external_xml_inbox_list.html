@@ -1,0 +1,24 @@
+{% extends 'crud/list.html' %}
+
+{% block crud_title %}Inbox externa de XML NFS-e{% endblock %}
+{% block crud_subtitle %}XMLs candidatos ficam pendentes ate revisão humana e processamento pelo lote XML validado.{% endblock %}
+{% block crud_header_actions %}<div class="flex gap-2">{% if can_export_external_inbox %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_external_xml_inbox_export' %}?{{ request.GET.urlencode }}">Exportar CSV</a>{% endif %}{% if can_upload_external_inbox %}<a class="btn btn-primary btn-sm" href="{% url 'finance:nfse_external_xml_inbox_upload' %}">Enviar XMLs candidatos</a>{% endif %}<a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_received_document_list' %}">NFS-e recebidas</a></div>{% endblock %}
+{% block crud_list_content %}
+<div class="alert alert-info mb-4">A inbox não importa automaticamente, não consulta e não manifesta documentos. O documento fiscal so nasce apos processamento pelo pipeline de XML/lote.</div>
+<form method="get" class="mb-4 grid gap-3 md:grid-cols-4">
+    <input class="input input-bordered input-sm" type="search" name="q" value="{{ filters.q }}" placeholder="Arquivo, hash, UUID, CNPJ, erro">
+    <select class="select select-bordered select-sm" name="status"><option value="">Status da inbox</option>{% for value,label in status_choices %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <select class="select select-bordered select-sm" name="item_status"><option value="">Status do item</option>{% for value,label in item_status_choices %}<option value="{{ value }}" {% if filters.item_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <input class="input input-bordered input-sm" name="source" value="{{ filters.source }}" placeholder="Origem declarada">
+    <input class="input input-bordered input-sm" type="date" name="date_from" value="{{ filters.date_from }}">
+    <input class="input input-bordered input-sm" type="date" name="date_to" value="{{ filters.date_to }}">
+    <select class="select select-bordered select-sm" name="has_batch"><option value="">Lote vinculado</option><option value="yes" {% if filters.has_batch == "yes" %}selected{% endif %}>Com lote</option><option value="no" {% if filters.has_batch == "no" %}selected{% endif %}>Sem lote</option></select>
+    <select class="select select-bordered select-sm" name="has_document"><option value="">Documento vinculado</option><option value="yes" {% if filters.has_document == "yes" %}selected{% endif %}>Com documento</option><option value="no" {% if filters.has_document == "no" %}selected{% endif %}>Sem documento</option></select>
+    <select class="select select-bordered select-sm" name="has_error"><option value="">Erros</option><option value="yes" {% if filters.has_error == "yes" %}selected{% endif %}>Com erro</option></select>
+    <select class="select select-bordered select-sm" name="has_duplicate"><option value="">Duplicidade</option><option value="yes" {% if filters.has_duplicate == "yes" %}selected{% endif %}>Duplicado</option></select>
+    <div class="flex gap-2 md:col-span-2"><button class="btn btn-secondary btn-sm" type="submit">Filtrar</button><a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_external_xml_inbox_list' %}">Limpar</a></div>
+</form>
+<div class="overflow-x-auto"><table class="table table-zebra"><thead><tr><th>Empresa</th><th>Origem</th><th>Status</th><th>Itens</th><th>Pendentes</th><th>Aprovados</th><th>Processados</th><th>Erros</th><th></th></tr></thead><tbody>
+{% for inbox in inboxes %}<tr><td>{{ inbox.company }}</td><td>{{ inbox.source_label|default:inbox.get_source_type_display }}</td><td>{{ inbox.get_status_display }}</td><td>{{ inbox.total_items }}</td><td>{{ inbox.pending_count }}</td><td>{{ inbox.approved_count }}</td><td>{{ inbox.processed_count }}</td><td>{{ inbox.error_count }}</td><td><a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_external_xml_inbox_detail' inbox.pk %}">Abrir</a></td></tr>{% empty %}<tr><td colspan="9">Nenhuma inbox registrada.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

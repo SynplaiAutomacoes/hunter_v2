@@ -29,7 +29,6 @@
         allPendingSelected: false,
         initialTerminationDate: '{% if form.termination_date.value %}{{ form.termination_date.value|date:"Y-m-d" }}{% elif form.instance.termination_date %}{{ form.instance.termination_date|date:"Y-m-d" }}{% endif %}',
         openPendingDeleteOnLoad: {{ open_pending_delete|yesno:'true,false' }},
-        pendingSyncSubmit: false,
         parseMoney(value) {
             const parsed = Number.parseFloat(String(value || '').trim());
             return Number.isFinite(parsed) ? parsed : 0;
@@ -98,20 +97,6 @@
             }
             this.$refs.terminationPendingModal.showModal();
         },
-        handleCollaboratorSubmit(event) {
-            if (this.pendingSyncSubmit) {
-                this.pendingSyncSubmit = false;
-                return;
-            }
-            event.preventDefault();
-            this.$refs.syncMonthlyCostsModal.showModal();
-        },
-        confirmSyncMonthlyCosts(shouldSync) {
-            this.$refs.syncMonthlyCostsInput.value = shouldSync ? '1' : '0';
-            this.pendingSyncSubmit = true;
-            this.$refs.syncMonthlyCostsModal.close();
-            this.$nextTick(() => this.$refs.collaboratorForm.requestSubmit());
-        },
         onTerminationDateChanged(event) {
             const nextValue = String(event.target && event.target.value || '').trim();
             const hadValue = Boolean(String(this.initialTerminationDate || '').trim());
@@ -142,9 +127,8 @@
     }"
     class="space-y-6"
 >
-    <form id="collaborator-update-form" method="post" novalidate x-ref="collaboratorForm" @submit="handleCollaboratorSubmit($event)">
+    <form id="collaborator-update-form" method="post" novalidate>
         {% csrf_token %}
-        <input type="hidden" name="sync_monthly_costs" value="" x-ref="syncMonthlyCostsInput">
         <input type="hidden" name="tab" value="cadastro">
 
         {% if form.non_field_errors or benefit_formset.non_form_errors %}
@@ -202,7 +186,7 @@
                     <div class="mt-2 flex items-center gap-2">
                         <button type="button" class="btn btn-outline btn-primary btn-sm" @click="showGenerate = !showGenerate">
                             <span class="material-icons text-sm">payments</span>
-                            Gerar Movimentações
+                            Gerar movimentações
                         </button>
                         <div x-show="showGenerate" x-cloak class="flex items-center gap-2" id="generate-movements-controls-{{ object.pk|unlocalize }}">
                             <span class="text-xs text-base-content/70 whitespace-nowrap">A partir de:</span>
@@ -368,8 +352,6 @@
         </div>
     </form>
 
-    {% include 'collaborators/partials/sync_monthly_costs_confirm_modal.html' %}
-
     <form id="collaborator-delete-movements-form" x-ref="deleteMovementsForm" method="post" action="{% url 'collaborators:collaborator_delete_pending_movements' pk=object.pk %}">
         {% csrf_token %}
         <input type="hidden" id="id_delete_movement_ids_payload" name="delete_movement_ids_payload" value="">
@@ -412,7 +394,7 @@
                                 <tr>
                                     <th class="w-10"></th>
                                     <th>Vencimento</th>
-                                    <th>Descricao</th>
+                                    <th>Descrição</th>
                                     <th>Forma de pagamento</th>
                                     <th class="text-right">Valor</th>
                                 </tr>
@@ -485,7 +467,7 @@
         if (modal) {
             modal.close();
         }
-        window.alert('Nao foi possivel remover o beneficio. Tente novamente.');
+        window.alert('Não foi possível remover o benefício. Tente novamente.');
     }
 
     function collaboratorBenefitsManager() {
@@ -558,7 +540,7 @@
         <input type="hidden" name="tab" value="historico">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
             <div class="col-span-12 lg:col-span-3">
-                <label class="label pb-1"><span class="label-text text-xs">Mes</span></label>
+                <label class="label pb-1"><span class="label-text text-xs">Mês</span></label>
                 <select name="history_month" class="select select-bordered w-full">
                     <option value="">Todos</option>
                     {% for month in history_month_choices %}
@@ -610,7 +592,7 @@
                 <div class="mb-4 flex items-center justify-between gap-2">
                     <div>
                         <h4 class="font-semibold">Resumo simplificado</h4>
-                        <p class="text-sm text-base-content/70">Competencia {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</p>
+                        <p class="text-sm text-base-content/70">Competência {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</p>
                     </div>
                     <div class="flex flex-col items-end gap-2 text-right text-sm">
                         <div>
@@ -646,7 +628,7 @@
                     <table class="table table-zebra w-full">
                         <thead>
                             <tr>
-                                <th>Descricao</th>
+                                <th>Descrição</th>
                                 <th>Detalhes</th>
                                 <th>Valor</th>
                             </tr>
@@ -677,10 +659,10 @@
                 </div>
 
                 <div class="grid grid-cols-1 lg:grid-cols-5 gap-3 text-sm mt-4">
-                    <div class="rounded-lg bg-base-200 px-3 py-2">Salario: <strong>{{ payroll.salary_amount }}</strong></div>
+                    <div class="rounded-lg bg-base-200 px-3 py-2">Salário: <strong>{{ payroll.salary_amount }}</strong></div>
                     <div class="rounded-lg bg-base-200 px-3 py-2">VT: <strong>{{ payroll.transport_allowance_amount }}</strong></div>
-                    <div class="rounded-lg bg-base-200 px-3 py-2">Beneficios: <strong>{{ payroll.benefits_amount }}</strong></div>
-                    <div class="rounded-lg bg-base-200 px-3 py-2">Comissoes: <strong>{{ payroll.commission_amount }}</strong></div>
+                    <div class="rounded-lg bg-base-200 px-3 py-2">Benefícios: <strong>{{ payroll.benefits_amount }}</strong></div>
+                    <div class="rounded-lg bg-base-200 px-3 py-2">Comissões: <strong>{{ payroll.commission_amount }}</strong></div>
                     <div class="rounded-lg bg-base-200 px-3 py-2">Total: <strong>{{ payroll.total_amount }}</strong></div>
                 </div>
             </div>
@@ -728,7 +710,7 @@
     </div>
 
     <form method="dialog" class="modal-backdrop">
-        <button>close</button>
+        <button>Fechar</button>
     </form>
 </dialog>
 {% endblock %}

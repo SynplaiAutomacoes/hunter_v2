@@ -70,7 +70,7 @@ class WorkshopS3FileService:
         workshop_id: int,
     ) -> StoredWorkshopFile:
         if workshop_id <= 0:
-            raise WorkshopFileStorageError("Oficina invalida para salvar arquivo no bucket.")
+            raise WorkshopFileStorageError("Oficina inválida para salvar arquivo no bucket.")
 
         uploaded_at = timezone.now()
         file_id = _build_storage_key(kind=kind, workshop_id=workshop_id, filename=filename)
@@ -100,12 +100,12 @@ class WorkshopS3FileService:
     def read_file(self, *, kind: StoredFileKind, file_id: str) -> StoredWorkshopFile:
         normalized_file_id = str(file_id or "").strip()
         if not normalized_file_id:
-            raise WorkshopFileStorageError("Identificador invalido do arquivo salvo no bucket.")
+            raise WorkshopFileStorageError("Identificador inválido do arquivo salvo no bucket.")
 
         try:
             stored_object = get_storage_service().read_file(normalized_file_id)
         except (StorageConfigurationError, StorageServiceError) as exc:
-            raise WorkshopFileStorageError("Arquivo nao encontrado no bucket configurado. Envie o arquivo novamente na gestao da oficina.") from exc
+            raise WorkshopFileStorageError("Arquivo não encontrado no bucket configurado. Envie o arquivo novamente na gestão da oficina.") from exc
 
         metadata = stored_object.metadata
         filename = _normalize_filename(metadata.get("filename"), fallback_name=_fallback_filename(kind=kind))
@@ -137,7 +137,7 @@ class WorkshopS3FileService:
     def generate_presigned_url(self, *, file_id: str, expires_in: int = 3600) -> str:
         normalized_file_id = str(file_id or "").strip()
         if not normalized_file_id:
-            raise WorkshopFileStorageError("Identificador invalido do arquivo salvo no bucket.")
+            raise WorkshopFileStorageError("Identificador inválido do arquivo salvo no bucket.")
 
         try:
             return get_storage_service().generate_presigned_url(normalized_file_id, expires_in=expires_in)
@@ -200,7 +200,7 @@ def _read_uploaded_file(uploaded_file: UploadedFile, *, kind: StoredFileKind) ->
     )
     content = uploaded_file.read()
     if not content:
-        raise WorkshopFileStorageError("O arquivo enviado esta vazio.")
+        raise WorkshopFileStorageError("O arquivo enviado está vazio.")
 
     content_type = _normalize_content_type(
         filename=filename,
@@ -231,7 +231,7 @@ def _normalize_logo_upload(*, content: bytes, filename: str, content_type: str) 
             output = io.BytesIO()
             background.save(output, format="JPEG", quality=85, optimize=True)
     except (UnidentifiedImageError, OSError, ValueError) as exc:
-        raise WorkshopFileStorageError("Nao foi possivel processar a logomarca enviada. Use um arquivo de imagem valido.") from exc
+        raise WorkshopFileStorageError("Não foi possível processar a logomarca enviada. Use um arquivo de imagem válido.") from exc
 
     normalized_name = f"{filename.rsplit('.', 1)[0] if '.' in filename else filename}.jpg"
     safe_name = _normalize_filename(normalized_name, fallback_name="logo.jpg")
@@ -244,12 +244,12 @@ def _rasterize_svg_to_png(content: bytes) -> bytes:
 
         png_bytes = cairosvg.svg2png(bytestring=content)
         if png_bytes is None:
-            raise WorkshopFileStorageError("Nao foi possivel converter a logomarca SVG para PNG.")
+            raise WorkshopFileStorageError("Não foi possível converter a logomarca SVG para PNG.")
         return bytes(png_bytes)
     except OSError as exc:
-        raise WorkshopFileStorageError("Nao foi possivel converter a logomarca SVG para PNG porque a biblioteca nativa do Cairo nao esta instalada neste ambiente. Use PNG, JPEG ou WEBP, ou instale o runtime do Cairo.") from exc
+        raise WorkshopFileStorageError("Não foi possível converter a logomarca SVG para PNG porque a biblioteca nativa do Cairo não está instalada neste ambiente. Use PNG, JPEG ou WEBP, ou instale o runtime do Cairo.") from exc
     except Exception as exc:
-        raise WorkshopFileStorageError("Nao foi possivel converter a logomarca SVG para PNG.") from exc
+        raise WorkshopFileStorageError("Não foi possível converter a logomarca SVG para PNG.") from exc
 
 
 @lru_cache(maxsize=1)
@@ -273,7 +273,7 @@ def build_workshop_logo_public_url(*, workshop: Workshop, request=None) -> str:
     path = reverse("workshops:logo_public", kwargs={"token": workshop.logo_public_token})
     public_url = build_absolute_app_url(path=path, request=None)
     if not _is_public_url(public_url):
-        raise WorkshopFileStorageError("Configure APP_BASE_URL com uma URL publica para sincronizar a logomarca com a Webmania.")
+        raise WorkshopFileStorageError("Configure APP_BASE_URL com uma URL pública para sincronizar a logomarca.")
     return public_url
 
 
@@ -294,7 +294,7 @@ def ensure_logo_is_readable_from_storage(*, file_id: str, attempts: int = STORAG
         last_error = "empty logo content"
         logger.warning("workshop_logo_storage_read_empty file_id=%s attempt=%s", file_id, attempt)
 
-    raise WorkshopFileSyncError("A logomarca salva ainda nao ficou disponivel no bucket. Tente novamente em instantes.")
+    raise WorkshopFileSyncError("A logomarca salva ainda não ficou disponível no bucket. Tente novamente em instantes.")
 
 
 def _is_public_url(url: str) -> bool:
@@ -377,7 +377,7 @@ def save_workshop_logo_atomic(
             workshop.save(update_fields=["logo_file_key", "logo_file_name", "logo_content_type", "logo_uploaded_at"])
     except Exception as exc:
         _safe_delete_file(kind="logo", file_id=staged_file.file_id)
-        raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteracao foi mantida.") from exc
+        raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteração foi mantida.") from exc
 
     try:
         ensure_logo_is_readable_from_storage(file_id=staged_file.file_id)
@@ -430,9 +430,9 @@ def save_workshop_logo_atomic(
             try:
                     _get_fiscal_service().update_webmania_company(company=company, payload={"logomarca": previous_company_logo_url})
             except Exception as restore_exc:
-                raise WorkshopFileSyncError("Falha ao salvar a logo localmente e ao restaurar a logo anterior na Webmania.") from restore_exc
+                raise WorkshopFileSyncError("Falha ao salvar a logo localmente e ao restaurar a logo anterior.") from restore_exc
         _safe_delete_file(kind="logo", file_id=staged_file.file_id)
-        raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteracao foi mantida.") from exc
+        raise WorkshopFileSyncError("Falha ao concluir o salvamento da logo. Nenhuma alteração foi mantida.") from exc
 
     return public_logo_url
 
@@ -466,8 +466,8 @@ def clear_workshop_logo_atomic(*, workshop: Workshop, company: WebmaniaCompany, 
             try:
                 _get_fiscal_service().update_webmania_company(company=company, payload={"logomarca": restore_url})
             except Exception as restore_exc:
-                raise WorkshopFileSyncError("Falha ao remover a logo localmente e ao restaurar a URL anterior na Webmania.") from restore_exc
-        raise WorkshopFileSyncError("Falha ao concluir a remocao da logo. Nenhuma alteracao foi mantida.") from exc
+                raise WorkshopFileSyncError("Falha ao remover a logo localmente e ao restaurar a URL anterior.") from restore_exc
+        raise WorkshopFileSyncError("Falha ao concluir a remoção da logo. Nenhuma alteração foi mantida.") from exc
 
 
 def save_workshop_certificate_atomic(
@@ -553,9 +553,9 @@ def save_workshop_certificate_atomic(
             try:
                 _get_fiscal_service().update_webmania_company(company=company, payload=restore_payload)
             except Exception as restore_exc:
-                raise WorkshopFileSyncError("Falha ao salvar o certificado localmente e ao restaurar o certificado anterior na Webmania.") from restore_exc
+                raise WorkshopFileSyncError("Falha ao salvar o certificado localmente e ao restaurar o certificado anterior.") from restore_exc
 
-        raise WorkshopFileSyncError("Falha ao concluir o salvamento atomico do certificado. Nenhuma alteracao foi mantida.") from exc
+        raise WorkshopFileSyncError("Falha ao concluir o salvamento atômico do certificado. Nenhuma alteração foi mantida.") from exc
 
 
 def update_company_certificate_snapshot(

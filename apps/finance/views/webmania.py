@@ -24,11 +24,9 @@ def _is_webmania_homolog_environment() -> bool:
 
 
 def _to_public_integration_message(raw_message: object) -> str:
-    normalized_message = str(raw_message or "").strip()
-    if not normalized_message:
-        return "Nao foi possivel concluir a operacao de integracao."
+    from apps.core.infrastructure.services.webmania.webmania import to_public_integration_message
 
-    return normalized_message.replace("WEBMANIA", "integracao").replace("Webmania", "integracao").replace("webmania", "integracao")
+    return to_public_integration_message(raw_message)
 
 
 class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):
@@ -101,7 +99,7 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
 
     def post(self, request, *args, **kwargs):
         if not _is_webmania_homolog_environment():
-            messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
+            messages.error(request, "A sincronização manual esta disponível apenas em ambiente de homologação.")
             return redirect("finance:webmania_company_list")
 
         try:
@@ -115,11 +113,11 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
         else:
             synced_count = len(synced_companies)
             if synced_count <= 0:
-                messages.warning(request, "Sincronizacao concluida, mas nenhuma empresa foi retornada.")
+                messages.warning(request, "Sincronização concluída, mas nenhuma empresa foi retornada.")
             elif synced_count == 1:
-                messages.success(request, "Sincronizacao concluida com sucesso. 1 empresa atualizada.")
+                messages.success(request, "Sincronização concluída com sucesso. 1 empresa atualizada.")
             else:
-                messages.success(request, f"Sincronizacao concluida com sucesso. {synced_count} empresas atualizadas.")
+                messages.success(request, f"Sincronização concluída com sucesso. {synced_count} empresas atualizadas.")
 
         return redirect("finance:webmania_company_list")
 
@@ -150,6 +148,10 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             "value": normalized_value,
         }
 
+    @classmethod
+    def _configured_secret_status_field(cls, label: str, value: object) -> dict[str, str]:
+        return cls._regular_field(label, "Configurado" if decrypt_secret(value).strip() else "-")
+
     def _get_company(self) -> WebmaniaCompany:
         workshop_account_id = getattr(self.workshop, "account_id", None)
         return get_object_or_404(
@@ -173,10 +175,11 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             self._regular_field("Regime Especial Municipal", company.regime_especial_municipal),
             self._regular_field("NF-e Série", company.nfe_serie),
             self._regular_field("NF-e Número", company.nfe_numero),
+            self._regular_field("NFC-e habilitada", company.nfce_enabled),
             self._regular_field("NFC-e Série", company.nfce_serie),
             self._regular_field("NFC-e Número", company.nfce_numero),
-            self._regular_field("NFC-e ID CSC", company.nfce_id_csc),
-            self._regular_field("NFC-e Código CSC", company.nfce_codigo_csc),
+            self._configured_secret_status_field("NFC-e ID CSC", company.nfce_id_csc),
+            self._configured_secret_status_field("NFC-e Código CSC", company.nfce_codigo_csc),
             self._regular_field("CNAE", company.cnae),
             self._regular_field("CNAE ISSQN", company.cnae_issqn),
             self._regular_field("Partilha ICMS contribuinte", company.partilha_icms_contribuinte),
@@ -200,15 +203,15 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             fiscal_fields[11:11] = [self._regular_field("NF-e Número Homologação", company.nfe_numero_dev)]
             fiscal_fields[15:15] = [
                 self._regular_field("NFC-e Número Homologação", company.nfce_numero_dev),
-                self._regular_field("NFC-e ID CSC Homologação", company.nfce_id_csc_dev),
-                self._regular_field("NFC-e Código CSC Homologação", company.nfce_codigo_csc_dev),
+                self._configured_secret_status_field("NFC-e ID CSC Homologação", company.nfce_id_csc_dev),
+                self._configured_secret_status_field("NFC-e Código CSC Homologação", company.nfce_codigo_csc_dev),
             ]
 
         context.update(
             {
                 "company": company,
                 "identity_fields": [
-                    self._regular_field("ID da integracao", company.webmania_company_id),
+                    self._regular_field("ID da empresa", company.webmania_company_id),
                     self._regular_field("Razão Social", company.razao_social),
                     self._regular_field("CNPJ", _format_cnpj(company.cnpj)),
                     self._regular_field("CPF", _format_cpf(company.cpf)),
@@ -277,7 +280,7 @@ class WebmaniaCompanyUpdateView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
     def form_valid(self, form: WebmaniaCompanyUpdateForm):
         payload = form.build_api_payload()
         if not payload:
-            messages.info(self.request, "Nenhuma alteracao detectada para sincronizar.")
+            messages.info(self.request, "Nenhuma alteração detectada para sincronizar.")
             return redirect("finance:webmania_company_detail", pk=self.object.pk)
 
         try:

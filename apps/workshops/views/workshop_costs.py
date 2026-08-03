@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
@@ -13,14 +11,12 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from djmoney.money import Money
 import holidays
 
-from apps.collaborators.services import compute_salary_cost_amount_for_kind, compute_salary_monthly_cost_amounts, sync_current_month_salary_costs
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.forms.workshop_costs import WorkshopCostForm
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.models.monthly_costs import MonthlyCost
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.models.workshop_costs import WorkshopCost
 
 
 class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -38,7 +34,7 @@ class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
         context["fields"] = [
             TableColumn(label="Mês/Ano", attr="__str__", search_by=("month", "year")),
             TableColumn(label="Mecânicos", attr="mechanic_quantity"),
-            TableColumn(label="Horas Úteis/Mês", attr="working_hours_per_month"),
+            TableColumn(label="Horas úteis/mês", attr="working_hours_per_month"),
             TableColumn(label="Total Geral", attr="total_monthly_costs"),
             TableColumn(label="Multiplicador de Lucratividade", attr="profitability_multiplier"),
             TableColumn(label="Custo Hora Mínimo", attr="minimum_hourly_cost"),
@@ -144,35 +140,37 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         form = WorkshopCostForm(request.POST, workshop=self.workshop)
-        form.is_valid()
+
+        try:
+            form.full_clean()
+        except Exception:
+            pass
 
         instance = form.instance
-        cleaned_data = form.cleaned_data or {}
         cost_items = []
 
         @dataclass
         class MockItem:
             amount: Money
 
+        cleaned_data = getattr(form, "cleaned_data", {})
+
         for cost in form.active_costs:
             field_name = f"cost_item_{cost.id}"
             amount = cleaned_data.get(field_name)
-            if amount is None:
-                amount = self._money_from_post(request.POST, field_name)
+
             if amount is None:
                 amount = Money(0, "BRL")
-            cost_items.append(MockItem(amount=amount))
 
-        for field_name in ("parts_purchase_cap", "freight_cost", "third_party_service_cap"):
-            value = cleaned_data.get(field_name)
-            if value is None:
-                value = self._money_from_post(request.POST, field_name)
-            if value is not None:
-                setattr(instance, field_name, value)
+            cost_items.append(MockItem(amount=amount))
 
         total_value = instance.calculate_total_value()
         total_monthly_costs = instance.calculate_total_monthly_costs(items=cost_items)
-        profit_target = instance.calculate_profit_target(total_monthly_costs)
+        profit_target = cleaned_data.get("profit_target")
+        if profit_target is None:
+            profit_target = self._money_from_post(request.POST, "profit_target")
+        if profit_target is None:
+            profit_target = Money(0, "BRL")
         gross_revenue_target = instance.calculate_gross_revenue_target(total_monthly_costs, profit_target, total_value)
         profitability_multiplier = instance.calculate_profitability_multiplier(gross_revenue_target, total_value)
 
@@ -187,99 +185,6 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response_form = WorkshopCostForm(instance=instance, workshop=self.workshop)
 
         return render(request, "workshop_costs/partials/workshop_cost_calculation_results.html", {"form": response_form})
-
-    @staticmethod
-    def _money_from_post(post_data, field_name: str) -> Money | None:
-        amount_raw = post_data.get(f"{field_name}_0")
-        currency_raw = post_data.get(f"{field_name}_1") or "BRL"
-        if amount_raw in (None, ""):
-            return None
-        try:
-            amount = Decimal(str(amount_raw).replace(",", "."))
-        except (InvalidOperation, TypeError, ValueError):
-            return None
-        if str(currency_raw).replace(".", "", 1).replace("-", "", 1).isdigit():
-            currency_raw = "BRL"
-        return Money(amount, str(currency_raw or "BRL"))
-
-
-class WorkshopCostSyncSalaryItemsView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = WorkshopCost
-    workshop_permission_codename = "change_workshopcost"
-    VALID_COST_KINDS = frozenset({"productive", "administrative", "pro_labore", "transport"})
-
-    def post(self, request, *args, **kwargs):
-        try:
-            month = int(request.POST.get("month") or 0)
-            year = int(request.POST.get("year") or 0)
-        except (TypeError, ValueError):
-            return JsonResponse({"error": "Mês ou ano inválido."}, status=400)
-
-        if month < 1 or month > 12 or year < 1:
-            return JsonResponse({"error": "Mês ou ano inválido."}, status=400)
-
-        cost_kind = str(request.POST.get("cost_kind") or "").strip()
-        if cost_kind and cost_kind not in self.VALID_COST_KINDS:
-            return JsonResponse({"error": "Tipo de custo inválido."}, status=400)
-
-        reference_date = date(year, month, 1)
-        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=month, year=year).first()
-        work_days_override: int | None = None
-        if workshop_cost is None:
-            try:
-                work_days_override = int(request.POST.get("work_days_per_month") or 0)
-            except (TypeError, ValueError):
-                work_days_override = 0
-
-        if cost_kind:
-            try:
-                monthly_cost_id = int(request.POST.get("monthly_cost_id") or 0)
-            except (TypeError, ValueError):
-                return JsonResponse({"error": "Custo mensal inválido."}, status=400)
-
-            monthly_cost = MonthlyCost.objects.filter(pk=monthly_cost_id, workshop=self.workshop, is_active=True).first()
-            if monthly_cost is None:
-                return JsonResponse({"error": "Custo mensal não encontrado."}, status=404)
-
-            amount = compute_salary_cost_amount_for_kind(
-                workshop=self.workshop,
-                cost_kind=cost_kind,
-                reference_date=reference_date,
-                work_days_override=work_days_override,
-            )
-            if workshop_cost is not None:
-                WorkshopCostItem.objects.update_or_create(
-                    workshop_cost=workshop_cost,
-                    monthly_cost=monthly_cost,
-                    defaults={"amount": amount},
-                )
-                workshop_cost.calculate_all()
-                workshop_cost.save()
-
-            return JsonResponse(
-                {
-                    "fields": {
-                        f"cost_item_{monthly_cost.pk}_0": str(amount.amount),
-                        f"cost_item_{monthly_cost.pk}_1": str(amount.currency),
-                    },
-                    "synced": workshop_cost is not None,
-                }
-            )
-
-        if workshop_cost is not None:
-            sync_current_month_salary_costs(workshop=self.workshop, reference_date=reference_date)
-
-        amounts = compute_salary_monthly_cost_amounts(
-            workshop=self.workshop,
-            reference_date=reference_date,
-            work_days_override=work_days_override,
-        )
-        fields: dict[str, str] = {}
-        for monthly_cost_id, amount in amounts.items():
-            fields[f"cost_item_{monthly_cost_id}_0"] = str(amount.amount)
-            fields[f"cost_item_{monthly_cost_id}_1"] = str(amount.currency)
-
-        return JsonResponse({"fields": fields, "synced": workshop_cost is not None})
 
 
 class WorkshopCostSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, ListView):

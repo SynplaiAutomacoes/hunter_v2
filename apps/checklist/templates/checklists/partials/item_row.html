@@ -6,8 +6,8 @@
         <input type="hidden" name="tipo_resposta" value="{{ response_type }}">
     </td>
     <td class="font-mono text-xs">{{ group }}</td>
-    <td class="font-mono text-xs">{{ description|default:"N/A" }}</td>
-    <td class="font-mono text-xs">{{ response_type_display|default:"N/A" }}</td>
+    <td class="font-mono text-xs">{{ description|default:"-" }}</td>
+    <td class="font-mono text-xs">{{ response_type_display|default:"-" }}</td>
     <!-- Botão de Remover -->
     <td>
         {% with modal_id="modal-"|add:description|slugify %}
@@ -18,7 +18,7 @@
         <input type="checkbox" id="{{ modal_id }}" class="modal-toggle" />
         <div class="modal" role="dialog">
             <div class="modal-box">
-                <h3 class="text-lg font-bold text-base-content">Remover Item</h3>
+                <h3 class="text-lg font-bold text-base-content">Remover item</h3>
                 <p class="text-base-content/70 mt-1">Este item será removido da lista do checklist.</p>
 
                 <div class="alert alert-warning mt-4">
@@ -38,7 +38,7 @@
                     </label>
                 </div>
             </div>
-            <label class="modal-backdrop" for="{{ modal_id }}">Close</label>
+            <label class="modal-backdrop" for="{{ modal_id }}">Fechar</label>
         </div>
         {% endwith %}
     </td>

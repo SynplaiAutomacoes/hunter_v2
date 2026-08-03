@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ checklist.name }} - Visualizacao</title>
+    <title>{{ checklist.name }} - Visualização</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -106,9 +106,9 @@
     <table>
         <thead>
             <tr>
-                <th class="col-seq">Indice</th>
+                <th class="col-seq">Índice</th>
                 <th>Item</th>
-                <th class="col-annotation">Anotacao</th>
+                <th class="col-annotation">Anotação</th>
                 <th>Resposta</th>
             </tr>
         </thead>
@@ -122,7 +122,7 @@
                         {% if row.response_type == "SIM_NAO" %}
                             <div class="response-options">
                                 <span class="option"><span class="box"></span>Sim</span>
-                                <span class="option"><span class="box"></span>Nao</span>
+                                <span class="option"><span class="box"></span>Não</span>
                             </div>
                         {% elif row.response_type == "BOM_REGULAR_RUIM" %}
                             <div class="response-options">

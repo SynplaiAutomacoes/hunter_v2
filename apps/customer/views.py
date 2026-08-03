@@ -26,7 +26,6 @@ from apps.core.infrastructure.services.dashboard_query_service import (
 from apps.customer.services.messaging_consent import disable_workshop_customer_messaging
 from apps.messaging.application.services.outbound_dispatch import cancel_pending_outbound_for_customer
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.util.workshops import get_active_workshop_or_404
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.core.presentation.navigation import CREATE_CLIENT_FAVORITE_PAGE
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
@@ -37,7 +36,6 @@ from .vehicle_engine import normalize_vehicle_engine_choice
 from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from ..core.presentation import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
-from ..core.text_normalization import plate_case
 from .forms import CustomerForm, VehicleFormSet
 from .models import Customer, Vehicle
 
@@ -265,41 +263,6 @@ def api_check_plate(request, plate):
     return JsonResponse({"error": "Veículo não encontrado"}, status=404)
 
 
-def api_check_plate_duplicate(request, plate):
-    try:
-        workshop = get_active_workshop_or_404(request)
-    except Exception:
-        return JsonResponse({"exists": False})
-
-    import re
-
-    search_plates = set()
-
-    stripped = re.sub(r"[^a-zA-Z0-9]", "", plate).upper()
-    search_plates.add(stripped)
-
-    original = plate_case(plate)
-    search_plates.add(original)
-
-    if re.match(r"^[A-Z]{3}\d{4}$", stripped):
-        search_plates.add(f"{stripped[:3]}-{stripped[3:]}")
-
-    vehicle = (
-        Vehicle.objects
-        .filter(workshop=workshop, plate__in=list(search_plates))
-        .select_related("customer")
-        .first()
-    )
-    if vehicle:
-        return JsonResponse({
-            "exists": True,
-            "vehicle_id": vehicle.pk,
-            "customer_name": vehicle.customer.name if vehicle.customer else "",
-            "customer_id": vehicle.customer.pk if vehicle.customer else None,
-        })
-    return JsonResponse({"exists": False})
-
-
 def api_vehicle_catalog_brands(request):
     options = [{"id": brand.name, "label": brand.name} for brand in FipeVehicleBrand.objects.filter(vehicle_type=FipeVehicleType.CARROS, is_active=True).order_by("name")]
     return JsonResponse(options, safe=False)
@@ -332,7 +295,7 @@ def api_vehicle_catalog_fuels(request):
         return JsonResponse(
             {
                 "options": fallback_options,
-                "warning": "Nao foi achado nenhum registro de combustivel para este veiculo. Exibindo todas as opcoes disponiveis.",
+                "warning": "Não foi encontrado nenhum registro de combustível para este veículo. Exibindo todas as opções disponíveis.",
             }
         )
 
@@ -456,7 +419,7 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
             TableColumn(Customer.name.field.verbose_name, attr=Customer.name.field.name),
             TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted", search_by="cpf_or_cnpj"),
             TableColumn("Endereço", attr="full_address", search_by=("logradouro", "numero", "cidade", "estado")),
-            TableColumn("Qtd. Veículos", attr="vehicles_count", searchable=False),
+            TableColumn("Qtd. veículos", attr="vehicles_count", searchable=False),
         ]
 
         context["actions"] = [
@@ -489,22 +452,6 @@ class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResp
 
     htmx_template_name = "customer/partials/customer_delete_modal.html"
     htmx_trigger = "customer-table-refresh"
-
-
-class VehicleSectionView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
-    model = Customer
-    template_name = "customer/partials/vehicle_formset_list.html"
-    workshop_permission_codename = "view_customer"
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        customer = get_object_or_404(Customer, pk=self.kwargs["pk"], workshop=self.workshop)
-        context["vehicles"] = VehicleFormSet(
-            instance=customer,
-            prefix="vehicles",
-            form_kwargs={"workshop": self.workshop},
-        )
-        return context
 
 
 class AddVehicleFormView(LoginRequiredMixin, TemplateView):
@@ -608,10 +555,7 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         form.instance.workshop = self.workshop
         vehicle = form.save(commit=False)
 
-        is_transferred = (
-            str(vehicle.pk or "") in transfer_vehicle_ids
-            or (vehicle.pk is None and vehicle.plate in transferred_plates)
-        )
+        is_transferred = str(vehicle.pk or "") in transfer_vehicle_ids or (vehicle.pk is None and vehicle.plate in transferred_plates)
 
         if not is_transferred:
             vehicle.save()

@@ -186,8 +186,8 @@ class StockImport(TimeStampedModel):
     current_step = models.PositiveIntegerField(default=1)
     items_data = models.JSONField(default=list)
     payments_data = models.JSONField(default=list)
-    method = models.CharField(verbose_name="Selecione o método de Importação de Itens", max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
-    xml_file_key = models.CharField(max_length=1024, blank=True, default="", db_index=True, verbose_name="XML no Bucket")
+    method = models.CharField(verbose_name="Método de importação", max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
+    xml_file_key = models.CharField(max_length=1024, blank=True, default="", db_index=True, verbose_name="XML no armazenamento")
     status = models.CharField(max_length=20, choices=ImportStatus.choices, default=ImportStatus.DRAFT)
 
     class Meta:
@@ -220,7 +220,7 @@ class StockTransfer(TimeStampedModel):
         TRANSFER = "TRANSFER", "Transferência entre oficinas"
         ADJUSTMENT = "ADJUSTMENT", "Baixa em estoque"
 
-    operation_type = models.CharField(max_length=30, verbose_name="Selecione o Tipo de Operação", choices=OperationType.choices, default=OperationType.TRANSFER)
+    operation_type = models.CharField(max_length=30, verbose_name="Tipo de operação", choices=OperationType.choices, default=OperationType.TRANSFER)
     reason = models.TextField(verbose_name="Motivo da Baixa", blank=True, null=True)
     source_workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina de Origem", on_delete=models.CASCADE, related_name="stock_transfers_sent", blank=True, null=True)
     destination_workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina de Destino", on_delete=models.CASCADE, related_name="stock_transfers_received", null=True, blank=True)

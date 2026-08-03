@@ -1,5 +1,5 @@
 <div class="card-body">
-    <h3 class="font-bold text-2xl pb-2 mb-2">Histórico de Serviços para o Veículo: {{ workorder.budget.vehicle }}</h3>
+    <h3 class="font-bold text-2xl pb-2 mb-2">Histórico de serviços para o veículo: {{ workorder.budget.vehicle }}</h3>
 
     <div class="space-y-4">
         {% for budget in workorder.budget.vehicle.budgets.all %}
@@ -8,14 +8,14 @@
                 {% if budget.status == 'approved' and budget.workorders.exists %}
                     {% with wo=budget.workorders.first %}
                     <div class="flex-1">
-                        <p class="text-lg font-bold">Ordem de Serviço: #{{ wo.budget.id }}</p>
-                        <p class="text-sm text-base-content/70">Data de Registro: {{ wo.criado_em|date:"d/m/Y H:i" }}</p>
+                        <p class="text-lg font-bold">Ordem de serviço: #{{ wo.id }}</p>
+                        <p class="text-sm text-base-content/70">Data de registro: {{ wo.criado_em|date:"d/m/Y H:i" }}</p>
                     </div>
 
                     <div class="flex flex-col items-end gap-2 mt-2 lg:mt-0">
                         <span class="font-semibold uppercase badge {{ wo.workorder_status_badge.class }}">{{ wo.workorder_status_badge.text }}</span>
                         <a href="{% url 'workorder:workorder_detail' wo.id %}" class="text-[#0000cd] hover:underline">
-                            Abrir Ordem de Serviço
+                            Abrir ordem de serviço
                         </a>
                     </div>
                     {% endwith %}
@@ -23,13 +23,13 @@
                 {% else %}
                     <div class="flex-1">
                         <p class="text-lg font-bold">Orçamento: #{{ budget.id }}</p>
-                        <p class="text-sm text-base-content/70">Data de Registro: {{ budget.criado_em|date:"d/m/Y H:i" }}</p>
+                        <p class="text-sm text-base-content/70">Data de registro: {{ budget.criado_em|date:"d/m/Y H:i" }}</p>
                     </div>
 
                     <div class="flex flex-col items-end gap-2 mt-2 lg:mt-0">
                         <span class="font-semibold uppercase">{{ budget.budget_status }}</span>
                         <a href="{% url 'budget:budget_update' budget.id %}" class="text-[#0000cd] hover:underline">
-                            Abrir Orçamento
+                            Abrir orçamento
                         </a>
                     </div>
                 {% endif %}

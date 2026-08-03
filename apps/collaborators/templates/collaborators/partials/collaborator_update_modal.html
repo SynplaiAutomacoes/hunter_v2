@@ -1,49 +1,21 @@
-{% load crispy_forms_tags %}
-
-<div
-    class="modal-box w-11/12 max-w-4xl bg-base-100 relative"
-    x-data="{
-        pendingSyncSubmit: false,
-        handleCollaboratorSubmit(event) {
-            if (this.pendingSyncSubmit) {
-                this.pendingSyncSubmit = false;
-                return;
-            }
-            event.preventDefault();
-            this.$refs.syncMonthlyCostsModal.showModal();
-        },
-        confirmSyncMonthlyCosts(shouldSync) {
-            this.$refs.syncMonthlyCostsInput.value = shouldSync ? '1' : '0';
-            this.pendingSyncSubmit = true;
-            this.$refs.syncMonthlyCostsModal.close();
-            this.$nextTick(() => this.$refs.collaboratorForm.requestSubmit());
-        },
-    }"
->
+<div class="modal-box w-11/12 max-w-4xl bg-base-100 relative">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
 
-    <h3 class="font-bold text-2xl mb-6 text-center">Editar Colaborador</h3>
+    <h3 class="font-bold text-2xl mb-6 text-center">Editar colaborador</h3>
 
-    <form
-        hx-post="{% url 'collaborators:collaborator_update_modal' form.instance.pk %}"
-        hx-target="#modal-container"
-        hx-swap="innerHTML"
-        class="w-full"
-        x-ref="collaboratorForm"
-        @submit="handleCollaboratorSubmit($event)"
-    >
+    <form hx-post="{% url 'collaborators:collaborator_update_modal' form.instance.pk %}"
+          hx-target="#modal-container"
+          hx-swap="innerHTML"
+          class="w-full">
         {% csrf_token %}
-        <input type="hidden" name="sync_monthly_costs" value="" x-ref="syncMonthlyCostsInput">
 
         {% crispy form %}
 
         <div class="modal-action mt-6 flex justify-end gap-2">
             <button type="button" class="btn btn-ghost" onclick="form_modal.close()">Cancelar</button>
             <button type="submit" class="btn btn-primary px-8">
-                Salvar Alterações
+                Salvar alterações
             </button>
         </div>
     </form>
-
-    {% include 'collaborators/partials/sync_monthly_costs_confirm_modal.html' %}
 </div>

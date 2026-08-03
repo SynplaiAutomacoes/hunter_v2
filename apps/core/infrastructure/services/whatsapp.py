@@ -19,7 +19,7 @@ class WhatsAppHunterService(IWhatsAppService):
     def __init__(self, base_url: str) -> None:
         normalized_url = str(base_url or "").strip().rstrip("/")
         if not normalized_url:
-            raise WhatsAppConfigurationError("URL base do WhatsApp nao configurada.")
+            raise WhatsAppConfigurationError("URL base do WhatsApp não configurada.")
         self._base_url = normalized_url
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
@@ -33,7 +33,7 @@ class WhatsAppHunterService(IWhatsAppService):
 
     def send_text(self, number: str, text: str) -> SendTextResponse:
         if not number or not text:
-            raise WhatsAppServiceError("Numero e texto sao obrigatorios.")
+            raise WhatsAppServiceError("Número e texto são obrigatórios.")
         url = f"{self._base_url}/send-text"
         payload = {"number": number, "text": text}
         response = self._session.post(url, json=payload, timeout=30)
@@ -43,7 +43,7 @@ class WhatsAppHunterService(IWhatsAppService):
 
     def send_file(self, number: str, file: IO, filename: str, text: str | None = None) -> SendFileResponse:
         if not number or not file or not filename:
-            raise WhatsAppServiceError("Numero, arquivo e nome do arquivo sao obrigatorios.")
+            raise WhatsAppServiceError("Número, arquivo e nome do arquivo são obrigatórios.")
         url = f"{self._base_url}/send"
         files = {"file": (filename, file)}
         data = {"number": number}
@@ -61,7 +61,7 @@ class WhatsAppHunterService(IWhatsAppService):
 
     def send_file_from_url(self, number: str, file_url: str, text: str | None = None, filename: str | None = None, mimetype: str | None = None) -> SendFileResponse:
         if not number or not file_url:
-            raise WhatsAppServiceError("Numero e URL do arquivo sao obrigatorios.")
+            raise WhatsAppServiceError("Número e URL do arquivo são obrigatórios.")
         url = f"{self._base_url}/send-url"
         payload = {"number": number, "file_url": file_url}
         if text:
