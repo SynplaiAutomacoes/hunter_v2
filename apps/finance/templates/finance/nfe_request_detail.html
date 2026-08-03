@@ -145,12 +145,6 @@
             </div>
         </dialog>
     {% endif %}
-    {% if can_issue_return or can_issue_reversal %}
-        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="return_nfe_modal.showModal()">
-            <span class="material-icons text-sm">assignment_return</span>
-            Devolução/Estorno
-        </button>
-    {% endif %}
     {% if can_issue_complementary_price_quantity %}
         <button type="button" class="btn btn-sm btn-outline gap-2" onclick="complementary_nfe_modal.showModal()">
             <span class="material-icons text-sm">add_notes</span>
