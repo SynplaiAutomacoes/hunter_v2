@@ -11,6 +11,7 @@
 </div>
 <div id="multiplier-feedback" class="col-span-12 lg:col-span-4">
     {{ form.profitability_multiplier|as_crispy_field }}
+    <p id="multiplier-warn" class="text-error text-xs mt-1 invisible">O Multiplicador de Lucratividade não pode ser menor que 3,0. Diminua o Teto de Compra de Peças ou Aumente a Meta de Lucro Mensal</p>
 </div>
 
 {# Atualização ao vivo dos campos movidos para fora da área de swap HTMX #}
@@ -34,9 +35,9 @@
     {% endif %}
 </div>
 
-{# Re-inicializa os widgets Alpine injetados via swap OOB #}
+{# Re-inicializa os widgets Alpine injetados via swap HTMX ou swap OOB #}
 <script hx-swap-oob="true">
-    document.querySelectorAll('#div_id_total_value, #div_id_total_monthly_costs').forEach(el => {
+    document.querySelectorAll('#calculation-results, #div_id_total_value, #div_id_total_monthly_costs').forEach(el => {
         if (window.Alpine) {
             Alpine.discoverUninitializedComponents((componentEl) => {
                 Alpine.initializeComponent(componentEl);

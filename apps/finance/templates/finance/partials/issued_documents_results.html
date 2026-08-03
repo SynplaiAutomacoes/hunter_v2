@@ -135,7 +135,9 @@
                                         </a>
                                     {% endif %}
                                 {% else %}
-                                    <a href="{{ row.detail_url }}" class="btn btn-ghost btn-xs">{{ row.action_label }}</a>
+                                    <a href="{{ row.detail_url }}" class="btn-table-view" title="Visualizar nota" aria-label="Visualizar nota">
+                                        <span class="material-icons text-base">visibility</span>
+                                    </a>
                                 {% endif %}
                             </td>
                         </tr>

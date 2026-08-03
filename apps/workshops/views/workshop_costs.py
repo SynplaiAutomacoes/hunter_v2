@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
@@ -185,6 +186,23 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response_form = WorkshopCostForm(instance=instance, workshop=self.workshop)
 
         return render(request, "workshop_costs/partials/workshop_cost_calculation_results.html", {"form": response_form})
+
+    @staticmethod
+    def _money_from_post(post_data, field_name: str) -> Money | None:
+        amount_raw = post_data.get(f"{field_name}_0")
+        currency_raw = post_data.get(f"{field_name}_1") or "BRL"
+        if amount_raw in (None, ""):
+            return None
+        try:
+            raw_str = str(amount_raw).strip()
+            if "," in raw_str:
+                raw_str = raw_str.replace(".", "").replace(",", ".")
+            amount = Decimal(raw_str)
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if str(currency_raw).replace(".", "", 1).replace("-", "", 1).isdigit():
+            currency_raw = "BRL"
+        return Money(amount, str(currency_raw or "BRL"))
 
 
 class WorkshopCostSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, ListView):

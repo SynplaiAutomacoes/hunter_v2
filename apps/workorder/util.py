@@ -16,6 +16,7 @@ from djmoney.money import Money
 from apps.budget.fields import DurationField
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
+from apps.finance.services.workorder_emission import get_workorder_emission_ui_state
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.documents import SignatureTokenError
@@ -326,8 +327,21 @@ def can_reopen_workorder(*, request, workorder: WorkOrder) -> bool:
     )
 
 
+def can_view_workorder_emission(*, request, workorder: WorkOrder) -> bool:
+    return has_workshop_perm(
+        user=request.user,
+        workshop=workorder.workshop,
+        app_label="finance",
+        model="nfserequest",
+        codename="view_nfserequest",
+        request=request,
+    )
+
+
 def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOrderAttachment | None = None, request=None) -> dict[str, object]:
     latest_attachment = attachment if attachment is not None else workorder.attachments.last()
+    can_emit = bool(request and can_view_workorder_emission(request=request, workorder=workorder))
+    emission_ui = get_workorder_emission_ui_state(workorder=workorder) if can_emit else None
     return {
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
@@ -336,6 +350,8 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "reject_form": WorkOrderStatusReasonForm(workorder=workorder, action="reject"),
         "reopen_form": WorkOrderReopenForm(workorder=workorder),
         "can_reopen_workorder": bool(request and can_reopen_workorder(request=request, workorder=workorder)),
+        "can_view_workorder_emission": can_emit,
+        "emission_ui": emission_ui,
         "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
         "attachments": workorder.attachments.order_by("-criado_em"),
     }
