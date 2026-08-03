@@ -199,7 +199,10 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if amount_raw in (None, ""):
             return None
         try:
-            amount = Decimal(str(amount_raw).replace(",", "."))
+            raw_str = str(amount_raw).strip()
+            if "," in raw_str:
+                raw_str = raw_str.replace(".", "").replace(",", ".")
+            amount = Decimal(raw_str)
         except (InvalidOperation, TypeError, ValueError):
             return None
         if str(currency_raw).replace(".", "", 1).replace("-", "", 1).isdigit():

@@ -22,6 +22,11 @@
             displayInput.classList.toggle('ring-success', isOk);
             displayInput.classList.toggle('text-success', isOk);
         }
+
+        const warnEl = document.getElementById('multiplier-warn');
+        if (warnEl) {
+            warnEl.classList.toggle('hidden', !isLow);
+        }
     };
 
     document.addEventListener('DOMContentLoaded', window.applyProfitabilityFeedback);
