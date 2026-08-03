@@ -84,6 +84,17 @@
             word-break: break-word;
         }
 
+        .field-value-address {
+            flex: 1;
+            min-width: 0;
+            white-space: normal;
+            overflow: visible;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.25;
+            max-height: none;
+        }
+
         .header-section {
             min-height: 120px;
             height: auto;
@@ -198,6 +209,11 @@
             text-overflow: clip;
         }
 
+        .signature-box {
+            width: 100%;
+            height: 80px;
+        }
+
         @media print {
             body { background-color: white !important; padding: 0 !important; }
             .pdf-content {
@@ -236,7 +252,7 @@
                 </div>
                 {% endif %}
                 <div class="min-w-0">
-                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
+                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.pdf_name }}</h3>
                     <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
                     <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.pdf_phone|phone_br|default:"-" }}</span></p>
@@ -247,6 +263,13 @@
                 <p class="text-2xl font-bold leading-none m-0">#{{ budget.id }}</p>
                 {% if workorder.delivered_at %}
                     <p class="text-[11px]">Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }}</p>
+                    {% if service_warranty_status_label %}
+                    <p class="text-[11px] mt-1">
+                        Garantia: {{ service_warranty_plan_label }}
+                        {% if service_warranty_expires_at %} — válida até {{ service_warranty_expires_at|date:"d/m/Y" }}{% endif %}
+                        — <strong>{{ service_warranty_status_label }}</strong>
+                    </p>
+                    {% endif %}
                 {% elif budget.customer_agreed_departure_at %}
                     <p class="text-[11px] mt-1">Data prevista de entrega: {{ budget.customer_agreed_departure_at|date:"d/m/Y" }}</p>
                     <small class="block text-[10px] text-gray-500 leading-tight mt-1">Essa data pode ser alterada caso haja algum imprevisto. O cliente será informado caso ocorra qualquer mudança.</small>
@@ -258,12 +281,13 @@
             </div>
         </div>
 
-            <div class="client-vehicle-section grid gap-4 py-8 px-4 border-b border-gray-200" style="grid-template-columns: 2fr 1fr 1fr; align-items: stretch;">            <div>
+            <div class="client-vehicle-section grid gap-4 py-8 px-4 border-b border-gray-200" style="grid-template-columns: 1.7fr 1.3fr 1fr; align-items: stretch;">
+            <div>
                 <h4 class="font-bold mb-2 uppercase">{{ budget.customer.name|default:budget.customer }}</h4>
-                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+                <div class="grid grid-cols-1 gap-y-1">
                     <p class="field-row"><span class="field-label">CPF/CNPJ:</span> <span class="field-value">{{ budget.customer.cpf_or_cnpj|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-label">Telefone:</span> <span class="field-value">{{ budget.customer.phone|default:"-" }}</span></p>
-                    <p class="field-row col-span-2"><span class="field-label">Endereço:</span> <span class="field-value" style="white-space: normal; word-break: break-word;">{{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }} - {{ budget.customer.bairro|default:"-" }} - {{ budget.customer.cidade|default:"-" }} - {{ budget.customer.cep|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Telefone:</span> <span class="field-value fit-important">{{ budget.customer.phone|phone_br|default:"-" }}</span></p>
+                    <p class="field-row multiline"><span class="field-label">Endereço:</span> <span class="field-value field-value-address">{{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }} - {{ budget.customer.bairro|default:"-" }} - {{ budget.customer.cidade|default:"-" }} - {{ budget.customer.cep|default:"-" }}</span></p>
                 </div>
             </div>
             <div>
@@ -278,7 +302,8 @@
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
                 </div>
             </div>
-            <div class="signature-block">
+            <div class="signature-block" >
+                <div class="signature-box" sign-box></div>
                 <div class="signature-line">
                     <p class="font-bold mb-1">{{ budget.customer.name|default:budget.customer }}</p>
                     <p class="text-[11px] text-gray-500">Assinatura do cliente ou pessoa por ele autorizada</p>
@@ -468,6 +493,13 @@
             <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
             {% if workorder and workorder.delivered_at %}
             <p>Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }} hrs</p>
+            {% if service_warranty_status_label %}
+            <p>
+                Garantia: {{ service_warranty_plan_label }}
+                {% if service_warranty_expires_at %} — válida até {{ service_warranty_expires_at|date:"d/m/Y" }}{% endif %}
+                — <span class="font-bold">{{ service_warranty_status_label }}</span>
+            </p>
+            {% endif %}
             {% endif %}
             <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
         </div>

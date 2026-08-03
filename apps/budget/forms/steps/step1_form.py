@@ -10,7 +10,16 @@ class BudgetStep1Form(BudgetStepBaseForm):
 
     class Meta:
         model = Budget
-        fields = ["workshop", "cost_estimator", "entry_date", "budget_type", "customer", "vehicle", "current_km", "fuel_level"]
+        fields = [
+            "workshop",
+            "cost_estimator",
+            "entry_date",
+            "budget_type",
+            "customer",
+            "vehicle",
+            "current_km",
+            "fuel_level",
+        ]
         widgets = {
             "entry_date": CalendarDateInput(),
             "budget_type": SearchableSelectInput(),
@@ -194,6 +203,25 @@ class BudgetStep1Form(BudgetStepBaseForm):
                     } catch (error) {
                         console.error("Erro ao carregar veículos:", error);
                     }
+
+                    checkOpenBudget(selectedVehicleId);
+                }
+
+                async function checkOpenBudget(vehicleId) {
+                    const container = document.getElementById('auto-link-container');
+                    if (!container) return;
+                    if (!vehicleId) {
+                        container.innerHTML = '';
+                        return;
+                    }
+                    try {
+                        const response = await fetch(`/budget/check-open-budget/?vehicle_id=${vehicleId}`);
+                        const html = await response.text();
+                        container.innerHTML = html;
+                    } catch (error) {
+                        console.error("Erro ao verificar orçamento aberto:", error);
+                        container.innerHTML = '';
+                    }
                 }
 
                 function selectCustomerFromQuickForm(customer) {
@@ -243,19 +271,10 @@ class BudgetStep1Form(BudgetStepBaseForm):
                         if (modal) {
                             modal.close();
                         }
-
                         const vehicle = evt && evt.detail ? evt.detail : null;
-                        if (!vehicle || !vehicle.id) {
-                            return;
-                        }
-
-                        const customerInput = document.querySelector('[name="customer"]');
-                        const customerId = customerInput && customerInput.value ? customerInput.value : (vehicle.customer_id || '');
-                        if (!customerId) {
-                            return;
-                        }
-
-                        updateVehicleList(customerId, vehicle.id);
+                        if (!vehicle || !vehicle.id) return;
+                        const customerId = vehicle.customer_id || document.querySelector('[name="customer"]')?.value;
+                        updateVehicleList(customerId, String(vehicle.id));
                     });
                 }
             </script>
@@ -367,18 +386,19 @@ class BudgetStep1Form(BudgetStepBaseForm):
                             ),
                             x_data=customer_vehicle_x_data,
                             **{
-                                "@change": """
-                                        if (isLocked) {
-                                            return;
-                                        }
-                                        if ($event.target.name === 'customer') { 
-                                            customerId = $event.target.value; 
-                                            vehicleId = ''; // Reseta veículo se mudar cliente
-                                            updateVehicleList($event.target.value);
-                                        } else if ($event.target.name === 'vehicle') { 
-                                            vehicleId = $event.target.value; 
-                                        }
-                                    """
+                            "@change": """
+                                    if (isLocked) {
+                                        return;
+                                    }
+                                    if ($event.target.name === 'customer') { 
+                                        customerId = $event.target.value; 
+                                        vehicleId = ''; // Reseta veículo se mudar cliente
+                                        updateVehicleList($event.target.value);
+                                    } else if ($event.target.name === 'vehicle') { 
+                                        vehicleId = $event.target.value; 
+                                        checkOpenBudget($event.target.value);
+                                    }
+                                """
                             },
                             css_class="grid grid-cols-1 gap-2",
                         ),
@@ -391,6 +411,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
                             Field("fuel_level", wrapper_class="col-span-12 lg:col-span-6"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
+                        Div(id="auto-link-container"),
                         css_class="mb-6 gap-4",
                     ),
                     css_class="col-span-12 lg:col-span-5",

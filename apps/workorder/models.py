@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
@@ -21,6 +21,9 @@ from apps.catalog.product_issues import ProductIssueSummary, annotate_product_is
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
+
+if TYPE_CHECKING:
+    from apps.workshops.models.review_plans import ReviewPlan
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,23 @@ class WorkOrderDiscountType(models.TextChoices):
     BOTH = "both", "Produtos e Serviços"
 
 
+class WorkOrderWarrantyPlan(models.TextChoices):
+    DAYS_30 = "days_30", "30 dias"
+    DAYS_90 = "days_90", "90 dias"
+    DAYS_180 = "days_180", "180 dias"
+    DAYS_365 = "days_365", "365 dias"
+    NONE = "none", "Serviço sem garantia"
+
+
+WARRANTY_PLAN_DAYS: dict[str, int | None] = {
+    WorkOrderWarrantyPlan.DAYS_30: 30,
+    WorkOrderWarrantyPlan.DAYS_90: 90,
+    WorkOrderWarrantyPlan.DAYS_180: 180,
+    WorkOrderWarrantyPlan.DAYS_365: 365,
+    WorkOrderWarrantyPlan.NONE: None,
+}
+
+
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
@@ -80,11 +100,28 @@ class WorkOrder(TimeStampedModel):
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
     delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
+    warranty_plan = models.CharField(
+        verbose_name="Plano de garantia",
+        max_length=20,
+        choices=WorkOrderWarrantyPlan.choices,
+        null=True,
+        blank=True,
+    )
     unsigned_delivery_reason = models.TextField(verbose_name="Justificativa da entrega sem assinatura", blank=True)
     cancellation_reason = models.TextField(verbose_name="Justificativa do cancelamento", blank=True)
     rejection_reason = models.TextField(verbose_name="Justificativa da rejeicao", blank=True)
     reopen_reason = models.TextField(verbose_name="Justificativa da reabertura", blank=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
+    last_oil_change_date = models.DateField(verbose_name="Data da última troca de óleo", null=True, blank=True)
+    last_oil_change_km = models.PositiveIntegerField(verbose_name="KM da última troca de óleo", null=True, blank=True)
+    review_plan = models.ForeignKey(
+        "workshops.ReviewPlan",
+        verbose_name="Plano de revisão",
+        on_delete=models.SET_NULL,
+        related_name="workorders",
+        null=True,
+        blank=True,
+    )
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
     stored_total_amount = MoneyField(
@@ -144,6 +181,14 @@ class WorkOrder(TimeStampedModel):
             return {"text": "Cortesia", "class": "badge-info"}
         return {"text": "Venda", "class": "badge-success"}
 
+    def sync_items_benefit_type_to_budget_type(self) -> int:
+        benefit_type = WorkOrderItemBenefitType.NORMAL
+        if self.budget_type == "warranty":
+            benefit_type = WorkOrderItemBenefitType.WARRANTY
+        elif self.budget_type == "courtesy":
+            benefit_type = WorkOrderItemBenefitType.COURTESY
+        return self.items.exclude(item_benefit_type=benefit_type).update(item_benefit_type=benefit_type)
+
     def _iter_items(self) -> Iterable["WorkOrderItem"]:
         if not self.pk:
             return ()
@@ -176,8 +221,6 @@ class WorkOrder(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if item.service and item.duration:
-                if item.service.is_third_party:
-                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -186,9 +229,6 @@ class WorkOrder(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
-                if kit_service.service.is_third_party:
-                    continue
-
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
@@ -473,10 +513,67 @@ class WorkOrder(TimeStampedModel):
         self.unsigned_delivery_reason = reason
         self.save(update_fields=["unsigned_delivery_reason"])
 
-    def complete_delivery(self, *, km_final: int, unsigned_delivery_reason: str = "") -> None:
+    @property
+    def warranty_days(self) -> int | None:
+        if not self.warranty_plan:
+            return None
+        return WARRANTY_PLAN_DAYS.get(self.warranty_plan)
+
+    @property
+    def warranty_expires_at(self) -> date | None:
+        days = self.warranty_days
+        if days is None or self.delivered_at is None:
+            return None
+        delivery_date = timezone.localtime(self.delivered_at).date()
+        return delivery_date + timedelta(days=days)
+
+    @property
+    def warranty_status_label(self) -> str | None:
+        if not self.warranty_plan:
+            return None
+        if self.warranty_plan == WorkOrderWarrantyPlan.NONE:
+            return "Sem garantia"
+        if self.delivered_at is None:
+            return None
+        expires_at = self.warranty_expires_at
+        if expires_at is None:
+            return None
+        if timezone.localdate() <= expires_at:
+            return "Em garantia"
+        return "Garantia vencida"
+
+    @property
+    def warranty_plan_display(self) -> str:
+        if not self.warranty_plan:
+            return ""
+        return WorkOrderWarrantyPlan(self.warranty_plan).label
+
+    def complete_delivery(
+        self,
+        *,
+        km_final: int,
+        unsigned_delivery_reason: str = "",
+        last_oil_change_date: date | None = None,
+        last_oil_change_km: int | None = None,
+        review_plan: "ReviewPlan | None" = None,
+        warranty_plan: str | None = None,
+    ) -> None:
         self.km_final = km_final
         self.unsigned_delivery_reason = unsigned_delivery_reason
-        self.save(update_fields=["km_final", "unsigned_delivery_reason"])
+        update_fields = ["km_final", "unsigned_delivery_reason"]
+        if warranty_plan is not None:
+            self.warranty_plan = warranty_plan
+            update_fields.append("warranty_plan")
+        if last_oil_change_date is not None:
+            self.last_oil_change_date = last_oil_change_date
+            update_fields.append("last_oil_change_date")
+        if last_oil_change_km is not None:
+            self.last_oil_change_km = last_oil_change_km
+            update_fields.append("last_oil_change_km")
+        if review_plan is not None:
+            self.review_plan = review_plan
+            update_fields.append("review_plan")
+        self.save(update_fields=update_fields)
         self._sync_vehicle_km_from_exit()
 
     def _sync_vehicle_km_from_exit(self) -> None:
@@ -866,7 +963,8 @@ class WorkOrder(TimeStampedModel):
             self.discount_value = self.budget.resolved_discount_value
             self.discount_percentage = self.budget.resolved_discount_percentage
             self.discount_type = self.budget.discount_type
-            self.save(update_fields=["discount_value", "discount_percentage", "discount_type"])
+            self.budget_type = self.budget.budget_type
+            self.save(update_fields=["discount_value", "discount_percentage", "discount_type", "budget_type"])
 
             collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
             if not collaborator_ids and self.budget.collaborator_id:
@@ -968,7 +1066,7 @@ class WorkOrderItem(TimeStampedModel):
 
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
+    is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
     product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)

@@ -29,9 +29,11 @@ from apps.finance.models.finance import WebmaniaCompany
 from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
+from apps.messaging.application.services.default_templates import create_default_message_templates
 from apps.workshops.forms.workshops import (
     BaseWebmaniaCompanySectionForm,
     WorkshopAddressSectionForm,
+    WorkshopAssistantVirtualSectionForm,
     WorkshopCertificateSectionForm,
     WorkshopCompanySectionForm,
     WorkshopFiscalSectionForm,
@@ -47,6 +49,7 @@ from apps.workshops.services.files import (
     get_workshop_logo_file,
     schedule_workshop_files_cleanup,
 )
+from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, provision_workshop_synplaisign
 from apps.workshops.usecases.upload_file_usecase import UploadWorkshopFileUseCase
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
 from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director, is_workshop_manager
@@ -153,6 +156,12 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 )
 
                 create_default_monthly_costs(workshop=workshop)
+                create_default_message_templates(workshop=workshop)
+
+                from django.conf import settings as django_settings
+
+                if str(getattr(django_settings, "SYNPLAISIGN_MASTER_KEY", "") or "").strip():
+                    provision_workshop_synplaisign(workshop=workshop)
 
                 self.object = workshop
                 logger.info(
@@ -170,6 +179,15 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
             form.add_error(None, to_public_integration_message(str(exc)))
             self.object = None
             return self.form_invalid(form)
+        except WorkshopSynplaiSignError as exc:
+            logger.exception(
+                "workshop_create_failed_synplaisign user_id=%s account_id=%s",
+                getattr(user, "id", None),
+                getattr(user_account, "id", None),
+            )
+            form.add_error(None, f"Falha ao provisionar assinatura digital da oficina: {exc}")
+            self.object = None
+            return self.form_invalid(form)
 
         return redirect(self.get_success_url())
 
@@ -178,6 +196,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     template_name = "workshops/workshop_update.html"
 
     TAB_EMPRESA = "empresa"
+    TAB_ASSISTENTE_VIRTUAL = "assistente_virtual"
     TAB_ENDERECO = "endereco"
     TAB_NOTA_FISCAL = "nota_fiscal"
     TAB_CERTIFICADO = "certificado"
@@ -187,6 +206,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     TAB_LOGO_AUTOUPLOAD = "logo_autoupload"
     TABS = {
         TAB_EMPRESA,
+        TAB_ASSISTENTE_VIRTUAL,
         TAB_ENDERECO,
         TAB_NOTA_FISCAL,
         TAB_CERTIFICADO,
@@ -252,6 +272,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     ) -> dict[str, forms.BaseForm]:
         form_map: dict[str, forms.BaseForm] = {
             self.TAB_EMPRESA: WorkshopCompanySectionForm(instance=self.company, workshop=self.object),
+            self.TAB_ASSISTENTE_VIRTUAL: WorkshopAssistantVirtualSectionForm(instance=self.object),
             self.TAB_ENDERECO: WorkshopAddressSectionForm(instance=self.company, workshop=self.object),
             self.TAB_NOTA_FISCAL: WorkshopFiscalSectionForm(instance=self.company, workshop=self.object),
             self.TAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
@@ -264,6 +285,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         if active_tab == self.TAB_EMPRESA:
             form_map[self.TAB_EMPRESA] = WorkshopCompanySectionForm(data=data, files=files, instance=self.company, workshop=self.object)
+        elif active_tab == self.TAB_ASSISTENTE_VIRTUAL:
+            form_map[self.TAB_ASSISTENTE_VIRTUAL] = WorkshopAssistantVirtualSectionForm(data=data, files=files, instance=self.object)
         elif active_tab == self.TAB_ENDERECO:
             form_map[self.TAB_ENDERECO] = WorkshopAddressSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
         elif active_tab == self.TAB_NOTA_FISCAL:
@@ -355,6 +378,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "active_nf_subtab": active_nf_subtab,
             "current_certificate_name": self._current_certificate_name(),
             "company_form": forms_map[self.TAB_EMPRESA],
+            "assistant_virtual_form": forms_map[self.TAB_ASSISTENTE_VIRTUAL],
             "address_form": forms_map[self.TAB_ENDERECO],
             "fiscal_form": forms_map[self.TAB_NOTA_FISCAL],
             "certificate_form": forms_map[self.TAB_CERTIFICADO],
@@ -581,6 +605,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         }
         restricted_workshop_tabs = {
             self.TAB_PDF_OBSERVATION,
+            self.TAB_ASSISTENTE_VIRTUAL,
         }
 
         if active_tab in restricted_webmania_tabs and not self._can_change_webmania_company():
@@ -600,6 +625,15 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             company_form = cast(WorkshopCompanySectionForm, forms_map[self.TAB_EMPRESA])
             if company_form.is_valid():
                 return self._save_company_tab_form(form=company_form, tab=active_tab, nf_subtab=active_nf_subtab, sync_name=True)
+        elif active_tab == self.TAB_ASSISTENTE_VIRTUAL:
+            assistant_form = cast(WorkshopAssistantVirtualSectionForm, forms_map[self.TAB_ASSISTENTE_VIRTUAL])
+            if assistant_form.is_valid():
+                return self._save_workshop_tab_form(
+                    form=assistant_form,
+                    tab=active_tab,
+                    nf_subtab=active_nf_subtab,
+                    success_message="Configuracoes do assistente virtual atualizadas com sucesso.",
+                )
         elif active_tab == self.TAB_ENDERECO:
             address_form = cast(WorkshopAddressSectionForm, forms_map[self.TAB_ENDERECO])
             if address_form.is_valid():

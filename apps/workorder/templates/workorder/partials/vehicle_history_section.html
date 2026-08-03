@@ -10,6 +10,16 @@
                     <div class="flex-1">
                         <p class="text-lg font-bold">Ordem de Serviço: #{{ wo.id }}</p>
                         <p class="text-sm text-base-content/70">Data de Registro: {{ wo.criado_em|date:"d/m/Y H:i" }}</p>
+                        {% if wo.delivered_at %}
+                            <p class="text-sm text-base-content/70">Data de saída: {{ wo.delivered_at|date:"d/m/Y H:i" }}</p>
+                        {% endif %}
+                        {% if wo.warranty_status_label %}
+                            <p class="text-sm text-base-content/70">
+                                Garantia: {{ wo.warranty_plan_display }}
+                                {% if wo.warranty_expires_at %} — válida até {{ wo.warranty_expires_at|date:"d/m/Y" }}{% endif %}
+                                — <span class="font-semibold">{{ wo.warranty_status_label }}</span>
+                            </p>
+                        {% endif %}
                     </div>
 
                     <div class="flex flex-col items-end gap-2 mt-2 lg:mt-0">

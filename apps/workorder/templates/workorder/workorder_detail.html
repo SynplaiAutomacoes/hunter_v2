@@ -1,5 +1,5 @@
 {% extends 'crud/page.html' %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags l10n %}
 
 {% block crud_content %}
 <div class="p-6 space-y-6" x-data="{ activeTab: 'resumo' }">
@@ -285,7 +285,7 @@
 
 <script>
     (function() {
-        const WORKORDER_ID = {{ workorder.pk }};
+        const WORKORDER_ID = {{ workorder.pk|unlocalize }};
         const OBJ_TYPE = 'workorder.workorder';
         const LOCK_REFRESH_INTERVAL_MS = 30000;
 

@@ -474,6 +474,12 @@ class NfseRequest(TimeStampedModel):
 
         return str(first_item.rps_number or first_item.number or "-")
 
+    @property
+    def rps_number_display_listing(self) -> str:
+        if self.status == NfseRequestStatus.REPROVED:
+            return "-"
+        return self.rps_number_display
+
 
 class NfeRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
@@ -580,6 +586,12 @@ class NfeRequest(TimeStampedModel):
             return "-"
 
         return str(first_item.number or "-")
+
+    @property
+    def number_display_listing(self) -> str:
+        if self.status == NfeRequestStatus.REPROVED:
+            return "-"
+        return self.number_display
 
 
 class NfseBatch(models.Model):

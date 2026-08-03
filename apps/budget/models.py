@@ -234,6 +234,11 @@ class Budget(TimeStampedModel):
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
+                if self.vehicle_id and self.current_km is not None:
+                    from apps.customer.services.oil_change import handle_budget_approved_mileage
+
+                    handle_budget_approved_mileage(budget=self)
+
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},
@@ -704,8 +709,6 @@ class Budget(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if (item.service or self._is_local_service_item(item)) and item.duration:
-                if item.service and item.service.is_third_party:
-                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -714,9 +717,6 @@ class Budget(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
-                if kit_service.service.is_third_party:
-                    continue
-
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
@@ -1155,7 +1155,7 @@ class BudgetItem(TimeStampedModel):
         blank=True,
         default="",
     )
-    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
+    is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     ## Produto
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)

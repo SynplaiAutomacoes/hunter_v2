@@ -21,6 +21,7 @@ from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateR
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableAction, TableColumn
 from apps.customer.models import Customer
+from apps.messaging.application.services.dispatch_ws_auth import issue_dispatch_ws_token
 from apps.messaging.application.use_cases.dispatch_message_groups import (
     DispatchGroupsRequest,
     DispatchMessageGroupsUseCase,
@@ -30,13 +31,35 @@ from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPubli
 from apps.messaging.infrastructure.repositories.django_message_group_repository import (
     DjangoMessageGroupRepository,
 )
-from apps.messaging.infrastructure.services.segment_query_builder import resolve_segment
-from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMembership, MessageTemplate
+from apps.messaging.infrastructure.services.segment_query_builder import (
+    eligible_customers_queryset,
+    merge_customer_querysets,
+    resolve_segment,
+)
+from apps.messaging.models import (
+    CustomerMessageGroup,
+    CustomerMessageGroupMembership,
+    MessageDispatchBatch,
+    MessageTemplate,
+)
 from apps.messaging.rendering import format_phone_value, format_variable_value
 from apps.messaging.variables import get_variable_groups
 from apps.workshops.mixin import WorkshopScopedMixin
 
 logger = logging.getLogger(__name__)
+
+
+def _message_dispatch_ws_context(*, request: Any, workshop: Any) -> dict[str, str]:
+    user = getattr(request, "user", None)
+    user_id = getattr(user, "id", None)
+    workshop_id = getattr(workshop, "id", None)
+    token = ""
+    if user_id and workshop_id:
+        token = issue_dispatch_ws_token(user_id=int(user_id), workshop_id=int(workshop_id))
+    return {
+        "message_dispatch_ws_base_url": str(getattr(settings, "MESSAGE_DISPATCH_WS_BASE_URL", "") or ""),
+        "message_dispatch_ws_token": token,
+    }
 
 
 CUSTOMER_MESSAGE_GROUP_CUSTOMER_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -71,8 +94,7 @@ def _annotate_customers_with_latest_os(queryset: QuerySet[Customer]) -> QuerySet
 
 
 def _build_customer_picker_queryset(*, workshop: Any, params: Any) -> QuerySet[Customer]:
-    queryset = _annotate_customers_with_latest_os(Customer.objects.filter(workshop=workshop))
-    queryset = apply_is_active_filter(queryset, params=params)
+    queryset = _annotate_customers_with_latest_os(eligible_customers_queryset(workshop=workshop))
     queryset = apply_query_param_filters(queryset, params=params, filter_configs=CUSTOMER_MESSAGE_GROUP_CUSTOMER_FILTERS)
     return queryset.order_by("name", "pk")
 
@@ -125,6 +147,26 @@ def _build_message_templates_payload(*, workshop: Any, current_template_id: int 
     ]
 
 
+def _get_filter_criteria_context(*, request: Any, current_object: CustomerMessageGroup | None) -> dict[str, Any] | None:
+    if request.method in {"POST", "PUT", "PATCH"}:
+        raw_value = request.POST.get("filter_criteria")
+        if isinstance(raw_value, str) and raw_value.strip():
+            try:
+                parsed = json.loads(raw_value)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("rules"):
+                return parsed
+        return None
+
+    if current_object is not None:
+        criteria = getattr(current_object, "filter_criteria", None)
+        if isinstance(criteria, dict) and criteria.get("rules"):
+            return criteria
+
+    return None
+
+
 def _get_context_selected_customer_ids(*, request: Any, current_object: CustomerMessageGroup | None) -> list[int]:
     if request.method in {"POST", "PUT", "PATCH"}:
         return _parse_selected_customer_ids(request.POST.getlist("selected_customers"))
@@ -140,7 +182,11 @@ def _get_valid_request_selected_customer_ids(*, workshop: Any, request: Any) -> 
     if not selected_customer_ids:
         return []
 
-    return list(Customer.objects.filter(workshop=workshop, pk__in=selected_customer_ids).values_list("pk", flat=True))
+    return list(
+        eligible_customers_queryset(workshop=workshop)
+        .filter(pk__in=selected_customer_ids)
+        .values_list("pk", flat=True)
+    )
 
 
 def _sync_customer_message_group_memberships(*, group: CustomerMessageGroup, selected_customer_ids: Iterable[int]) -> None:
@@ -227,6 +273,9 @@ class CustomerMessageGroupCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
         context["variable_groups"] = get_variable_groups()
         context["customer_picker_url"] = reverse("messaging:customer_message_group_customer_picker")
         context["segment_preview_url"] = reverse("messaging:customer_message_group_segment_preview")
+        context["filter_criteria"] = _get_filter_criteria_context(request=self.request, current_object=None)
+        context["dispatch_history_batches"] = []
+        context.update(_message_dispatch_ws_context(request=self.request, workshop=self.workshop))
         return context
 
     def form_valid(self, form: CustomerMessageGroupForm) -> HttpResponse:
@@ -243,9 +292,7 @@ class CustomerMessageGroupCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
             group.workshop = self.workshop
             group.save()
             self.object = group
-
-            if selected_customer_ids:
-                _sync_customer_message_group_memberships(group=group, selected_customer_ids=selected_customer_ids)
+            _sync_customer_message_group_memberships(group=group, selected_customer_ids=selected_customer_ids)
 
         return HttpResponseRedirect(self.get_success_url())
 
@@ -271,6 +318,14 @@ class CustomerMessageGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["variable_groups"] = get_variable_groups()
         context["customer_picker_url"] = reverse("messaging:customer_message_group_customer_picker")
         context["segment_preview_url"] = reverse("messaging:customer_message_group_segment_preview")
+        context["filter_criteria"] = _get_filter_criteria_context(request=self.request, current_object=self.object)
+        context["dispatch_history_batches"] = (
+            MessageDispatchBatch.objects.filter(workshop=self.workshop, group=self.object)
+            .prefetch_related("logs")
+            .order_by("-criado_em")[:50]
+        )
+        context.update(_message_dispatch_ws_context(request=self.request, workshop=self.workshop))
+        context["show_dispatch_button"] = True
         return context
 
     def form_valid(self, form: CustomerMessageGroupForm) -> HttpResponse:
@@ -287,9 +342,7 @@ class CustomerMessageGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             group.workshop = self.workshop
             group.save()
             self.object = group
-
-            if selected_customer_ids:
-                _sync_customer_message_group_memberships(group=group, selected_customer_ids=selected_customer_ids)
+            _sync_customer_message_group_memberships(group=group, selected_customer_ids=selected_customer_ids)
 
         return HttpResponseRedirect(self.get_success_url())
 
@@ -328,6 +381,30 @@ class CustomerMessageGroupCustomerPickerView(LoginRequiredMixin, WorkshopScopedM
         return context
 
 
+class CustomerMessageGroupHistoryView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """HTMX partial: reload dispatch history so live WS updates have DOM targets."""
+
+    model = CustomerMessageGroup
+    workshop_permission_codename = "view_customermessagegroup"
+    http_method_names = ["get"]
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        group = get_object_or_404(CustomerMessageGroup, pk=kwargs["pk"], workshop=self.workshop)
+        dispatch_history_batches = (
+            MessageDispatchBatch.objects.filter(workshop=self.workshop, group=group)
+            .prefetch_related("logs__customer")
+            .order_by("-criado_em")[:50]
+        )
+        return render(
+            request,
+            "messaging/partials/customer_message_group_history.html",
+            {
+                "object": group,
+                "dispatch_history_batches": dispatch_history_batches,
+            },
+        )
+
+
 class CustomerMessageGroupDispatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = CustomerMessageGroup
     workshop_permission_codename = "change_customermessagegroup"
@@ -348,20 +425,39 @@ class CustomerMessageGroupDispatchView(LoginRequiredMixin, WorkshopScopedMixin, 
 
     def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
         group = get_object_or_404(CustomerMessageGroup, pk=kwargs["pk"], workshop=self.workshop)
-        group.members_count = CustomerMessageGroupMembership.objects.filter(group=group).count()
-        return render(request, "messaging/partials/customer_message_group_dispatch_modal.html", {"group": group})
+        customers = _resolve_group_customers_for_dispatch(group)
+        customer_ids = list(customers.values_list("pk", flat=True))
+        group.members_count = len(customer_ids)
+        return render(
+            request,
+            "messaging/partials/customer_message_group_dispatch_modal.html",
+            {
+                "group": group,
+                "dispatch_customer_ids": customer_ids,
+            },
+        )
 
     def post(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
         group = get_object_or_404(CustomerMessageGroup, pk=kwargs["pk"], workshop=self.workshop)
+        client_message_ids = _parse_client_message_ids(request.POST.get("client_message_ids"))
 
         try:
             use_case = self._build_use_case()
-            result = use_case.execute(DispatchGroupsRequest(group_id=group.pk))
+            result = use_case.execute(
+                DispatchGroupsRequest(
+                    group_id=group.pk,
+                    triggered_by_id=getattr(request.user, "pk", None),
+                    source=MessageDispatchBatch.Source.GROUP_MANUAL,
+                    client_message_ids=client_message_ids,
+                )
+            )
+            batch_id = result.batch_ids[0] if result.batch_ids else None
 
             response = HttpResponse()
             response["HX-Trigger"] = json.dumps(
                 {
                     "customer-message-groups-table-refresh": True,
+                    "message-group-history-refresh": {"batch_id": batch_id},
                     "showToast": {
                         "message": f'Disparo do grupo "{group.name}" concluído. {result.total_customers} cliente(s) na fila.',
                         "type": "success",
@@ -381,3 +477,37 @@ class CustomerMessageGroupDispatchView(LoginRequiredMixin, WorkshopScopedMixin, 
                 }
             )
             return response
+
+
+def _parse_client_message_ids(raw_value: str | None) -> dict[int, str] | None:
+    if not raw_value:
+        return None
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    parsed: dict[int, str] = {}
+    for key, value in payload.items():
+        try:
+            parsed[int(key)] = str(value)
+        except (TypeError, ValueError):
+            continue
+    return parsed or None
+
+
+def _resolve_group_customers_for_dispatch(group: CustomerMessageGroup) -> QuerySet[Customer]:
+    from apps.messaging.domain.value_objects import FilterCriteria
+
+    repo = DjangoMessageGroupRepository()
+    manual = repo.get_group_members(group)
+    if not group.filter_criteria:
+        return manual
+    try:
+        criteria = FilterCriteria.from_dict(group.filter_criteria)
+        dynamic = resolve_segment(workshop=group.workshop, filter_criteria=criteria)
+        return merge_customer_querysets(manual, dynamic)
+    except Exception:
+        logger.exception("dispatch_modal_filter_resolve_failed", extra={"group_id": group.pk})
+        return manual

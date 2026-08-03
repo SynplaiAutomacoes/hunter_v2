@@ -19,8 +19,8 @@
 
     <h3 class="font-bold text-2xl pb-2 mb-4">Entrega do Veículo e Encerramento da O.S.</h3>
 
-    <div class="mt-2 pb-4 border-b border-base-300">
-        <h4 class="font-bold text-xl mb-3">KM de entrega</h4>
+    <div class="mt-2 pb-4">
+        <h4 class="font-bold text-xl mb-3">KM de entrega e plano de revisão</h4>
         <form
             id="approval-km-form"
             method="post"
@@ -34,26 +34,12 @@
         >
             {% csrf_token %}
             {% crispy approval_form %}
-            <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                <div class="form-control">
-                    <label class="label" for="workorder-delivered-at-display">
-                        <span class="label-text font-medium">Data de saída</span>
-                    </label>
-                    <input
-                        id="workorder-delivered-at-display"
-                        type="text"
-                        class="input-theme"
-                        value="{% if workorder.delivered_at %}{{ workorder.delivered_at|date:'d/m/Y H:i' }}{% else %}Sera preenchida ao concluir a entrega.{% endif %}"
-                        readonly
-                    >
-                </div>
-            </div>
             <p id="workorder-km-save-status" class="text-sm text-base-content/70 min-h-5" aria-live="polite"></p>
         </form>
     </div>
 
-    <div class="mt-6 pt-4 border-t border-base-300">
-        <h4 class="font-bold text-xl mb-2 border-b">Anexos</h4>
+    <div class="mt-6">
+        <h4 class="font-bold text-xl mb-2">Anexos</h4>
 
         <form
             id="workorder-attachment-form"
@@ -180,6 +166,14 @@
             {% if workorder.can_reopen %}
             <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
             {% endif %}
+
+            {% if emission_ui %}
+                {% if emission_ui.opens_modal %}
+                <button type="button" class="btn btn-primary" data-allow-locked="1" onclick="workorderEmissionModal.showModal()">{{ emission_ui.button_label }}</button>
+                {% else %}
+                <a href="{{ emission_ui.direct_url }}" class="btn btn-primary" data-allow-locked="1">{{ emission_ui.button_label }}</a>
+                {% endif %}
+            {% endif %}
         </div>
 
         {% if workorder_history %}
@@ -240,6 +234,35 @@
             </div>
         </dialog>
 
+        {% if emission_ui and emission_ui.opens_modal %}
+        <dialog id="workorderEmissionModal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box">
+                {% if emission_ui.mode == "partial_choice" %}
+                <h3 class="font-bold text-lg text-base-content">Notas fiscais da O.S.</h3>
+                <p class="py-4 text-base-content/70">
+                    Esta O.S. já possui {{ emission_ui.existing_note_label }}. Deseja emitir a {{ emission_ui.missing_note_label }} faltante ou abrir a nota já emitida?
+                </p>
+                <div class="modal-action flex-wrap gap-2">
+                    <a href="{{ emission_ui.emit_missing_url }}" class="btn btn-primary" data-allow-locked="1">Emitir {{ emission_ui.missing_note_label }}</a>
+                    <a href="{{ emission_ui.direct_url }}" class="btn btn-outline" data-allow-locked="1">Abrir {{ emission_ui.existing_note_label }}</a>
+                    <button type="button" class="btn btn-ghost" onclick="workorderEmissionModal.close()">Fechar</button>
+                </div>
+                {% else %}
+                <h3 class="font-bold text-lg text-base-content">Ver nota fiscal</h3>
+                <p class="py-4 text-base-content/70">Esta O.S. possui Nota Fiscal de Produto e Nota Fiscal de Serviço. Qual deseja abrir?</p>
+                <div class="modal-action flex-wrap gap-2">
+                    <a href="{{ emission_ui.nfe_detail_url }}" class="btn btn-primary" data-allow-locked="1">Abrir Nota Fiscal de Produto</a>
+                    <a href="{{ emission_ui.nfse_detail_url }}" class="btn btn-outline" data-allow-locked="1">Abrir Nota Fiscal de Serviço</a>
+                    <button type="button" class="btn btn-ghost" onclick="workorderEmissionModal.close()">Fechar</button>
+                </div>
+                {% endif %}
+            </div>
+            <form method="dialog" class="modal-backdrop bg-black/50">
+                <button>close</button>
+            </form>
+        </dialog>
+        {% endif %}
+
         {% if workorder.can_reopen and can_reopen_workorder %}
         <form
             id="reopen-workorder-form"
@@ -265,6 +288,26 @@
     </div>
 </div>
 
+{# Modal de confirmação de entrega sem assinatura #}
+<dialog id="unsigned-delivery-confirm-modal" class="modal" onclick="if (event.target === this) this.close()">
+    <div class="modal-box w-[95vw] max-w-md border border-base-300 bg-base-100 shadow-2xl">
+        <div class="flex items-start gap-3 mb-4">
+            <span class="material-icons text-warning mt-0.5">warning_amber</span>
+            <div>
+                <h3 class="text-lg font-bold text-base-content">Entrega sem assinatura</h3>
+                <p class="mt-1 text-sm text-base-content/70">A O.S. ainda não foi assinada pelo cliente. Se continuar, será obrigatório informar a justificativa da entrega sem assinatura.</p>
+            </div>
+        </div>
+        <div class="modal-action mt-6">
+            <button type="button" class="btn btn-ghost" onclick="document.getElementById('unsigned-delivery-confirm-modal').close()">Cancelar</button>
+            <button type="button" class="btn btn-warning" id="unsigned-delivery-confirm-btn">Continuar sem assinatura</button>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop bg-black/50">
+        <button>close</button>
+    </form>
+</dialog>
+
 <script>
     (function () {
         const form = document.getElementById('approval-km-form');
@@ -274,11 +317,28 @@
         const deliveryButtonTooltip = document.getElementById('workorder-delivery-button-tooltip');
         const unsignedReasonWrapper = document.getElementById('unsigned-delivery-reason-wrapper');
         const unsignedReasonInput = document.getElementById('id_unsigned_delivery_reason');
+        const oilFieldsPanel = document.getElementById('oil-fields-panel');
         const cancelForm = document.getElementById('cancel-workorder-form');
         const rejectForm = document.getElementById('reject-workorder-form');
         const reopenForm = document.getElementById('reopen-workorder-form');
         const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
         const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
+
+        const syncDeliveryOilLayout = () => {
+            if (!oilFieldsPanel) {
+                return;
+            }
+            const reasonVisible = Boolean(unsignedReasonWrapper && !unsignedReasonWrapper.classList.contains('hidden'));
+            oilFieldsPanel.classList.toggle('lg:col-span-6', reasonVisible);
+            oilFieldsPanel.querySelectorAll('.oil-field-half').forEach((el) => {
+                el.classList.toggle('sm:col-span-4', !reasonVisible);
+                el.classList.toggle('sm:col-span-6', reasonVisible);
+            });
+            oilFieldsPanel.querySelectorAll('.oil-field-plan').forEach((el) => {
+                el.classList.toggle('sm:col-span-4', !reasonVisible);
+                el.classList.toggle('sm:col-span-12', reasonVisible);
+            });
+        };
 
         window.workorderSignatureGate = {
             hasSignatureBlockers: {% if workorder.has_signature_blockers %}true{% else %}false{% endif %},
@@ -349,15 +409,18 @@
             }
             unsignedReasonWrapper.classList.remove('hidden');
             unsignedReasonInput.required = true;
+            syncDeliveryOilLayout();
             unsignedReasonInput.focus();
         };
 
         if (!signatureApproved && unsignedReasonWrapper && unsignedReasonInput) {
-            if (!unsignedReasonInput.value.trim() && !hasUnsignedReasonError) {
-                unsignedReasonWrapper.classList.add('hidden');
+            const shouldShowReason = Boolean(unsignedReasonInput.value.trim() || hasUnsignedReasonError);
+            unsignedReasonWrapper.classList.toggle('hidden', !shouldShowReason);
+            if (!shouldShowReason) {
                 unsignedReasonInput.required = false;
             }
         }
+        syncDeliveryOilLayout();
 
         const setStatus = (message, tone = 'muted') => {
             statusEl.textContent = message;
@@ -523,6 +586,35 @@
 
         window.updateWorkorderDeliveryButtonState();
 
+            const unsignedConfirmModal = document.getElementById('unsigned-delivery-confirm-modal');
+            const unsignedConfirmBtn = document.getElementById('unsigned-delivery-confirm-btn');
+
+            const proceedDelivery = () => {
+                deliveryButton.dataset.signatureWarningConfirmed = 'true';
+                showUnsignedReasonField();
+
+                if (!unsignedReasonInput) {
+                    form.requestSubmit();
+                    return;
+                }
+
+                if (!unsignedReasonInput.value.trim()) {
+                    unsignedReasonInput.setCustomValidity('Informe a justificativa para entregar o veículo sem a assinatura da O.S.');
+                    unsignedReasonInput.reportValidity();
+                    return;
+                }
+
+                unsignedReasonInput.setCustomValidity('');
+                form.requestSubmit();
+            };
+
+            if (unsignedConfirmBtn) {
+                unsignedConfirmBtn.addEventListener('click', () => {
+                    unsignedConfirmModal?.close();
+                    proceedDelivery();
+                });
+            }
+
             if (deliveryButton) {
                 deliveryButton.addEventListener('click', () => {
                     hideStatusForms();
@@ -532,27 +624,11 @@
                     }
 
                     if (deliveryButton.dataset.signatureWarningConfirmed !== 'true') {
-                        if (!window.confirm('A O.S. ainda não foi assinada pelo cliente. Se continuar, será obrigatório informar a justificativa da entrega sem assinatura.')) {
-                            return;
-                        }
-                        deliveryButton.dataset.signatureWarningConfirmed = 'true';
-                    }
-
-                    showUnsignedReasonField();
-
-                    if (!unsignedReasonInput) {
-                        form.requestSubmit();
+                        unsignedConfirmModal?.showModal();
                         return;
                     }
 
-                    if (!unsignedReasonInput.value.trim()) {
-                        unsignedReasonInput.setCustomValidity('Informe a justificativa para entregar o veículo sem a assinatura da O.S.');
-                        unsignedReasonInput.reportValidity();
-                        return;
-                    }
-
-                    unsignedReasonInput.setCustomValidity('');
-                    form.requestSubmit();
+                    proceedDelivery();
                 });
             }
         }

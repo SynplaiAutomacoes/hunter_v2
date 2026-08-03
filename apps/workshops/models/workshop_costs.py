@@ -66,7 +66,7 @@ class WorkshopCost(TimeStampedModel):
     # --- Taxas e Impostos ---
     card_rate = models.DecimalField(verbose_name="Taxa Cartão", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
     tax_rate = models.DecimalField(verbose_name="Impostos", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
-    profit_margin = models.DecimalField(verbose_name="Margem de Lucro", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
+    profit_margin = models.DecimalField(verbose_name="Margem de Lucro Desejada Sobre a Hora", max_digits=7, decimal_places=6, default=0, null=True, blank=True)
     commission_rate = models.DecimalField(
         verbose_name="Comissão",
         max_digits=7,
@@ -100,10 +100,10 @@ class WorkshopCost(TimeStampedModel):
     third_party_service_cap = MoneyField(verbose_name="Teto Serviços Terceiros", max_digits=14, decimal_places=2, null=True, blank=True)
 
     # --- Calculados (Armazenados para histórico, readonly no form) ---
-    total_value = MoneyField(verbose_name="Total Metas e Indicadores", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    total_monthly_costs = MoneyField(verbose_name="Total Despesas Mensais", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    profit_target = MoneyField(verbose_name="Meta de Lucro", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    gross_revenue_target = MoneyField(verbose_name="Faturamento Bruto Meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    total_value = MoneyField(verbose_name="Total", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    total_monthly_costs = MoneyField(verbose_name="Total Despesas Mensais + Impostos + Taxas e Coeficiente de Risco", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    profit_target = MoneyField(verbose_name="Meta de Lucro Mensal", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    gross_revenue_target = MoneyField(verbose_name="Meta de Faturamento Mensal", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
     working_hours_per_month = models.DecimalField(verbose_name="Horas úteis/mês", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
     minimum_hourly_cost = MoneyField(verbose_name="Custo Hora Mínimo", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
@@ -193,9 +193,6 @@ class WorkshopCost(TimeStampedModel):
 
         return self._quantize_money(total)
 
-    def calculate_profit_target(self, total_monthly_costs: Money) -> Money:
-        return self._quantize_money(total_monthly_costs * Decimal("0.25"))
-
     def calculate_gross_revenue_target(self, total_monthly_costs: Money, profit_target: Money, total_value: Money) -> Money:
         return self._quantize_money(total_monthly_costs + profit_target + total_value)
 
@@ -210,13 +207,12 @@ class WorkshopCost(TimeStampedModel):
     def calculate_all(self):
         total_value = self.calculate_total_value()
         total_monthly_costs = self.calculate_total_monthly_costs()
-        profit_target = self.calculate_profit_target(total_monthly_costs)
+        profit_target = self.profit_target or Money(0, "BRL")
         gross_revenue_target = self.calculate_gross_revenue_target(total_monthly_costs, profit_target, total_value)
         profitability_multiplier = self.calculate_profitability_multiplier(gross_revenue_target, total_value)
 
         self.total_value = total_value
         self.total_monthly_costs = total_monthly_costs
-        self.profit_target = profit_target
         self.gross_revenue_target = gross_revenue_target
         self.profitability_multiplier = profitability_multiplier
 

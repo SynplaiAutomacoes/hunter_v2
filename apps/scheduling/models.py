@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
@@ -7,6 +8,24 @@ from phonenumber_field.modelfields import PhoneNumberField
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.customer.vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
+
+
+ALERT_LEAD_TIME_CHOICES: list[tuple[int, str]] = [
+    (30, "30 minutos"),
+    (60, "1 hora"),
+    (120, "2 horas"),
+    (180, "3 horas"),
+    (300, "5 horas"),
+    (1440, "1 dia"),
+    (2880, "2 dias"),
+    (10080, "1 semana"),
+]
+
+DEFAULT_ALERT_LEAD_TIMES: list[int] = [60, 1440, 2880]
+
+
+def default_alert_lead_times() -> list[int]:
+    return list(DEFAULT_ALERT_LEAD_TIMES)
 
 
 def _digits_only(value: object) -> str:
@@ -48,7 +67,14 @@ class Appointment(TimeStampedModel):
     starts_at = models.DateTimeField(verbose_name="Data e hora de entrada")
     ends_at = models.DateTimeField(verbose_name="Data e hora de saida")
     block_color = models.CharField(verbose_name="Cor do bloco", max_length=7, default="#0ea5e9")
-    alert_customer = models.BooleanField(verbose_name="Alertar cliente", default=False)
+    alert_customer = models.BooleanField(verbose_name="Alertar cliente", default=True)
+    alert_lead_times = ArrayField(
+        models.PositiveIntegerField(choices=ALERT_LEAD_TIME_CHOICES),
+        verbose_name="Antecedência do alerta",
+        blank=True,
+        default=default_alert_lead_times,
+        help_text="Minutos antes do início do agendamento para enviar o alerta. É possível selecionar mais de uma opção.",
+    )
     notes = models.TextField(verbose_name="Observacoes", blank=True, default="")
     status = models.CharField(verbose_name="Status", max_length=20, choices=AppointmentStatus.choices, default=AppointmentStatus.SCHEDULED)
     budget = models.ForeignKey("budget.Budget", verbose_name="Orcamento vinculado", on_delete=models.SET_NULL, null=True, blank=True, related_name="appointments")
@@ -114,7 +140,6 @@ class Appointment(TimeStampedModel):
         self.guest_vehicle_fuel = normalize_vehicle_fuel_choice(self.guest_vehicle_fuel)
 
     def clean(self) -> None:
-        skip_guest_vehicle_engine_required_validation = bool(getattr(self, "_skip_guest_vehicle_engine_required_validation", False))
         raw_guest_vehicle_engine = str(self.guest_vehicle_engine or "").strip()
         normalized_guest_vehicle_engine = normalize_vehicle_engine_choice(raw_guest_vehicle_engine)
         raw_guest_vehicle_fuel = str(self.guest_vehicle_fuel or "").strip()
@@ -139,28 +164,19 @@ class Appointment(TimeStampedModel):
         if not customer_id and not guest_validation_done:
             if not self.guest_customer_name.strip():
                 errors.setdefault("guest_customer_name", []).append("Informe o nome do cliente quando ele nao estiver cadastrado.")
-            if len(_digits_only(self.guest_customer_cpf)) != 11:
-                errors.setdefault("guest_customer_cpf", []).append("Informe o CPF do cliente quando ele nao estiver cadastrado.")
             if not str(self.guest_customer_phone or "").strip():
                 errors.setdefault("guest_customer_phone", []).append("Informe o telefone do cliente quando ele nao estiver cadastrado.")
             if not self.guest_vehicle_plate.strip():
                 errors.setdefault("guest_vehicle_plate", []).append("Informe a placa do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_brand.strip():
-                errors.setdefault("guest_vehicle_brand", []).append("Informe a marca do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_model.strip():
-                errors.setdefault("guest_vehicle_model", []).append("Informe o modelo do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_year_fabrication.strip():
-                errors.setdefault("guest_vehicle_year_fabrication", []).append("Informe o ano de fabricacao do veiculo quando o cliente nao estiver cadastrado.")
-            if not self.guest_vehicle_year_model.strip():
-                errors.setdefault("guest_vehicle_year_model", []).append("Informe o ano do modelo do veiculo quando o cliente nao estiver cadastrado.")
+
+            cpf_digits = _digits_only(self.guest_customer_cpf)
+            if cpf_digits and len(cpf_digits) != 11:
+                errors.setdefault("guest_customer_cpf", []).append("Informe um CPF valido com 11 digitos.")
+
             if raw_guest_vehicle_engine and not normalized_guest_vehicle_engine:
                 errors.setdefault("guest_vehicle_engine", []).append("Selecione uma motorizacao valida.")
-            elif not self.guest_vehicle_engine.strip() and not skip_guest_vehicle_engine_required_validation:
-                errors.setdefault("guest_vehicle_engine", []).append("Informe a motorizacao do veiculo quando o cliente nao estiver cadastrado.")
             if raw_guest_vehicle_fuel and not normalized_guest_vehicle_fuel:
                 errors.setdefault("guest_vehicle_fuel", []).append("Selecione um combustivel valido.")
-            elif not self.guest_vehicle_fuel.strip():
-                errors.setdefault("guest_vehicle_fuel", []).append("Informe o combustivel do veiculo quando o cliente nao estiver cadastrado.")
 
         if vehicle_id and not customer_id:
             errors.setdefault("vehicle", []).append("Selecione um cliente cadastrado para vincular um veiculo.")

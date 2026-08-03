@@ -730,7 +730,12 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
-        approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder, require_unsigned_delivery_reason=False)
+        approval_form = WorkOrderCustomerApprovalForm(
+            request.POST,
+            workorder=workorder,
+            require_unsigned_delivery_reason=False,
+            require_warranty_plan=False,
+        )
 
         if not approval_form.is_valid():
             km_final_errors = approval_form.errors.get("km_final", [])
@@ -1324,12 +1329,19 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             try:
                 km_final = approval_form.cleaned_data["km_final"]
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
-                workorder.complete_delivery(km_final=km_final, unsigned_delivery_reason=unsigned_delivery_reason)
+                workorder.complete_delivery(
+                    km_final=km_final,
+                    unsigned_delivery_reason=unsigned_delivery_reason,
+                    last_oil_change_date=approval_form.cleaned_data.get("last_oil_change_date"),
+                    last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
+                    review_plan=approval_form.cleaned_data.get("review_plan"),
+                    warranty_plan=approval_form.cleaned_data.get("warranty_plan"),
+                )
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)
 
-                workorder.refresh_from_db(fields=["status"])
+                workorder.refresh_from_db()
                 if workorder.status != WorkOrderStatus.APPROVED:
                     logger.warning(
                         "workorder_delivery_status_not_updated",
@@ -1340,6 +1352,14 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         {"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}}
                     )
                     return response
+
+                from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
+
+                handle_workorder_delivery_oil_and_mileage(workorder=workorder)
+
+                from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
+
+                schedule_satisfaction_survey_for_workorder(workorder)
             except WorkOrderApprovalError as exc:
                 logger.warning(
                     "workorder_delivery_approval_error",
@@ -1434,9 +1454,12 @@ def visualizar_pdf_workorder(request, pk):
 
     if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:
+            from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
+
             signed_pdf = get_signature_service().download_signed_document(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,
+                api_key=get_workshop_synplaisign_api_key(workorder.workshop),
             )
             return _build_workorder_pdf_file_response(
                 workorder=workorder,
@@ -1444,7 +1467,7 @@ def visualizar_pdf_workorder(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureServiceError:
+        except (SignatureServiceError, WorkshopSynplaiSignError):
             logger.warning("workorder_signed_pdf_load_failed", extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id})
 
     try:

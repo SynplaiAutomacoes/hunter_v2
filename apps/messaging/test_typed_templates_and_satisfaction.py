@@ -1,0 +1,552 @@
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+from django.test import TestCase
+from django.urls import reverse
+from django.utils import timezone
+from unittest.mock import patch
+
+from apps.budget.models import Budget
+from apps.customer.models import Customer, Vehicle
+from apps.messaging.application.services.appointment_alert import (
+    build_appointment_alert_message,
+    enqueue_appointment_confirmation,
+    sync_appointment_alert_schedule,
+)
+from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
+from apps.messaging.application.services.review_plan_alert import sync_review_plan_alert_schedule
+from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
+from apps.messaging.infrastructure.forms.message_group_form import MessageTemplateForm
+from apps.messaging.models import MessageTemplate, SatisfactionReview, ScheduledOutboundMessage
+from apps.messaging.rendering import render_message_template
+from apps.scheduling.models import Appointment, AppointmentStatus
+from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workshops.models.workshops import Workshop
+from django.test import Client
+
+
+def create_workshop(*, suffix: int = 1) -> Workshop:
+    return Workshop.objects.create(
+        name=f"Oficina Avaliacoes {suffix}",
+        cnpj=f"11.222.333/0001-{suffix:02d}",
+        phone="+5511999999999",
+        address="Rua Teste, 123",
+    )
+
+
+class MessageTemplateTypeTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = create_workshop(suffix=1)
+
+    def test_activating_typed_template_deactivates_previous(self) -> None:
+        first = MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Revisao 1",
+            message="Troca %%placa%%",
+            template_type=MessageTemplate.TemplateType.REVIEW_PLAN,
+            is_active=True,
+        )
+        form = MessageTemplateForm(
+            data={
+                "name": "Revisao 2",
+                "template_type": MessageTemplate.TemplateType.REVIEW_PLAN,
+                "message": "Nova troca %%placa%%",
+                "is_active": True,
+            },
+            workshop=self.workshop,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        second = form.save()
+        first.refresh_from_db()
+        self.assertFalse(first.is_active)
+        self.assertTrue(second.is_active)
+        self.assertEqual(second.template_type, MessageTemplate.TemplateType.REVIEW_PLAN)
+
+    def test_multiple_generic_templates_can_be_active(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Gen 1",
+            message="Oi",
+            template_type=MessageTemplate.TemplateType.GENERIC,
+            is_active=True,
+        )
+        form = MessageTemplateForm(
+            data={
+                "name": "Gen 2",
+                "template_type": MessageTemplate.TemplateType.GENERIC,
+                "message": "Oi 2",
+                "is_active": True,
+            },
+            workshop=self.workshop,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertEqual(
+            MessageTemplate.objects.filter(
+                workshop=self.workshop,
+                template_type=MessageTemplate.TemplateType.GENERIC,
+                is_active=True,
+            ).count(),
+            2,
+        )
+
+
+class TypedAlertTemplateTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = create_workshop(suffix=2)
+        self.customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Alerta",
+            cpf_or_cnpj="12345678901",
+            email="alerta@example.com",
+            phone="+5511988887777",
+            accepts_messages=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            plate="ABC1D23",
+            brand="VW",
+            model="Gol",
+            year_fabrication="2018",
+            year_model="2019",
+            color="Prata",
+            next_oil_change_date=timezone.localdate() + timedelta(days=10),
+        )
+
+    def test_review_plan_alert_uses_active_template(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Revisao Ativa",
+            message="Ola %%nome%% placa %%placa%%",
+            template_type=MessageTemplate.TemplateType.REVIEW_PLAN,
+            is_active=True,
+        )
+        with patch(
+            "apps.messaging.application.services.review_plan_alert.notification_run_at_for_vehicle",
+            return_value=timezone.now() + timedelta(days=1),
+        ):
+            scheduled = sync_review_plan_alert_schedule(self.vehicle)
+        self.assertIsNotNone(scheduled)
+        assert scheduled is not None
+        self.assertIn("Cliente Alerta", scheduled.message)
+        self.assertIn("ABC1D23", scheduled.message)
+
+    def test_review_plan_alert_skips_without_template(self) -> None:
+        with patch(
+            "apps.messaging.application.services.review_plan_alert.notification_run_at_for_vehicle",
+            return_value=timezone.now() + timedelta(days=1),
+        ):
+            scheduled = sync_review_plan_alert_schedule(self.vehicle)
+        self.assertIsNone(scheduled)
+
+    def test_appointment_alert_uses_active_template(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Ativa",
+            message="Oi %%nome%% em %%data_agendamento%% %%hora_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=2)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Revisao",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[60],
+        )
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 1)
+        self.assertIn("Cliente Alerta", scheduled[0].message)
+        self.assertIn(timezone.localtime(starts).strftime("%d/%m/%Y"), scheduled[0].message)
+
+    def test_appointment_alert_creates_one_message_per_lead_time(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Multi",
+            message="Lembrete %%nome%% em %%data_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=3)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Revisao multi",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[60, 1440],
+        )
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 2)
+        run_ats = {row.run_at for row in scheduled}
+        self.assertEqual(
+            run_ats,
+            {starts - timedelta(minutes=60), starts - timedelta(minutes=1440)},
+        )
+
+        appointment.alert_lead_times = [30]
+        appointment.save(update_fields=["alert_lead_times"])
+        scheduled_again = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled_again), 1)
+        self.assertEqual(scheduled_again[0].run_at, starts - timedelta(minutes=30))
+        self.assertEqual(
+            ScheduledOutboundMessage.objects.filter(
+                appointment=appointment,
+                source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+                status=ScheduledOutboundMessage.Status.PENDING,
+            ).count(),
+            1,
+        )
+
+    def test_appointment_alert_skips_past_lead_times(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Past",
+            message="Lembrete %%primeiro_nome%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(minutes=40)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Proximo",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[30, 60, 1440, 2880],
+        )
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0].run_at, starts - timedelta(minutes=30))
+
+    def test_appointment_alert_renders_guest_primeiro_nome_and_placa(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Guest Vars",
+            message="Oi %%primeiro_nome%% placa %%placa%% em %%data_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(hours=5)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            guest_customer_name="Maria Silva",
+            guest_customer_phone="+5511989472983",
+            guest_vehicle_plate="ABC1D23",
+            title="Guest",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[30],
+        )
+        message = build_appointment_alert_message(appointment)
+        self.assertIsNotNone(message)
+        assert message is not None
+        self.assertIn("maria", message.lower())
+        self.assertIn("ABC1D23", message)
+        self.assertNotIn("%%primeiro_nome%%", message)
+        self.assertNotIn("%%placa%%", message)
+
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0].phone, "5511989472983")
+        self.assertIn("maria", scheduled[0].message.lower())
+
+    def test_enqueue_appointment_confirmation_on_create_template(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Confirmacao",
+            message="Confirmado %%primeiro_nome%% em %%hora_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT_CONFIRMATION,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=1)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Confirm",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=False,
+            alert_lead_times=[],
+        )
+        row = enqueue_appointment_confirmation(appointment)
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row.source, ScheduledOutboundMessage.Source.APPOINTMENT_CONFIRMATION)
+        self.assertIn("Cliente", row.message)
+        self.assertEqual(row.status, ScheduledOutboundMessage.Status.PENDING)
+
+        again = enqueue_appointment_confirmation(appointment)
+        self.assertEqual(again.pk, row.pk)
+
+
+class BirthdayAlertTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = create_workshop(suffix=3)
+        today = timezone.localdate()
+        self.customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Aniversariante",
+            cpf_or_cnpj="12345678902",
+            email="niver@example.com",
+            phone="+5511977776666",
+            birth_date=date(1990, today.month, today.day),
+            is_active=True,
+            accepts_messages=True,
+        )
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Niver",
+            message="Feliz aniversario %%nome%% da %%nome_fantasia%%",
+            template_type=MessageTemplate.TemplateType.BIRTHDAY,
+            is_active=True,
+        )
+
+    def test_enqueue_birthday_once_per_year(self) -> None:
+        created = enqueue_birthday_alerts_for_day()
+        self.assertEqual(created, 1)
+        created_again = enqueue_birthday_alerts_for_day()
+        self.assertEqual(created_again, 0)
+        row = ScheduledOutboundMessage.objects.get(source=ScheduledOutboundMessage.Source.BIRTHDAY_ALERT)
+        self.assertIn("Aniversariante", row.message)
+        self.assertIn(self.workshop.name, row.message)
+
+
+class SatisfactionSurveyTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = create_workshop(suffix=4)
+        self.workshop.satisfaction_survey_enabled = True
+        self.workshop.satisfaction_survey_delay_days = 2
+        self.workshop.google_review_url = "https://maps.google.com/?q=oficina"
+        self.workshop.google_review_min_rating = 4
+        self.workshop.save()
+        self.customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Review",
+            cpf_or_cnpj="12345678903",
+            email="review@example.com",
+            phone="+5511966665555",
+            accepts_messages=True,
+        )
+        self.vehicle = Vehicle.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            plate="XYZ9A88",
+            brand="Fiat",
+            model="Uno",
+            year_fabrication="2015",
+            year_model="2015",
+            color="Branco",
+        )
+        self.budget = Budget.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            vehicle=self.vehicle,
+            entry_date=timezone.localdate(),
+        )
+        self.workorder = WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        self.satisfaction_template = MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Avaliacao",
+            message="Oi %%nome%% da %%nome_fantasia%%. Avalie: %%link-avaliacao%%",
+            template_type=MessageTemplate.TemplateType.SATISFACTION,
+            is_active=True,
+        )
+
+    def test_schedule_uses_active_template_and_delay(self) -> None:
+        review = schedule_satisfaction_survey_for_workorder(self.workorder)
+        self.assertIsNotNone(review)
+        assert review is not None
+        assert review.scheduled_message is not None
+        self.assertIn("Cliente Review", review.scheduled_message.message)
+        self.assertIn(self.workshop.name, review.scheduled_message.message)
+        self.assertIn(f"/review/{review.public_token}", review.scheduled_message.message)
+        expected_run = self.workorder.delivered_at + timedelta(days=2)
+        assert self.workorder.delivered_at is not None
+        self.assertEqual(review.scheduled_message.run_at, expected_run)
+
+    def test_schedule_immediate_toggle_uses_now_outside_production(self) -> None:
+        from django.test import override_settings
+
+        self.workshop.satisfaction_survey_send_immediately = True
+        self.workshop.save(update_fields=["satisfaction_survey_send_immediately"])
+        before = timezone.now()
+        with override_settings(ENVIRONMENT="development"):
+            review = schedule_satisfaction_survey_for_workorder(self.workorder)
+        after = timezone.now()
+        self.assertIsNotNone(review)
+        assert review is not None
+        assert review.scheduled_message is not None
+        self.assertGreaterEqual(review.scheduled_message.run_at, before)
+        self.assertLessEqual(review.scheduled_message.run_at, after)
+
+    def test_schedule_immediate_toggle_ignored_in_production(self) -> None:
+        from django.test import override_settings
+
+        self.workshop.satisfaction_survey_send_immediately = True
+        self.workshop.save(update_fields=["satisfaction_survey_send_immediately"])
+        with override_settings(ENVIRONMENT="production"):
+            review = schedule_satisfaction_survey_for_workorder(self.workorder)
+        self.assertIsNotNone(review)
+        assert review is not None
+        assert review.scheduled_message is not None
+        assert self.workorder.delivered_at is not None
+        self.assertEqual(review.scheduled_message.run_at, self.workorder.delivered_at + timedelta(days=2))
+
+    def test_public_review_shows_google_cta_when_rating_meets_threshold(self) -> None:
+        review = schedule_satisfaction_survey_for_workorder(self.workorder)
+        assert review is not None
+        client = Client()
+        url = reverse("public_satisfaction_review", kwargs={"token": review.public_token})
+        response = client.post(url, data={"rating": "5", "comment": "Otimo"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Avaliar no Google")
+        self.assertContains(response, self.workshop.google_review_url)
+        review.refresh_from_db()
+        self.assertEqual(review.status, SatisfactionReview.Status.SUBMITTED)
+        self.assertEqual(review.rating, 5)
+        self.assertEqual(review.comment, "Otimo")
+        self.assertTrue(review.google_cta_shown)
+
+    def test_detail_modal_shows_rating_and_comment(self) -> None:
+        from django.contrib.auth import get_user_model
+        from django.test import RequestFactory
+
+        from apps.accounts.models import Account
+        from apps.collaborators.models import WorkshopMember
+        from apps.iam.models import WorkshopRole
+        from apps.messaging.presentation.views.satisfaction_review_views import SatisfactionReviewDetailModalView
+
+        review = schedule_satisfaction_survey_for_workorder(self.workorder)
+        assert review is not None
+        review.rating = 4
+        review.comment = "Atendimento excelente e rápido."
+        review.status = SatisfactionReview.Status.SUBMITTED
+        review.submitted_at = timezone.now()
+        review.save(update_fields=["rating", "comment", "status", "submitted_at", "atualizado_em"])
+
+        User = get_user_model()
+        account = Account.objects.create(name="Conta Modal Review")
+        user = User.objects.create_user(username="review-modal-user", password="secret", cpf="39053344705")
+        user.account = account
+        user.save(update_fields=["account"])
+        self.workshop.account = account
+        self.workshop.save(update_fields=["account"])
+        role = WorkshopRole.objects.create(account=account, name="Diretor")
+        WorkshopMember.objects.create(user=user, workshop=self.workshop, role=role, is_active=True)
+
+        request = RequestFactory().get(f"/messaging/reviews/{review.pk}/detail/")
+        request.user = user
+        request.session = {"active_workshop_id": self.workshop.pk}
+        view = SatisfactionReviewDetailModalView()
+        view.setup(request, pk=review.pk)
+        view.workshop = self.workshop
+        view.request = request
+        response = view.get(request, pk=review.pk)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("4/5", content)
+        self.assertIn("Atendimento excelente e rápido.", content)
+
+    def test_public_review_hides_google_cta_below_threshold(self) -> None:
+        review = schedule_satisfaction_survey_for_workorder(self.workorder)
+        assert review is not None
+        client = Client()
+        url = reverse("public_satisfaction_review", kwargs={"token": review.public_token})
+        response = client.post(url, data={"rating": "2", "comment": ""})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Avaliar no Google")
+        review.refresh_from_db()
+        self.assertFalse(review.google_cta_shown)
+
+    def test_active_satisfaction_template_contains_expected_tokens(self) -> None:
+        self.assertIn("%%nome%%", self.satisfaction_template.message)
+        self.assertIn("%%nome_fantasia%%", self.satisfaction_template.message)
+        self.assertIn("%%link-avaliacao%%", self.satisfaction_template.message)
+        rendered = render_message_template(
+            self.satisfaction_template.message,
+            customer=self.customer,
+            workshop=self.workshop,
+            extras={"link-avaliacao": "https://example.com/review/abc"},
+        )
+        self.assertIn("Cliente Review", rendered)
+        self.assertIn(self.workshop.name, rendered)
+        self.assertIn("https://example.com/review/abc", rendered)
+
+
+class SatisfactionReviewListScopedTests(TestCase):
+    def test_list_filters_by_active_workshop(self) -> None:
+        from django.contrib.auth import get_user_model
+        from django.test import RequestFactory
+
+        from apps.accounts.models import Account
+        from apps.collaborators.models import WorkshopMember
+        from apps.iam.models import WorkshopRole
+        from apps.messaging.presentation.views.satisfaction_review_views import SatisfactionReviewListView
+
+        User = get_user_model()
+        account = Account.objects.create(name="Conta Reviews")
+        user = User.objects.create_user(username="review-user", password="secret", cpf="52998224725")
+        user.account = account
+        user.save(update_fields=["account"])
+
+        workshop_a = create_workshop(suffix=5)
+        workshop_a.account = account
+        workshop_a.save(update_fields=["account"])
+        workshop_b = create_workshop(suffix=6)
+        workshop_b.account = account
+        workshop_b.save(update_fields=["account"])
+
+        role = WorkshopRole.objects.create(account=account, name="Diretor")
+        WorkshopMember.objects.create(user=user, workshop=workshop_a, role=role, is_active=True)
+        WorkshopMember.objects.create(user=user, workshop=workshop_b, role=role, is_active=True)
+
+        customer_a = Customer.objects.create(
+            workshop=workshop_a,
+            name="Cliente A",
+            cpf_or_cnpj="12345678904",
+            email="a@example.com",
+            phone="+5511955554444",
+        )
+        customer_b = Customer.objects.create(
+            workshop=workshop_b,
+            name="Cliente B",
+            cpf_or_cnpj="12345678905",
+            email="b@example.com",
+            phone="+5511944443333",
+        )
+        budget_a = Budget.objects.create(workshop=workshop_a, customer=customer_a, entry_date=timezone.localdate())
+        budget_b = Budget.objects.create(workshop=workshop_b, customer=customer_b, entry_date=timezone.localdate())
+        wo_a = WorkOrder.objects.create(workshop=workshop_a, budget=budget_a)
+        wo_b = WorkOrder.objects.create(workshop=workshop_b, budget=budget_b)
+        SatisfactionReview.objects.create(workshop=workshop_a, customer=customer_a, workorder=wo_a)
+        SatisfactionReview.objects.create(workshop=workshop_b, customer=customer_b, workorder=wo_b)
+
+        request = RequestFactory().get("/messaging/reviews/")
+        request.user = user
+        request.session = {"active_workshop_id": workshop_a.pk}
+        view = SatisfactionReviewListView()
+        view.setup(request)
+        view.workshop = workshop_a
+        view.request = request
+        queryset = view.get_queryset()
+        self.assertEqual(queryset.count(), 1)
+        self.assertEqual(queryset.first().customer.name, customer_a.name)

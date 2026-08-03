@@ -18,6 +18,7 @@ urlpatterns = [
     path("customer-detail/", views.CustomerDetailView.as_view(), name="customer-detail"),
     path("vehicle-detail/", views.VehicleDetailView.as_view(), name="vehicle-detail"),
     path("get-vehicles/", views.VehicleListView.as_view(), name="get-vehicles"),
+    path("check-open-budget/", views.BudgetCheckOpenBudgetView.as_view(), name="check_open_budget"),
     # 04. Itens do orcamento (selecao, adicao, remocao, edicao e calculo)
     path("selection/<int:budget_id>/<str:item_type>/", views.ItemSelectionModalView.as_view(), name="item_selection"),
     path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.AddItemToBudgetView.as_view(), name="add_item_to_budget"),
@@ -55,9 +56,11 @@ urlpatterns = [
     path("visualizar-pdf-gestor/<int:pk>", views.visualizar_pdf_gestor, name="visualizar_pdf_gestor"),
     path("download-pdf-gestor/<int:pk>", views.download_pdf_gestor, name="download_pdf_gestor"),
     path("visualizar-pdf-mecanico/<int:pk>", views.visualizar_pdf_mecanico, name="visualizar_pdf_mecanico"),
-    # 10. Webhook SuperSign
-    path("supersign/webhook/ping/", views.SuperSignWebhookView.as_view(), name="supersign_webhook_ping"),
-    path("supersign/webhook/", views.SuperSignWebhookView.as_view(), name="supersign_webhook"),
+    # 10. Webhook SynplaiSign (paths supersign/* kept as aliases during cutover)
+    path("signature/webhook/ping/", views.SignatureWebhookView.as_view(), name="signature_webhook_ping"),
+    path("signature/webhook/", views.SignatureWebhookView.as_view(), name="signature_webhook"),
+    path("supersign/webhook/ping/", views.SignatureWebhookView.as_view(), name="supersign_webhook_ping"),
+    path("supersign/webhook/", views.SignatureWebhookView.as_view(), name="supersign_webhook"),
     # 11. Itens locais e criacao rapida
     path("<int:budget_id>/create-local/<str:item_type>/", views.CreateLocalItemView.as_view(), name="create_local_item"),
     path("<int:budget_id>/register-local/<int:item_id>/", views.RegisterLocalItemView.as_view(), name="register_local_item"),

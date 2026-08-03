@@ -161,7 +161,7 @@ def visualizar_pdf_checklist(request, pk):
         workshop_cep_city = workshop_cep or workshop_city or "-"
 
     workshop_header = {
-        "name": workshop.name or "-",
+        "name": workshop.pdf_name,
         "address": workshop.address or "-",
         "cep_city": workshop_cep_city,
         "phone": workshop.pdf_phone,
@@ -254,9 +254,12 @@ def visualizar_pdf_assinatura(request, pk):
 
     if requested_variant == SIGNED_PDF_VARIANT and can_use_signed_budget_pdf(budget=budget):
         try:
+            from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
+
             signed_pdf = get_signature_service().download_signed_document(
                 document_id=budget.signature_document_id,
                 envelope_id=budget.signature_external_id,
+                api_key=get_workshop_synplaisign_api_key(budget.workshop),
             )
             return _build_budget_pdf_file_response(
                 budget=budget,
@@ -264,7 +267,7 @@ def visualizar_pdf_assinatura(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureServiceError:
+        except (SignatureServiceError, WorkshopSynplaiSignError):
             logger.warning("budget_signed_pdf_load_failed", extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id})
 
     try:
