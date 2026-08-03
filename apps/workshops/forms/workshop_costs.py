@@ -282,6 +282,7 @@ class WorkshopCostForm(CoreModelForm):
                 hx_post=calculate_url,
                 hx_trigger="input delay:100ms, change delay:100ms",
                 hx_target="#calculation-results",
+                hx_swap="innerHTML",
                 hx_include="closest form",
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
