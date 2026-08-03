@@ -6,13 +6,13 @@
     <div class="relative w-full max-w-[120px] h-[65px] bg-base-200 rounded-box border border-base-300 flex items-center justify-center overflow-hidden group">
 
         <template x-if="previewUrl">
-            <img :src="previewUrl" class="max-w-[120px] max-h-[65px] w-auto h-auto object-contain" alt="Preview">
+            <img :src="previewUrl" class="max-w-[120px] max-h-[65px] w-auto h-auto object-contain" alt="Pré-visualização">
         </template>
 
         <template x-if="!previewUrl">
             <div class="text-base-content/30 flex flex-col items-center">
                 <span class="material-icons text-4xl">image</span>
-                <span class="text-xs uppercase font-bold mt-1">Sem Imagem</span>
+                <span class="text-xs uppercase font-bold mt-1">Sem imagem</span>
             </div>
         </template>
 

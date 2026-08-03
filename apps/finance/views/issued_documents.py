@@ -18,7 +18,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
@@ -36,6 +36,18 @@ class IssuedDocumentsFilterMixin:
         ("nfe", "Nota Fiscal de Produto"),
         ("nfse", "Nota Fiscal Serviço"),
     )
+    FISCAL_OPERATION_LABELS: dict[str, str] = {
+        "return": "Devolução",
+        "correction": "Carta de Correção",
+        "complementary": "Nota Complementar",
+        "adjustment": "Nota de Ajuste",
+    }
+    FISCAL_OPERATION_CONTINUATION_LABELS: dict[str, str] = {
+        "return": "a devolução",
+        "correction": "a Carta de Correção",
+        "complementary": "a Nota Complementar",
+        "adjustment": "a Nota de Ajuste",
+    }
 
     DOCUMENT_LABELS_BY_TYPE: dict[str, dict[str, list[tuple[str, str]]]] = {
         "nfe": {
@@ -100,15 +112,20 @@ class IssuedDocumentsFilterMixin:
         end_date = self._parse_date_param(end_raw)
         selected_note_type = self._get_selected_note_type()
         search_raw = str(self.request.GET.get("search") or "").strip()
+        fiscal_operation = str(self.request.GET.get("operacao") or "").strip().lower()
+        if fiscal_operation not in self.FISCAL_OPERATION_LABELS:
+            fiscal_operation = ""
+        if fiscal_operation:
+            selected_note_type = "nfe"
         filter_error = ""
 
         if start_raw or end_raw:
             if not start_raw or not end_raw:
                 filter_error = "Selecione a data inicial e a data final para consultar as notas."
             elif start_date is None or end_date is None:
-                filter_error = "Informe um periodo valido para consultar as notas."
+                filter_error = "Informe um periodo válido para consultar as notas."
             elif start_date > end_date:
-                filter_error = "A data inicial nao pode ser maior que a data final."
+                filter_error = "A data inicial não pode ser maior que a data final."
 
         is_valid = not bool(filter_error)
 
@@ -121,9 +138,17 @@ class IssuedDocumentsFilterMixin:
             "selected_note_type_label": dict(self.NOTE_TYPE_CHOICES).get(selected_note_type, "Todas"),
             "has_selected_period": bool(start_raw and end_raw),
             "search_raw": search_raw,
+            "fiscal_operation": fiscal_operation,
+            "fiscal_operation_label": self.FISCAL_OPERATION_LABELS.get(fiscal_operation, ""),
+            "fiscal_operation_continuation_label": self.FISCAL_OPERATION_CONTINUATION_LABELS.get(fiscal_operation, ""),
+            "selected_nfe_id": self._parse_selected_nfe_id() if fiscal_operation else None,
             "is_valid": is_valid,
             "filter_error": filter_error,
         }
+
+    def _parse_selected_nfe_id(self) -> int | None:
+        raw_value = str(self.request.GET.get("selected_nfe") or "").strip()
+        return int(raw_value) if raw_value.isdigit() else None
 
     @staticmethod
     def _parse_id_list(raw_values: list[str]) -> list[int]:
@@ -174,6 +199,7 @@ class IssuedDocumentsFilterMixin:
         if search_raw:
             search_filters = [
                 Q(workorder__budget__customer__name__icontains=search_raw),
+                Q(manual_recipient__name__icontains=search_raw),
                 Q(items__number__icontains=search_raw),
             ]
             if search_raw.isdigit():
@@ -182,7 +208,7 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(reserved_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 
-        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
+        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer", "manual_recipient").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
     def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
         qs = NfseRequest.objects.filter(workshop=self.workshop)
@@ -241,8 +267,22 @@ class IssuedDocumentsFilterMixin:
                 data_final=state["end_raw"],
                 tipo=state["selected_note_type"],
                 search=state["search_raw"],
+                operacao=state["fiscal_operation"],
             ),
         )
+
+    def _build_selection_url(self, *, state: dict[str, Any], pk: int | None = None) -> str:
+        params = build_issued_documents_origin_params(
+            data_inicial=state["start_raw"],
+            data_final=state["end_raw"],
+            tipo="nfe",
+            search=state["search_raw"],
+            operacao=state["fiscal_operation"],
+        )
+        params.pop("origin", None)
+        if pk is not None:
+            params["selected_nfe"] = str(pk)
+        return append_query_params(url=reverse("finance:issued_documents_list"), params=params)
 
     def _build_nfe_row(self, request_obj: NfeRequest, *, state: dict[str, Any]) -> dict[str, Any]:
         latest_item = self._get_latest_prefetched_item(request_obj)
@@ -261,14 +301,16 @@ class IssuedDocumentsFilterMixin:
             "has_xml": has_xml,
             "has_pdf": has_pdf,
             "is_selectable": has_xml or has_pdf,
-            "number": request_obj.number_display_listing,
+            "number": request_obj.number_display,
             "reference": f"Serie {series_value}",
-            "workorder_id": request_obj.workorder.get_id,
+            "workorder_id": request_obj.workorder.get_id if request_obj.workorder is not None else "Manual",
             "customer_name": request_obj.customer_name,
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfe_request_status_badge,
             "available_documents": available_documents,
             "detail_url": self._build_detail_url(view_name="finance:nfe_detail", pk=request_obj.pk, state=state),
+            "selection_url": self._build_selection_url(state=state, pk=request_obj.pk) if state["fiscal_operation"] else "",
+            "action_label": "Selecionar esta NF-e" if state["fiscal_operation"] else "Abrir",
         }
 
     def _build_nfse_row(self, request_obj: NfseRequest, *, state: dict[str, Any]) -> dict[str, Any]:
@@ -294,7 +336,7 @@ class IssuedDocumentsFilterMixin:
             "has_xml": has_xml,
             "has_pdf": has_pdf,
             "is_selectable": has_xml or has_pdf,
-            "number": "-" if request_obj.status == NfseRequestStatus.REPROVED else (note_number or request_obj.rps_number_display),
+            "number": note_number or request_obj.rps_number_display,
             "reference": " / ".join(reference_parts) if reference_parts else "-",
             "workorder_id": request_obj.workorder.get_id,
             "customer_name": request_obj.customer_name,
@@ -302,6 +344,7 @@ class IssuedDocumentsFilterMixin:
             "status_badge": request_obj.nfse_request_status_badge,
             "available_documents": available_documents,
             "detail_url": self._build_detail_url(view_name="finance:nfse_detail", pk=request_obj.pk, state=state),
+            "action_label": "Abrir",
         }
 
     def _build_rows(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -405,6 +448,14 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
         state = self._get_filter_state()
         nfe_requests, nfse_requests = self._get_filtered_requests(state=state)
         rows = self._build_rows(nfe_requests=nfe_requests, nfse_requests=nfse_requests, state=state)
+        selected_fiscal_nfe = next(
+            (
+                row
+                for row in rows
+                if state["fiscal_operation"] and row["note_type"] == "nfe" and row["request_id"] == state["selected_nfe_id"]
+            ),
+            None,
+        )
 
         context.update(
             {
@@ -416,6 +467,11 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
                 "issued_nfse_total": len(nfse_requests),
                 "download_xml_url": reverse("finance:issued_documents_download", kwargs={"document_group": "xml"}),
                 "download_pdfs_url": reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
+                "fiscal_operation": state["fiscal_operation"],
+                "fiscal_operation_label": state["fiscal_operation_label"],
+                "fiscal_operation_continuation_label": state["fiscal_operation_continuation_label"],
+                "selected_fiscal_nfe": selected_fiscal_nfe,
+                "fiscal_selection_reset_url": self._build_selection_url(state=state) if state["fiscal_operation"] else "",
             }
         )
         return context
@@ -429,7 +485,7 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
     def post(self, request, *args, **kwargs):
         document_group = str(kwargs.get("document_group") or "").strip().lower()
         if document_group not in {"xml", "pdfs"}:
-            raise Http404("Grupo de documentos nao suportado")
+            raise Http404("Grupo de documentos não suportado")
 
         nfe_ids, nfse_ids = self._get_selected_request_ids()
         if not nfe_ids and not nfse_ids:
@@ -438,7 +494,7 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
         nfe_requests, nfse_requests = self._get_selected_requests(nfe_ids=nfe_ids, nfse_ids=nfse_ids)
         entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, document_group=document_group)
         if not entries:
-            return HttpResponse("Nenhum documento disponivel para as notas selecionadas.", status=404, content_type="text/plain; charset=utf-8")
+            return HttpResponse("Nenhum documento disponível para as notas selecionadas.", status=404, content_type="text/plain; charset=utf-8")
 
         archive_buffer = BytesIO()
         try:

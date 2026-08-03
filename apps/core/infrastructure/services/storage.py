@@ -46,7 +46,7 @@ class S3StorageService(IStorageService):
         ]
         if missing_settings:
             missing_display = ", ".join(missing_settings)
-            raise StorageConfigurationError(f"Configure as variaveis {missing_display} para usar o bucket S3.")
+            raise StorageConfigurationError(f"Configure as variáveis {missing_display} para usar o bucket S3.")
 
         self.bucket = normalized_bucket
         self.client = boto3.client(
@@ -60,7 +60,7 @@ class S3StorageService(IStorageService):
     def upload_file(self, file: bytes, key: str, *, content_type: str = "application/octet-stream", metadata: dict[str, str] | None = None) -> None:
         normalized_key = str(key or "").strip()
         if not normalized_key:
-            raise StorageServiceError("Chave invalida para upload no bucket.")
+            raise StorageServiceError("Chave inválida para upload no bucket.")
         safe_metadata = {str(k): _to_ascii(str(v)) for k, v in (metadata or {}).items()}
         try:
             with observe_dependency_call(
@@ -86,7 +86,7 @@ class S3StorageService(IStorageService):
     def read_file(self, key: str) -> StorageObject:
         normalized_key = str(key or "").strip()
         if not normalized_key:
-            raise StorageServiceError("Chave invalida para leitura no bucket.")
+            raise StorageServiceError("Chave inválida para leitura no bucket.")
         try:
             with observe_dependency_call(
                 logger=logger,
@@ -129,7 +129,7 @@ class S3StorageService(IStorageService):
     def generate_presigned_url(self, key: str, *, expires_in: int = 3600) -> str:
         normalized_key = str(key or "").strip()
         if not normalized_key:
-            raise StorageServiceError("Chave invalida para gerar URL assinada.")
+            raise StorageServiceError("Chave inválida para gerar URL assinada.")
         try:
             with observe_dependency_call(
                 logger=logger,

@@ -19,6 +19,7 @@ class WorkshopScopedMixin:
     workshop_permission_codename: str | None = None
     workshop_permission_app_label: str | None = None  # default: model._meta.app_label
     workshop_permission_model: str | None = None  # default: self.model._meta.model_name
+    workshop_permission_fallbacks: tuple[tuple[str, str, str], ...] = ()
     resolve_workshop_from_url_pk: bool = False
 
     def _resolve_workshop(self, request, kwargs):
@@ -66,14 +67,28 @@ class WorkshopScopedMixin:
         if app_label is None:
             raise ImproperlyConfigured("Defina `workshop_permission_app_label` no mixin.")
 
-        if not has_workshop_perm(
+        has_permission = has_workshop_perm(
             user=request.user,
             workshop=self.workshop,
             app_label=app_label,
             model=model_name,
             codename=self.workshop_permission_codename or f"{action}_{model_name}",
             request=request,
-        ):
+        )
+        if not has_permission:
+            for fallback_app_label, fallback_model, fallback_codename in self.workshop_permission_fallbacks:
+                if has_workshop_perm(
+                    user=request.user,
+                    workshop=self.workshop,
+                    app_label=fallback_app_label,
+                    model=fallback_model,
+                    codename=fallback_codename,
+                    request=request,
+                ):
+                    has_permission = True
+                    break
+
+        if not has_permission:
             raise PermissionDenied
 
         return super().dispatch(request, *args, **kwargs)

@@ -70,16 +70,10 @@ class BudgetStep3Form(BudgetStepBaseForm):
                         const text = input.value.trim();
                         if (text === "") return;
                         const id = 'new-' + Date.now();
-                        const words = text.split(/\\s+/);
-                        let displayText = text;
-                        if (words.length > 27) {{
-                            displayText = words.slice(0, 27).join(' ') + '...';
-                        }}
-                        const escapedText = text.replace(/"/g, '&quot;');
-                        const html = `<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1 max-w-full" id="defect-${{id}}">
+                        const html = `<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1" id="defect-${{id}}">
                                 <input type="hidden" name="defects_list" value="${{text}}">
-                                <span class="font-medium truncate max-w-[calc(100%-2rem)]" title="${{escapedText}}">${{displayText}}</span>
-                                <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error flex-shrink-0">
+                                <span class="font-medium">${{text}}</span>
+                                <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error">
                                     X
                                 </button>
                             </div>`;
@@ -162,7 +156,7 @@ class BudgetStep3Form(BudgetStepBaseForm):
                         HTML(collaborator_html),
                         #
                         HTML('<label class="block text-gray-700 font-bold mb-2">Adicione os defeitos encontrados durante a inspeção</label>'),
-                        Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] max-h-[300px] overflow-y-auto flex flex-wrap content-start"),
+                        Div(id="defect-list-container", css_class="mb-4 p-4 border-2 border-dashed border-gray-200 rounded-lg min-h-[120px] flex flex-wrap content-start"),
                         Div(
                             Div(Field("new_defect", wrapper_class="mb-0"), css_class="flex-1"),
                             HTML("""<button type="button" class="btn btn-primary ml-2" onclick="addDefectRow()">
@@ -253,14 +247,6 @@ class BudgetStep3Form(BudgetStepBaseForm):
                         background-color: rgb(31 41 55 / 0.75) !important;
                         border-color: rgb(75 85 99) !important;
                     }
-                    #defect-list-container {
-                        overflow-x: hidden;
-                    }
-                    #defect-list-container .badge {
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                    }
                 </style>
                 """
             )
@@ -270,10 +256,10 @@ class BudgetStep3Form(BudgetStepBaseForm):
             if existing_defects.exists():
                 defects_json = "".join(
                     [
-                        f"""<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1 max-w-full" id="defect-old-{d.id}">
+                        f"""<div class="badge badge-lg badge-ghost gap-2 py-5 mb-2 mr-2 pr-1" id="defect-old-{d.id}">
                             <input type="hidden" name="defects_list" value="{d.name}">
-                            <span class="font-medium truncate max-w-[calc(100%-2rem)]" title="{d.name}">{" ".join(d.name.split()[:27]) + ("..." if len(d.name.split()) > 27 else "")}</span>
-                            <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error flex-shrink-0">
+                            <span class="font-medium">{d.name}</span>
+                            <button type="button" onclick="this.parentElement.remove()" class="btn btn-ghost btn-xs btn-circle text-error">
                                 X
                             </button>
                         </div>"""
@@ -856,7 +842,7 @@ class BudgetStep3Form(BudgetStepBaseForm):
             final_count = len(uploaded_slot_types) + len(new_additional_images)
 
         if final_count > MAX_BUDGET_IMAGES:
-            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} anexos permitido. Você terá {final_count} anexos após esta operação.")
+            raise forms.ValidationError(f"Máximo de {MAX_BUDGET_IMAGES} anexos permitidos. Você terá {final_count} anexos após esta operação.")
 
         return cleaned_data
 

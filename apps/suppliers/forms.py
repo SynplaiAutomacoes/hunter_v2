@@ -51,8 +51,8 @@ class SupplierForm(AddressFormMixin, CoreModelForm):
 
         self.helper.layout = Layout(
             Div(
-                # Seção: Dados do Fornecedor
-                HTML('<h3 class="col-span-12 text-xl font-bold">Dados do Fornecedor</h3>'),
+                # Seção: Dados do fornecedor
+                HTML('<h3 class="col-span-12 text-xl font-bold">Dados do fornecedor</h3>'),
                 Field("cnpj", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("contact_person", wrapper_class="col-span-12 lg:col-span-4"),

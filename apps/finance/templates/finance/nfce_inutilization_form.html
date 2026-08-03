@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+    <div>
+        <h1 class="text-2xl font-semibold">Inutilizar numeração NFC-e</h1>
+        <p class="text-sm text-base-content/70">Comunique a inutilização de número ou intervalo que não foi utilizado.</p>
+    </div>
+
+    <div class="alert alert-warning">
+        <div>
+            <p>Inutilização não cancela NFC-e emitida.</p>
+            <p>A verificacao local cobre apenas documentos e inutilizações conhecidos pelo Hunter; números usados fora do sistema dependem da validacao remota.</p>
+            <p>Cancelamento por substituição e contingência/offline não estao disponíveis nesta fase.</p>
+        </div>
+    </div>
+
+    <form method="post" class="card bg-base-100 border border-base-300">
+        <div class="card-body">
+            {% csrf_token %}
+            {{ form|crispy }}
+            <div class="card-actions justify-end">
+                <a href="{% url 'finance:nfce_list' %}" class="btn btn-ghost">Voltar</a>
+                <button type="submit" class="btn btn-primary">Enviar inutilização</button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

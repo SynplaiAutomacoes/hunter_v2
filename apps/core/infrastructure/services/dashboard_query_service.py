@@ -31,14 +31,14 @@ _T = TypeVar("_T")
 
 # ─── Module-level constants ───────────────────────────────────────────────────
 
-MISSING_WORKSHOP_COST_WARNING = "Para realizar o calculo, cadastre um custo mensal da oficina para o mes selecionado."
+MISSING_WORKSHOP_COST_WARNING = "Para realizar o cálculo, cadastre um custo mensal da oficina para o mês selecionado."
 TWO_DECIMAL_PLACES = Decimal("0.01")
 
 MONTH_LABELS_PT: list[str] = [
     "",
     "Janeiro",
     "Fevereiro",
-    "Marco",
+    "Março",
     "Abril",
     "Maio",
     "Junho",

@@ -373,7 +373,7 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
 
     if workorder.km_final is None:
         logger.info("workorder_signature_missing_km", extra={"workorder_id": workorder.pk})
-        return "error", "É necessário inserir o Km Final para desbloquear o envio para assinatura."
+        return "error", "É necessário inserir o KM final para desbloquear o envio para assinatura."
 
     if workorder.has_completion_blockers:
         logger.info("workorder_signature_blocked", extra={"workorder_id": workorder.pk, "blockers": workorder.completion_blockers_display})
@@ -424,7 +424,7 @@ def _get_workorder_from_signature_token(token: str) -> WorkOrder:
             document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
         )
     except SignatureTokenError:
-        raise Http404("Arquivo não encotrado")
+        raise Http404("Arquivo não encontrado")
 
     workorder = get_object_or_404(
         WorkOrder.objects.select_related("workshop", "budget", "budget__customer", "budget__vehicle"),
@@ -432,10 +432,10 @@ def _get_workorder_from_signature_token(token: str) -> WorkOrder:
     )
 
     if not workorder.signature_token_active:
-        raise Http404("Arquivo não encotrado")
+        raise Http404("Arquivo não encontrado")
 
     if workorder.signature_token_version != payload["version"]:
-        raise Http404("Arquivo não encotrado")
+        raise Http404("Arquivo não encontrado")
 
     return workorder
 

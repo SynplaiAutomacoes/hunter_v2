@@ -7,7 +7,7 @@ def sync_vehicle_km_from_exit(*, vehicle: Vehicle, km_final: int | None) -> bool
     """Update denormalized vehicle odometer from an OS exit KM.
 
     The odometer only moves forward: updates when ``vehicle.km`` is empty or
-    ``km_final`` is greater than or equal to the current value.
+    ``km_final`` is greater than the current value.
     """
     if km_final is None:
         return False

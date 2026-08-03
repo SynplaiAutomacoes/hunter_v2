@@ -27,12 +27,12 @@ def _mensagem(tipo: str, user, code: str) -> str:
 
     mensagens = {
         "password_reset": {
-            "titulo": "Código de Recuperação de Senha",
+            "titulo": "Código de recuperação de senha",
             "texto": "Seu código de verificação é",
             "expira": "15 minutos",
         },
         "login_code": {
-            "titulo": "Código de Login",
+            "titulo": "Código de login",
             "texto": "Seu código de acesso é",
             "expira": "5 minutos",
         },
@@ -288,7 +288,7 @@ class PasswordResetWizardView(View):
             return JsonResponse({"success": False, "step": 3, "errors": form.errors}, status=400)
 
         logger.warning("password_reset_invalid_step", extra={"step": step})
-        return JsonResponse({"error": "Step inválido"}, status=400)
+        return JsonResponse({"error": "Etapa inválida"}, status=400)
 
 
 class PasswordResetResendView(View):
@@ -440,7 +440,7 @@ class LoginCodeWizardView(View):
             return JsonResponse({"success": True, "step": 3, "redirect_url": str(reverse_lazy("core:dashboard"))})
 
         logger.warning("login_code_invalid_step", extra={"step": step})
-        return JsonResponse({"error": "Step inválido"}, status=400)
+        return JsonResponse({"error": "Etapa inválida"}, status=400)
 
 
 class LoginCodeResendView(View):

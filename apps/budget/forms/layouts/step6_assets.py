@@ -72,7 +72,7 @@ def build_step6_assets_html() -> str:
                         document.body.dispatchEvent(new CustomEvent('showToast', {
                             detail: {
                                 type: 'error',
-                                message: message || 'Preencha e salve os campos obrigatorios da revisao antes de continuar.',
+                                message: message || 'Preencha e salve os campos obrigatórios da revisão antes de continuar.',
                             },
                         }));
                     }
@@ -268,7 +268,7 @@ def build_step6_assets_html() -> str:
                             document.body.dispatchEvent(new CustomEvent('showToast', {
                                 detail: {
                                     type: 'error',
-                                    message: 'Endpoint de assinatura não configurado.',
+                                    message: 'Serviço de assinatura não configurado.',
                                 },
                             }));
                             return;

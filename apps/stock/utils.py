@@ -8,6 +8,7 @@ from typing import Any
 from lxml.etree import QName, fromstring
 
 from apps.finance.models.payment_method import PaymentMethod
+from apps.stock.services.purchase_fiscal import PurchaseNfeValidationError, parse_and_validate_purchase_nfe
 
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,8 @@ class NFParser:
                     "payments": [],
                 }
 
+            fiscal_snapshot = parse_and_validate_purchase_nfe(workshop=workshop, xml_content=xml_content)
+
             inf_nfe_list = nfe_tree.xpath("//ns:infNFe", namespaces=SEFAZ_NFE_NAMESPACE)
             if not inf_nfe_list:
                 raise ValueError("XML não contém tag infNFe ou resNFe válida.")
@@ -126,15 +129,19 @@ class NFParser:
 
             # --- Itens ---
             produtos = []
-            detalhes = nfe_tree.xpath("//ns:det", namespaces=SEFAZ_NFE_NAMESPACE)
-            for det in detalhes:
+            for product in fiscal_snapshot["products"]:
                 produtos.append(
                     {
-                        "ref": det.xpath("ns:prod/ns:cProd", namespaces=SEFAZ_NFE_NAMESPACE)[0].text,
-                        "desc": det.xpath("ns:prod/ns:xProd", namespaces=SEFAZ_NFE_NAMESPACE)[0].text,
-                        "qtd": str(det.xpath("ns:prod/ns:qCom", namespaces=SEFAZ_NFE_NAMESPACE)[0].text),
-                        "valor": str(det.xpath("ns:prod/ns:vUnCom", namespaces=SEFAZ_NFE_NAMESPACE)[0].text),
-                        "ncm": det.xpath("ns:prod/ns:NCM", namespaces=SEFAZ_NFE_NAMESPACE)[0].text,
+                        "nitem": product["sequence"],
+                        "ref": product["product_code"],
+                        "desc": product["description"],
+                        "qtd": product["quantity"],
+                        "unidade": product["unit"],
+                        "valor": product["unit_value"],
+                        "valor_total": product["total_value"],
+                        "ncm": product["ncm"],
+                        "cfop": product["cfop"],
+                        "tributos": product["taxes"],
                     }
                 )
 
@@ -171,7 +178,18 @@ class NFParser:
                         "payment_date": data_vencimento,
                     }
                 )
-            return {"nf_key": chave_acesso, "nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao}
+            return {
+                "nf_key": chave_acesso,
+                "nf_number": nf_numero,
+                "supplier_cnpj": cnpj_fornecedor,
+                "supplier_name": nome_fornecedor,
+                "items": produtos,
+                "payments": pagamentos_sessao,
+                "fiscal_snapshot": fiscal_snapshot,
+            }
+        except PurchaseNfeValidationError:
+            logger.exception("NF-e de compra rejeitada na validação fiscal")
+            return None
         except Exception:
             logger.exception("Erro no parsing do XML")
             return None

@@ -5,7 +5,6 @@ from django.db import transaction
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.stock.models import StockMovement
-from apps.stock.services.workorder_stock import get_reversed_stock_movement_ids
 from apps.workorder.models import WORKORDER_REOPENABLE_STATUSES, WorkOrder, WorkOrderHistory
 
 
@@ -26,7 +25,7 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
         if locked_workorder.status not in WORKORDER_REOPENABLE_STATUSES:
             raise WorkOrderReopenError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
-        reversed_stock_ids = get_reversed_stock_movement_ids()
+        reversed_stock_ids = StockMovement.objects.filter(reversal_of__isnull=False).values_list("reversal_of_id", flat=True)
 
         stock_movements = list(
             StockMovement.objects.select_for_update()

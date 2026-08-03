@@ -1,6 +1,6 @@
 {% extends 'crud/detail.html' %}
 
-{% block crud_title %}Detalhes do Veículo: {{ vehicle.plate }}{% endblock %}
+{% block crud_title %}Detalhes do veículo: {{ vehicle.plate }}{% endblock %}
 
 {% block crud_back_url %}{% url 'customer:customer_history_detail' vehicle.customer.pk %}{% endblock %}
 
@@ -10,7 +10,7 @@
         <div class="card-body p-6 md:p-8">
             <div class="flex items-center gap-2 mb-2">
                 <span class="material-icons text-base-content/80">directions_car</span>
-                <h2 class="text-xl font-bold text-base-content">Informações do Veículo</h2>
+                <h2 class="text-xl font-bold text-base-content">Informações do veículo</h2>
             </div>
             <div class="divider mt-0 mb-6"></div>
             
@@ -48,7 +48,7 @@
                     <p class="text-sm text-base-content/70">CPF/CNPJ: {{ vehicle.customer.cpf_or_cnpj_formatted }}</p>
                 </div>
                 <a href="{% url 'customer:customer_history_detail' vehicle.customer.pk %}" class="btn btn-primary btn-sm">
-                    Ver Cliente
+                    Ver cliente
                 </a>
             </div>
         </div>

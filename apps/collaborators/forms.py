@@ -34,7 +34,7 @@ User = get_user_model()
 
 class BaseWorkshopCollaboratorForm(CoreModelForm):
     salary_repeat_count = forms.IntegerField(
-        label="Repetir este salario",
+        label="Repetir este salário",
         required=False,
         min_value=1,
         max_value=120,
@@ -93,7 +93,7 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
         self.account = account
         self.workshop = workshop
 
-        self.fields["system_username"].widget = TextInput(attrs={"placeholder": "usuario"})
+        self.fields["system_username"].widget = TextInput(attrs={"placeholder": "usuário"})
         self.fields["salary_repeat_count"].help_text = "Informe o total de meses, incluindo o primeiro lançamento."
 
         searchable_choice_fields = ("sex", "payment_day_type", "collaborator_type")
@@ -356,14 +356,14 @@ class WorkshopCollaboratorModalForm(CoreModelForm):
         model = WorkshopCollaborator
         fields = ["name", "cpf", "email", "phone", "birth_date", "position", "collaborator_type", "admission_date", "salary"]
         labels = {
-            "name": "Nome Completo",
+            "name": "Nome completo",
             "cpf": "CPF",
             "email": "E-mail",
             "phone": "Telefone",
-            "birth_date": "Data de Nascimento",
+            "birth_date": "Data de nascimento",
             "position": "Cargo",
             "collaborator_type": "Tipo",
-            "admission_date": "Data de Admissão",
+            "admission_date": "Data de admissão",
         }
         widgets = {
             "name": TextInput(attrs={"placeholder": "Nome do colaborador"}),
@@ -425,8 +425,8 @@ class CollaboratorBenefitInlineForm(CoreModelForm):
         model = CollaboratorBenefit
         fields = ["name", "description", "monthly_amount", "budget_plan", "is_active"]
         widgets = {
-            "name": TextInput(attrs={"placeholder": "Nome do beneficio"}),
-            "description": TextInput(attrs={"placeholder": "Descricao"}),
+            "name": TextInput(attrs={"placeholder": "Nome do benefício"}),
+            "description": TextInput(attrs={"placeholder": "Descrição"}),
             "monthly_amount": MoneyInput(),
             "budget_plan": SearchableSelectInput(),
             "is_active": CheckboxInput(),
@@ -452,7 +452,7 @@ class CollaboratorBenefitInlineFormSet(BaseInlineFormSet):
             if not name:
                 continue
             if name in has_duplicate_names:
-                form.add_error("name", "Nao e permitido repetir o mesmo beneficio.")
+                form.add_error("name", "Não é permitido repetir o mesmo benefício.")
                 continue
             has_duplicate_names.add(name)
 
