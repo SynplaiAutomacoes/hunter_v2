@@ -60,7 +60,7 @@ class PurchaseReturnSelectionForm(forms.Form):
 
 class PurchaseReturnFiscalForm(CoreForm):
     operation_nature = forms.CharField(label="Natureza da operação", max_length=255)
-    cfop = forms.CharField(label="CFOP da devolução", min_length=4, max_length=8, widget=forms.TextInput(attrs={"inputmode": "numeric"}))
+    cfop = forms.CharField(label="CFOP da Nota de Devolução", min_length=4, max_length=8, widget=forms.TextInput(attrs={"inputmode": "numeric"}))
     tax_class = forms.CharField(label="Classe de imposto", required=False, max_length=120)
     additional_information = forms.CharField(label="Informações complementares", required=False, widget=forms.Textarea(attrs={"rows": 3}))
 

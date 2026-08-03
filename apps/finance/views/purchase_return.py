@@ -108,7 +108,7 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
         return_request = self._get_request(pk)
         step = self._requested_step(request)
         if return_request.status != PurchaseReturnRequestStatus.DRAFT:
-            messages.info(request, "A devolução já foi revisada e não pode mais ser alterada.")
+            messages.info(request, "A Nota de Devolução já foi revisada e não pode mais ser alterada.")
             return self._redirect(return_request, 4)
         if step == 1:
             return_request.current_step = max(return_request.current_step, 2)
@@ -138,7 +138,7 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
                 fiscal_form.add_error(None, str(exc))
                 return self._render(return_request=return_request, step=3, fiscal_form=fiscal_form)
             return self._redirect(return_request, 4)
-        messages.info(request, "Use a prévia fiscal para conferir e transmitir a devolução.")
+        messages.info(request, "Use a prévia fiscal para conferir e transmitir a Nota de Devolução.")
         return self._redirect(return_request, 4)
 
     @staticmethod
@@ -207,9 +207,9 @@ class PurchaseReturnPreviewView(PurchaseReturnPermissionMixin, View):
         return_request = get_object_or_404(PurchaseReturnRequest, pk=pk, workshop=self.workshop, status=PurchaseReturnRequestStatus.READY)
         return render_emission_preview_modal(
             request=request,
-            title="Prévia da NF-e de devolução de compra",
+            title="Prévia da Nota de Devolução",
             description="Confira a DANFE antes da transmissão. Esta prévia não cria tentativa fiscal.",
-            previews=[{"label": "DANFE da devolução", "embed_url": reverse("finance:purchase_return_preview_pdf", args=[return_request.pk])}],
+            previews=[{"label": "DANFE da Nota de Devolução", "embed_url": reverse("finance:purchase_return_preview_pdf", args=[return_request.pk])}],
             transmit_url=reverse("finance:purchase_return_transmit", args=[return_request.pk]),
             hidden_fields=[],
             transmit_target="#modal-container",
@@ -245,7 +245,7 @@ class PurchaseReturnTransmitView(PurchaseReturnPermissionMixin, View):
             messages.error(request, str(exc))
         else:
             if transmitted.status == PurchaseReturnRequestStatus.AUTHORIZED:
-                messages.success(request, "NF-e de devolução autorizada com sucesso.")
+                messages.success(request, "Nota de Devolução autorizada com sucesso.")
             else:
                 messages.info(request, f"Transmissão registrada: {transmitted.get_status_display()}.")
         redirect_url = f"{reverse('finance:purchase_return_workflow', args=[pk])}?step=4"
@@ -256,4 +256,4 @@ class PurchaseReturnTransmitView(PurchaseReturnPermissionMixin, View):
 
 
 def _steps() -> tuple[tuple[int, str], ...]:
-    return ((1, "NF-e origem"), (2, "Produtos"), (3, "Revisar devolução"), (4, "Emitir"))
+    return ((1, "NF-e origem"), (2, "Produtos"), (3, "Revisar Nota de Devolução"), (4, "Emitir"))

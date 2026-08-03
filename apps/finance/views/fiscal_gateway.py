@@ -43,8 +43,8 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         ),
         FiscalOperationCard(
             value=FiscalOperation.RETURN,
-            label="Devolução",
-            description="Pesquise uma NF-e de compra recebida e selecione os produtos que serão devolvidos ao fornecedor.",
+            label="Nota de Devolução",
+            description="Pesquise uma NF-e de compra recebida e selecione os produtos da Nota de Devolução.",
             icon="assignment_return",
         ),
         FiscalOperationCard(

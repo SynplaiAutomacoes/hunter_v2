@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, QuerySet, Sum
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Sum
 from django.utils import timezone
 
 from apps.core.infrastructure.search import apply_text_search
@@ -46,7 +46,6 @@ def find_purchase_by_access_key(*, workshop: Any, access_key: str) -> StockImpor
         document is None
         or document.origin != FiscalDocumentOrigin.EXTERNAL
         or document.status != FiscalDocumentStatus.APPROVED
-        or stock_import.fiscal_validation_status != StockImport.FiscalValidationStatus.VALIDATED
         or bool(document_snapshot.get("cancelled"))
     ):
         raise PurchaseReturnError("A NF-e de compra não está autorizada ou não pode originar uma devolução.")
@@ -68,10 +67,9 @@ def eligible_purchase_imports(*, workshop: Any) -> QuerySet[StockImport]:
             workshop=workshop,
             fiscal_document__origin=FiscalDocumentOrigin.EXTERNAL,
             fiscal_document__status=FiscalDocumentStatus.APPROVED,
-            fiscal_validation_status=StockImport.FiscalValidationStatus.VALIDATED,
             fiscal_items__isnull=False,
         )
-        .exclude(fiscal_snapshot__document__cancelled=True)
+        .filter(Q(fiscal_snapshot__document__cancelled=False) | Q(fiscal_snapshot__document__cancelled__isnull=True))
         .select_related("fiscal_document")
         .annotate(purchase_total=Sum("fiscal_items__total_value"), product_count=Count("fiscal_items", distinct=True))
         .order_by("-fiscal_issued_at", "-pk")
