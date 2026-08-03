@@ -60,6 +60,7 @@ class WorkshopCollaborator(TimeStampedModel):
     class CollaboratorType(models.TextChoices):
         ADMINISTRATIVE = "A", "Administrativo"
         PRODUCTIVE = "P", "Produtivo"
+        PRO_LABORE = "L", "Pró Labore"
 
     class PaymentDayType(models.TextChoices):
         FIFTH_BUSINESS_DAY = "FIFTH_BUSINESS_DAY", "5º dia útil"

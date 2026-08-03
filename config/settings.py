@@ -95,6 +95,15 @@ STORAGE_REGION = os.getenv("REGION", "auto")
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
 
+# E-mail (SMTP)
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1").lower() in ("1", "true", "yes")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "")
+
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
     SESSION_COOKIE_SECURE = True
