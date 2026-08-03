@@ -150,7 +150,15 @@ def _mask_email(email: str) -> str:
 
 def _get_user_email(user) -> str | None:
     email = str(getattr(user, "email", "") or "").strip().lower()
-    return email or None
+    if email:
+        return email
+    try:
+        collaborator = getattr(user, "workshop_collaborator", None)
+        if collaborator and collaborator.email:
+            return str(collaborator.email).strip().lower()
+    except Exception:
+        pass
+    return None
 
 
 def _send_email(user, code: str, tipo: str, email: str | None = None) -> bool:
