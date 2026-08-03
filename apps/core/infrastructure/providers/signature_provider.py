@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from django.conf import settings
-
 from apps.core.domain.contracts.signature import ISignatureService
-from apps.core.infrastructure.services.signature_supersign import SuperSignSignatureService
+from apps.core.infrastructure.services.signature_synplaisign import SynplaiSignSignatureService
 
 
 class SignatureServiceProvider:
@@ -12,7 +10,7 @@ class SignatureServiceProvider:
     @classmethod
     def get_service(cls) -> ISignatureService:
         if cls._instance is None:
-            cls._instance = SuperSignSignatureService()
+            cls._instance = SynplaiSignSignatureService()
         return cls._instance
 
     @classmethod

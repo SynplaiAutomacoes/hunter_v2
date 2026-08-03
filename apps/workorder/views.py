@@ -1448,9 +1448,12 @@ def visualizar_pdf_workorder(request, pk):
 
     if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:
+            from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
+
             signed_pdf = get_signature_service().download_signed_document(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,
+                api_key=get_workshop_synplaisign_api_key(workorder.workshop),
             )
             return _build_workorder_pdf_file_response(
                 workorder=workorder,
@@ -1458,7 +1461,7 @@ def visualizar_pdf_workorder(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureServiceError:
+        except (SignatureServiceError, WorkshopSynplaiSignError):
             logger.warning("workorder_signed_pdf_load_failed", extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id})
 
     try:

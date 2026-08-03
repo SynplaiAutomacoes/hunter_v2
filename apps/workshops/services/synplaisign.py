@@ -1,0 +1,249 @@
+from __future__ import annotations
+
+import logging
+import re
+import secrets
+import string
+from typing import Any
+
+from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
+from django.urls import reverse
+
+from apps.core.infrastructure.gateways import synplaisign as gateway
+from apps.core.infrastructure.services.signature import build_absolute_app_url
+from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret, encrypt_secret
+from apps.workshops.models.workshops import Workshop
+
+
+logger = logging.getLogger(__name__)
+
+
+class WorkshopSynplaiSignError(Exception):
+    pass
+
+
+def get_workshop_synplaisign_api_key(workshop: Workshop) -> str:
+    api_key = decrypt_secret(getattr(workshop, "synplaisign_api_key", "") or "")
+    if not api_key:
+        raise WorkshopSynplaiSignError("Oficina sem API key SynplaiSign configurada. Recrie as credenciais da oficina.")
+    return api_key
+
+
+def get_workshop_synplaisign_webhook_secret(workshop: Workshop) -> str:
+    return decrypt_secret(getattr(workshop, "synplaisign_webhook_secret", "") or "")
+
+
+def get_workshop_synplaisign_owner_password(workshop: Workshop) -> str:
+    return decrypt_secret(getattr(workshop, "synplaisign_owner_password", "") or "")
+
+
+def _default_webhook_url() -> str:
+    return build_absolute_app_url(path=reverse("budget:signature_webhook"))
+
+
+def _organization_name_for_workshop(workshop: Workshop) -> str:
+    """Nome fantasia da empresa fiscal; fallback razao social; depois nome da oficina."""
+    try:
+        company = workshop.webmania_company
+    except ObjectDoesNotExist:
+        company = None
+
+    if company is not None:
+        fantasy = str(getattr(company, "nome_fantasia", "") or "").strip()
+        if fantasy:
+            return fantasy
+        razao = str(getattr(company, "razao_social", "") or getattr(company, "nome_completo", "") or "").strip()
+        if razao:
+            return razao
+
+    return str(workshop.name or "").strip() or f"Oficina {workshop.pk}"
+
+
+def _resolve_account_owner(workshop: Workshop) -> Any:
+    account = getattr(workshop, "account", None)
+    if account is None:
+        raise WorkshopSynplaiSignError("Oficina sem conta vinculada para provisionar SynplaiSign.")
+
+    owner = getattr(account, "owner", None)
+    if owner is None:
+        raise WorkshopSynplaiSignError("Conta da oficina sem Owner para provisionar SynplaiSign.")
+    return owner
+
+
+def _owner_display_name(owner: Any) -> str:
+    full_name = ""
+    get_full_name = getattr(owner, "get_full_name", None)
+    if callable(get_full_name):
+        full_name = str(get_full_name() or "").strip()
+    if full_name:
+        return full_name
+
+    first = str(getattr(owner, "first_name", "") or "").strip()
+    last = str(getattr(owner, "last_name", "") or "").strip()
+    combined = f"{first} {last}".strip()
+    if combined:
+        return combined
+
+    return str(getattr(owner, "username", "") or getattr(owner, "email", "") or "Owner").strip()
+
+
+def _owner_email(owner: Any) -> str:
+    email = str(getattr(owner, "email", "") or "").strip()
+    if not email:
+        raise WorkshopSynplaiSignError("Owner da conta sem email para provisionar SynplaiSign.")
+    return email
+
+
+def _slugify_workshop_name(raw_name: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", raw_name.strip().lower()).strip("_")
+    return (normalized[:40] or "oficina")
+
+
+def _build_api_key_name(workshop: Workshop) -> str:
+    suffix = "".join(secrets.choice(string.digits) for _ in range(5))
+    return f"{_slugify_workshop_name(str(workshop.name or ''))}-{suffix}"
+
+
+def _generate_owner_password() -> str:
+    # SynplaiSign account password (not the Hunter login password).
+    return secrets.token_urlsafe(24)
+
+
+def _ensure_workshop_webhook(*, workshop: Workshop, api_key: str, webhook_url: str) -> None:
+    expected_events = ["ENVELOPE_COMPLETED"]
+    existing = gateway.list_webhooks(api_key=api_key)
+    for webhook in existing:
+        webhook_events = webhook.get("events")
+        if webhook.get("url") == webhook_url and isinstance(webhook_events, list) and all(event in webhook_events for event in expected_events):
+            webhook_id = str(webhook.get("id") or "").strip()
+            update_fields: list[str] = []
+            if webhook_id and workshop.synplaisign_webhook_id != webhook_id:
+                workshop.synplaisign_webhook_id = webhook_id
+                update_fields.append("synplaisign_webhook_id")
+            if update_fields:
+                workshop.save(update_fields=update_fields)
+            # Existing remote webhook matches — never rotate secret.
+            return
+
+    # Only create a new webhook (and secret) when none matches the target URL.
+    # If the workshop already has a secret but no matching remote webhook, we still
+    # need a new remote registration; the new secret replaces the stale local one.
+    created = gateway.create_webhook(api_key=api_key, url=webhook_url, events=expected_events)
+    webhook_id = str(created.get("id") or "").strip()
+    secret = str(created.get("secret") or "").strip()
+    update_fields = []
+    if webhook_id:
+        workshop.synplaisign_webhook_id = webhook_id
+        update_fields.append("synplaisign_webhook_id")
+    if secret:
+        workshop.synplaisign_webhook_secret = encrypt_secret(secret)
+        update_fields.append("synplaisign_webhook_secret")
+    if update_fields:
+        workshop.save(update_fields=update_fields)
+
+
+def provision_workshop_synplaisign(
+    *,
+    workshop: Workshop,
+    webhook_url: str | None = None,
+    force: bool = False,
+) -> Workshop:
+    """Create SynplaiSign org + OWNER + API key + webhook when the workshop key is missing.
+
+    Uses ``POST /auth/register-with-api-key`` with ``SYNPLAISIGN_MASTER_KEY``.
+    When ``force=True``, discards local credentials and registers a new org/key even if one exists.
+    """
+    master_key = str(getattr(settings, "SYNPLAISIGN_MASTER_KEY", "") or "").strip()
+    if not master_key:
+        raise WorkshopSynplaiSignError("SYNPLAISIGN_MASTER_KEY nao configurado")
+
+    resolved_webhook_url = (webhook_url or _default_webhook_url()).strip()
+
+    try:
+        with transaction.atomic():
+            locked = (
+                Workshop.objects.select_for_update(of=("self",))
+                .select_related("account", "account__owner")
+                .get(pk=workshop.pk)
+            )
+            api_key = decrypt_secret(locked.synplaisign_api_key)
+            should_create = force or not api_key
+
+            if api_key and not force:
+                logger.info(
+                    "synplaisign_api_key_already_present",
+                    extra={"workshop_id": locked.pk, "api_key_id": locked.synplaisign_api_key_id},
+                )
+            elif should_create:
+                if force and api_key:
+                    logger.warning(
+                        "synplaisign_api_key_force_recreate",
+                        extra={"workshop_id": locked.pk, "previous_api_key_id": locked.synplaisign_api_key_id},
+                    )
+                    locked.synplaisign_api_key_id = ""
+                    locked.synplaisign_api_key = ""
+                    locked.synplaisign_owner_password = ""
+                    locked.synplaisign_webhook_id = ""
+                    locked.synplaisign_webhook_secret = ""
+                    locked.save(
+                        update_fields=[
+                            "synplaisign_api_key_id",
+                            "synplaisign_api_key",
+                            "synplaisign_owner_password",
+                            "synplaisign_webhook_id",
+                            "synplaisign_webhook_secret",
+                        ]
+                    )
+
+                owner = _resolve_account_owner(locked)
+                password = _generate_owner_password()
+                api_key_name = _build_api_key_name(locked)
+                registered = gateway.register_with_api_key(
+                    master_key=master_key,
+                    organization_name=_organization_name_for_workshop(locked),
+                    name=_owner_display_name(owner),
+                    email=_owner_email(owner),
+                    password=password,
+                    api_key_name=api_key_name,
+                )
+                api_key_payload = registered.get("apiKey") if isinstance(registered.get("apiKey"), dict) else {}
+                key_id = str(api_key_payload.get("id") or "").strip()
+                raw_key = str(api_key_payload.get("key") or "").strip()
+                if not raw_key:
+                    raise WorkshopSynplaiSignError("SynplaiSign nao retornou a API key no registro")
+
+                locked.synplaisign_api_key_id = key_id
+                locked.synplaisign_api_key = encrypt_secret(raw_key)
+                locked.synplaisign_owner_password = encrypt_secret(password)
+                locked.save(
+                    update_fields=[
+                        "synplaisign_api_key_id",
+                        "synplaisign_api_key",
+                        "synplaisign_owner_password",
+                    ]
+                )
+                api_key = raw_key
+                logger.info(
+                    "synplaisign_api_key_provisioned",
+                    extra={
+                        "workshop_id": locked.pk,
+                        "api_key_id": key_id,
+                        "api_key_name": api_key_name,
+                        "forced": force,
+                    },
+                )
+
+            # Never rotates an existing API key unless force; only ensures webhook for the current key.
+            _ensure_workshop_webhook(workshop=locked, api_key=api_key, webhook_url=resolved_webhook_url)
+
+            locked.refresh_from_db()
+            workshop.synplaisign_api_key_id = locked.synplaisign_api_key_id
+            workshop.synplaisign_api_key = locked.synplaisign_api_key
+            workshop.synplaisign_owner_password = locked.synplaisign_owner_password
+            workshop.synplaisign_webhook_id = locked.synplaisign_webhook_id
+            workshop.synplaisign_webhook_secret = locked.synplaisign_webhook_secret
+            return workshop
+    except gateway.SynplaiSignGatewayError as exc:
+        raise WorkshopSynplaiSignError(str(exc)) from exc

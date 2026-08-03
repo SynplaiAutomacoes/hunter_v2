@@ -9,8 +9,8 @@ from phonenumbers import PhoneNumberFormat
 
 
 SIGNATURE_POSITION: dict[str, float] = {
-    "x": 443.0,
-    "y": 180.0,
+    "x": 450.0,
+    "y": 800.0,
     "width": 120.0,
     "height": 38.0,
 }

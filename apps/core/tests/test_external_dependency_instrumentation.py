@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from apps.core.infrastructure.gateways.supersign import get_signed_document_download_url
+from apps.core.infrastructure.gateways.synplaisign import get_signed_document_download_url
 from apps.core.infrastructure.services.webmania.nfe_consulta import consult_nfe_item
 from apps.core.infrastructure.services.webmania.webmania_documents import download_webmania_document
 
@@ -17,19 +17,19 @@ def _dependency_call_context(manager_mock: Mock):
 
 
 class ExternalDependencyInstrumentationTests(SimpleTestCase):
-    @override_settings(SUPERSIGN_BASE_URL="https://api.sign.supersign.com.br", SUPERSIGN_ACCOUNT_ID="account", SUPERSIGN_API_KEY="secret")
-    @patch("apps.core.infrastructure.gateways.supersign.observe_dependency_call")
-    @patch("apps.core.infrastructure.gateways.supersign.requests.get")
-    def test_supersign_download_url_records_status_code(self, requests_get_mock: Mock, observe_dependency_call_mock: Mock) -> None:
+    @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example", SYNPLAISIGN_API_KEY="secret")
+    @patch("apps.core.infrastructure.gateways.synplaisign.observe_dependency_call")
+    @patch("apps.core.infrastructure.gateways.synplaisign.requests.get")
+    def test_synplaisign_download_url_records_status_code(self, requests_get_mock: Mock, observe_dependency_call_mock: Mock) -> None:
         dependency_call_mock = Mock()
         observe_dependency_call_mock.side_effect = lambda **_: _dependency_call_context(dependency_call_mock)
         response_mock = Mock()
         response_mock.status_code = 200
-        response_mock.json.return_value = {"downloadUrl": "https://files.example/doc.pdf"}
+        response_mock.json.return_value = {"url": "https://files.example/doc.pdf", "expiresIn": 3600}
         response_mock.raise_for_status.return_value = None
         requests_get_mock.return_value = response_mock
 
-        result = get_signed_document_download_url(document_id="doc-1")
+        result = get_signed_document_download_url(api_key="sk_live_workshop", envelope_id="env-1")
 
         self.assertEqual(result, "https://files.example/doc.pdf")
         dependency_call_mock.set_http_status_code.assert_called_once_with(200)
