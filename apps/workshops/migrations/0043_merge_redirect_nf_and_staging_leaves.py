@@ -6,9 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('workshops', '0041_merge_workshopcost_and_synplaisign_branches'),
-        ('workshops', '0042_merge_synplaisign_and_cost_leaves'),
+        ("workshops", "0042_merge_synplaisign_and_cost_leaves"),
     ]
 
-    operations = [
-    ]
+    operations = []
