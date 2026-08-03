@@ -1,4 +1,3 @@
-{% load l10n %}
 <div
     id="{{ table_id }}"
     class="w-full"
@@ -65,22 +64,6 @@
             const rowIds = this.getUniqueRowIds()
             this.all = rowIds.length > 0 && rowIds.every((rowId) => this.isRowChecked(rowId))
         },
-        initComponent() {
-            this.getUniqueRowIds().forEach((rowId) => {
-                if (this.isRowChecked(rowId)) {
-                    this.getDescendantIds(rowId).forEach((descendantId) => {
-                        this.setRowChecked(descendantId, true)
-                    })
-                }
-            })
-            this.updateAncestorStates()
-            this.syncMasterCheckbox()
-        },
-        updateAncestorStates() {
-            this.getUniqueRowIds().forEach((rowId) => {
-                this.updateAncestorState(rowId)
-            })
-        },
         toggleAll() {
             this.getUniqueRowIds().forEach((rowId) => {
                 this.setRowChecked(rowId, this.all)
@@ -107,8 +90,8 @@
             this.syncMasterCheckbox()
         }
     }"
-    x-init="initComponent()"
-    @htmx:after-swap.window="initComponent()"
+    x-init="syncMasterCheckbox()"
+    @htmx:after-swap.window="syncMasterCheckbox()"
 >
     <div id="{{ table_id }}-content">
         {% if summary_template %}

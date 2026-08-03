@@ -1,7 +1,7 @@
 {% load crispy_forms_tags %}
 
 <div class="card-body">
-    <h3 class="font-bold text-2xl pb-2 mb-2">Configuração das Formas de Pagamento</h3>
+    <h3 class="font-bold text-2xl pb-2 mb-2">Configuração das formas de pagamento</h3>
     <h5 class="text-lg pb-2 mb-4">Adicione, edite e salve múltiplos planos de pagamento para esta ordem de serviço.</h5>
 
     <form hx-post="{% url 'workorder:add_payment' workorder.pk %}"
@@ -20,9 +20,9 @@
                 <tr>
                     <th>Valor de entrada</th>
                     <th>Valor a ser pago</th>
-                    <th>Forma de Pagamento</th>
+                    <th>Forma de pagamento</th>
                     <th>Vencimento</th>
-                    <th>Valor Total</th>
+                    <th>Valor total</th>
                     <th class="text-center">Ações</th>
                 </tr>
             </thead>

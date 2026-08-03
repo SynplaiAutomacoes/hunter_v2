@@ -1,0 +1,18 @@
+{% extends 'crud/detail.html' %}
+{% block crud_title %}Prévia de emissão manual NFS-e{% endblock %}
+{% block crud_subtitle %}Snapshot imutável do RPS; emissão remota somente após aprovação.{% endblock %}
+{% block crud_back_url %}{% url 'finance:nfse_manual_emission_preview_list' %}{% endblock %}
+{% block crud_header_actions %}{% if can_approve and not preview.is_approved %}<form method="post" action="{% url 'finance:nfse_manual_emission_preview_approve' preview.pk %}">{% csrf_token %}<button class="btn btn-primary btn-sm">Aprovar e congelar</button></form>{% endif %}{% endblock %}
+{% block crud_detail_content %}
+<div class="alert alert-info mb-4">Esta tela não permite editar o payload aprovado. A emissão manual envia exatamente o snapshot congelado para POST /2/nfse/emissão.</div>
+<div class="card bg-base-100 shadow"><div class="card-body"><div class="grid md:grid-cols-2 gap-4">
+<div><span class="text-sm opacity-70">Empresa</span><p>{{ preview.company }}</p></div>
+<div><span class="text-sm opacity-70">Município</span><p>{{ preview.municipal_capability.city_name }}/{{ preview.municipal_capability.state }}</p></div>
+<div><span class="text-sm opacity-70">Ambiente</span><p>{{ preview.get_environment_display }}</p></div>
+<div><span class="text-sm opacity-70">RPS</span><p>{{ preview.rps_number }}/{{ preview.rps_series }}</p></div>
+<div><span class="text-sm opacity-70">Status</span><p>{{ preview.get_validation_status_display }}</p></div>
+<div><span class="text-sm opacity-70">Aprovada</span><p>{% if preview.is_approved %}Sim{% else %}Não{% endif %}</p></div>
+</div><div class="mt-4 flex flex-wrap gap-2">{% if can_view_payload %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_preview_payload' preview.pk %}">Ver payload sanitizado</a>{% endif %}</div></div></div>
+{% if preview.is_approved and can_issue_manual_emission and manual_emission_eligible %}<div class="card bg-base-100 shadow mt-4"><div class="card-body"><h2 class="card-title">Emitir NFS-e</h2><form method="post" action="{% url 'finance:nfse_manual_emission_issue' preview.pk %}" class="flex flex-wrap items-center gap-3">{% csrf_token %}<label class="label cursor-pointer gap-2"><input type="checkbox" class="checkbox checkbox-primary" name="confirmed" value="1"><span class="label-text">Confirmo o envio do payload aprovado para POST /2/nfse/emissão.</span></label><button class="btn btn-primary">Emitir NFS-e</button></form></div></div>{% elif preview.is_approved %}<div class="alert alert-warning mt-4">A emissão manual não está disponível para esta preview, oficina ou usuário.</div>{% endif %}
+{% if preview.validation_errors %}<div class="alert alert-error mt-4">{{ preview.validation_errors }}</div>{% endif %}
+{% endblock %}

@@ -3,18 +3,18 @@
 
     <div class="flex items-center justify-between bg-base-200 p-4 rounded-lg">
         <div>
-            <h3 class="text-xl font-bold text-base-content">Configuracoes de Acesso</h3>
-            <p class="text-xs opacity-60">Gerencie todas as permissoes do cargo</p>
+            <h3 class="text-xl font-bold text-base-content">Configurações de acesso</h3>
+            <p class="text-xs opacity-60">Gerencie todas as permissões do cargo</p>
         </div>
         <div class="form-control">
             <label class="label cursor-pointer gap-4">
-                <span class="label-text font-bold">Selecionar Tudo</span>
+                <span class="label-text font-bold">Selecionar tudo</span>
                 <input type="checkbox" id="global-master-check" class="checkbox checkbox-primary" onchange="toggleAllPermissions(this.checked)">
             </label>
         </div>
     </div>
 
-    <input type="text" id="perm-search" class="input input-bordered w-full" placeholder="Buscar permissao...">
+    <input type="text" id="perm-search" class="input input-bordered w-full" placeholder="Buscar permissão...">
 
     {% for app_label, app_data in form.grouped_permissions.items %}
     {% with app_id=app_label|slugify %}
@@ -27,7 +27,7 @@
             <div class="flex items-center gap-3">
                 <span class="badge badge-sm app-badge">0/{{ app_data.total_count }}</span>
                 <label onclick="event.stopPropagation()" class="cursor-pointer flex items-center gap-1">
-                    <span class="text-xs opacity-70">Marcar modulo</span>
+                    <span class="text-xs opacity-70">Marcar módulo</span>
                     <input type="checkbox" class="checkbox checkbox-xs checkbox-secondary app-master-check" onchange="toggleAppPermissions('{{ app_id }}', this.checked)">
                 </label>
             </div>

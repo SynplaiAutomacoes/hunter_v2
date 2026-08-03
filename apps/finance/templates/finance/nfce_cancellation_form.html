@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block title %}Cancelar NFC-e{% endblock %}
+
+{% block content %}
+    <div class="container mx-auto max-w-3xl py-8">
+        <div class="mb-6">
+            <h1 class="text-2xl font-semibold">Cancelar NFC-e</h1>
+            <p class="text-sm text-base-content/70">NFC-e {{ document.number|default:document.pk }} - {{ document.status }}</p>
+        </div>
+
+        <div class="alert alert-warning mb-6">
+            <div>
+                <p>O cancelamento autorizado e irreversivel no Hunter.</p>
+                <p>Cancelamento por substituição, contingência/offline e PDV/TEF/SAT/MFE não estao disponíveis nesta fase.</p>
+            </div>
+        </div>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <div class="flex gap-2">
+                <button type="submit" class="btn btn-warning" {% if not eligible %}disabled{% endif %}>Confirmar cancelamento</button>
+                <a href="{% url 'finance:nfce_list' %}" class="btn">Voltar</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}

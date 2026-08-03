@@ -8,7 +8,6 @@ from typing import Any
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Prefetch, Q, Sum
 from django.http import HttpResponse, QueryDict
@@ -52,10 +51,8 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.services.financial_movement import apply_payment_reconciliation_rules
 from apps.finance.views.commissions import MONTH_CHOICES, _parse_int_param, build_paid_status_indicator
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.util.workshops import can_view_payroll_details, get_active_workshop_or_404
 
 
 class PayrollPaymentForm(forms.ModelForm):
@@ -110,22 +107,8 @@ class PayrollPaymentForm(forms.ModelForm):
             self.fields["bank_account"].widget.choices = [(item.pk, str(item)) for item in accounts]
             self.fields["payment_method"].widget.choices = [(item.pk, str(item)) for item in methods]
 
-    def clean(self) -> dict[str, Any]:
-        cleaned_data = super().clean()
-        for field, message in apply_payment_reconciliation_rules(cleaned_data):
-            self.add_error(field, message)
-        return cleaned_data
 
-
-class PayrollAccessMixin:
-    def dispatch(self, request, *args, **kwargs):
-        workshop = get_active_workshop_or_404(request)
-        if not can_view_payroll_details(user=request.user, workshop=workshop, request=request):
-            raise PermissionDenied
-        return super().dispatch(request, *args, **kwargs)
-
-
-class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, TemplateView):
+class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = CollaboratorPayroll
     template_name = "finance/payroll/list.html"
     workshop_permission_app_label = "finance"
@@ -483,7 +466,7 @@ def _mark_payroll_as_unpaid(*, payroll: CollaboratorPayroll) -> CollaboratorPayr
 
 def _payroll_missing_movement_message(*, collaborator_names: list[str], action_label: str) -> str:
     skipped_count = len(collaborator_names)
-    base_message = f"{skipped_count} folha{'s' if skipped_count != 1 else ''} foram ignorada{'s' if skipped_count != 1 else ''} ao {action_label} porque nao possuem movimentacoes financeiras."
+    base_message = f"{skipped_count} folha{'s' if skipped_count != 1 else ''} foram ignorada{'s' if skipped_count != 1 else ''} ao {action_label} porque não possuem movimentacoes financeiras."
     if not collaborator_names:
         return base_message
     return f"{base_message} Colaboradores: {', '.join(collaborator_names)}"
@@ -497,7 +480,7 @@ def _build_hx_toast_response(*, message: str, toast_type: str, refresh: bool = F
     return response
 
 
-class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, View):
+class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = CollaboratorPayroll
     workshop_permission_app_label = "finance"
     workshop_permission_model = "financialmovement"
@@ -811,7 +794,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
 
             if not payroll_has_financial_movements(payroll=target_payroll) or target_payroll.financial_movement is None:
                 return _build_hx_toast_response(
-                    message="Nao foi possivel gerar movimentacoes financeiras para esta folha.",
+                    message="Não foi possível gerar movimentacoes financeiras para esta folha.",
                     toast_type="warning",
                     refresh=True,
                     status=400,
@@ -958,7 +941,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
         return self._open_edit_modal(request=request, payroll=payroll)
 
 
-class PayrollBulkPayView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, View):
+class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "financialmovement"
     workshop_permission_codename = "change_financialmovement"
@@ -1007,7 +990,7 @@ class PayrollBulkPayView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedM
         return HttpResponseRedirect(reverse("finance:payroll_list"))
 
 
-class PayrollBulkUnpayView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, View):
+class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "financialmovement"
     workshop_permission_codename = "change_financialmovement"

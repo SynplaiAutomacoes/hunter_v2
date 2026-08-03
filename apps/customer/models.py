@@ -36,7 +36,7 @@ class Customer(TimeStampedModel, Address):
     name = models.CharField(verbose_name="Nome", max_length=255, null=False, blank=False)
     cpf_or_cnpj = models.CharField(verbose_name="CPF/CNPJ", max_length=18, null=False, blank=False)
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
-    email = models.EmailField(verbose_name="Email", blank=False, null=False)
+    email = models.EmailField(verbose_name="E-mail", blank=False, null=False)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
     accepts_messages = models.BooleanField(
         verbose_name="Receber mensagens",
@@ -45,14 +45,14 @@ class Customer(TimeStampedModel, Address):
 
     # CAMPOS PESSOA FISICA
     rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)
-    birth_date = models.DateField(verbose_name="Data de Nascimento", null=True, blank=True)
+    birth_date = models.DateField(verbose_name="Data de nascimento", null=True, blank=True)
     sex = models.CharField(verbose_name="Sexo", max_length=1, choices=SEX_CHOICES, blank=True, null=True)
 
     # CAMPOS PESSOA JURÍDICA
-    fantasy_name = models.CharField(verbose_name="Nome Fantasia", max_length=255, blank=True, null=True)
+    fantasy_name = models.CharField(verbose_name="Nome fantasia", max_length=255, blank=True, null=True)
     state_registration = models.CharField(verbose_name="Inscrição Estadual", max_length=255, blank=True, null=True)
     municipal_registration = models.CharField(verbose_name="Inscrição Municipal", max_length=255, blank=True, null=True)
-    foundation_date = models.DateField(verbose_name="Data de Fundação", blank=True, null=True)
+    foundation_date = models.DateField(verbose_name="Data de fundação", blank=True, null=True)
 
     @property
     def full_address(self) -> str:
@@ -118,8 +118,8 @@ class Vehicle(TimeStampedModel):
     plate = models.CharField(verbose_name="Placa", max_length=20)
     brand = models.CharField(verbose_name="Marca", max_length=500)
     model = models.CharField(verbose_name="Modelo", max_length=500)
-    year_fabrication = models.CharField(verbose_name="Ano de Fabricação", max_length=4)
-    year_model = models.CharField(verbose_name="Ano do Modelo", max_length=4)
+    year_fabrication = models.CharField(verbose_name="Ano de fabricação", max_length=4)
+    year_model = models.CharField(verbose_name="Ano do modelo", max_length=4)
     color = models.CharField(verbose_name="Cor", max_length=30)
     fuel = models.CharField(verbose_name="Combustível", max_length=30, choices=VehicleFuel.choices, null=True, blank=True)
     km = models.PositiveIntegerField(verbose_name="Quilometragem", null=True, blank=True)

@@ -1,12 +1,12 @@
 {% extends 'crud/list_page.html' %}
 
 {% block crud_title %}Grupos de mensagens{% endblock %}
-{% block crud_subtitle %}Monte grupos fixos de clientes para campanhas, avisos e mensagens de aniversario via WhatsApp.{% endblock %}
+{% block crud_subtitle %}Monte grupos fixos de clientes para campanhas, avisos e mensagens de aniversário via WhatsApp.{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex flex-col gap-2 sm:flex-row">
         <a href="{% url 'messaging:message_template_list' %}" class="btn btn-outline">Mensagens cadastradas</a>
-        <a href="{% url 'messaging:customer_message_group_create' %}" class="btn btn-primary">Novo Grupo</a>
+        <a href="{% url 'messaging:customer_message_group_create' %}" class="btn btn-primary">Novo grupo</a>
     </div>
 {% endblock %}
 

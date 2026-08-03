@@ -4,9 +4,9 @@ from apps.core.infrastructure.models import TimeStampedModel
 
 class Checklist(TimeStampedModel):
     class ChecklistType(models.TextChoices):
-        AUTOMOTIVE_DIAGNOSTIC = "AUTOMOTIVE_DIAGNOSTIC", "Checklist de Diagnóstico Automotivo"
+        AUTOMOTIVE_DIAGNOSTIC = "AUTOMOTIVE_DIAGNOSTIC", "Checklist de diagnóstico automotivo"
         INTERNAL = "INTERNAL", "Checklists internos"
-        STRUCTURAL = "STRUCTURAL", "Checklist Estruturais"
+        STRUCTURAL = "STRUCTURAL", "Checklists estruturais"
         PROCESS = "PROCESS", "Checklist de processos"
 
     class ChecklistSource(models.TextChoices):
@@ -38,7 +38,7 @@ class ChecklistItem(models.Model):
     TIPO_RESPOSTA_CHOICES = [
         ("BOM_REGULAR_RUIM", "Bom / Regular / Ruim"),
         ("SIM_NAO", "Sim / Não"),
-        ("TEXTO_LIVRE", "Texto Livre"),
+        ("TEXTO_LIVRE", "Texto livre"),
         ("NIVEL", "Vazio | 1/4 | 1/2 | 3/4 | Cheio"),
     ]
 

@@ -57,14 +57,14 @@
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
                 <div>
                     <h2 class="text-xl font-bold">Dados da classe de Nota Fiscal de Produto</h2>
-                    <p class="text-sm text-base-content/70">Estes campos serao usados para preencher a classe quando o preset for aplicado.</p>
+                    <p class="text-sm text-base-content/70">Estes campos serão usados para preencher a classe quando o preset for aplicado.</p>
                 </div>
 
                 <div class="grid grid-cols-12 gap-4">
                     <div class="col-span-12">
-                        <label class="label" for="{{ nfe_form.descricao.id_for_label }}"><span class="label-text font-semibold">{{ nfe_form.descricao.label }}</span></label>
-                        {{ nfe_form.descricao }}
-                        {{ nfe_form.descricao.errors }}
+                        <label class="label" for="{{ nfe_form.descrição.id_for_label }}"><span class="label-text font-semibold">{{ nfe_form.descrição.label }}</span></label>
+                        {{ nfe_form.descrição }}
+                        {{ nfe_form.descrição.errors }}
                     </div>
                     <div class="col-span-12 lg:col-span-6">
                         <label class="label" for="{{ nfe_form.informacoes_fisco.id_for_label }}"><span class="label-text font-semibold">{{ nfe_form.informacoes_fisco.label }}</span></label>
@@ -87,14 +87,14 @@
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
                 <div>
                     <h2 class="text-xl font-bold">Dados da classe de Nota Fiscal de Serviço</h2>
-                    <p class="text-sm text-base-content/70">Configure os mesmos campos que serao preenchidos ao aplicar este preset na criacao da classe.</p>
+                    <p class="text-sm text-base-content/70">Configure os mesmos campos que serão preenchidos ao aplicar este preset na criação da classe.</p>
                 </div>
 
                 <div class="grid grid-cols-12 gap-4">
                     <div class="col-span-12">
-                        <label class="label" for="{{ nfse_form.descricao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.descricao.label }}</span></label>
-                        {{ nfse_form.descricao }}
-                        {{ nfse_form.descricao.errors }}
+                        <label class="label" for="{{ nfse_form.descrição.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.descrição.label }}</span></label>
+                        {{ nfse_form.descrição }}
+                        {{ nfse_form.descrição.errors }}
                     </div>
                     <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.tipo_emissao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.tipo_emissao.label }}</span></label>
@@ -203,7 +203,7 @@
             </section>
 
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
-                <h3 class="font-semibold">Informacoes adicionais</h3>
+                <h3 class="font-semibold">Informações adicionais</h3>
                 <div class="grid grid-cols-12 gap-4">
                     <div class="col-span-12 lg:col-span-6">{{ nfse_form.informacoes_fisco.label_tag }}{{ nfse_form.informacoes_fisco }}{{ nfse_form.informacoes_fisco.errors }}</div>
                     <div class="col-span-12 lg:col-span-6">{{ nfse_form.informacoes_complementares.label_tag }}{{ nfse_form.informacoes_complementares }}{{ nfse_form.informacoes_complementares.errors }}</div>

@@ -9,18 +9,41 @@
         <span class="material-icons text-sm">edit</span>
         Editar
     </a>
-    <form method="post" action="{% url 'finance:nfse_reconcile' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-outline gap-2">
-            <span class="material-icons text-sm">sync</span>
-            Reconsultar status
-        </button>
-    </form>
+    {% if can_query_item %}
+        <form method="post" action="{% url 'finance:nfse_reconcile' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline gap-2">
+                <span class="material-icons text-sm">sync</span>
+                Consultar NFS-e
+            </button>
+        </form>
+    {% endif %}
+    {% if can_query_batch %}
+        <form method="post" action="{% url 'finance:nfse_batch_reconcile' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline gap-2">
+                <span class="material-icons text-sm">sync</span>
+                Consultar lote RPS
+            </button>
+        </form>
+    {% endif %}
     {% if can_cancel %}
         <button type="button" class="btn btn-sm btn-error gap-2" onclick="cancel_nfse_modal.showModal()">
             <span class="material-icons text-sm">cancel</span>
             Cancelar Nota Fiscal de Serviço
         </button>
+    {% endif %}
+    {% if can_manifest_nfse %}
+        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="manifest_nfse_modal.showModal()">
+            <span class="material-icons text-sm">verified</span>
+            Manifestar NFS-e
+        </button>
+    {% endif %}
+    {% if can_prepare_substitution_preview %}
+        <a href="{% url 'finance:nfse_substitution_preview_create' %}?original_nfse={{ latest_item.pk }}" class="btn btn-sm btn-outline gap-2">
+            <span class="material-icons text-sm">difference</span>
+            Preparar substituição
+        </a>
     {% endif %}
 {% endblock %}
 
@@ -145,7 +168,32 @@
                 </div>
             {% else %}
                 <div class="alert alert-warning">
-                    <span>A Nota Fiscal de Serviço ainda nao possui item sincronizado. Aguarde o retorno da Webmania.</span>
+                    <span>A Nota Fiscal de Serviço ainda não possui item sincronizado. Aguarde o retorno do processamento.</span>
+                </div>
+            {% endif %}
+            {% if nfse_cancellation %}
+                <div class="mt-4 border-t border-base-200 pt-4">
+                    <p class="text-sm font-semibold">Cancelamento: {{ nfse_cancellation.get_status_display }}</p>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                        <a href="{% url 'finance:nfse_cancellation_payload' pk=nfse_request.pk cancellation_pk=nfse_cancellation.pk %}" class="btn btn-outline btn-sm">Ver payload do cancelamento</a>
+                        {% if nfse_cancellation.xml_url %}<a href="{% url 'finance:nfse_cancellation_download' pk=nfse_request.pk cancellation_pk=nfse_cancellation.pk %}" class="btn btn-outline btn-sm">Baixar XML do cancelamento</a>{% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            {% if nfse_manifestations %}
+                <div class="mt-4 border-t border-base-200 pt-4">
+                    <p class="text-sm font-semibold">Manifestações</p>
+                    <div class="mt-2 space-y-3">
+                        {% for manifestation in nfse_manifestations %}
+                            <div class="rounded border border-base-200 p-3">
+                                <p class="text-sm font-medium">{{ manifestation.get_manifestation_type_display }} / {{ manifestation.get_manifestation_role_display }} - {{ manifestation.get_status_display }}</p>
+                                <div class="mt-2 flex flex-wrap gap-2">
+                                    <a href="{% url 'finance:nfse_manifestation_payload' pk=nfse_request.pk manifestation_pk=manifestation.pk %}" class="btn btn-outline btn-sm">Ver payload da manifestação</a>
+                                    {% if manifestation.xml_manifestation %}<a href="{% url 'finance:nfse_manifestation_download' pk=nfse_request.pk manifestation_pk=manifestation.pk %}" class="btn btn-outline btn-sm">Baixar XML da manifestação</a>{% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
                 </div>
             {% endif %}
         </div>
@@ -157,7 +205,7 @@
                 <form method="post" action="{% url 'finance:nfse_cancel' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
                     {% csrf_token %}
                     <h3 class="text-base font-semibold text-base-content">Cancelar Nota Fiscal de Serviço</h3>
-                    <p class="text-sm text-base-content/70 mt-2">Selecione o motivo do cancelamento.</p>
+                    <p class="text-sm text-base-content/70 mt-2">Esta acao cancela somente a NFS-e selecionada e não realiza substituição. A substituição será disponibilizada em fase posterior.</p>
 
                     <div class="mt-4">
                         <label for="nfse-cancel-reason" class="label">
@@ -165,15 +213,78 @@
                         </label>
                         <select id="nfse-cancel-reason" name="reason_code" class="select select-bordered w-full" required>
                             <option value="" selected>Selecione o motivo</option>
-                            <option value="1">Erro na emissao</option>
-                            <option value="2">Servico nao prestado</option>
+                            <option value="1">Erro na emissão</option>
+                            <option value="2">Serviço não prestado</option>
                             <option value="4">Duplicidade da nota</option>
                         </select>
                     </div>
 
+                    <label class="label mt-4 cursor-pointer justify-start gap-3">
+                        <input type="checkbox" name="confirmed" value="1" class="checkbox checkbox-error" required>
+                        <span class="label-text">Confirmo explicitamente o cancelamento desta NFS-e.</span>
+                    </label>
+
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="cancel_nfse_modal.close()">Cancelar</button>
                         <button type="submit" class="btn btn-error">Confirmar cancelamento</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
+    {% if can_manifest_nfse %}
+        <dialog id="manifest_nfse_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfse_manifestation_issue' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Manifestar NFS-e Padrão Nacional</h3>
+                    <p class="text-sm text-base-content/70 mt-2">A manifestação não cria nova NFS-e, não altera RPS, não substitui e não cancela a nota.</p>
+
+                    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="label" for="nfse-manifest-event"><span class="label-text">Evento</span></label>
+                            <select id="nfse-manifest-event" name="event" class="select select-bordered w-full" required>
+                                <option value="">Selecione</option>
+                                <option value="1">Confirmação</option>
+                                <option value="2">Rejeição</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label" for="nfse-manifestor"><span class="label-text">Manifestador</span></label>
+                            <select id="nfse-manifestor" name="manifestor" class="select select-bordered w-full" required>
+                                <option value="">Selecione</option>
+                                <option value="1">Tomador</option>
+                                <option value="2">Intermediário</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <label class="label" for="nfse-rejection-reason"><span class="label-text">Motivo de rejeição</span></label>
+                        <select id="nfse-rejection-reason" name="rejection_reason" class="select select-bordered w-full">
+                            <option value="">Selecione somente para rejeição</option>
+                            <option value="1">Motivo 1</option>
+                            <option value="2">Motivo 2</option>
+                            <option value="3">Motivo 3</option>
+                            <option value="4">Motivo 4</option>
+                            <option value="5">Motivo 5</option>
+                            <option value="9">Outros</option>
+                        </select>
+                    </div>
+
+                    <div class="mt-4">
+                        <label class="label" for="nfse-rejection-justification"><span class="label-text">Justificativa para motivo 9</span></label>
+                        <textarea id="nfse-rejection-justification" name="rejection_justification" class="textarea textarea-bordered w-full" maxlength="255"></textarea>
+                    </div>
+
+                    <label class="label mt-4 cursor-pointer justify-start gap-3">
+                        <input type="checkbox" name="confirmed" value="1" class="checkbox checkbox-primary" required>
+                        <span class="label-text">Confirmo explicitamente esta manifestação no Padrão Nacional.</span>
+                    </label>
+
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="manifest_nfse_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Enviar manifestação</button>
                     </div>
                 </form>
             </div>

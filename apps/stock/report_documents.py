@@ -48,9 +48,9 @@ def build_stock_report_excel_document(*, context: dict[str, object], filename: s
     workbook = Workbook()
     worksheet = workbook.active
     if worksheet is None:
-        raise ValueError("Nao foi possivel inicializar a planilha do relatorio de estoque.")
+        raise ValueError("Não foi possível inicializar a planilha do relatório de estoque.")
 
-    worksheet.title = "Relatorio"
+    worksheet.title = "Relatório"
     _populate_stock_report_sheet(worksheet=worksheet, context=context)
 
     buffer = BytesIO()
@@ -78,7 +78,7 @@ def _populate_stock_report_sheet(*, worksheet, context: dict[str, object]) -> No
     if column_count > 1:
         worksheet.merge_cells(f"A1:{last_column_letter}1")
     title_cell = worksheet["A1"]
-    title_cell.value = "Relatorio de Estoque"
+    title_cell.value = "Relatório de estoque"
     title_cell.fill = _PRIMARY_FILL
     title_cell.font = Font(color="FFFFFF", bold=True, size=16)
     title_cell.alignment = Alignment(horizontal="center", vertical="center")

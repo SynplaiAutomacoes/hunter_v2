@@ -60,10 +60,9 @@ class WorkshopCollaborator(TimeStampedModel):
     class CollaboratorType(models.TextChoices):
         ADMINISTRATIVE = "A", "Administrativo"
         PRODUCTIVE = "P", "Produtivo"
-        PRO_LABORE = "L", "Pró Labore"
 
     class PaymentDayType(models.TextChoices):
-        FIFTH_BUSINESS_DAY = "FIFTH_BUSINESS_DAY", "5o dia util"
+        FIFTH_BUSINESS_DAY = "FIFTH_BUSINESS_DAY", "5º dia útil"
         FIXED_DAY = "FIXED_DAY", "Data de pagamento"
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="collaborators")
@@ -72,7 +71,7 @@ class WorkshopCollaborator(TimeStampedModel):
     cpf = BRCPFField(verbose_name="CPF", null=False, blank=False)
     # TODO: Create specific field for RG
     rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)
-    birth_date = models.DateField(verbose_name="Data de Nascimento", null=False, blank=False)
+    birth_date = models.DateField(verbose_name="Data de nascimento", null=False, blank=False)
     sex = models.CharField(verbose_name="Sexo", max_length=1, choices=Sex.choices, blank=True)
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
     email = models.EmailField(verbose_name="E-mail", blank=True)
@@ -81,13 +80,13 @@ class WorkshopCollaborator(TimeStampedModel):
     payment_day_type = models.CharField(verbose_name="Tipo de pagamento", max_length=32, choices=PaymentDayType.choices, default=PaymentDayType.FIFTH_BUSINESS_DAY)
     payment_day_of_month = models.PositiveSmallIntegerField(verbose_name="Dia do pagamento", null=True, blank=True)
     transport_allowance_daily = MoneyField(verbose_name="Vale Transporte Diário", max_digits=14, decimal_places=2, default=Decimal("0.00"), blank=True)
-    admission_date = models.DateField(verbose_name="Data de Admissão", null=False, blank=False)
+    admission_date = models.DateField(verbose_name="Data de admissão", null=False, blank=False)
     termination_date = models.DateField(verbose_name="Data de Saída", null=True, blank=True)
     collaborator_type = models.CharField(verbose_name="Tipo", max_length=1, choices=CollaboratorType.choices, blank=False, null=False)
     receives_commission = models.BooleanField(verbose_name="Recebe Comissão", default=False)
     commission_percentage = models.DecimalField(verbose_name="Percentual de Comissão", max_digits=7, decimal_places=6, null=True, blank=True)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
-    system_access = models.BooleanField(verbose_name="Acesso ao Sistema", default=False)
+    system_access = models.BooleanField(verbose_name="Acesso ao sistema", default=False)
 
     class Meta:
         verbose_name = "Colaborador da Oficina"
@@ -210,9 +209,6 @@ class CollaboratorPayroll(TimeStampedModel):
         verbose_name = "Folha do Colaborador"
         verbose_name_plural = "Folhas dos Colaboradores"
         ordering = ["-reference_year", "-reference_month", "-id"]
-        permissions = [
-            ("view_payroll_details", "Can view payroll details"),
-        ]
         constraints = [
             models.UniqueConstraint(fields=("collaborator", "reference_year", "reference_month"), name="unique_collaborator_payroll_reference"),
         ]
@@ -281,7 +277,7 @@ class CollaboratorPayroll(TimeStampedModel):
     @property
     def status_label(self) -> str:
         labels = {
-            self.Status.FORECAST: "Não Pago",
+            self.Status.FORECAST: "Não pago",
             self.Status.PARTIAL: "Parcial",
             self.Status.PAID: "Pago",
         }

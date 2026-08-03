@@ -80,7 +80,7 @@ class ServiceForm(CoreModelForm):
                         <div class="flex items-start gap-2 text-sm text-warning mt-1">
                             <span class="material-icons text-warning">warning</span>
                             <span>
-                                O valor acima foi calculado seguindo o preço da hora, você pode alterar caso ache necessário.
+                                O valor acima foi calculado com base no preço da hora; você pode alterá-lo se necessário.
                             </span>
                         </div>
                         '''

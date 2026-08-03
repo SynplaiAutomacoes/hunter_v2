@@ -57,6 +57,22 @@ class VehicleKmSyncTests(TestCase):
         self.assertFalse(updated)
         self.assertEqual(self.vehicle.km, 50_000)
 
+    def test_sync_vehicle_km_from_exit_initializes_empty_odometer(self) -> None:
+        self.vehicle.km = None
+        self.vehicle.save(update_fields=["km"])
+
+        updated = sync_vehicle_km_from_exit(vehicle=self.vehicle, km_final=50_000)
+
+        self.vehicle.refresh_from_db()
+        self.assertTrue(updated)
+        self.assertEqual(self.vehicle.km, 50_000)
+
+    def test_sync_vehicle_km_from_exit_ignores_missing_or_unchanged_reading(self) -> None:
+        self.assertFalse(sync_vehicle_km_from_exit(vehicle=self.vehicle, km_final=None))
+        self.assertFalse(sync_vehicle_km_from_exit(vehicle=self.vehicle, km_final=50_000))
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.km, 50_000)
+
     def test_budget_approval_does_not_overwrite_vehicle_km_with_entry_km(self) -> None:
         user = User.objects.create_user(username="km-user", password="senha123", cpf="12345678901")
         budget = Budget.objects.create(

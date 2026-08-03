@@ -34,6 +34,9 @@ def render_emission_preview_modal(
     transmit_url: str,
     hidden_fields: list[dict[str, str]],
     description: str = "",
+    allow_transmission: bool = True,
+    transmit_target: str = "#step-container",
+    transmit_label: str = "Transmitir",
 ) -> HttpResponse:
     response = render(
         request,
@@ -44,6 +47,9 @@ def render_emission_preview_modal(
             "transmit_url": transmit_url,
             "hidden_fields": hidden_fields,
             "description": description,
+            "allow_transmission": allow_transmission,
+            "transmit_target": transmit_target,
+            "transmit_label": transmit_label,
         },
     )
     if getattr(request, "htmx", False):

@@ -196,7 +196,7 @@ def handle_budget_approved_mileage(*, budget: Budget) -> None:
     if vehicle is None or budget.current_km is None:
         return
 
-    if vehicle.km != budget.current_km:
+    if vehicle.km is None or budget.current_km > vehicle.km:
         vehicle.km = budget.current_km
         vehicle.save(update_fields=["km", "atualizado_em"])
 
