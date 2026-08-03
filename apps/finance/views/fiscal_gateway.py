@@ -67,8 +67,8 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         ),
         FiscalOperationCard(
             value=FiscalOperation.TRANSPORT,
-            label="Transporte",
-            description="Emita uma NF-e por Ordem de Serviço com modalidade, transportador, veículo, volumes e reboques.",
+            label="Nota de Transporte",
+            description="Selecione uma NF-e de entrada e os produtos próprios que serão transportados.",
             icon="local_shipping",
         ),
     )
@@ -83,6 +83,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperation.CORRECTION: (("finance", "fiscaldocumentevent", "issue_nfe_correction"),),
         FiscalOperation.COMPLEMENTARY: (("finance", "fiscaldocument", "issue_nfe_complementary_price_quantity"),),
         FiscalOperation.ADJUSTMENT: (("finance", "fiscaldocument", "issue_nfe_adjustment"),),
+        FiscalOperation.TRANSPORT: (("finance", "transportrequest", "issue_nfe_transport"),),
     }
 
     def _has_operation_permission(self, operation: str) -> bool:
@@ -145,9 +146,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             return HttpResponseRedirect(reverse("finance:purchase_return_create"))
 
         if operation == FiscalOperation.TRANSPORT:
-            messages.info(self.request, "O transporte faz parte da NF-e. Preencha os dados na emissão por Ordem de Serviço.")
-            query = urlencode({"tipo": "nfe", "reset": 1, "operacao": operation})
-            return HttpResponseRedirect(f"{reverse('finance:emission_normal')}?{query}")
+            return HttpResponseRedirect(reverse("finance:transport_create"))
 
         messages.info(self.request, self.EXISTING_OPERATION_MESSAGES[operation])
         query = urlencode({"tipo": "nfe", "operacao": operation})
