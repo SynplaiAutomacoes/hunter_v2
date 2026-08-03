@@ -39,6 +39,19 @@ class SynplaiSignGatewayHelperTests(SimpleTestCase):
         self.assertEqual(mapped[0]["fieldX"], 10.0)
         self.assertEqual(mapped[0]["fieldY"], 20.0)
 
+    def test_map_signatories_omits_field_coords_for_html(self) -> None:
+        mapped = _map_signatories(
+            signatory={"name": "Cliente", "email": "a@b.com", "signingOrder": 0},
+            fields=[{"pageNumber": 2, "position": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0}}],
+            include_field_coords=False,
+        )
+        self.assertEqual(mapped[0]["order"], 0)
+        self.assertNotIn("fieldPage", mapped[0])
+        self.assertNotIn("fieldX", mapped[0])
+        self.assertNotIn("fieldY", mapped[0])
+        self.assertNotIn("fieldWidth", mapped[0])
+        self.assertNotIn("fieldHeight", mapped[0])
+
     def test_map_signatories_sets_both_when_phone_present(self) -> None:
         mapped = _map_signatories(
             signatory={
@@ -90,7 +103,7 @@ class SynplaiSignSignatureServiceTests(SimpleTestCase):
 
         result = self.service.send_document(
             SignatureSendRequest(
-                pdf_bytes=b"%PDF",
+                document_bytes=b"%PDF",
                 file_name="doc.pdf",
                 document_ref_id="budget-1",
                 title="Orcamento #1",
@@ -110,10 +123,52 @@ class SynplaiSignSignatureServiceTests(SimpleTestCase):
         create_envelope_mock.assert_called_once()
         self.assertEqual(create_envelope_mock.call_args.kwargs["api_key"], "sk_live_workshop")
         self.assertEqual(create_envelope_mock.call_args.kwargs["whatsapp_instance"], "workshop_19")
+        self.assertEqual(create_envelope_mock.call_args.kwargs["content_type"], "application/pdf")
         signatories = create_envelope_mock.call_args.kwargs["signatories"]
         self.assertEqual(signatories[0]["order"], 0)
         self.assertEqual(signatories[0]["deliveryChannel"], "EMAIL")
+        self.assertIn("fieldX", signatories[0])
         send_envelope_mock.assert_called_once_with(api_key="sk_live_workshop", envelope_id="env-1")
+
+    @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
+    @patch("apps.core.infrastructure.services.signature_synplaisign.gateway.send_envelope")
+    @patch("apps.core.infrastructure.services.signature_synplaisign.gateway.create_envelope")
+    def test_send_document_html_omits_field_coords(
+        self,
+        create_envelope_mock: Mock,
+        send_envelope_mock: Mock,
+    ) -> None:
+        create_envelope_mock.return_value = SynplaiSignGatewayResult(
+            envelope_id="env-html",
+            signing_token="tok-html",
+            raw_response={"id": "env-html"},
+        )
+        send_envelope_mock.return_value = {"message": "ok"}
+        html_bytes = b'<div class="signature-block" sign-box></div>'
+
+        result = self.service.send_document(
+            SignatureSendRequest(
+                document_bytes=html_bytes,
+                file_name="orcamento-1.html",
+                document_ref_id="budget-1",
+                title="Orcamento #1",
+                message="Assine",
+                signatory={"name": "Joao", "email": "joao@example.com", "signingOrder": 0},
+                observers=[],
+                fields=[],
+                api_key="sk_live_workshop",
+                content_type="text/html",
+            )
+        )
+
+        self.assertEqual(result.envelope_id, "env-html")
+        kwargs = create_envelope_mock.call_args.kwargs
+        self.assertEqual(kwargs["document_bytes"], html_bytes)
+        self.assertEqual(kwargs["content_type"], "text/html")
+        self.assertEqual(kwargs["file_name"], "orcamento-1.html")
+        signatory = kwargs["signatories"][0]
+        self.assertNotIn("fieldX", signatory)
+        self.assertNotIn("fieldPage", signatory)
 
     @patch("apps.core.infrastructure.services.signature_synplaisign.gateway.download_signed_document", return_value=b"%PDF-1.4")
     def test_download_prefers_envelope_id(self, download_mock: Mock) -> None:
@@ -281,21 +336,23 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
 
 class BudgetSignatureSendTests(SimpleTestCase):
     @patch("apps.budget.service.get_signature_service")
-    @patch("apps.budget.service.render_budget_pdf_document")
+    @patch("apps.budget.service.render_budget_signature_html_document")
     def test_send_budget_uses_workshop_api_key_without_evolution_dispatch(
         self,
-        render_pdf_mock: Mock,
+        render_html_mock: Mock,
         get_service_mock: Mock,
     ) -> None:
         from apps.budget.service import send_budget_for_signature
 
-        render_pdf_mock.return_value = SimpleNamespace(content=b"%PDF")
+        render_html_mock.return_value = SimpleNamespace(
+            content=b'<html><div class="signature-block" sign-box></div></html>',
+            content_type="text/html; charset=utf-8",
+        )
         service = Mock()
         service.build_signatory_and_observers.return_value = (
             {"name": "Cliente", "email": "c@example.com", "phoneNumber": "+5511988887777", "signingOrder": 0},
             [],
         )
-        service.build_signature_fields.return_value = []
         service.send_document.return_value = SignatureSendResult(
             envelope_id="env-1",
             document_id="env-1",
@@ -315,9 +372,49 @@ class BudgetSignatureSendTests(SimpleTestCase):
         with patch("apps.budget.service.get_workshop_synplaisign_api_key", return_value="sk_live_x"):
             result = send_budget_for_signature(budget=budget)
         self.assertEqual(result.envelope_id, "env-1")
-        self.assertEqual(service.send_document.call_args.args[0].api_key, "sk_live_x")
-        self.assertEqual(service.send_document.call_args.args[0].whatsapp_instance, "workshop_2")
-        self.assertEqual(service.send_document.call_args.args[0].signatory["phoneNumber"], "+5511988887777")
+        send_request = service.send_document.call_args.args[0]
+        self.assertEqual(send_request.api_key, "sk_live_x")
+        self.assertEqual(send_request.whatsapp_instance, "workshop_2")
+        self.assertEqual(send_request.signatory["phoneNumber"], "+5511988887777")
+        self.assertEqual(send_request.content_type, "text/html")
+        self.assertTrue(send_request.file_name.endswith(".html"))
+        self.assertIn(b"sign-box", send_request.document_bytes)
+        self.assertEqual(send_request.fields, [])
 
     def tearDown(self) -> None:
         set_signature_service(SynplaiSignSignatureService())
+
+
+class SignatureHtmlDocumentTests(SimpleTestCase):
+    def test_signature_template_includes_sign_box(self) -> None:
+        from django.template.loader import get_template
+
+        template_source = get_template("budget/partials/pdf/visualizarPDF.html").template.source
+        self.assertIn('class="signature-block" sign-box', template_source)
+
+    @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
+    @patch("apps.core.infrastructure.gateways.synplaisign.requests.post")
+    def test_create_envelope_sends_html_multipart(self, requests_post_mock: Mock) -> None:
+        from apps.core.infrastructure.gateways.synplaisign import create_envelope
+
+        response = Mock()
+        response.status_code = 200
+        response.raise_for_status = Mock()
+        response.json.return_value = {"id": "env-1", "signatories": [{"token": "tok"}]}
+        requests_post_mock.return_value = response
+
+        html = b"<html sign-box></html>"
+        create_envelope(
+            api_key="sk_live",
+            document_bytes=html,
+            file_name="doc.html",
+            title="T",
+            message="M",
+            signatories=[{"name": "A", "email": "a@b.com", "order": 0, "deliveryChannel": "EMAIL"}],
+            content_type="text/html",
+        )
+
+        files = requests_post_mock.call_args.kwargs["files"]
+        self.assertEqual(files["file"][0], "doc.html")
+        self.assertEqual(files["file"][1], html)
+        self.assertEqual(files["file"][2], "text/html")

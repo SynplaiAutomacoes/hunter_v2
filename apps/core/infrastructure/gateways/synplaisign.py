@@ -159,15 +159,18 @@ def register_with_api_key(
 def create_envelope(
     *,
     api_key: str,
-    pdf_bytes: bytes,
+    document_bytes: bytes,
     file_name: str,
     title: str,
     message: str,
     signatories: list[dict[str, Any]],
     whatsapp_instance: str = "",
+    content_type: str = "application/pdf",
 ) -> SynplaiSignGatewayResult:
     base_url = _require_base_url()
-    files = {"file": (file_name or "document.pdf", pdf_bytes, "application/pdf")}
+    resolved_content_type = str(content_type or "application/pdf").strip() or "application/pdf"
+    default_name = "document.html" if "html" in resolved_content_type.lower() else "document.pdf"
+    files = {"file": (file_name or default_name, document_bytes, resolved_content_type)}
     data: dict[str, str] = {
         "title": title,
         "message": message,
@@ -183,7 +186,8 @@ def create_envelope(
             "file_name": file_name,
             "title": title,
             "signatories_count": len(signatories),
-            "pdf_bytes_size": len(pdf_bytes),
+            "document_bytes_size": len(document_bytes),
+            "content_type": resolved_content_type,
             "whatsapp_instance": instance_name or None,
         },
     )

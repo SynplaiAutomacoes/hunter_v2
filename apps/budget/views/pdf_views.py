@@ -7,7 +7,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_exempt
 
-from apps.budget.documents.provider import render_budget_pdf_document
+from apps.budget.documents.provider import render_budget_pdf_document, render_budget_signature_html_document
 from apps.budget.models import Budget
 from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_logo_data_uri
 from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, can_use_signed_budget_pdf, should_default_to_signed_budget_pdf
@@ -270,14 +270,26 @@ def visualizar_pdf_assinatura(request, pk):
         except (SignatureServiceError, WorkshopSynplaiSignError):
             logger.warning("budget_signed_pdf_load_failed", extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id})
 
+    if should_download:
+        try:
+            document = render_budget_pdf_document(
+                budget=budget,
+                request=request,
+                filename=f"orcamento_{budget.id}_base.pdf",
+            )
+        except Exception:
+            logger.exception("budget_pdf_base_generation_failed", extra={"budget_id": budget.id, "pdf_type": "view"})
+            return HttpResponse("Erro ao gerar PDF", status=500)
+        return build_pdf_http_response(document=document, download=True)
+
     try:
-        document = render_budget_pdf_document(
+        document = render_budget_signature_html_document(
             budget=budget,
             request=request,
-            filename=f"orcamento_{budget.id}_base.pdf",
+            filename=f"orcamento_{budget.id}_base.html",
         )
     except Exception:
-        logger.exception("budget_pdf_base_generation_failed", extra={"budget_id": budget.id, "pdf_type": "view"})
-        return HttpResponse("Erro ao gerar PDF", status=500)
+        logger.exception("budget_signature_html_preview_failed", extra={"budget_id": budget.id})
+        return HttpResponse("Erro ao gerar preview", status=500)
 
-    return build_pdf_http_response(document=document, download=should_download)
+    return build_pdf_http_response(document=document, download=False)

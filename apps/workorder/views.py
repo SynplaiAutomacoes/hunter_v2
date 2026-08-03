@@ -54,6 +54,7 @@ from apps.workorder.documents.provider import (
     build_workorder_pdf_render_request,
     build_workorder_status_report_pdf_render_request,
     render_workorder_pdf_document,
+    render_workorder_signature_html_document,
     render_workorder_status_report_pdf_document,
 )
 from apps.workorder.forms import (
@@ -1464,17 +1465,29 @@ def visualizar_pdf_workorder(request, pk):
         except (SignatureServiceError, WorkshopSynplaiSignError):
             logger.warning("workorder_signed_pdf_load_failed", extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id})
 
+    if should_download:
+        try:
+            document = render_workorder_pdf_document(
+                workorder=workorder,
+                request=request,
+                filename=f"ordem_servico_{workorder.get_id}_base.pdf",
+            )
+        except Exception:
+            logger.exception("workorder_pdf_base_generation_failed", extra={"workorder_id": workorder.pk, "pdf_type": "view"})
+            return HttpResponse("Erro ao gerar PDF", status=500)
+        return build_pdf_http_response(document=document, download=True)
+
     try:
-        document = render_workorder_pdf_document(
+        document = render_workorder_signature_html_document(
             workorder=workorder,
             request=request,
-            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
+            filename=f"ordem_servico_{workorder.get_id}_base.html",
         )
     except Exception:
-        logger.exception("workorder_pdf_base_generation_failed", extra={"workorder_id": workorder.pk, "pdf_type": "view"})
-        return HttpResponse("Erro ao gerar PDF", status=500)
+        logger.exception("workorder_signature_html_preview_failed", extra={"workorder_id": workorder.pk})
+        return HttpResponse("Erro ao gerar preview", status=500)
 
-    return build_pdf_http_response(document=document, download=should_download)
+    return build_pdf_http_response(document=document, download=False)
 
 
 def send_workorder_signature(request, pk):

@@ -48,7 +48,12 @@ def _resolve_delivery_channel(*, phone_digits: str, explicit: object = None) -> 
     return "BOTH" if phone_digits else "EMAIL"
 
 
-def _map_signatories(*, signatory: dict[str, Any], fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _map_signatories(
+    *,
+    signatory: dict[str, Any],
+    fields: list[dict[str, Any]],
+    include_field_coords: bool = True,
+) -> list[dict[str, Any]]:
     order_raw = signatory.get("signingOrder", signatory.get("order", 0))
     try:
         order = int(order_raw)
@@ -72,6 +77,9 @@ def _map_signatories(*, signatory: dict[str, Any], fields: list[dict[str, Any]])
     if phone_digits:
         mapped["phone"] = phone_digits
 
+    if not include_field_coords:
+        return [mapped]
+
     field = fields[0] if fields else None
     position = SIGNATURE_POSITION
     page_number = 1
@@ -93,6 +101,10 @@ def _map_signatories(*, signatory: dict[str, Any], fields: list[dict[str, Any]])
     return [mapped]
 
 
+def _is_html_content_type(content_type: str) -> bool:
+    return "html" in str(content_type or "").lower()
+
+
 def _require_request_api_key(api_key: str) -> str:
     normalized = str(api_key or "").strip()
     if not normalized:
@@ -103,16 +115,22 @@ def _require_request_api_key(api_key: str) -> str:
 class SynplaiSignSignatureService(ISignatureService):
     def send_document(self, request: SignatureSendRequest) -> SignatureSendResult:
         api_key = _require_request_api_key(request.api_key)
-        signatories = _map_signatories(signatory=request.signatory, fields=request.fields)
+        include_field_coords = not _is_html_content_type(request.content_type)
+        signatories = _map_signatories(
+            signatory=request.signatory,
+            fields=request.fields,
+            include_field_coords=include_field_coords,
+        )
         try:
             created = gateway.create_envelope(
                 api_key=api_key,
-                pdf_bytes=request.pdf_bytes,
+                document_bytes=request.document_bytes,
                 file_name=request.file_name,
                 title=request.title,
                 message=request.message,
                 signatories=signatories,
                 whatsapp_instance=request.whatsapp_instance,
+                content_type=request.content_type,
             )
             gateway.send_envelope(api_key=api_key, envelope_id=created.envelope_id)
             signing_url = ""

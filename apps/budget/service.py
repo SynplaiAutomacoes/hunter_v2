@@ -1,4 +1,4 @@
-from apps.budget.documents.provider import render_budget_pdf_document
+from apps.budget.documents.provider import render_budget_signature_html_document
 from apps.core.domain.contracts.documents import SignatureRecipient
 from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult, SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
@@ -61,23 +61,11 @@ class SignatureError(Exception):
 SuperSignError = SignatureError
 
 
-def _calculate_pdf_total_pages(budget) -> int:
-    return 1
-
-
-def _build_signature_fields(budget) -> list[dict]:
-    return get_signature_service().build_signature_fields(
-        document_ref_id=f"budget-{budget.id}",
-        signatory_ref_id=f"customer-{budget.id}",
-        page_number=_calculate_pdf_total_pages(budget),
-    )
-
-
-def _build_budget_pdf_bytes(*, budget, request=None) -> bytes:
+def _build_budget_signature_html_bytes(*, budget, request=None) -> bytes:
     try:
-        return render_budget_pdf_document(budget=budget, request=request).content
+        return render_budget_signature_html_document(budget=budget, request=request).content
     except Exception as exc:
-        raise SignatureError(f"Erro ao gerar PDF para assinatura via Playwright: {exc}") from exc
+        raise SignatureError(f"Erro ao gerar HTML para assinatura: {exc}") from exc
 
 
 def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
@@ -102,8 +90,8 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
         ),
     )
 
-    pdf_bytes = _build_budget_pdf_bytes(budget=budget, request=request)
-    file_name = f"orcamento-{budget.id}.pdf"
+    document_bytes = _build_budget_signature_html_bytes(budget=budget, request=request)
+    file_name = f"orcamento-{budget.id}.html"
     title = f"Orcamento #{budget.id}"
 
     try:
@@ -116,16 +104,17 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
     try:
         result = get_signature_service().send_document(
             SignatureSendRequest(
-                pdf_bytes=pdf_bytes,
+                document_bytes=document_bytes,
                 file_name=file_name,
                 document_ref_id=f"budget-{budget.id}",
                 title=title,
                 message="Segue orcamento para assinatura.",
                 signatory=signatory,
                 observers=observers,
-                fields=_build_signature_fields(budget),
+                fields=[],
                 api_key=api_key,
                 whatsapp_instance=whatsapp_instance,
+                content_type="text/html",
             )
         )
     except SignatureServiceError as exc:

@@ -13,7 +13,7 @@ class SignatureServiceError(Exception):
 
 @dataclass(frozen=True)
 class SignatureSendRequest:
-    pdf_bytes: bytes
+    document_bytes: bytes
     file_name: str
     document_ref_id: str
     title: str
@@ -24,6 +24,12 @@ class SignatureSendRequest:
     folder_id: str = ""
     api_key: str = ""
     whatsapp_instance: str = ""
+    content_type: str = "application/pdf"
+
+    @property
+    def pdf_bytes(self) -> bytes:
+        """Deprecated alias for document_bytes."""
+        return self.document_bytes
 
 
 @dataclass(frozen=True)
