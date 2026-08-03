@@ -30,6 +30,7 @@ def backfill_budget_type(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("budget", "0035_budget_budget_type"),
         ("workorder", "0024_workorder_budget_type"),
     ]
 
