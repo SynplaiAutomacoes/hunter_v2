@@ -39,7 +39,8 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Recria org/API key SynplaiSign mesmo se a oficina ja tiver chave local. "
-                "Pode falhar se o email do Owner ja existir na SynplaiSign."
+                "Se outra oficina do mesmo owner ja tiver credenciais, reutiliza essa chave "
+                "(SynplaiSign nao permite email de Owner duplicado)."
             ),
         )
         parser.add_argument(
@@ -78,6 +79,7 @@ class Command(BaseCommand):
         synced = 0
         failed = 0
         for workshop in workshops.iterator():
+            previous_key_id = str(workshop.synplaisign_api_key_id or "").strip()
             had_key = bool(str(workshop.synplaisign_api_key or "").strip())
             try:
                 provision_workshop_synplaisign(
@@ -95,10 +97,22 @@ class Command(BaseCommand):
                     ]
                 )
                 synced += 1
-                if force_recreate:
+                current_key_id = str(workshop.synplaisign_api_key_id or "").strip()
+                sibling_shares_key = False
+                if workshop.account_id and current_key_id:
+                    sibling_shares_key = (
+                        Workshop.objects.filter(account_id=workshop.account_id)
+                        .exclude(pk=workshop.pk)
+                        .filter(synplaisign_api_key_id=current_key_id)
+                        .exclude(synplaisign_api_key_id="")
+                        .exists()
+                    )
+                if force_recreate and had_key and current_key_id and current_key_id != previous_key_id:
                     action = "recriado"
                 elif had_key:
                     action = "reutilizado"
+                elif sibling_shares_key:
+                    action = "reutilizado_owner"
                 else:
                     action = "criado"
                 self.stdout.write(
