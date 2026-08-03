@@ -18,9 +18,7 @@ def can_use_signed_budget_pdf(*, budget) -> bool:
 
 
 def should_default_to_signed_budget_pdf(*, budget) -> bool:
-    from apps.budget.models import SignatureStatus
-
-    return bool(budget.signature_document_id or budget.signature_external_id) and budget.signature_request_status == SignatureStatus.APPROVED
+    return can_use_signed_budget_pdf(budget=budget)
 
 
 def build_signature_payload(budget) -> dict:

@@ -116,7 +116,7 @@ def _can_use_signed_workorder_pdf(workorder: WorkOrder) -> bool:
 
 
 def _should_default_to_signed_workorder_pdf(workorder: WorkOrder) -> bool:
-    return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status == WorkOrderSignatureStatus.APPROVED
+    return _can_use_signed_workorder_pdf(workorder)
 
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -1446,7 +1446,8 @@ def visualizar_pdf_workorder(request, pk):
     pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
     _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
     should_download = request.GET.get("download") == "1"
-    requested_variant = _get_requested_pdf_variant(request)
+    explicit_variant = _get_requested_pdf_variant(request)
+    requested_variant = explicit_variant
 
     if requested_variant is None:
         requested_variant = SIGNED_PDF_VARIANT if _should_default_to_signed_workorder_pdf(workorder) else BASE_PDF_VARIANT
@@ -1456,11 +1457,7 @@ def visualizar_pdf_workorder(request, pk):
             from apps.core.infrastructure.services.signature_download import download_signed_pdf
             from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
-            try:
-                synplaisign_api_key = get_workshop_synplaisign_api_key(workorder.workshop)
-            except WorkshopSynplaiSignError:
-                synplaisign_api_key = ""
-
+            synplaisign_api_key = get_workshop_synplaisign_api_key(workorder.workshop)
             signed_pdf = download_signed_pdf(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,
@@ -1472,8 +1469,20 @@ def visualizar_pdf_workorder(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureServiceError:
-            logger.warning("workorder_signed_pdf_load_failed", extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id})
+        except WorkshopSynplaiSignError as exc:
+            logger.warning(
+                "workorder_signed_pdf_load_failed",
+                extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id, "error": str(exc)},
+            )
+            if explicit_variant == SIGNED_PDF_VARIANT:
+                return HttpResponse(str(exc) or "Erro ao carregar PDF assinado", status=502)
+        except SignatureServiceError as exc:
+            logger.warning(
+                "workorder_signed_pdf_load_failed",
+                extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id, "error": str(exc)},
+            )
+            if explicit_variant == SIGNED_PDF_VARIANT:
+                return HttpResponse(str(exc) or "Erro ao carregar PDF assinado", status=502)
 
     try:
         document = render_workorder_pdf_document(

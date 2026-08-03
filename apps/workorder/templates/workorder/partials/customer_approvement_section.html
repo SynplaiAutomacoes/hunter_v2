@@ -94,10 +94,19 @@
                         const el = document.getElementById('id_km_final');
                         const hasKm = Boolean(el && el.value.trim());
                         const kmValid = hasKm && el.checkValidity();
+                        const canToggleSignedPdf = {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %};
+                        const pdfViewUrl = '{% url 'workorder:visualizar_pdf' workorder.pk %}';
+                        const signedPdfUrl = pdfViewUrl + '?variant=signed';
+                        const basePdfUrl = pdfViewUrl + '?variant=base';
+                        const signedDownloadUrl = pdfViewUrl + '?download=1&variant=signed';
+                        const baseDownloadUrl = pdfViewUrl + '?download=1&variant=base';
+                        const initialPdfVariant = canToggleSignedPdf ? 'signed' : 'base';
+                        const initialPdfUrl = canToggleSignedPdf ? signedPdfUrl : basePdfUrl;
+                        const initialDownloadUrl = canToggleSignedPdf ? signedDownloadUrl : baseDownloadUrl;
                         window.dispatchEvent(new CustomEvent('open-pdf-modal', {
                             detail: {
-                                url: '{% url 'workorder:visualizar_pdf' workorder.pk %}',
-                                downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1',
+                                url: initialPdfUrl,
+                                downloadUrl: initialDownloadUrl,
                                 showSignatureBtn: true,
                                 isStatusLocked: {% if workorder.is_status_locked %}true{% else %}false{% endif %},
                                 signatureBlocked: Boolean(gate.hasSignatureBlockers),
@@ -106,12 +115,12 @@
                                 kmBlockedReason: !hasKm
                                     ? 'É necessário inserir o Km Final para desbloquear o botão'
                                     : (!kmValid ? (el.validationMessage || 'KM final inválido') : ''),
-                                showPdfVariantToggle: {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %},
-                                pdfVariant: '',
-                                signedPdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',
-                                basePdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=base',
-                                signedDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=signed',
-                                baseDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=base'
+                                showPdfVariantToggle: canToggleSignedPdf,
+                                pdfVariant: initialPdfVariant,
+                                signedPdfUrl: signedPdfUrl,
+                                basePdfUrl: basePdfUrl,
+                                signedDownloadUrl: signedDownloadUrl,
+                                baseDownloadUrl: baseDownloadUrl
                             }
                         }));
                     })()">
