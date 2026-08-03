@@ -1,0 +1,39 @@
+<script>
+(function () {
+    window.applyProfitabilityFeedback = function () {
+        const feedback = document.getElementById('multiplier-feedback');
+        if (!feedback) {
+            return;
+        }
+        const valueInput = document.getElementById('id_profitability_multiplier');
+        if (!valueInput) {
+            return;
+        }
+
+        const multiplier = parseFloat(String(valueInput.value || '').replace(',', '.'));
+        const isValid = !Number.isNaN(multiplier);
+        const isLow = isValid && multiplier < 3.0;
+        const isOk = isValid && !isLow;
+
+        const displayInput = feedback.querySelector('input[type="text"]');
+        if (displayInput) {
+            displayInput.classList.toggle('ring-error', isLow);
+            displayInput.classList.toggle('text-error', isLow);
+            displayInput.classList.toggle('ring-success', isOk);
+            displayInput.classList.toggle('text-success', isOk);
+        }
+
+        const warn = document.getElementById('multiplier-warn');
+        if (warn) {
+            warn.classList.toggle('hidden', !isLow);
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', window.applyProfitabilityFeedback);
+    document.body.addEventListener('htmx:afterSwap', function (event) {
+        if (event.target && event.target.id === 'calculation-results') {
+            window.applyProfitabilityFeedback();
+        }
+    });
+})();
+</script>
