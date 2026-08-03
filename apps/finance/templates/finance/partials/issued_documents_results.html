@@ -87,7 +87,9 @@
                                 </div>
                             </td>
                             <td class="text-right">
-                                <a href="{{ row.detail_url }}" class="btn btn-ghost btn-xs">Abrir</a>
+                                <a href="{{ row.detail_url }}" class="btn-table-view" title="Visualizar nota" aria-label="Visualizar nota">
+                                    <span class="material-icons text-base">visibility</span>
+                                </a>
                             </td>
                         </tr>
                     {% endfor %}

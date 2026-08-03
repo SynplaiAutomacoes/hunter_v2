@@ -19,7 +19,7 @@ Pelo mapa de rotas em `apps/budget/urls.py`, o app de orcamento cobre:
 - observacoes e resumos
 - PDFs e visualizacoes auxiliares
 - assinatura digital
-- webhook da SuperSign
+- webhook da SynplaiSign
 - criacao rapida de itens locais
 
 ## O fluxo de orcamento em termos praticos
@@ -72,17 +72,22 @@ O app de orcamento possui endpoints para:
 - envio para assinatura
 - preview por token
 - download/arquivo por token
-- webhook de conclusao da SuperSign
+- webhook de conclusao da SynplaiSign
 
 Isso indica um fluxo completo de assinatura no proprio dominio do orcamento.
 
+O envio cria o envelope na SynplaiSign com a **API key da oficina**, envia o documento como **HTML** (mesmo template do modal, com atributo `sign-box` no bloco de assinatura; sem coordenadas `fieldX/Y/...`), inclui `phone` + `deliveryChannel` (`EMAIL` ou `BOTH` quando ha telefone), envia `whatsappInstance` com o `whatsapp_instance_name` da oficina e dispara a entrega via `POST /envelopes/:id/send`. O preview/download do modal **sem assinatura** continua em PDF (Playwright). **Respostas da SynplaiSign (documento assinado e downloads) sao sempre PDF.** O WhatsApp de assinatura e nativo da SynplaiSign (usando a instancia da oficina); o WhatsApp Evolution da oficina (`whatsapp_instance_name`) continua usado tambem por messaging (agendamento, grupos, planos de revisao, etc.).
+
+Cada oficina recebe sua propria organizacao/API key no cadastro via `POST /auth/register-with-api-key` (Master Key), com `organizationName` = nome fantasia (fallback razao social), dados do Owner da conta e senha aleatoria criptografada em `Workshop.synplaisign_owner_password`. A API key fica em `Workshop.synplaisign_api_key`, junto com o secret do webhook daquela chave.
+
 ## Comando de sincronizacao de webhook
 
-O comando `manage.py webhook`, implementado em `apps/budget/management/commands/webhook.py`, faz a criacao/atualizacao do endpoint remoto de webhook da SuperSign para o evento `ENVELOPE_COMPLETED`.
+O comando `manage.py webhook`, implementado em `apps/budget/management/commands/webhook.py`, provisiona API keys/webhooks SynplaiSign por oficina (ou `--workshop-id`) para o evento `ENVELOPE_COMPLETED`. Use `--force-recreate` (obrigatorio com `--workshop-id`) para recriar credenciais locais/remotas e `--show-secrets` para imprimir API key e senha aleatoria do OWNER SynplaiSign.
 
 Pontos importantes do comando:
 
-- usa `APP_BASE_URL` para construir URL absoluta
+- usa `APP_BASE_URL` para construir URL absoluta (`/budget/signature/webhook/`)
+- exige `SYNPLAISIGN_MASTER_KEY` para criar chaves faltantes
 - avisa quando a URL publica nao esta adequadamente configurada
 - pode falhar em modo estrito
 - e chamado automaticamente no `entrypoint.sh`
@@ -99,8 +104,9 @@ Sem `APP_BASE_URL` correto:
 
 - `apps/budget/urls.py`
 - `apps/budget/management/commands/webhook.py`
-- `apps/core/documents/webhook.py`
-- `apps/core/documents/services.py`
+- `apps/core/infrastructure/services/signature_webhook.py`
+- `apps/core/infrastructure/services/signature_synplaisign.py`
+- `apps/core/infrastructure/gateways/synplaisign.py`
 
 ## Perguntas que valem ao alterar esse modulo
 
@@ -115,8 +121,9 @@ Sem `APP_BASE_URL` correto:
 ### Assinatura nao conclui
 
 - confira `APP_BASE_URL`
-- confira credenciais `SUPERSIGN_*`
-- confira se o webhook remoto foi sincronizado
+- confira `SYNPLAISIGN_MASTER_KEY` e se a oficina tem `synplaisign_api_key` provisionada
+- confira se o webhook remoto da oficina foi sincronizado
+- confira HMAC `x-synplai-signature` (secret da oficina)
 
 ### Calculo parece inconsistente
 

@@ -160,14 +160,13 @@ Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (def
 | `WEBMANIA_B2B_ACCESS_TOKEN_SECRET` | credencial B2B |
 | `WEBMANIA_WEBHOOK_TOKEN` | token base para autenticacao de webhook |
 
-### SuperSign
+### SynplaiSign
 
 | Variavel | Uso |
 | --- | --- |
-| `SUPERSIGN_BASE_URL` | URL base da API |
-| `SUPERSIGN_ACCOUNT_ID` | conta do provedor |
-| `SUPERSIGN_API_KEY` | chave de integracao |
-| `SUPERSIGN_FOLDER_ID` | pasta/container de documentos |
+| `SYNPLAISIGN_BASE_URL` | URL base da API de assinatura |
+| `SYNPLAISIGN_MASTER_KEY` | Master key para `POST /auth/register-with-api-key` (cria org + OWNER + chave por oficina) |
+| `SYNPLAISIGN_WEBHOOK_SECRET` | Fallback global de HMAC (preferir secret por oficina) |
 
 ### Storage Bucket S3 compativel
 
@@ -178,6 +177,19 @@ Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (def
 | `BUCKET` | nome do bucket |
 | `ENDPOINT` | endpoint S3 compativel |
 | `REGION` | regiao do bucket, normalmente `auto` |
+
+### E-mail (SMTP)
+
+Usado para envio de e-mails transacionais (fluxos de autenticacao por codigo). O provider `DjangoSmtpEmailService` usa o `EmailBackend` SMTP do Django e le as credenciais destas variaveis:
+
+| Variavel | Uso |
+| --- | --- |
+| `EMAIL_HOST` | host SMTP (default `smtp.gmail.com`) |
+| `EMAIL_PORT` | porta SMTP (default `587`) |
+| `EMAIL_HOST_USER` | usuario/endereco SMTP (ex.: app password do Gmail) |
+| `EMAIL_HOST_PASSWORD` | senha de aplicativo do SMTP (nunca logada) |
+| `EMAIL_USE_TLS` | habilita TLS (`1`/`true`) |
+| `DEFAULT_FROM_EMAIL` | remetente padrao; obrigatorio para `get_email_service()` funcionar |
 
 ### Seguranca e log em producao
 
@@ -242,16 +254,22 @@ WEBMANIA_B2B_ACCESS_TOKEN=
 WEBMANIA_B2B_ACCESS_TOKEN_SECRET=
 WEBMANIA_WEBHOOK_TOKEN=
 
-SUPERSIGN_BASE_URL=https://api.sign.supersign.com.br
-SUPERSIGN_ACCOUNT_ID=
-SUPERSIGN_API_KEY=
-SUPERSIGN_FOLDER_ID=
+SYNPLAISIGN_BASE_URL=https://synplaisign.up.railway.app
+SYNPLAISIGN_MASTER_KEY=
+SYNPLAISIGN_WEBHOOK_SECRET=
 
 ACCESS_KEY_ID=
 SECRET_ACCESS_KEY=
 BUCKET=
 ENDPOINT=https://storage.railway.app
 REGION=auto
+
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+EMAIL_USE_TLS=1
+DEFAULT_FROM_EMAIL=
 
 DJANGO_LOG_LEVEL=DEBUG
 DJANGO_ROOT_LOG_LEVEL=DEBUG

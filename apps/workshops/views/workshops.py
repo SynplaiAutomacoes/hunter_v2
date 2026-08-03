@@ -49,6 +49,7 @@ from apps.workshops.services.files import (
     get_workshop_logo_file,
     schedule_workshop_files_cleanup,
 )
+from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, provision_workshop_synplaisign
 from apps.workshops.usecases.upload_file_usecase import UploadWorkshopFileUseCase
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
 from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director, is_workshop_manager
@@ -157,6 +158,11 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 create_default_monthly_costs(workshop=workshop)
                 create_default_message_templates(workshop=workshop)
 
+                from django.conf import settings as django_settings
+
+                if str(getattr(django_settings, "SYNPLAISIGN_MASTER_KEY", "") or "").strip():
+                    provision_workshop_synplaisign(workshop=workshop)
+
                 self.object = workshop
                 logger.info(
                     "workshop_create_succeeded workshop_id=%s account_id=%s user_id=%s",
@@ -171,6 +177,15 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 getattr(user_account, "id", None),
             )
             form.add_error(None, to_public_integration_message(str(exc)))
+            self.object = None
+            return self.form_invalid(form)
+        except WorkshopSynplaiSignError as exc:
+            logger.exception(
+                "workshop_create_failed_synplaisign user_id=%s account_id=%s",
+                getattr(user, "id", None),
+                getattr(user_account, "id", None),
+            )
+            form.add_error(None, f"Falha ao provisionar assinatura digital da oficina: {exc}")
             self.object = None
             return self.form_invalid(form)
 

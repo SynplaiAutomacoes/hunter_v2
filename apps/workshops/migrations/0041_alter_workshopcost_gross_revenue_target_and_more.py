@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("workshops", "0036_merge_20260731_1613"),
+        ("workshops", "0040_alter_workshop_google_review_min_rating"),
     ]
 
     operations = [
