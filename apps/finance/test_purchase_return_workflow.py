@@ -158,6 +158,22 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertFalse(search_purchase_imports(workshop=self.workshop, filters={"product": "inexistente"}).exists())
         self.assertFalse(search_purchase_imports(workshop=self.other_workshop, filters={}).exists())
 
+    def test_search_includes_normalized_legacy_purchase_without_validation_flag_or_cancelled_key(self) -> None:
+        self.stock_import.fiscal_snapshot = {"document": {"issued_at": "2026-08-02T10:00:00-03:00"}}
+        self.stock_import.fiscal_validation_status = StockImport.FiscalValidationStatus.UNVALIDATED
+        self.stock_import.save(update_fields=["fiscal_snapshot", "fiscal_validation_status"])
+
+        self.assertEqual(list(search_purchase_imports(workshop=self.workshop, filters={})), [self.stock_import])
+        self.assertEqual(find_purchase_by_access_key(workshop=self.workshop, access_key=ACCESS_KEY), self.stock_import)
+
+    def test_search_excludes_purchase_explicitly_marked_as_cancelled(self) -> None:
+        self.stock_import.fiscal_snapshot = {"document": {"cancelled": True}}
+        self.stock_import.save(update_fields=["fiscal_snapshot"])
+
+        self.assertFalse(search_purchase_imports(workshop=self.workshop, filters={}).exists())
+        with self.assertRaisesMessage(PurchaseReturnError, "não está autorizada"):
+            find_purchase_by_access_key(workshop=self.workshop, access_key=ACCESS_KEY)
+
     def test_ready_intention_reserves_balance_and_blocks_overflow(self) -> None:
         first = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=first, quantities={self.motor.pk: Decimal("1.5")})
@@ -180,8 +196,8 @@ class PurchaseReturnWorkflowTests(TestCase):
 
         response = view.get(request, pk=return_request.pk)
 
-        self.assertContains(response, "Revisar devolução")
-        self.assertContains(response, "Dados fiscais da devolução")
+        self.assertContains(response, "Revisar Nota de Devolução")
+        self.assertContains(response, "Dados fiscais da Nota de Devolução")
         self.assertContains(response, "Motor")
         self.assertContains(response, "R$ 1.500,50")
 
@@ -358,6 +374,9 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(self.motor_stock.current_quantity, Decimal("1.2500"))
 
     def test_source_selection_creates_reusable_draft_and_redirects_to_products(self) -> None:
+        self.stock_import.fiscal_snapshot = {"document": {"issued_at": "2026-08-02T10:00:00-03:00"}}
+        self.stock_import.fiscal_validation_status = StockImport.FiscalValidationStatus.UNVALIDATED
+        self.stock_import.save(update_fields=["fiscal_snapshot", "fiscal_validation_status"])
         request = self.factory.post(reverse("finance:purchase_return_create"), {"stock_import_id": self.stock_import.pk})
         request.user = self.user
         view = PurchaseReturnCreateView()
@@ -372,6 +391,9 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(return_request.current_step, 2)
 
     def test_source_list_does_not_require_access_key_and_shows_document_summary(self) -> None:
+        self.stock_import.fiscal_snapshot = {"document": {"issued_at": "2026-08-02T10:00:00-03:00"}}
+        self.stock_import.fiscal_validation_status = StockImport.FiscalValidationStatus.UNVALIDATED
+        self.stock_import.save(update_fields=["fiscal_snapshot", "fiscal_validation_status"])
         request = self.factory.get(reverse("finance:purchase_return_create"), {"supplier": "Fornecedor"})
         request.user = self.user
         view = PurchaseReturnCreateView()
@@ -381,6 +403,8 @@ class PurchaseReturnWorkflowTests(TestCase):
         response = view.get(request)
 
         self.assertContains(response, "Pesquisar NF-e recebidas")
+        self.assertContains(response, "Nota de Devolução")
+        self.assertNotContains(response, "Devolução ao fornecedor")
         self.assertContains(response, "Fornecedor Teste")
         self.assertContains(response, "987")
         self.assertContains(response, "3")

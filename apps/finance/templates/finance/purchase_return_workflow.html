@@ -4,9 +4,9 @@
 {% block crud_content %}
 <div class="space-y-6">
     <div>
-        <p class="text-sm font-medium uppercase tracking-wide text-primary">NF-e · Devolução de compra</p>
-        <h1 class="mt-1 text-3xl font-bold text-base-content">Devolução ao fornecedor</h1>
-        <p class="mt-1 text-base-content/70">Localize a nota recebida, selecione os produtos e emita a NF-e de devolução ao fornecedor.</p>
+        <p class="text-sm font-medium uppercase tracking-wide text-primary">NF-e</p>
+        <h1 class="mt-1 text-3xl font-bold text-base-content">Nota de Devolução</h1>
+        <p class="mt-1 text-base-content/70">Localize a nota recebida, selecione os produtos e emita a Nota de Devolução.</p>
     </div>
 
     <div class="alert alert-info">
@@ -14,7 +14,7 @@
         <span>A transmissão fiscal não movimenta o estoque nesta fase. A baixa definitiva será implementada separadamente.</span>
     </div>
 
-    <ol class="grid grid-cols-1 gap-3 md:grid-cols-4" aria-label="Etapas da devolução de compra">
+    <ol class="grid grid-cols-1 gap-3 md:grid-cols-4" aria-label="Etapas da Nota de Devolução">
         {% for number, title in steps %}
             <li>
                 {% if return_request and number <= max_reached_step and not is_ready %}
@@ -146,7 +146,7 @@
 
             {% elif current_step == 3 %}
                 <div>
-                    <h2 class="text-2xl font-bold">Revisar devolução</h2>
+                    <h2 class="text-2xl font-bold">Revisar Nota de Devolução</h2>
                     <p class="mt-1 text-base-content/70">Confira a origem, os itens e os dados fiscais antes de preparar a emissão.</p>
                 </div>
                 {% include 'finance/partials/purchase_return_summary.html' %}
@@ -154,7 +154,7 @@
                     {% csrf_token %}
                     {% if fiscal_form.non_field_errors %}<div class="alert alert-error">{{ fiscal_form.non_field_errors }}</div>{% endif %}
                     <div class="rounded-xl border border-base-300 bg-base-200/30 p-5">
-                        <h3 class="mb-4 text-lg font-semibold">Dados fiscais da devolução</h3>
+                        <h3 class="mb-4 text-lg font-semibold">Dados fiscais da Nota de Devolução</h3>
                         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                             {{ fiscal_form.operation_nature|as_crispy_field }}
                             {{ fiscal_form.cfop|as_crispy_field }}
@@ -172,7 +172,7 @@
                 {% if is_ready %}
                     <div class="text-center">
                         <span class="material-icons text-6xl {% if return_request.status == 'authorized' %}text-success{% elif return_request.status == 'rejected' or return_request.status == 'communication_error' %}text-error{% else %}text-warning{% endif %}">receipt_long</span>
-                        <h2 class="mt-3 text-2xl font-bold">Emissão da devolução de compra</h2>
+                        <h2 class="mt-3 text-2xl font-bold">Emissão da Nota de Devolução</h2>
                         <p class="mt-2 text-base-content/70">Status: <span class="font-semibold">{{ return_request.get_status_display }}</span></p>
                     </div>
                     {% include 'finance/partials/purchase_return_summary.html' %}
@@ -199,7 +199,7 @@
                 {% else %}
                     <div>
                         <h2 class="text-2xl font-bold">Criar intenção de emissão</h2>
-                        <p class="mt-1 text-base-content/70">Ao confirmar, as quantidades ficarão reservadas para a futura transmissão da NF-e de devolução.</p>
+                        <p class="mt-1 text-base-content/70">Ao confirmar, as quantidades ficarão reservadas para a futura transmissão da Nota de Devolução.</p>
                     </div>
                     {% include 'finance/partials/purchase_return_summary.html' %}
                     <form method="post" class="mt-6 flex justify-between border-t border-base-200 pt-5">
