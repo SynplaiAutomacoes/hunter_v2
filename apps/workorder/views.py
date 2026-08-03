@@ -43,7 +43,6 @@ from apps.core.infrastructure.services.dashboard_query_service import (
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
-from apps.core.infrastructure.providers import get_signature_service
 from apps.core.text_normalization import sentence_case
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
@@ -1454,12 +1453,18 @@ def visualizar_pdf_workorder(request, pk):
 
     if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:
+            from apps.core.infrastructure.services.signature_download import download_signed_pdf
             from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
-            signed_pdf = get_signature_service().download_signed_document(
+            try:
+                synplaisign_api_key = get_workshop_synplaisign_api_key(workorder.workshop)
+            except WorkshopSynplaiSignError:
+                synplaisign_api_key = ""
+
+            signed_pdf = download_signed_pdf(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,
-                api_key=get_workshop_synplaisign_api_key(workorder.workshop),
+                synplaisign_api_key=synplaisign_api_key,
             )
             return _build_workorder_pdf_file_response(
                 workorder=workorder,
@@ -1467,7 +1472,7 @@ def visualizar_pdf_workorder(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except (SignatureServiceError, WorkshopSynplaiSignError):
+        except SignatureServiceError:
             logger.warning("workorder_signed_pdf_load_failed", extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id})
 
     try:

@@ -419,3 +419,76 @@ class SignatureHtmlDocumentTests(SimpleTestCase):
         self.assertEqual(files["file"][0], "doc.html")
         self.assertEqual(files["file"][1], html)
         self.assertEqual(files["file"][2], "text/html")
+
+
+class SignatureDownloadRouterTests(SimpleTestCase):
+    @patch("apps.core.infrastructure.services.signature_download.supersign_gateway.download_signed_document")
+    @patch("apps.core.infrastructure.services.signature_download.get_signature_service")
+    def test_download_uses_synplaisign_when_successful(
+        self,
+        get_service_mock: Mock,
+        supersign_download_mock: Mock,
+    ) -> None:
+        from apps.core.infrastructure.services.signature_download import download_signed_pdf
+
+        service = Mock()
+        service.download_signed_document.return_value = b"%PDF-syn"
+        get_service_mock.return_value = service
+
+        content = download_signed_pdf(
+            document_id="env-1",
+            envelope_id="env-1",
+            synplaisign_api_key="sk_live_workshop",
+        )
+        self.assertEqual(content, b"%PDF-syn")
+        service.download_signed_document.assert_called_once_with(
+            document_id="env-1",
+            envelope_id="env-1",
+            api_key="sk_live_workshop",
+        )
+        supersign_download_mock.assert_not_called()
+
+    @patch("apps.core.infrastructure.services.signature_download.supersign_gateway.download_signed_document", return_value=b"%PDF-ss")
+    @patch("apps.core.infrastructure.services.signature_download.get_signature_service")
+    def test_download_falls_back_to_supersign_on_synplaisign_error(
+        self,
+        get_service_mock: Mock,
+        supersign_download_mock: Mock,
+    ) -> None:
+        from apps.core.domain.contracts.signature import SignatureServiceError
+        from apps.core.infrastructure.services.signature_download import download_signed_pdf
+
+        service = Mock()
+        service.download_signed_document.side_effect = SignatureServiceError("not found on synplaisign")
+        get_service_mock.return_value = service
+
+        content = download_signed_pdf(
+            document_id="doc-legacy",
+            envelope_id="env-legacy",
+            synplaisign_api_key="sk_live_workshop",
+        )
+        self.assertEqual(content, b"%PDF-ss")
+        supersign_download_mock.assert_called_once_with(document_id="doc-legacy")
+
+    @patch("apps.core.infrastructure.services.signature_download.supersign_gateway.download_signed_document")
+    @patch("apps.core.infrastructure.services.signature_download.get_signature_service")
+    def test_download_raises_when_both_providers_fail(
+        self,
+        get_service_mock: Mock,
+        supersign_download_mock: Mock,
+    ) -> None:
+        from apps.core.domain.contracts.signature import SignatureServiceError
+        from apps.core.infrastructure.gateways.supersign import SuperSignGatewayError
+        from apps.core.infrastructure.services.signature_download import download_signed_pdf
+
+        service = Mock()
+        service.download_signed_document.side_effect = SignatureServiceError("syn failed")
+        get_service_mock.return_value = service
+        supersign_download_mock.side_effect = SuperSignGatewayError("ss failed")
+
+        with self.assertRaises(SignatureServiceError):
+            download_signed_pdf(
+                document_id="doc-1",
+                envelope_id="env-1",
+                synplaisign_api_key="sk",
+            )

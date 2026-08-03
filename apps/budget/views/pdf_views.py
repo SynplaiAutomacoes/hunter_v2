@@ -254,12 +254,18 @@ def visualizar_pdf_assinatura(request, pk):
 
     if requested_variant == SIGNED_PDF_VARIANT and can_use_signed_budget_pdf(budget=budget):
         try:
+            from apps.core.infrastructure.services.signature_download import download_signed_pdf
             from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
-            signed_pdf = get_signature_service().download_signed_document(
+            try:
+                synplaisign_api_key = get_workshop_synplaisign_api_key(budget.workshop)
+            except WorkshopSynplaiSignError:
+                synplaisign_api_key = ""
+
+            signed_pdf = download_signed_pdf(
                 document_id=budget.signature_document_id,
                 envelope_id=budget.signature_external_id,
-                api_key=get_workshop_synplaisign_api_key(budget.workshop),
+                synplaisign_api_key=synplaisign_api_key,
             )
             return _build_budget_pdf_file_response(
                 budget=budget,
@@ -267,7 +273,7 @@ def visualizar_pdf_assinatura(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except (SignatureServiceError, WorkshopSynplaiSignError):
+        except SignatureServiceError:
             logger.warning("budget_signed_pdf_load_failed", extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id})
 
     try:
