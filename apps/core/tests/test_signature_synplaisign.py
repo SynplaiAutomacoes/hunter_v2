@@ -420,6 +420,25 @@ class SignatureHtmlDocumentTests(SimpleTestCase):
         self.assertEqual(files["file"][1], html)
         self.assertEqual(files["file"][2], "text/html")
 
+    @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
+    @patch("apps.core.infrastructure.gateways.synplaisign.requests.get")
+    def test_download_signed_document_uses_file_endpoint(self, requests_get_mock: Mock) -> None:
+        from apps.core.infrastructure.gateways.synplaisign import download_signed_document
+
+        response = Mock()
+        response.status_code = 200
+        response.headers = {"Content-Type": "application/pdf"}
+        response.content = b"%PDF-1.7 signed"
+        response.raise_for_status = Mock()
+        requests_get_mock.return_value = response
+
+        content = download_signed_document(api_key="sk_live_workshop", envelope_id="env-1")
+
+        self.assertEqual(content, b"%PDF-1.7 signed")
+        requests_get_mock.assert_called_once()
+        self.assertEqual(requests_get_mock.call_args.args[0], "https://synplaisign.example/envelopes/env-1/file")
+        self.assertEqual(requests_get_mock.call_args.kwargs["headers"], {"x-api-key": "sk_live_workshop"})
+
 
 class SignatureDownloadRouterTests(SimpleTestCase):
     @patch("apps.core.infrastructure.services.signature_download.supersign_gateway.download_signed_document")

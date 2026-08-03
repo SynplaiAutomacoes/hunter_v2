@@ -310,7 +310,7 @@ def get_signed_document_download_url(*, api_key: str, envelope_id: str) -> str:
         ) as dependency_call:
             response = requests.get(
                 f"{base_url}/envelopes/{envelope_id}/download",
-                headers=_api_headers(api_key=api_key),
+                headers=_api_headers(api_key=api_key, content_type=None),
                 timeout=20,
             )
             dependency_call.set_http_status_code(response.status_code)
@@ -340,7 +340,8 @@ def get_signed_document_download_url(*, api_key: str, envelope_id: str) -> str:
 
 
 def download_signed_document(*, api_key: str, envelope_id: str) -> bytes:
-    download_url = get_signed_document_download_url(api_key=api_key, envelope_id=envelope_id)
+    """Fetch signed PDF bytes via GET /envelopes/:id/file (preferred over /download + storage URL)."""
+    base_url = _require_base_url()
     logger.info("synplaisign_download_signed_start", extra={"envelope_id": envelope_id})
 
     try:
@@ -351,7 +352,11 @@ def download_signed_document(*, api_key: str, envelope_id: str) -> bytes:
             operation="download_signed_document",
             log_context={"envelope_id": envelope_id},
         ) as dependency_call:
-            response = requests.get(download_url, timeout=30)
+            response = requests.get(
+                f"{base_url}/envelopes/{envelope_id}/file",
+                headers=_api_headers(api_key=api_key, content_type=None),
+                timeout=30,
+            )
             dependency_call.set_http_status_code(response.status_code)
             response.raise_for_status()
     except requests.RequestException as exc:
