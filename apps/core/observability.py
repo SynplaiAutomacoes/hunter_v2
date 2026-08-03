@@ -257,8 +257,38 @@ class DependencyCall:
         }
         if self._status_code is not None:
             log_extra["status_code"] = self._status_code
-        log_extra.update(self._log_context)
-        log_extra.update(dict(extra or {}))
+        # Avoid LogRecord reserved attrs (e.g. name, message, module) crashing makeRecord.
+        reserved_log_record_keys = {
+            "name",
+            "msg",
+            "args",
+            "levelname",
+            "levelno",
+            "pathname",
+            "filename",
+            "module",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "created",
+            "msecs",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "processName",
+            "process",
+            "message",
+            "asctime",
+            "taskName",
+        }
+        for source in (self._log_context, dict(extra or {})):
+            for key, value in source.items():
+                if key in reserved_log_record_keys:
+                    log_extra[f"ctx_{key}"] = value
+                else:
+                    log_extra[key] = value
 
         if exc_info is None:
             self._logger.info(message, extra=log_extra)

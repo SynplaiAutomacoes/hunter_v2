@@ -74,6 +74,13 @@ WEBMANIA_B2B_ACCESS_TOKEN = os.getenv("WEBMANIA_B2B_ACCESS_TOKEN", "")
 WEBMANIA_B2B_ACCESS_TOKEN_SECRET = os.getenv("WEBMANIA_B2B_ACCESS_TOKEN_SECRET", "")
 WEBMANIA_WEBHOOK_TOKEN = os.getenv("WEBMANIA_WEBHOOK_TOKEN", "")
 
+SYNPLAISIGN_BASE_URL = os.getenv("SYNPLAISIGN_BASE_URL", "https://synplaisign.up.railway.app")
+SYNPLAISIGN_MASTER_KEY = os.getenv("SYNPLAISIGN_MASTER_KEY", "")
+# Deprecated global key — prefer per-workshop keys created via SYNPLAISIGN_MASTER_KEY.
+SYNPLAISIGN_API_KEY = os.getenv("SYNPLAISIGN_API_KEY", "")
+SYNPLAISIGN_WEBHOOK_SECRET = os.getenv("SYNPLAISIGN_WEBHOOK_SECRET", "")
+
+# Legacy SuperSign settings kept for reference during cutover cleanup.
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
 SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
 SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "")

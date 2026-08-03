@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from django.conf import settings
-
 from apps.core.domain.contracts.documents import SignatureRecipient
 from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult, SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
-from apps.workorder.documents.provider import render_workorder_pdf_document
+from apps.workorder.documents.provider import render_workorder_signature_html_document
+from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
 
 WORKORDER_SIGNATURE_TOKEN_SALT = "workorder-signature-file"
@@ -48,23 +47,11 @@ def build_signature_preview_url(*, workorder, request=None) -> str:
     )
 
 
-def _build_signature_fields(workorder) -> list[dict]:
-    return get_signature_service().build_signature_fields(
-        document_ref_id=f"workorder-{workorder.id}",
-        signatory_ref_id=f"customer-{workorder.id}",
-        page_number=_calculate_pdf_total_pages(workorder),
-    )
-
-
-def _build_workorder_pdf_bytes(*, workorder) -> bytes:
+def _build_workorder_signature_html_bytes(*, workorder) -> bytes:
     try:
-        return render_workorder_pdf_document(workorder=workorder).content
+        return render_workorder_signature_html_document(workorder=workorder).content
     except Exception as exc:
-        raise WorkOrderSignatureError(f"Erro ao gerar PDF da O.S. para assinatura via Playwright: {exc}") from exc
-
-
-def _calculate_pdf_total_pages(workorder) -> int:
-    return 1
+        raise WorkOrderSignatureError(f"Erro ao gerar HTML da O.S. para assinatura: {exc}") from exc
 
 
 def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
@@ -91,21 +78,31 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
         ),
     )
 
-    pdf_bytes = _build_workorder_pdf_bytes(workorder=workorder)
-    file_name = f"ordem_servico-{workorder.get_id}.pdf"
+    document_bytes = _build_workorder_signature_html_bytes(workorder=workorder)
+    file_name = f"ordem_servico-{workorder.get_id}.html"
+    title = f"Ordem de servico #{workorder.get_id}"
+
+    try:
+        api_key = get_workshop_synplaisign_api_key(workorder.workshop)
+    except WorkshopSynplaiSignError as exc:
+        raise WorkOrderSignatureError(str(exc)) from exc
+
+    whatsapp_instance = str(getattr(workorder.workshop, "whatsapp_instance_name", "") or "").strip()
 
     try:
         result = get_signature_service().send_document(
             SignatureSendRequest(
-                pdf_bytes=pdf_bytes,
+                document_bytes=document_bytes,
                 file_name=file_name,
                 document_ref_id=f"workorder-{workorder.id}",
-                title=f"Ordem de servico #{workorder.get_id}",
+                title=title,
                 message="Segue ordem de servico para assinatura.",
                 signatory=signatory,
                 observers=observers,
-                fields=_build_signature_fields(workorder),
-                folder_id=getattr(settings, "SUPERSIGN_FOLDER_ID", ""),
+                fields=[],
+                api_key=api_key,
+                whatsapp_instance=whatsapp_instance,
+                content_type="text/html",
             )
         )
     except SignatureServiceError as exc:
