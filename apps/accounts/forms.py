@@ -116,6 +116,10 @@ class UserIdentificationForm(forms.Form):
             base_qs = base_qs | User.objects.filter(phone_q)
 
         users = list(base_qs.distinct())
+
+        if not users:
+            users = self._users_from_collaborator(identifier, phone_q)
+
         if not users:
             raise forms.ValidationError("Usuário não encontrado.")
         if len(users) > 1:
@@ -123,6 +127,24 @@ class UserIdentificationForm(forms.Form):
 
         self.user = users[0]
         return identifier
+
+    def _users_from_collaborator(self, identifier: str, phone_q):
+        from apps.collaborators.models import WorkshopCollaborator
+
+        collab_qs = WorkshopCollaborator.objects.filter(Q(email__iexact=identifier))
+        if phone_q is not None:
+            collab_qs = collab_qs | WorkshopCollaborator.objects.filter(phone_q)
+
+        linked_users = [collab.user for collab in collab_qs.select_related("user").distinct() if collab.user_id]
+        if not linked_users:
+            return []
+        seen = set()
+        unique_users = []
+        for user in linked_users:
+            if user.pk not in seen:
+                seen.add(user.pk)
+                unique_users.append(user)
+        return unique_users
 
 
 class CodeVerificationForm(forms.Form):
