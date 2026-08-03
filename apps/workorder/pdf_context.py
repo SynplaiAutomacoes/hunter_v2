@@ -359,6 +359,9 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
         "special_budget_label": special_budget_label,
         "warranty_message": warranty_message,
+        "service_warranty_plan_label": workorder.warranty_plan_display,
+        "service_warranty_expires_at": workorder.warranty_expires_at,
+        "service_warranty_status_label": workorder.warranty_status_label,
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
         "request": request,
     }

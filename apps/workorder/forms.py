@@ -21,7 +21,7 @@ from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderWarrantyPlan
 from apps.workshops.models.review_plans import ReviewPlan
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 
@@ -776,6 +776,12 @@ class WorkOrderAttachmentForm(CoreModelForm):
 class WorkOrderCustomerApprovalForm(CoreForm):
     km_initial = forms.IntegerField(label="KM inicial", required=False, widget=NumberInput(attrs={"readonly": "readonly"}))
     km_final = forms.IntegerField(label="KM final", required=True, min_value=0, widget=NumberInput())
+    warranty_plan = forms.ChoiceField(
+        label="Plano de garantia",
+        choices=[("", "Selecione o plano de garantia")] + list(WorkOrderWarrantyPlan.choices),
+        required=True,
+        widget=SearchableSelectInput(),
+    )
     last_oil_change_date = forms.DateField(label="Data da última troca de óleo", required=False, widget=CalendarDateInput())
     last_oil_change_km = forms.IntegerField(label="KM da última troca de óleo", required=False, min_value=0, widget=NumberInput())
     review_plan = forms.ModelChoiceField(label="Plano de revisão", queryset=ReviewPlan.objects.none(), required=False, widget=SearchableSelectInput())
@@ -794,6 +800,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
     def __init__(self, *args, **kwargs):
         self.workorder = kwargs.pop("workorder", None)
         self.require_unsigned_delivery_reason = kwargs.pop("require_unsigned_delivery_reason", True)
+        self.require_warranty_plan = kwargs.pop("require_warranty_plan", True)
         super().__init__(*args, **kwargs)
 
         km_initial_value = 0
@@ -805,7 +812,9 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         self.fields["km_final"].widget.attrs["min"] = km_initial_value
 
         self.fields["km_final"].error_messages["required"] = "Preencha o KM final para concluir a entrega do veículo."
+        self.fields["warranty_plan"].error_messages["required"] = "Selecione o plano de garantia para concluir a entrega do veículo."
         self.fields["unsigned_delivery_reason"].error_messages["required"] = "Informe a justificativa para entregar o veículo sem a assinatura da O.S."
+        self.fields["warranty_plan"].required = self.require_warranty_plan
 
         vehicle = getattr(getattr(self.workorder, "budget", None), "vehicle", None)
         review_plan_field = cast(forms.ModelChoiceField, self.fields["review_plan"])
@@ -814,6 +823,8 @@ class WorkOrderCustomerApprovalForm(CoreForm):
 
         if self.workorder and self.workorder.km_final is not None and not self.is_bound:
             self.fields["km_final"].initial = self.workorder.km_final
+        if self.workorder and self.workorder.warranty_plan and not self.is_bound:
+            self.fields["warranty_plan"].initial = self.workorder.warranty_plan
         if self.workorder and self.workorder.unsigned_delivery_reason and not self.is_bound:
             self.fields["unsigned_delivery_reason"].initial = self.workorder.unsigned_delivery_reason
 
@@ -884,7 +895,11 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                     ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
-                Field("km_final", wrapper_class="col-span-12 lg:col-span-6"),
+                Div(
+                    Field("km_final", wrapper_class="mb-0"),
+                    Field("warranty_plan", wrapper_class="mt-4 mb-0"),
+                    css_class="col-span-12 lg:col-span-6",
+                ),
                 css_class="grid grid-cols-12 gap-4",
             ),
             Div(

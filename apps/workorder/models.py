@@ -69,6 +69,23 @@ class WorkOrderDiscountType(models.TextChoices):
     BOTH = "both", "Produtos e serviços"
 
 
+class WorkOrderWarrantyPlan(models.TextChoices):
+    DAYS_30 = "days_30", "30 dias"
+    DAYS_90 = "days_90", "90 dias"
+    DAYS_180 = "days_180", "180 dias"
+    DAYS_365 = "days_365", "365 dias"
+    NONE = "none", "Serviço sem garantia"
+
+
+WARRANTY_PLAN_DAYS: dict[str, int | None] = {
+    WorkOrderWarrantyPlan.DAYS_30: 30,
+    WorkOrderWarrantyPlan.DAYS_90: 90,
+    WorkOrderWarrantyPlan.DAYS_180: 180,
+    WorkOrderWarrantyPlan.DAYS_365: 365,
+    WorkOrderWarrantyPlan.NONE: None,
+}
+
+
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento aprovado vinculado a esta O.S.")
@@ -84,6 +101,13 @@ class WorkOrder(TimeStampedModel):
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
     delivered_at = models.DateTimeField(verbose_name="Data da entrega", blank=True, null=True)
+    warranty_plan = models.CharField(
+        verbose_name="Plano de garantia",
+        max_length=20,
+        choices=WorkOrderWarrantyPlan.choices,
+        null=True,
+        blank=True,
+    )
     unsigned_delivery_reason = models.TextField(verbose_name="Justificativa da entrega sem assinatura", blank=True)
     cancellation_reason = models.TextField(verbose_name="Justificativa do cancelamento", blank=True)
     rejection_reason = models.TextField(verbose_name="Justificativa da rejeição", blank=True)
@@ -491,6 +515,41 @@ class WorkOrder(TimeStampedModel):
         self.unsigned_delivery_reason = reason
         self.save(update_fields=["unsigned_delivery_reason"])
 
+    @property
+    def warranty_days(self) -> int | None:
+        if not self.warranty_plan:
+            return None
+        return WARRANTY_PLAN_DAYS.get(self.warranty_plan)
+
+    @property
+    def warranty_expires_at(self) -> date | None:
+        days = self.warranty_days
+        if days is None or self.delivered_at is None:
+            return None
+        delivery_date = timezone.localtime(self.delivered_at).date()
+        return delivery_date + timedelta(days=days)
+
+    @property
+    def warranty_status_label(self) -> str | None:
+        if not self.warranty_plan:
+            return None
+        if self.warranty_plan == WorkOrderWarrantyPlan.NONE:
+            return "Sem garantia"
+        if self.delivered_at is None:
+            return None
+        expires_at = self.warranty_expires_at
+        if expires_at is None:
+            return None
+        if timezone.localdate() <= expires_at:
+            return "Em garantia"
+        return "Garantia vencida"
+
+    @property
+    def warranty_plan_display(self) -> str:
+        if not self.warranty_plan:
+            return ""
+        return WorkOrderWarrantyPlan(self.warranty_plan).label
+
     def complete_delivery(
         self,
         *,
@@ -499,10 +558,14 @@ class WorkOrder(TimeStampedModel):
         last_oil_change_date: date | None = None,
         last_oil_change_km: int | None = None,
         review_plan: "ReviewPlan | None" = None,
+        warranty_plan: str | None = None,
     ) -> None:
         self.km_final = km_final
         self.unsigned_delivery_reason = unsigned_delivery_reason
         update_fields = ["km_final", "unsigned_delivery_reason"]
+        if warranty_plan is not None:
+            self.warranty_plan = warranty_plan
+            update_fields.append("warranty_plan")
         if last_oil_change_date is not None:
             self.last_oil_change_date = last_oil_change_date
             update_fields.append("last_oil_change_date")
