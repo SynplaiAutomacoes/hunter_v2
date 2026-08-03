@@ -253,7 +253,7 @@ class SatisfactionSurveyConsentTests(TestCase):
         MessageTemplate.objects.create(
             workshop=self.workshop,
             name="Avaliacao Consent",
-            message="Oi %%nome%% da %%nome_oficina%%. Avalie: %%link-avaliacao%%",
+            message="Oi %%nome%% da %%nome_fantasia%%. Avalie: %%link-avaliacao%%",
             template_type=MessageTemplate.TemplateType.SATISFACTION,
             is_active=True,
         )

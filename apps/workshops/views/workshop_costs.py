@@ -166,7 +166,11 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         total_value = instance.calculate_total_value()
         total_monthly_costs = instance.calculate_total_monthly_costs(items=cost_items)
-        profit_target = instance.calculate_profit_target(total_monthly_costs)
+        profit_target = cleaned_data.get("profit_target")
+        if profit_target is None:
+            profit_target = self._money_from_post(request.POST, "profit_target")
+        if profit_target is None:
+            profit_target = Money(0, "BRL")
         gross_revenue_target = instance.calculate_gross_revenue_target(total_monthly_costs, profit_target, total_value)
         profitability_multiplier = instance.calculate_profitability_multiplier(gross_revenue_target, total_value)
 
@@ -181,6 +185,102 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response_form = WorkshopCostForm(instance=instance, workshop=self.workshop)
 
         return render(request, "workshop_costs/partials/workshop_cost_calculation_results.html", {"form": response_form})
+
+    @staticmethod
+    def _money_from_post(post_data, field_name: str) -> Money | None:
+        amount_raw = post_data.get(f"{field_name}_0")
+        currency_raw = post_data.get(f"{field_name}_1") or "BRL"
+        if amount_raw in (None, ""):
+            return None
+        try:
+            raw_str = str(amount_raw).strip()
+            if "," in raw_str:
+                raw_str = raw_str.replace(".", "").replace(",", ".")
+            amount = Decimal(raw_str)
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if str(currency_raw).replace(".", "", 1).replace("-", "", 1).isdigit():
+            currency_raw = "BRL"
+        return Money(amount, str(currency_raw or "BRL"))
+
+
+class WorkshopCostSyncSalaryItemsView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCost
+    workshop_permission_codename = "change_workshopcost"
+    VALID_COST_KINDS = frozenset({"productive", "administrative", "pro_labore", "transport"})
+
+    def post(self, request, *args, **kwargs):
+        try:
+            month = int(request.POST.get("month") or 0)
+            year = int(request.POST.get("year") or 0)
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "Mês ou ano inválido."}, status=400)
+
+        if month < 1 or month > 12 or year < 1:
+            return JsonResponse({"error": "Mês ou ano inválido."}, status=400)
+
+        cost_kind = str(request.POST.get("cost_kind") or "").strip()
+        if cost_kind and cost_kind not in self.VALID_COST_KINDS:
+            return JsonResponse({"error": "Tipo de custo inválido."}, status=400)
+
+        reference_date = date(year, month, 1)
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=month, year=year).first()
+        work_days_override: int | None = None
+        if workshop_cost is None:
+            try:
+                work_days_override = int(request.POST.get("work_days_per_month") or 0)
+            except (TypeError, ValueError):
+                work_days_override = 0
+
+        if cost_kind:
+            try:
+                monthly_cost_id = int(request.POST.get("monthly_cost_id") or 0)
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "Custo mensal inválido."}, status=400)
+
+            monthly_cost = MonthlyCost.objects.filter(pk=monthly_cost_id, workshop=self.workshop, is_active=True).first()
+            if monthly_cost is None:
+                return JsonResponse({"error": "Custo mensal não encontrado."}, status=404)
+
+            amount = compute_salary_cost_amount_for_kind(
+                workshop=self.workshop,
+                cost_kind=cost_kind,
+                reference_date=reference_date,
+                work_days_override=work_days_override,
+            )
+            if workshop_cost is not None:
+                WorkshopCostItem.objects.update_or_create(
+                    workshop_cost=workshop_cost,
+                    monthly_cost=monthly_cost,
+                    defaults={"amount": amount},
+                )
+                workshop_cost.calculate_all()
+                workshop_cost.save()
+
+            return JsonResponse(
+                {
+                    "fields": {
+                        f"cost_item_{monthly_cost.pk}_0": str(amount.amount),
+                        f"cost_item_{monthly_cost.pk}_1": str(amount.currency),
+                    },
+                    "synced": workshop_cost is not None,
+                }
+            )
+
+        if workshop_cost is not None:
+            sync_current_month_salary_costs(workshop=self.workshop, reference_date=reference_date)
+
+        amounts = compute_salary_monthly_cost_amounts(
+            workshop=self.workshop,
+            reference_date=reference_date,
+            work_days_override=work_days_override,
+        )
+        fields: dict[str, str] = {}
+        for monthly_cost_id, amount in amounts.items():
+            fields[f"cost_item_{monthly_cost_id}_0"] = str(amount.amount)
+            fields[f"cost_item_{monthly_cost_id}_1"] = str(amount.currency)
+
+        return JsonResponse({"fields": fields, "synced": workshop_cost is not None})
 
 
 class WorkshopCostSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, ListView):

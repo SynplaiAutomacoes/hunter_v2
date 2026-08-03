@@ -54,7 +54,7 @@
                 {% endif %}
 
                 <div class="min-w-0">
-                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.name }}</h3>
+                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.pdf_name }}</h3>
                     <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
                     <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.pdf_phone|phone_br|default:"-" }}</span></p>
