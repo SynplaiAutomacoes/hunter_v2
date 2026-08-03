@@ -316,6 +316,7 @@ class NfeReturnOperationalTests(TestCase):
         self.assertEqual(detail_response.context_data["gateway_operation_modal_id"], "return_nfe_modal")
         self.assertContains(detail_response, "Revise os dados e conclua Devolução no formulário")
         self.assertContains(detail_response, "return_nfe_modal")
+        self.assertNotContains(detail_response, "Devolução/Estorno")
         self.assertContains(detail_response, 'name="return_item_quantity"')
         self.assertNotContains(detail_response, "Produtos para devolução parcial em JSON")
 
