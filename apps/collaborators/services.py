@@ -21,14 +21,8 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
-from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.util.monthly_costs import (
-    ensure_pro_labore_monthly_cost,
-    ensure_transport_allowance_monthly_cost,
-    get_admin_salary_monthly_cost,
-    get_mechanic_salary_monthly_cost,
-)
+from apps.workshops.util.monthly_costs import get_admin_salary_monthly_cost, get_mechanic_salary_monthly_cost
 
 
 ZERO = Decimal("0.00")
@@ -112,89 +106,27 @@ def freeze_existing_pricing_history(*, workshop: Workshop, cutoff) -> None:
         budget.refresh_stored_total_amount()
 
 
-def compute_salary_monthly_cost_amounts(
-    *,
-    workshop: Workshop,
-    reference_date: date | None = None,
-    work_days_override: int | None = None,
-) -> dict[int, Money]:
-    """Calcula totais de salários/VT/pró-labore por MonthlyCost.id (sem persistir)."""
-    resolved = reference_date or timezone.localdate()
-    amounts: dict[int, Money] = {}
-
-    for cost_kind in ("productive", "administrative", "pro_labore", "transport"):
-        monthly_cost = resolve_salary_monthly_cost(workshop=workshop, cost_kind=cost_kind)
-        if monthly_cost is None or monthly_cost.pk is None:
-            continue
-        amounts[int(monthly_cost.pk)] = compute_salary_cost_amount_for_kind(
-            workshop=workshop,
-            cost_kind=cost_kind,
-            reference_date=resolved,
-            work_days_override=work_days_override,
-        )
-
-    return amounts
-
-
-def resolve_salary_monthly_cost(*, workshop: Workshop, cost_kind: str) -> MonthlyCost | None:
-    if cost_kind == "productive":
-        return get_mechanic_salary_monthly_cost(workshop=workshop)
-    if cost_kind == "administrative":
-        return get_admin_salary_monthly_cost(workshop=workshop)
-    if cost_kind == "pro_labore":
-        return ensure_pro_labore_monthly_cost(workshop=workshop)
-    if cost_kind == "transport":
-        return ensure_transport_allowance_monthly_cost(workshop=workshop)
-    return None
-
-
-def compute_salary_cost_amount_for_kind(
-    *,
-    workshop: Workshop,
-    cost_kind: str,
-    reference_date: date | None = None,
-    work_days_override: int | None = None,
-) -> Money:
-    resolved = reference_date or timezone.localdate()
-    if cost_kind == "productive":
-        return _sum_salary_by_type(
-            workshop=workshop,
-            collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
-            reference_date=resolved,
-        )
-    if cost_kind == "administrative":
-        return _sum_salary_by_type(
-            workshop=workshop,
-            collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
-            reference_date=resolved,
-        )
-    if cost_kind == "pro_labore":
-        return _sum_salary_by_type(
-            workshop=workshop,
-            collaborator_type=WorkshopCollaborator.CollaboratorType.PRO_LABORE,
-            reference_date=resolved,
-        )
-    if cost_kind == "transport":
-        return sum_transport_allowance_for_monthly_cost(
-            workshop=workshop,
-            reference_date=resolved,
-            work_days_override=work_days_override,
-        )
-    return Money(0, "BRL")
-
-
-def sync_current_month_salary_costs(*, workshop: Workshop, reference_date: date | None = None) -> None:
+def sync_current_month_salary_costs(*, workshop: Workshop, reference_date=None) -> None:
     today = reference_date or timezone.localdate()
     workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
     if workshop_cost is None:
         return
 
-    amounts = compute_salary_monthly_cost_amounts(workshop=workshop, reference_date=today)
-    for monthly_cost_id, amount in amounts.items():
+    productive_monthly_cost = get_mechanic_salary_monthly_cost(workshop=workshop)
+    administrative_monthly_cost = get_admin_salary_monthly_cost(workshop=workshop)
+
+    if productive_monthly_cost is not None:
         WorkshopCostItem.objects.update_or_create(
             workshop_cost=workshop_cost,
-            monthly_cost_id=monthly_cost_id,
-            defaults={"amount": amount},
+            monthly_cost=productive_monthly_cost,
+            defaults={"amount": _sum_salary_by_type(workshop=workshop, collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE, reference_date=today)},
+        )
+
+    if administrative_monthly_cost is not None:
+        WorkshopCostItem.objects.update_or_create(
+            workshop_cost=workshop_cost,
+            monthly_cost=administrative_monthly_cost,
+            defaults={"amount": _sum_salary_by_type(workshop=workshop, collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE, reference_date=today)},
         )
 
     workshop_cost.calculate_all()
@@ -393,68 +325,6 @@ def _sum_salary_by_type(*, workshop: Workshop, collaborator_type: str, reference
     return Money(total, "BRL")
 
 
-def _eligible_collaborators_for_cost_sync(*, workshop: Workshop, reference_date: date):
-    return WorkshopCollaborator.objects.filter(
-        workshop=workshop,
-        is_active=True,
-        admission_date__lte=reference_date,
-    ).filter(Q(termination_date__isnull=True) | Q(termination_date__gte=reference_date))
-
-
-def sum_transport_allowance_from_payroll(*, workshop: Workshop, reference_date: date | None = None) -> Money:
-    """Soma o VT mensal de cada colaborador a partir do Payroll (diário X dias úteis)."""
-    resolved = reference_date or timezone.localdate()
-    eligible_collaborators = list(_eligible_collaborators_for_cost_sync(workshop=workshop, reference_date=resolved))
-    if not eligible_collaborators:
-        return Money(0, "BRL")
-
-    payroll_by_collaborator_id = {
-        payroll.collaborator_id: payroll
-        for payroll in CollaboratorPayroll.objects.filter(
-            workshop=workshop,
-            reference_year=resolved.year,
-            reference_month=resolved.month,
-            collaborator_id__in=[collaborator.pk for collaborator in eligible_collaborators],
-        ).only("collaborator_id", "transport_allowance_amount", "transport_allowance_amount_currency")
-    }
-
-    total = ZERO
-    for collaborator in eligible_collaborators:
-        payroll = payroll_by_collaborator_id.get(collaborator.pk)
-        if payroll is not None:
-            total += Decimal(str(payroll.transport_allowance_amount.amount or ZERO))
-            continue
-        total += Decimal(str(calculate_transport_allowance_total(collaborator=collaborator, reference_date=resolved).amount or ZERO))
-
-    return Money(_quantize(total), "BRL")
-
-
-def sum_transport_allowance_for_monthly_cost(
-    *,
-    workshop: Workshop,
-    reference_date: date | None = None,
-    work_days_override: int | None = None,
-) -> Money:
-    """Soma VT com o diário atual do colaborador × dias úteis (evita folha desatualizada)."""
-    resolved = reference_date or timezone.localdate()
-    eligible_collaborators = list(_eligible_collaborators_for_cost_sync(workshop=workshop, reference_date=resolved))
-    if not eligible_collaborators:
-        return Money(0, "BRL")
-
-    total = ZERO
-    for collaborator in eligible_collaborators:
-        if work_days_override is not None:
-            amount = _calculate_transport_allowance_total_from_work_days(
-                collaborator=collaborator,
-                work_days=max(0, int(work_days_override)),
-            )
-        else:
-            amount = calculate_transport_allowance_total(collaborator=collaborator, reference_date=resolved)
-        total += Decimal(str(amount.amount or ZERO))
-
-    return Money(_quantize(total), "BRL")
-
-
 def _resolve_payroll_reference_date(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> date:
     return _resolve_payroll_reference_date_from_lookup(
         collaborator=collaborator,
@@ -526,7 +396,7 @@ def _calculate_transport_allowance_total_from_work_days(*, collaborator: Worksho
 
 
 @transaction.atomic
-def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None, sync_salary_costs: bool = True) -> CollaboratorPayroll:
+def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None) -> CollaboratorPayroll:
     """Update payroll work days. Pass ``None`` to restore the workshop monthly cost default."""
     if _is_paid_payroll(payroll=payroll):
         return payroll
@@ -550,17 +420,11 @@ def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | N
         update_fields.append("work_days_is_custom")
     if update_fields:
         payroll.save(update_fields=update_fields)
-        synced = sync_collaborator_payroll(
+        return sync_collaborator_payroll(
             collaborator=payroll.collaborator,
             reference_date=date(payroll.reference_year, payroll.reference_month, 1),
             lock_reference=True,
         )
-        if sync_salary_costs:
-            sync_current_month_salary_costs(
-                workshop=payroll.workshop,
-                reference_date=date(payroll.reference_year, payroll.reference_month, 1),
-            )
-        return synced
     return payroll
 
 
@@ -570,7 +434,6 @@ def apply_collaborator_work_days_for_reference(
     collaborator: WorkshopCollaborator,
     work_days: int | None,
     reference_date: date | None = None,
-    sync_salary_costs: bool = True,
 ) -> CollaboratorPayroll | None:
     resolved = _resolve_reference_date(reference_date)
     payroll = CollaboratorPayroll.objects.filter(
@@ -586,7 +449,7 @@ def apply_collaborator_work_days_for_reference(
         )
     if payroll.pk is None:
         return None
-    return update_payroll_work_days(payroll=payroll, work_days=work_days, sync_salary_costs=sync_salary_costs)
+    return update_payroll_work_days(payroll=payroll, work_days=work_days)
 
 
 def _resolve_commission_reference_date(*, workorder: WorkOrder) -> date:

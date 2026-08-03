@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
-from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
@@ -13,14 +11,12 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from djmoney.money import Money
 import holidays
 
-from apps.collaborators.services import compute_salary_cost_amount_for_kind, compute_salary_monthly_cost_amounts, sync_current_month_salary_costs
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.forms.workshop_costs import WorkshopCostForm
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.models.monthly_costs import MonthlyCost
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.models.workshop_costs import WorkshopCost
 
 
 class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -144,31 +140,29 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         form = WorkshopCostForm(request.POST, workshop=self.workshop)
-        form.is_valid()
+
+        try:
+            form.full_clean()
+        except Exception:
+            pass
 
         instance = form.instance
-        cleaned_data = form.cleaned_data or {}
         cost_items = []
 
         @dataclass
         class MockItem:
             amount: Money
 
+        cleaned_data = getattr(form, "cleaned_data", {})
+
         for cost in form.active_costs:
             field_name = f"cost_item_{cost.id}"
             amount = cleaned_data.get(field_name)
-            if amount is None:
-                amount = self._money_from_post(request.POST, field_name)
+
             if amount is None:
                 amount = Money(0, "BRL")
-            cost_items.append(MockItem(amount=amount))
 
-        for field_name in ("parts_purchase_cap", "freight_cost", "third_party_service_cap"):
-            value = cleaned_data.get(field_name)
-            if value is None:
-                value = self._money_from_post(request.POST, field_name)
-            if value is not None:
-                setattr(instance, field_name, value)
+            cost_items.append(MockItem(amount=amount))
 
         total_value = instance.calculate_total_value()
         total_monthly_costs = instance.calculate_total_monthly_costs(items=cost_items)

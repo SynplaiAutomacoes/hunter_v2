@@ -29,7 +29,6 @@
         allPendingSelected: false,
         initialTerminationDate: '{% if form.termination_date.value %}{{ form.termination_date.value|date:"Y-m-d" }}{% elif form.instance.termination_date %}{{ form.instance.termination_date|date:"Y-m-d" }}{% endif %}',
         openPendingDeleteOnLoad: {{ open_pending_delete|yesno:'true,false' }},
-        pendingSyncSubmit: false,
         parseMoney(value) {
             const parsed = Number.parseFloat(String(value || '').trim());
             return Number.isFinite(parsed) ? parsed : 0;
@@ -98,20 +97,6 @@
             }
             this.$refs.terminationPendingModal.showModal();
         },
-        handleCollaboratorSubmit(event) {
-            if (this.pendingSyncSubmit) {
-                this.pendingSyncSubmit = false;
-                return;
-            }
-            event.preventDefault();
-            this.$refs.syncMonthlyCostsModal.showModal();
-        },
-        confirmSyncMonthlyCosts(shouldSync) {
-            this.$refs.syncMonthlyCostsInput.value = shouldSync ? '1' : '0';
-            this.pendingSyncSubmit = true;
-            this.$refs.syncMonthlyCostsModal.close();
-            this.$nextTick(() => this.$refs.collaboratorForm.requestSubmit());
-        },
         onTerminationDateChanged(event) {
             const nextValue = String(event.target && event.target.value || '').trim();
             const hadValue = Boolean(String(this.initialTerminationDate || '').trim());
@@ -142,9 +127,8 @@
     }"
     class="space-y-6"
 >
-    <form id="collaborator-update-form" method="post" novalidate x-ref="collaboratorForm" @submit="handleCollaboratorSubmit($event)">
+    <form id="collaborator-update-form" method="post" novalidate>
         {% csrf_token %}
-        <input type="hidden" name="sync_monthly_costs" value="" x-ref="syncMonthlyCostsInput">
         <input type="hidden" name="tab" value="cadastro">
 
         {% if form.non_field_errors or benefit_formset.non_form_errors %}
@@ -367,8 +351,6 @@
             <button type="submit" class="btn-form-save">Salvar</button>
         </div>
     </form>
-
-    {% include 'collaborators/partials/sync_monthly_costs_confirm_modal.html' %}
 
     <form id="collaborator-delete-movements-form" x-ref="deleteMovementsForm" method="post" action="{% url 'collaborators:collaborator_delete_pending_movements' pk=object.pk %}">
         {% csrf_token %}

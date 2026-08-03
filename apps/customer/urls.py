@@ -14,7 +14,6 @@ urlpatterns = [
         name="disable_all_messaging",
     ),
     path("<int:pk>/edit/", views.CustomerUpdateView.as_view(), name="customer_update"),
-    path("<int:pk>/vehicle-section/", views.VehicleSectionView.as_view(), name="vehicle-section"),
     path("<int:pk>/delete/", views.CustomerDeleteView.as_view(), name="customer_delete"),
     # History
     path("history/", views.CustomerHistoryListView.as_view(), name="customer_history_list"),
@@ -23,7 +22,6 @@ urlpatterns = [
     # Vehicle
     path("add-vehicle-form/", views.AddVehicleFormView.as_view(), name="add-vehicle-form"),
     path("check-plate/<str:plate>/", views.api_check_plate, name="check-plate"),
-    path("check-plate-duplicate/<str:plate>/", views.api_check_plate_duplicate, name="check-plate-duplicate"),
     path("vehicle-catalog/brands/", views.api_vehicle_catalog_brands, name="vehicle-catalog-brands"),
     path("vehicle-catalog/models/", views.api_vehicle_catalog_models, name="vehicle-catalog-models"),
     path("vehicle-catalog/fuels/", views.api_vehicle_catalog_fuels, name="vehicle-catalog-fuels"),

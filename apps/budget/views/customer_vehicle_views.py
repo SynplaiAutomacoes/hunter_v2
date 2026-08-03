@@ -19,29 +19,10 @@ class CustomerDetailView(View):
 class VehicleListView(View):
     def get(self, request, *args, **kwargs):
         customer_id = request.GET.get("customer")
-        selected_vehicle_raw = request.GET.get("selected_vehicle")
 
-        extra_ids = set()
-        if selected_vehicle_raw:
-            for part in selected_vehicle_raw.split(","):
-                part = part.strip()
-                if part:
-                    extra_ids.add(part)
-
-        vehicle_pks = set()
-
+        vehicles = Vehicle.objects.none()
         if customer_id:
-            vehicle_pks.update(
-                Vehicle.objects.filter(customer_id=customer_id).values_list("pk", flat=True)
-            )
-
-        for vid in extra_ids:
-            try:
-                vehicle_pks.add(int(vid))
-            except (ValueError, TypeError):
-                pass
-
-        vehicles = Vehicle.objects.filter(pk__in=vehicle_pks)
+            vehicles = Vehicle.objects.filter(customer_id=customer_id)
 
         data = [{"id": v.id, "label": str(v)} for v in vehicles]
 

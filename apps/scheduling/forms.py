@@ -127,9 +127,6 @@ def _guest_vehicle_fuel_form_choices_from_catalog(brand_name: object, model_name
                     seen_fuels.add(normalized_value)
                     choices.append((normalized_value, normalized_value))
 
-    if len(choices) == 1:
-        choices = vehicle_fuel_form_choices()
-
     return _with_selected_choice(choices, selected_fuel)
 
 
@@ -704,18 +701,6 @@ class AppointmentForm(CoreModelForm):
                         }
                     }
 
-                    function initGuestFuelOptionsFromCurrentFields() {
-                        const brand = (document.getElementById('id_guest_vehicle_brand') || {}).value || '';
-                        const model = (document.getElementById('id_guest_vehicle_model') || {}).value || '';
-                        const fuel = (document.getElementById('id_guest_vehicle_fuel') || {}).value || '';
-                        if (!brand && !model) {
-                            return;
-                        }
-                        loadGuestFuelOptions(brand, model, fuel, { silent: true }).catch((error) => {
-                            console.warn('Erro ao inicializar combustiveis do veiculo:', error);
-                        });
-                    }
-
                     function clearRegisteredVehicleDetails() {
                         setReadonlyFieldValue('id_registered_vehicle_plate_display', '');
                         setReadonlyFieldValue('id_registered_vehicle_brand_display', '');
@@ -995,16 +980,12 @@ class AppointmentForm(CoreModelForm):
                             const shell = document.querySelector('[data-appointment-form-shell]');
                             const shellData = getAlpineContext(shell);
                             if (!shellData || !shellData.vehicleId) {
-                                initGuestFuelOptionsFromCurrentFields();
                                 return;
                             }
 
                             updateBudgetList(shellData.vehicleId, document.getElementById('id_budget') ? document.getElementById('id_budget').value : '');
                             updateWorkorderList(shellData.vehicleId, document.getElementById('id_workorder') ? document.getElementById('id_workorder').value : '');
-                            initGuestFuelOptionsFromCurrentFields();
                         });
-                    } else {
-                        queueMicrotask(initGuestFuelOptionsFromCurrentFields);
                     }
                 </script>
                 """
