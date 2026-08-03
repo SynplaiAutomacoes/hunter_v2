@@ -144,16 +144,84 @@ def _ensure_workshop_webhook(*, workshop: Workshop, api_key: str, webhook_url: s
         workshop.save(update_fields=update_fields)
 
 
+_SYNPLAISIGN_CREDENTIAL_FIELDS: tuple[str, ...] = (
+    "synplaisign_api_key_id",
+    "synplaisign_api_key",
+    "synplaisign_owner_password",
+    "synplaisign_webhook_id",
+    "synplaisign_webhook_secret",
+)
+
+
+def _find_synplaisign_credential_donor(*, workshop: Workshop, account_workshops: list[Workshop] | None = None) -> Workshop | None:
+    """Return another workshop of the same account/owner that already has SynplaiSign credentials.
+
+    SynplaiSign rejects duplicate OWNER emails, so sibling workshops must reuse the same API key.
+    """
+    candidates = account_workshops
+    if candidates is None:
+        account_id = getattr(workshop, "account_id", None)
+        if not account_id:
+            return None
+        candidates = list(
+            Workshop.objects.filter(account_id=account_id)
+            .exclude(pk=workshop.pk)
+            .exclude(synplaisign_api_key="")
+            .order_by("pk")
+        )
+        return candidates[0] if candidates else None
+
+    for candidate in candidates:
+        if candidate.pk == workshop.pk:
+            continue
+        if str(getattr(candidate, "synplaisign_api_key", "") or "").strip():
+            return candidate
+    return None
+
+
+def _copy_synplaisign_credentials(*, source: Workshop, target: Workshop) -> None:
+    for field_name in _SYNPLAISIGN_CREDENTIAL_FIELDS:
+        setattr(target, field_name, getattr(source, field_name) or "")
+    target.save(update_fields=list(_SYNPLAISIGN_CREDENTIAL_FIELDS))
+
+
+def _lock_workshop_for_synplaisign_provision(workshop_pk: int) -> tuple[Workshop, list[Workshop]]:
+    """Lock the target workshop and siblings of the same account in pk order (deadlock-safe)."""
+    account_id = Workshop.objects.filter(pk=workshop_pk).values_list("account_id", flat=True).first()
+    if account_id:
+        account_workshops = list(
+            Workshop.objects.select_for_update(of=("self",))
+            .select_related("account", "account__owner")
+            .filter(account_id=account_id)
+            .order_by("pk")
+        )
+        locked = next((item for item in account_workshops if item.pk == workshop_pk), None)
+        if locked is None:
+            raise Workshop.DoesNotExist(f"Workshop matching query does not exist: pk={workshop_pk}")
+        return locked, account_workshops
+
+    locked = (
+        Workshop.objects.select_for_update(of=("self",))
+        .select_related("account", "account__owner")
+        .get(pk=workshop_pk)
+    )
+    return locked, [locked]
+
+
 def provision_workshop_synplaisign(
     *,
     workshop: Workshop,
     webhook_url: str | None = None,
     force: bool = False,
 ) -> Workshop:
-    """Create SynplaiSign org + OWNER + API key + webhook when the workshop key is missing.
+    """Ensure SynplaiSign credentials + webhook for a workshop.
 
-    Uses ``POST /auth/register-with-api-key`` with ``SYNPLAISIGN_MASTER_KEY``.
-    When ``force=True``, discards local credentials and registers a new org/key even if one exists.
+    When another workshop of the same account/owner already has credentials, reuses that API key
+    (SynplaiSign does not allow duplicate OWNER emails). Otherwise registers via
+    ``POST /auth/register-with-api-key`` with ``SYNPLAISIGN_MASTER_KEY``.
+
+    When ``force=True`` and no sibling donor exists, discards local credentials and registers again.
+    When a sibling donor exists, ``force`` still reuses the donor (cannot create a second login).
     """
     master_key = str(getattr(settings, "SYNPLAISIGN_MASTER_KEY", "") or "").strip()
     if not master_key:
@@ -163,11 +231,7 @@ def provision_workshop_synplaisign(
 
     try:
         with transaction.atomic():
-            locked = (
-                Workshop.objects.select_for_update(of=("self",))
-                .select_related("account", "account__owner")
-                .get(pk=workshop.pk)
-            )
+            locked, account_workshops = _lock_workshop_for_synplaisign_provision(workshop.pk)
             api_key = decrypt_secret(locked.synplaisign_api_key)
             should_create = force or not api_key
 
@@ -177,63 +241,70 @@ def provision_workshop_synplaisign(
                     extra={"workshop_id": locked.pk, "api_key_id": locked.synplaisign_api_key_id},
                 )
             elif should_create:
-                if force and api_key:
-                    logger.warning(
-                        "synplaisign_api_key_force_recreate",
-                        extra={"workshop_id": locked.pk, "previous_api_key_id": locked.synplaisign_api_key_id},
+                donor = _find_synplaisign_credential_donor(workshop=locked, account_workshops=account_workshops)
+                if donor is not None:
+                    _copy_synplaisign_credentials(source=donor, target=locked)
+                    api_key = decrypt_secret(locked.synplaisign_api_key)
+                    if not api_key:
+                        raise WorkshopSynplaiSignError(
+                            f"Oficina donor={donor.pk} sem API key SynplaiSign valida para reutilizar."
+                        )
+                    logger.info(
+                        "synplaisign_api_key_reused_from_owner_workshop",
+                        extra={
+                            "workshop_id": locked.pk,
+                            "donor_workshop_id": donor.pk,
+                            "api_key_id": locked.synplaisign_api_key_id,
+                            "forced": force,
+                        },
                     )
-                    locked.synplaisign_api_key_id = ""
-                    locked.synplaisign_api_key = ""
-                    locked.synplaisign_owner_password = ""
-                    locked.synplaisign_webhook_id = ""
-                    locked.synplaisign_webhook_secret = ""
+                else:
+                    if force and api_key:
+                        logger.warning(
+                            "synplaisign_api_key_force_recreate",
+                            extra={"workshop_id": locked.pk, "previous_api_key_id": locked.synplaisign_api_key_id},
+                        )
+                        for field_name in _SYNPLAISIGN_CREDENTIAL_FIELDS:
+                            setattr(locked, field_name, "")
+                        locked.save(update_fields=list(_SYNPLAISIGN_CREDENTIAL_FIELDS))
+
+                    owner = _resolve_account_owner(locked)
+                    password = _generate_owner_password()
+                    api_key_name = _build_api_key_name(locked)
+                    registered = gateway.register_with_api_key(
+                        master_key=master_key,
+                        organization_name=_organization_name_for_workshop(locked),
+                        name=_owner_display_name(owner),
+                        email=_owner_email(owner),
+                        password=password,
+                        api_key_name=api_key_name,
+                    )
+                    api_key_payload = registered.get("apiKey") if isinstance(registered.get("apiKey"), dict) else {}
+                    key_id = str(api_key_payload.get("id") or "").strip()
+                    raw_key = str(api_key_payload.get("key") or "").strip()
+                    if not raw_key:
+                        raise WorkshopSynplaiSignError("SynplaiSign nao retornou a API key no registro")
+
+                    locked.synplaisign_api_key_id = key_id
+                    locked.synplaisign_api_key = encrypt_secret(raw_key)
+                    locked.synplaisign_owner_password = encrypt_secret(password)
                     locked.save(
                         update_fields=[
                             "synplaisign_api_key_id",
                             "synplaisign_api_key",
                             "synplaisign_owner_password",
-                            "synplaisign_webhook_id",
-                            "synplaisign_webhook_secret",
                         ]
                     )
-
-                owner = _resolve_account_owner(locked)
-                password = _generate_owner_password()
-                api_key_name = _build_api_key_name(locked)
-                registered = gateway.register_with_api_key(
-                    master_key=master_key,
-                    organization_name=_organization_name_for_workshop(locked),
-                    name=_owner_display_name(owner),
-                    email=_owner_email(owner),
-                    password=password,
-                    api_key_name=api_key_name,
-                )
-                api_key_payload = registered.get("apiKey") if isinstance(registered.get("apiKey"), dict) else {}
-                key_id = str(api_key_payload.get("id") or "").strip()
-                raw_key = str(api_key_payload.get("key") or "").strip()
-                if not raw_key:
-                    raise WorkshopSynplaiSignError("SynplaiSign nao retornou a API key no registro")
-
-                locked.synplaisign_api_key_id = key_id
-                locked.synplaisign_api_key = encrypt_secret(raw_key)
-                locked.synplaisign_owner_password = encrypt_secret(password)
-                locked.save(
-                    update_fields=[
-                        "synplaisign_api_key_id",
-                        "synplaisign_api_key",
-                        "synplaisign_owner_password",
-                    ]
-                )
-                api_key = raw_key
-                logger.info(
-                    "synplaisign_api_key_provisioned",
-                    extra={
-                        "workshop_id": locked.pk,
-                        "api_key_id": key_id,
-                        "api_key_name": api_key_name,
-                        "forced": force,
-                    },
-                )
+                    api_key = raw_key
+                    logger.info(
+                        "synplaisign_api_key_provisioned",
+                        extra={
+                            "workshop_id": locked.pk,
+                            "api_key_id": key_id,
+                            "api_key_name": api_key_name,
+                            "forced": force,
+                        },
+                    )
 
             # Never rotates an existing API key unless force; only ensures webhook for the current key.
             _ensure_workshop_webhook(workshop=locked, api_key=api_key, webhook_url=resolved_webhook_url)
