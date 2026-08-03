@@ -33,15 +33,19 @@ def _uppercase_text_input() -> TextInput:
 
 def default_appointment_ends_at(starts_at: datetime) -> datetime:
     """Same calendar day at 18:00 local time, or starts_at + 1h when entrada is already at/after 18:00."""
-    local_starts = timezone.localtime(starts_at)
+    local_starts = timezone.localtime(starts_at) if timezone.is_aware(starts_at) else starts_at
     candidate = local_starts.replace(hour=18, minute=0, second=0, microsecond=0)
     if candidate <= local_starts:
         return starts_at + timedelta(hours=1)
+    if timezone.is_aware(starts_at) and timezone.is_naive(candidate):
+        return timezone.make_aware(candidate, timezone.get_current_timezone())
     return candidate
 
 
 def _format_datetime_local(value: datetime) -> str:
-    return timezone.localtime(value).strftime("%Y-%m-%dT%H:%M")
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+    return value.strftime("%Y-%m-%dT%H:%M")
 
 def _year_text_input() -> TextInput:
     return TextInput(attrs={"inputmode": "numeric", "maxlength": "4"})

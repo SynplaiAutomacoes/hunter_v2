@@ -31,7 +31,10 @@ logger = logging.getLogger(__name__)
 
 
 def _format_datetime_local_value(value: datetime) -> str:
-    return timezone.localtime(value).strftime("%Y-%m-%dT%H:%M")
+    """Format for datetime-local inputs. Naive values are treated as wall-clock local time."""
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+    return value.strftime("%Y-%m-%dT%H:%M")
 
 
 def _log_request_context(request, scope: str, **extra) -> None:

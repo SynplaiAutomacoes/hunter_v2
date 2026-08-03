@@ -161,6 +161,12 @@ class AppointmentDefaultEndsAtTests(TestCase):
         ends = default_appointment_ends_at(starts)
         self.assertEqual(ends, starts + timedelta(hours=1))
 
+    def test_default_ends_at_accepts_naive_wall_datetime(self) -> None:
+        starts = datetime(2026, 8, 2, 21, 0)
+        ends = default_appointment_ends_at(starts)
+        self.assertTrue(timezone.is_naive(ends))
+        self.assertEqual(ends, datetime(2026, 8, 2, 22, 0))
+
 
 class AppointmentGuestModelValidationTests(TestCase):
     def setUp(self) -> None:
