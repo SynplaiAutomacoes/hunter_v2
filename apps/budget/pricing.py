@@ -331,6 +331,7 @@ def build_pricing_snapshot(
     labor_selling_value_override: Money | None = None,
     is_local_product_item: Callable[[Any], bool] | None = None,
     is_local_service_item: Callable[[Any], bool] | None = None,
+    include_benefit_items: bool = False,
 ) -> PricingSnapshot:
     local_product_check = is_local_product_item or (lambda _item: False)
     local_service_check = is_local_service_item or (lambda _item: False)
@@ -343,7 +344,7 @@ def build_pricing_snapshot(
         if item_quantity <= 0:
             continue
 
-        if getattr(item, "item_benefit_type", "normal") not in ("normal", ""):
+        if not include_benefit_items and getattr(item, "item_benefit_type", "normal") not in ("normal", ""):
             continue
 
         item_id = getattr(item, "id", None)

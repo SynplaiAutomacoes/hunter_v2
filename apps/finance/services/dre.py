@@ -169,7 +169,15 @@ def build_dre_calculation(
         taxa_maquininha_qs = taxa_maquininha_qs.filter(due_date__lte=end_date)
     taxa_maquininha_os = list(taxa_maquininha_qs.select_related("workorder_payment", "workorder_payment__workorder"))
 
-    delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(payments=pagamentos_ordens_de_servico)
+    delivered_fixed_workorders = _fetch_delivered_fixed_workorders(
+        workshops=workshops,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(
+        payments=pagamentos_ordens_de_servico,
+        fixed_workorders=delivered_fixed_workorders,
+    )
     delivered_workorders = [workorder for workorder, _ in delivered_workorders_with_costs]
 
     detail_taxas_maquininha = maquininha_tax_details(list(taxa_maquininha_os))
@@ -178,21 +186,21 @@ def build_dre_calculation(
         include_workshop_ref=include_workshop_ref,
         budget_plan=cost_budget_plan,
         component_label="Custos de Peças",
-        amount_resolver=lambda workorder: workorder.total_costs_products_value,
+        amount_resolver=lambda workorder: getattr(workorder, "dre_total_costs_products_value", workorder.total_costs_products_value),
     )
     detail_fretes = _build_workorder_cost_component_details(
         workorders=delivered_workorders,
         include_workshop_ref=include_workshop_ref,
         budget_plan=cost_budget_plan,
         component_label="Fretes",
-        amount_resolver=lambda workorder: workorder.total_products_shipping,
+        amount_resolver=lambda workorder: getattr(workorder, "dre_total_products_shipping", workorder.total_products_shipping),
     )
     detail_servicos_terceiros = _build_workorder_cost_component_details(
         workorders=delivered_workorders,
         include_workshop_ref=include_workshop_ref,
         budget_plan=cost_budget_plan,
         component_label="Serviços Terceiros",
-        amount_resolver=lambda workorder: workorder.total_third_party_services_cost,
+        amount_resolver=lambda workorder: getattr(workorder, "dre_total_third_party_services_cost", workorder.total_third_party_services_cost),
     )
     detail_mao_de_obra = _build_workorder_cost_component_details(
         workorders=delivered_workorders,
@@ -206,7 +214,7 @@ def build_dre_calculation(
         include_workshop_ref=include_workshop_ref,
         budget_plan=cost_budget_plan,
         component_label="Fretes",
-        amount_resolver=lambda workorder: workorder.total_services_shipping,
+        amount_resolver=lambda workorder: getattr(workorder, "dre_total_services_shipping", workorder.total_services_shipping),
     )
 
     total_custos_de_mercadorias_vendidas = _sum_detail_amounts(detail_taxas_maquininha) + _sum_detail_amounts(detail_custos_pecas) + _sum_detail_amounts(detail_fretes)
@@ -415,8 +423,40 @@ def _build_workorder_payment_totals(*, payments: list[WorkOrderPaymentMethod]) -
     return totals
 
 
-def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMethod]) -> list[tuple[WorkOrder, Money]]:
+def _fetch_delivered_fixed_workorders(
+    *,
+    workshops: Sequence[Workshop],
+    start_date: date | None,
+    end_date: date | None,
+) -> list[WorkOrder]:
+    """Delivered warranty/courtesy workorders whose costs count as a loss in the DRE."""
+    qs = WorkOrder.objects.filter(
+        workshop__in=workshops,
+        budget_type__in=("warranty", "courtesy"),
+        delivered_at__isnull=False,
+    )
+    if start_date is not None:
+        qs = qs.filter(delivered_at__date__gte=start_date)
+    if end_date is not None:
+        qs = qs.filter(delivered_at__date__lte=end_date)
+
+    return list(
+        qs.select_related("budget", "budget__customer", "workshop")
+        .prefetch_related(
+            "payments",
+            workorder_items_with_kit_prefetch(with_kit_tree=True),
+        )
+        .order_by("criado_em", "pk")
+    )
+
+
+def _fetch_delivered_workorders_with_costs(
+    *,
+    payments: list[WorkOrderPaymentMethod],
+    fixed_workorders: list[WorkOrder] | None = None,
+) -> list[tuple[WorkOrder, Money]]:
     workorder_ids = sorted({payment.workorder_id for payment in payments if payment.workorder_id})
+    workorder_ids.extend(sorted({wo.pk for wo in (fixed_workorders or []) if wo.pk}))
     if not workorder_ids:
         return []
 
@@ -434,9 +474,10 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
         if workorder.delivered_at is None:
             continue
 
+        snapshot = workorder.build_cost_snapshot() if workorder.is_fixed_budget else workorder.pricing_snapshot
+
         custo_local = _ZERO
         budget = workorder.budget
-        snapshot = workorder.pricing_snapshot
         if budget is not None:
             setattr(budget, "_read_only_pricing_context", True)
             for line in snapshot.service_lines:
@@ -452,6 +493,10 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
                 custo_local += mechanic_cost
 
         setattr(workorder, "dre_local_cost", custo_local)
+        setattr(workorder, "dre_total_costs_products_value", snapshot.total_costs_products_value)
+        setattr(workorder, "dre_total_products_shipping", snapshot.total_products_shipping)
+        setattr(workorder, "dre_total_third_party_services_cost", snapshot.total_third_party_services_cost)
+        setattr(workorder, "dre_total_services_shipping", snapshot.total_services_shipping)
         total_cost = snapshot.total_costs_products_value + snapshot.total_costs_services_value
         setattr(workorder, "dre_total_cost", total_cost)
         payloads.append((workorder, total_cost))

@@ -269,6 +269,17 @@ class WorkOrder(TimeStampedModel):
             labor_selling_value_override=labor_selling_value_override,
         )
 
+    def build_cost_snapshot(self) -> PricingSnapshot:
+        """Snapshot including warranty/courtesy items, used to measure real costs."""
+        return build_pricing_snapshot(
+            items=list(self._iter_items()),
+            slider=int(getattr(self.budget, "slider", 0) or 0),
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+            labor_cost_value=self.total_labor_cost_value,
+            include_benefit_items=True,
+        )
+
     @property
     def pricing_snapshot(self) -> PricingSnapshot:
         cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
