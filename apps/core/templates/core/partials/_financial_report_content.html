@@ -78,11 +78,7 @@
                                 <td>{{ row.entry_date|date:"d/m/Y"|default:"-" }}</td>
                                 <td>{{ row.vehicle|default:"-" }}</td>
                                 <td class="text-right text-base font-bold tabular-nums text-success">
-                                    {% if indicator == 'reprovados' %}
-                                        {{ row.display_total_budget_value|money_br }}
-                                    {% else %}
-                                        {{ row.total_budget_value|money_br }}
-                                    {% endif %}
+                                    {{ row.display_total_budget_value|money_br }}
                                 </td>
                             </tr>
                           {% endwith %}
@@ -170,7 +166,7 @@
                                                 {% if indicator|slice:':10' == 'a_receber_' %}
                                                     {{ child.pending_payment_value|money_br }}
                                                 {% else %}
-                                                    {{ child.total_budget_value|money_br }}
+                                                    {{ child.display_total_budget_value|money_br }}
                                                 {% endif %}
                                             </td>
                                             {% endwith %}

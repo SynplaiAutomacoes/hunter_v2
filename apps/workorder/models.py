@@ -861,6 +861,10 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def is_fixed_budget(self) -> bool:
+        if self.budget_type == "sale" and self.budget_id:
+            linked_budget_type = self.budget.budget_type
+            if linked_budget_type in ("warranty", "courtesy"):
+                return True
         return self.budget_type in ("warranty", "courtesy")
 
     @property
@@ -877,6 +881,18 @@ class WorkOrder(TimeStampedModel):
         if self.is_fixed_budget:
             return self.operational_total_value
         return self.total_budget_value
+
+    @property
+    def display_total_budget_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self.operational_total_value
+        return self.total_budget_value
+
+    @property
+    def display_total_base_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self.operational_total_value
+        return self.total_base_value
 
     @property
     def resolved_discount_value(self) -> Money:

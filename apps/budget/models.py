@@ -776,7 +776,7 @@ class Budget(TimeStampedModel):
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
         resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.total_base_value,
+            total_base_value=self.display_total_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
@@ -896,6 +896,8 @@ class Budget(TimeStampedModel):
 
     @property
     def display_total_base_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self.summary_total_before_benefit_value
         return self.total_base_value
 
     @property
