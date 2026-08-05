@@ -17,6 +17,7 @@ from apps.messaging.application.services.dispatch_history import (
     record_queued_log,
 )
 from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
+from apps.messaging.application.services.outbound_guards import appointment_guard_reason, outbound_cancel_reason
 from apps.messaging.application.services.satisfaction_survey import mark_satisfaction_review_sent
 from apps.messaging.application.services.appointment_alert import refresh_appointment_alert_message
 from apps.messaging.domain.value_objects import DispatchItem
@@ -95,6 +96,8 @@ class DueOutboundResult:
     skipped_outside_hours: bool = False
     birthdays_enqueued: int = 0
     reclaimed: int = 0
+    cancelled_stale: int = 0
+    cancelled_appointment: int = 0
 
 
 def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> DueOutboundResult:
@@ -104,14 +107,27 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
     birthdays_enqueued = enqueue_birthday_alerts_for_day(now=now)
     claimed_ids: list[int] = []
     had_due_outside_hours = False
+    cancelled_stale = 0
+    cancelled_appointment = 0
+    guard_cancel_ids: list[int] = []
+    guard_cancel_errors: dict[int, str] = {}
 
     with transaction.atomic():
-        due = list(ScheduledOutboundMessage.objects.select_for_update(skip_locked=True).select_related("workshop").filter(status=ScheduledOutboundMessage.Status.PENDING, run_at__lte=now).order_by("run_at", "pk")[:limit])
+        due = list(ScheduledOutboundMessage.objects.select_for_update(of=("self",), skip_locked=True).select_related("workshop", "appointment").filter(status=ScheduledOutboundMessage.Status.PENDING, run_at__lte=now).order_by("run_at", "pk")[:limit])
         blocked_customers = blocked_customer_ids(row.customer_id for row in due)
         opted_out_ids: list[int] = []
         for row in due:
             if row.customer_id in blocked_customers:
                 opted_out_ids.append(row.pk)
+                continue
+            cancel_reason = outbound_cancel_reason(row, now=now)
+            if cancel_reason:
+                guard_cancel_ids.append(row.pk)
+                guard_cancel_errors[row.pk] = cancel_reason
+                if cancel_reason == "stale":
+                    cancelled_stale += 1
+                else:
+                    cancelled_appointment += 1
                 continue
             if force or is_within_outbound_business_hours(row.workshop, moment=now):
                 claimed_ids.append(row.pk)
@@ -123,6 +139,21 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
                 atualizado_em=now,
             )
             logger.info("outbound_dispatch_cancelled_customer_opted_out", extra={"cancelled_count": len(opted_out_ids)})
+        if guard_cancel_ids:
+            for row_id in guard_cancel_ids:
+                ScheduledOutboundMessage.objects.filter(pk=row_id).update(
+                    status=ScheduledOutboundMessage.Status.CANCELLED,
+                    error=guard_cancel_errors[row_id][:500],
+                    atualizado_em=now,
+                )
+            logger.info(
+                "outbound_dispatch_cancelled_guard",
+                extra={
+                    "cancelled_count": len(guard_cancel_ids),
+                    "cancelled_stale": cancelled_stale,
+                    "cancelled_appointment": cancelled_appointment,
+                },
+            )
         if claimed_ids:
             ScheduledOutboundMessage.objects.filter(pk__in=claimed_ids).update(
                 status=ScheduledOutboundMessage.Status.PROCESSING,
@@ -137,6 +168,8 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
             skipped_outside_hours=had_due_outside_hours,
             birthdays_enqueued=birthdays_enqueued,
             reclaimed=reclaimed,
+            cancelled_stale=cancelled_stale,
+            cancelled_appointment=cancelled_appointment,
         )
 
     try:
@@ -154,6 +187,8 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
             failed=len(claimed_ids),
             birthdays_enqueued=birthdays_enqueued,
             reclaimed=reclaimed,
+            cancelled_stale=cancelled_stale,
+            cancelled_appointment=cancelled_appointment,
         )
 
     sent = 0
@@ -161,13 +196,22 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
     notified_workshops: dict[int, str] = {}
 
     try:
-        rows = list(
-            ScheduledOutboundMessage.objects.select_related("workshop", "appointment", "vehicle", "vehicle__review_plan").filter(pk__in=claimed_ids)
-        )
+        rows = list(ScheduledOutboundMessage.objects.select_related("workshop", "appointment", "vehicle", "vehicle__review_plan").filter(pk__in=claimed_ids))
         for row in rows:
             batch_source = _BATCH_SOURCE_BY_OUTBOUND.get(row.source, MessageDispatchBatch.Source.APPOINTMENT_ALERT)
             batch: MessageDispatchBatch | None = None
             try:
+                recheck_reason = appointment_guard_reason(row, now=timezone.now())
+                if recheck_reason:
+                    row.status = ScheduledOutboundMessage.Status.CANCELLED
+                    row.error = recheck_reason[:500]
+                    row.save(update_fields=["status", "error", "atualizado_em"])
+                    cancelled_appointment += 1
+                    logger.info(
+                        "outbound_dispatch_cancelled_guard",
+                        extra={"scheduled_id": row.pk, "reason": recheck_reason},
+                    )
+                    continue
                 if row.source == ScheduledOutboundMessage.Source.APPOINTMENT_ALERT:
                     refresh_appointment_alert_message(row)
                 batch = create_dispatch_batch(
@@ -240,6 +284,8 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
         failed=failed,
         birthdays_enqueued=birthdays_enqueued,
         reclaimed=reclaimed,
+        cancelled_stale=cancelled_stale,
+        cancelled_appointment=cancelled_appointment,
     )
 
 

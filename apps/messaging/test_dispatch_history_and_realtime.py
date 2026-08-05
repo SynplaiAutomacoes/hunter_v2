@@ -346,7 +346,7 @@ class OutboundTickerTests(TestCase):
             customer=customer,
             phone="5511999999999",
             message="Travado",
-            run_at=timezone.now() - timedelta(minutes=20),
+            run_at=timezone.now() - timedelta(minutes=5),
             status=ScheduledOutboundMessage.Status.PROCESSING,
             source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
             error="previous hang",

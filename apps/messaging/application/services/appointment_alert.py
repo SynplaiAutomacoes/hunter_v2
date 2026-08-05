@@ -136,6 +136,9 @@ def enqueue_appointment_confirmation(appointment: Appointment) -> ScheduledOutbo
     if appointment.status != AppointmentStatus.SCHEDULED:
         return None
 
+    if appointment.starts_at <= timezone.now():
+        return None
+
     if appointment.customer_id and not customer_can_receive_messages(appointment.customer):
         return None
 
@@ -183,7 +186,8 @@ def sync_appointment_alert_schedule(appointment: Appointment) -> list[ScheduledO
     )
 
     lead_times = [int(value) for value in (appointment.alert_lead_times or []) if value]
-    should_schedule = bool(appointment.alert_customer and lead_times and appointment.status == AppointmentStatus.SCHEDULED)
+    now = timezone.now()
+    should_schedule = bool(appointment.alert_customer and lead_times and appointment.status == AppointmentStatus.SCHEDULED and appointment.starts_at > now)
 
     # Guests have no Customer record, so there is no toggle to honour for them.
     if should_schedule and appointment.customer_id and not customer_can_receive_messages(appointment.customer):
@@ -203,7 +207,6 @@ def sync_appointment_alert_schedule(appointment: Appointment) -> list[ScheduledO
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
         return []
 
-    now = timezone.now()
     desired_run_ats = {appointment.starts_at - timedelta(minutes=lead_minutes): lead_minutes for lead_minutes in lead_times}
     existing_by_run_at = {row.run_at: row for row in pending_qs.order_by("-criado_em")}
     kept_ids: list[int] = []
