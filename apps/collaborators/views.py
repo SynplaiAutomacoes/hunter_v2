@@ -315,7 +315,12 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                     user.username = form.cleaned_data["system_username"]
                     user.email = collaborator.email or user.email
                     user.is_active = collaborator.is_active
-                    user.save(update_fields=["username", "email", "is_active"])
+                    update_fields = ["username", "email", "is_active"]
+                    new_password = form.cleaned_data.get("password1")
+                    if new_password:
+                        user.set_password(new_password)
+                        update_fields.append("password")
+                    user.save(update_fields=update_fields)
                 else:
                     user = User(
                         username=form.cleaned_data["system_username"],
