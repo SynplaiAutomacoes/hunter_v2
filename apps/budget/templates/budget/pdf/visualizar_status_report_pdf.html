@@ -128,10 +128,12 @@
                             <td class="px-3 py-3 text-gray-600">{{ budget.criado_em|date:"d/m/Y"|default:"-" }}</td>
                             <td class="px-3 py-3 text-right font-semibold">{{ budget.stored_total_amount }}</td>
                             <td class="px-3 py-3 font-semibold">{{ budget.budget_status_badge.text }}</td>
+                            <td class="px-3 py-3 text-gray-600">{% if budget.cancellation_reason %}{{ budget.cancellation_reason }}{% elif budget.rejection_reason %}{{ budget.rejection_reason }}{% else %}-{% endif %}</td>
                             {% if show_cancellation_reason_column %}<td class="px-3 py-3">{{ budget.cancellation_reason|default:"-" }}</td>{% endif %}
                         </tr>
                     {% empty %}
                         <tr class="border-t border-gray-200">
+                            <td colspan="8" class="px-4 py-6 text-center text-gray-500">Nao ha orcamentos para os filtros selecionados.</td>
                             <td colspan="{% if show_cancellation_reason_column %}8{% else %}7{% endif %}" class="px-4 py-6 text-center text-gray-500">Nao ha orcamentos para os filtros selecionados.</td>
                         </tr>
                     {% endfor %}
