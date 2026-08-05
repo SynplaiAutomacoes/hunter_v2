@@ -332,6 +332,76 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         budget.approve.assert_not_called()
 
+    @patch("apps.workorder.models.WorkOrder.objects.filter")
+    @patch("apps.budget.models.Budget.objects.filter")
+    def test_document_declined_rejects_budget(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+        from apps.budget.models import BudgetStatus
+
+        workorders = Mock()
+        workorders.exclude.return_value.exists.return_value = False
+        budget = SimpleNamespace(
+            pk=11,
+            status=BudgetStatus.WAITING_APPROVAL,
+            is_status_locked=False,
+            workorders=workorders,
+            save=Mock(),
+        )
+        budget_filter.return_value.first.return_value = budget
+        workorder_filter.return_value.first.return_value = None
+
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_DECLINED", "envelopeId": "env-declined"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(budget.status, BudgetStatus.REJECTED)
+        budget.save.assert_called_once_with(update_fields=["status"])
+
+    @patch("apps.workorder.models.WorkOrder.objects.filter")
+    @patch("apps.budget.models.Budget.objects.filter")
+    def test_document_declined_skips_budget_with_active_workorder(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+        from apps.budget.models import BudgetStatus
+
+        workorders = Mock()
+        workorders.exclude.return_value.exists.return_value = True
+        budget = SimpleNamespace(
+            pk=12,
+            status=BudgetStatus.WAITING_APPROVAL,
+            is_status_locked=False,
+            workorders=workorders,
+            save=Mock(),
+        )
+        budget_filter.return_value.first.return_value = budget
+        workorder_filter.return_value.first.return_value = None
+
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_DECLINED", "envelopeId": "env-declined-wo"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(budget.status, BudgetStatus.WAITING_APPROVAL)
+        budget.save.assert_not_called()
+
+    @patch("apps.workorder.models.WorkOrder.objects.filter")
+    @patch("apps.budget.models.Budget.objects.filter")
+    def test_document_declined_rejects_workorder(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+        from apps.workorder.models import WorkOrderStatus
+
+        workorder = SimpleNamespace(
+            pk=21,
+            status=WorkOrderStatus.DRAFT,
+            is_status_locked=False,
+            reject=Mock(),
+        )
+        budget_filter.return_value.first.return_value = None
+        workorder_filter.return_value.first.return_value = workorder
+
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_DECLINED", "envelopeId": "env-wo-declined"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workorder.reject.assert_called_once_with(reason="Documento recusado pelo signatário")
 
 
 class BudgetSignatureSendTests(SimpleTestCase):

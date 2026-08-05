@@ -404,7 +404,7 @@ def list_webhooks(*, api_key: str) -> list[dict[str, Any]]:
 
 def create_webhook(*, api_key: str, url: str, events: list[str] | None = None) -> dict[str, Any]:
     base_url = _require_base_url()
-    expected_events = list(events or ["ENVELOPE_COMPLETED"])
+    expected_events = list(events or ["ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"])
     payload = {"url": url, "events": expected_events}
 
     logger.info("synplaisign_webhook_create_start", extra={"url": url, "events": expected_events})
@@ -433,6 +433,36 @@ def create_webhook(*, api_key: str, url: str, events: list[str] | None = None) -
     result = data if isinstance(data, dict) else {}
     logger.info("synplaisign_webhook_create_success", extra={"url": url, "webhook_id": result.get("id")})
     return result
+
+
+def delete_webhook(*, api_key: str, webhook_id: str) -> None:
+    base_url = _require_base_url()
+    normalized_id = str(webhook_id or "").strip()
+    if not normalized_id:
+        raise SynplaiSignGatewayError("webhook_id ausente para exclusao")
+
+    logger.info("synplaisign_webhook_delete_start", extra={"webhook_id": normalized_id})
+
+    try:
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="synplaisign",
+            operation="delete_webhook",
+            log_context={"webhook_id": normalized_id},
+        ) as dependency_call:
+            response = requests.delete(
+                f"{base_url}/webhooks/{normalized_id}",
+                headers=_api_headers(api_key=api_key),
+                timeout=20,
+            )
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if exc.response is not None else ""
+        raise SynplaiSignGatewayError(f"Erro ao excluir webhook: {exc}. Resposta: {response_text}") from exc
+
+    logger.info("synplaisign_webhook_delete_success", extra={"webhook_id": normalized_id})
 
 
 def build_signing_url(*, token: str) -> str:
