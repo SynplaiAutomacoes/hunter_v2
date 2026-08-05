@@ -37,6 +37,7 @@ from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.budget.views.shared import reset_steps_after_step_4
 from ...core.domain.services.editing_lock_service import get_lock_info
 from ...core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.core.presentation.navigation import BUDGET_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
@@ -101,6 +102,8 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
         },
     )
     success_message = "Documento reenviado para assinatura do cliente." if is_resend else "Orçamento enviado para assinatura do cliente."
+    customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
+    success_message += build_signature_whatsapp_skip_note(workshop=budget.workshop, phone=customer_phone)
     return "success", success_message, reverse("budget:budget_list")
 
 
