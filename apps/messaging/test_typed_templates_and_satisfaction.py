@@ -12,6 +12,7 @@ from apps.customer.models import Customer, Vehicle
 from apps.messaging.application.services.appointment_alert import (
     build_appointment_alert_message,
     enqueue_appointment_confirmation,
+    refresh_pending_appointment_alerts_for_workshop,
     sync_appointment_alert_schedule,
 )
 from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
@@ -164,6 +165,38 @@ class TypedAlertTemplateTests(TestCase):
         self.assertEqual(len(scheduled), 1)
         self.assertIn("Cliente Alerta", scheduled[0].message)
         self.assertIn(timezone.localtime(starts).strftime("%d/%m/%Y"), scheduled[0].message)
+
+    def test_appointment_alert_refreshes_pending_when_template_changes(self) -> None:
+        template = MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Refresh",
+            message="Versao antiga %%primeiro_nome%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=2)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Revisao refresh",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[60],
+        )
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 1)
+        self.assertIn("Versao antiga", scheduled[0].message)
+
+        template.message = "Versao nova %%primeiro_nome%%"
+        template.save(update_fields=["message"])
+        updated = refresh_pending_appointment_alerts_for_workshop(self.workshop.pk)
+        scheduled[0].refresh_from_db()
+
+        self.assertEqual(updated, 1)
+        self.assertIn("Versao nova", scheduled[0].message)
+        self.assertNotIn("Versao antiga", scheduled[0].message)
 
     def test_appointment_alert_creates_one_message_per_lead_time(self) -> None:
         MessageTemplate.objects.create(

@@ -290,6 +290,49 @@ class OutboundTickerTests(TestCase):
         self.assertEqual(len(publisher.published), 1)
         self.assertEqual(publisher.published[0].client_message_id, str(row.client_message_id))
 
+    @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
+    def test_process_due_appointment_alert_uses_current_template_at_send(self, publisher_cls: MagicMock) -> None:
+        workshop = _workshop(44)
+        customer = _customer(workshop, 44)
+        publisher = FakeQueuePublisher()
+        publisher_cls.return_value = publisher
+        MessageTemplate.objects.create(
+            workshop=workshop,
+            name="Agenda send refresh",
+            message="Template atual %%primeiro_nome%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=1)
+        appointment = Appointment.objects.create(
+            workshop=workshop,
+            customer=customer,
+            title="Envio refresh",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[60],
+        )
+        row = ScheduledOutboundMessage.objects.create(
+            workshop=workshop,
+            appointment=appointment,
+            customer=customer,
+            phone="5511999999999",
+            message="Texto antigo congelado",
+            run_at=timezone.now() - timedelta(minutes=1),
+            status=ScheduledOutboundMessage.Status.PENDING,
+            source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+        )
+
+        result = process_due_outbound_messages(limit=10, force=True)
+        row.refresh_from_db()
+
+        self.assertEqual(result.sent, 1)
+        self.assertIn("Template atual", row.message)
+        self.assertIn("Template atual", publisher.published[0].message)
+        self.assertNotIn("Texto antigo", publisher.published[0].message)
+
     @override_settings(OUTBOUND_PROCESSING_RECLAIM_SECONDS=600)
     @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
     def test_process_due_reclaims_stale_processing_to_pending_then_sends(self, publisher_cls: MagicMock) -> None:

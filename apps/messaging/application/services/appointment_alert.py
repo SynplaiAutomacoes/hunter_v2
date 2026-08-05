@@ -83,6 +83,43 @@ def build_appointment_alert_message(appointment: Appointment) -> str | None:
     return build_appointment_typed_message(appointment, MessageTemplate.TemplateType.APPOINTMENT)
 
 
+def refresh_appointment_alert_message(row: ScheduledOutboundMessage) -> bool:
+    """Re-render a pending/claimed alert from the workshop's current APPOINTMENT template."""
+    if row.source != ScheduledOutboundMessage.Source.APPOINTMENT_ALERT:
+        return False
+    appointment = row.appointment
+    if appointment is None:
+        return False
+
+    message = build_appointment_alert_message(appointment)
+    if not message or row.message == message:
+        return False
+
+    row.message = message
+    row.save(update_fields=["message", "atualizado_em"])
+    return True
+
+
+def refresh_pending_appointment_alerts_for_workshop(workshop_id: int) -> int:
+    """Update all PENDING appointment alerts for a workshop with the active template text."""
+    rows = ScheduledOutboundMessage.objects.filter(
+        workshop_id=workshop_id,
+        source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+        status=ScheduledOutboundMessage.Status.PENDING,
+        appointment__isnull=False,
+    ).select_related("appointment", "appointment__customer", "appointment__workshop", "workshop")
+    updated = 0
+    for row in rows:
+        if refresh_appointment_alert_message(row):
+            updated += 1
+    if updated:
+        logger.info(
+            "appointment_alert_messages_refreshed_from_template",
+            extra={"workshop_id": workshop_id, "updated_count": updated},
+        )
+    return updated
+
+
 def resolve_appointment_whatsapp_phone(appointment: Appointment) -> str:
     # Same as message-group dispatch: PhoneNumber.as_e164 without leading '+'.
     if getattr(appointment, "customer_id", None) and appointment.customer and appointment.customer.phone:

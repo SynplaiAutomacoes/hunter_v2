@@ -18,6 +18,7 @@ from apps.messaging.application.services.dispatch_history import (
 )
 from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
 from apps.messaging.application.services.satisfaction_survey import mark_satisfaction_review_sent
+from apps.messaging.application.services.appointment_alert import refresh_appointment_alert_message
 from apps.messaging.domain.value_objects import DispatchItem
 from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPublisher, RabbitMQPublisherError
 from apps.messaging.models import MessageDispatchBatch, ScheduledOutboundMessage
@@ -167,6 +168,8 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
             batch_source = _BATCH_SOURCE_BY_OUTBOUND.get(row.source, MessageDispatchBatch.Source.APPOINTMENT_ALERT)
             batch: MessageDispatchBatch | None = None
             try:
+                if row.source == ScheduledOutboundMessage.Source.APPOINTMENT_ALERT:
+                    refresh_appointment_alert_message(row)
                 batch = create_dispatch_batch(
                     workshop_id=row.workshop_id,
                     source=batch_source,
