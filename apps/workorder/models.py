@@ -99,6 +99,7 @@ class WorkOrder(TimeStampedModel):
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
+    signature_decline_pending = models.BooleanField(verbose_name="Recusa de assinatura pendente", default=False)
     delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
     warranty_plan = models.CharField(
         verbose_name="Plano de garantia",
@@ -474,9 +475,15 @@ class WorkOrder(TimeStampedModel):
                 },
             )
 
+    def _ensure_no_payments(self, action: str) -> None:
+        if self.payments.exists():
+            raise WorkOrderError(f"Exclua os planos de pagamento antes de {action} a O.S.")
+
     def cancel(self, *, reason: str) -> None:
         if self.is_status_locked:
             raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
+
+        self._ensure_no_payments("cancelar")
 
         self.status = WorkOrderStatus.CANCELLED
         self.cancellation_reason = reason
@@ -487,6 +494,8 @@ class WorkOrder(TimeStampedModel):
     def reject(self, *, reason: str) -> None:
         if self.is_status_locked:
             raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
+
+        self._ensure_no_payments("reprovar")
 
         self.status = WorkOrderStatus.REJECTED
         self.rejection_reason = reason
