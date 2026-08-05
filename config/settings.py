@@ -256,6 +256,9 @@ DATABASES = {
 # Seconds before a PROCESSING outbound row is reclaimed to PENDING by the poller.
 OUTBOUND_PROCESSING_RECLAIM_SECONDS = int(os.getenv("OUTBOUND_PROCESSING_RECLAIM_SECONDS", "600"))
 
+# Max delay after the first legal send moment for appointment alerts before they are cancelled.
+OUTBOUND_MAX_DELAY_MINUTES = int(os.getenv("OUTBOUND_MAX_DELAY_MINUTES", "15"))
+
 # Cache
 # https://docs.djangoproject.com/en/5.2/topics/cache/
 

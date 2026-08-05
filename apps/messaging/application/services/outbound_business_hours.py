@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
@@ -28,6 +28,24 @@ def _parse_weekdays(raw: str) -> frozenset[int]:
     return frozenset(values)
 
 
+def _workshop_weekdays(workshop: OutboundBusinessHoursConfig) -> frozenset[int]:
+    try:
+        return _parse_weekdays(str(getattr(workshop, "outbound_business_weekdays", "0,1,2,3,4")))
+    except ValueError:
+        return frozenset({0, 1, 2, 3, 4})
+
+
+def _workshop_window_times(workshop: OutboundBusinessHoursConfig) -> tuple[time, time]:
+    start = getattr(workshop, "outbound_business_start_time", None) or time(8, 0)
+    end = getattr(workshop, "outbound_business_end_time", None) or time(18, 0)
+    return start, end
+
+
+def _local_tz() -> ZoneInfo:
+    tz_name = str(getattr(settings, "TIME_ZONE", "America/Sao_Paulo") or "America/Sao_Paulo")
+    return ZoneInfo(tz_name)
+
+
 def is_within_outbound_business_hours(
     workshop: OutboundBusinessHoursConfig,
     moment: datetime | None = None,
@@ -41,17 +59,52 @@ def is_within_outbound_business_hours(
     Timezone: Django TIME_ZONE (America/Sao_Paulo).
     """
     when = moment or timezone.now()
-    tz_name = str(getattr(settings, "TIME_ZONE", "America/Sao_Paulo") or "America/Sao_Paulo")
-    local = timezone.localtime(when, ZoneInfo(tz_name))
-
-    try:
-        weekdays = _parse_weekdays(str(getattr(workshop, "outbound_business_weekdays", "0,1,2,3,4")))
-    except ValueError:
-        weekdays = frozenset({0, 1, 2, 3, 4})
+    local = timezone.localtime(when, _local_tz())
+    weekdays = _workshop_weekdays(workshop)
 
     if local.weekday() not in weekdays:
         return False
 
-    start = getattr(workshop, "outbound_business_start_time", None) or time(8, 0)
-    end = getattr(workshop, "outbound_business_end_time", None) or time(18, 0)
+    start, end = _workshop_window_times(workshop)
     return start <= local.time() < end
+
+
+def next_outbound_window_start(
+    workshop: OutboundBusinessHoursConfig,
+    moment: datetime,
+) -> datetime | None:
+    """
+    Return the first instant >= moment that falls inside the workshop outbound window.
+
+    If moment is already inside the window, return moment itself.
+    Scans at most 8 calendar days ahead. Returns None when no weekdays are configured.
+    """
+    weekdays = _workshop_weekdays(workshop)
+    if not weekdays:
+        return None
+
+    start, end = _workshop_window_times(workshop)
+    if start >= end:
+        return None
+
+    tz = _local_tz()
+    local = timezone.localtime(moment, tz)
+
+    for day_offset in range(8):
+        day = local.date() + timedelta(days=day_offset)
+        if day.weekday() not in weekdays:
+            continue
+
+        window_open = datetime.combine(day, start, tzinfo=tz)
+
+        if day_offset == 0:
+            if start <= local.time() < end:
+                return moment
+            if local.time() >= end:
+                continue
+            # Before today's window opens.
+            return window_open
+
+        return window_open
+
+    return None
