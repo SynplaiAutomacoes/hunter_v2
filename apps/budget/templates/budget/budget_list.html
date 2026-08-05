@@ -5,8 +5,8 @@
     {% include 'favorites/partials/favoritable_action_link.html' with action_url=budget_create_url action_label='Novo Orçamento' favorite_url=budget_create_url favorite_label='Novo Orçamento' %}
     <dialog id="budgetStatusReportPdfModal"
             class="modal"
-            x-data="{ url: '', downloadUrl: '', title: 'Relatorio de Orcamentos Filtrados' }"
-            @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Relatorio de Orcamentos Filtrados'; $el.showModal()">
+            x-data="{ url: '', downloadUrl: '', title: 'Relatório de Orçamentos Filtrados' }"
+            @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Relatório de Orçamentos Filtrados'; $el.showModal()">
         <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
             <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
                 <h3 class="flex items-center gap-2 text-xl font-bold">

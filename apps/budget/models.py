@@ -20,8 +20,8 @@ from djmoney.models.fields import MoneyField
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
-from apps.workshops.models.workshop_costs import WorkshopCost
-from apps.workshops.util.monthly_costs import get_productive_salary_total_including_transport
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -107,7 +107,7 @@ class Defect(models.Model):
 class Budget(TimeStampedModel):
     CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE = "Informe a data de saída combinada com o cliente."
     SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE = "Informe a data prevista de término do serviço."
-    STEP6_DATE_ORDER_ERROR_MESSAGE = "A data de saída combinada com o cliente não pode ser menor que a data prevista de término do serviço."
+    STEP6_DATE_ORDER_ERROR_MESSAGE = "A data de saída combinada com o cliente não pode ser anterior à data prevista de término do serviço."
 
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="budgets")
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.SET_NULL, related_name="budgets", null=True)
@@ -121,7 +121,7 @@ class Budget(TimeStampedModel):
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
-    customer_agreed_departure_at = models.DateTimeField(verbose_name="Data de saída combinada com o Cliente", null=True, blank=True)
+    customer_agreed_departure_at = models.DateTimeField(verbose_name="Data de saída combinada com o cliente", null=True, blank=True)
     service_expected_completion_at = models.DateTimeField(verbose_name="Data prevista de término do serviço", null=True, blank=True)
     is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
     budget_type = models.CharField(verbose_name="Tipo de Orçamento", max_length=50, choices=BudgetType.choices, default=BudgetType.SALE)
@@ -138,18 +138,18 @@ class Budget(TimeStampedModel):
     # Financeiro
     discount_value = MoneyField(verbose_name="Aplicar Desconto (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Aplicar Desconto (%)", max_digits=7, decimal_places=6, default=0.00, validators=[MinValueValidator(0), MaxValueValidator(1)])
-    discount_type = models.CharField(verbose_name="Tipo de Desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
+    discount_type = models.CharField(verbose_name="Tipo de desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
 
     # Margens e Ajustes
     profit_margin_parts = models.DecimalField(verbose_name="Percentual Lucro de Peças", max_digits=5, decimal_places=2, default=0.00)
     profit_margin_labor = models.DecimalField(verbose_name="Percentual Lucro de Mão de Obra", max_digits=5, decimal_places=2, default=0.00)
-    slider = models.SmallIntegerField(verbose_name="Slider", default=0, validators=[MinValueValidator(-100), MaxValueValidator(100)], help_text="Negativo: Peça | Positivo: Mão de Obra")
+    slider = models.SmallIntegerField(verbose_name="Controle de margem", default=0, validators=[MinValueValidator(-100), MaxValueValidator(100)], help_text="Negativo: Peça | Positivo: Mão de Obra")
 
     # Status e Controle
     status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
-    step5_calculation_viewed = models.BooleanField(verbose_name="Calculo da etapa 5 visualizado", default=False)
+    step5_calculation_viewed = models.BooleanField(verbose_name="Cálculo da etapa 5 visualizado", default=False)
 
     pricing_reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência da precificação", null=True, blank=True)
     pricing_reference_year = models.PositiveIntegerField(verbose_name="Ano de referência da precificação", null=True, blank=True)
@@ -253,17 +253,12 @@ class Budget(TimeStampedModel):
                 self.refresh_stored_total_amount()
 
     def refresh_stored_total_amount(self) -> None:
-        """Persist list/dashboard total for SQL aggregates.
-
-        Sale budgets store the chargeable pricing total. Warranty/courtesy store the
-        operational catalog total so listings show face value while chargeable
-        pricing (`total_budget_value`) remains zero.
-        """
+        """Persist live pricing total for dashboard SQL aggregates."""
         if self.pk is None:
             return
         if getattr(self, "_skip_stored_total_refresh", False):
             return
-        total = self.stored_total_source_value
+        total = self.total_budget_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
 
@@ -350,10 +345,12 @@ class Budget(TimeStampedModel):
             minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
             hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
             profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("0.00")
-            productive_salary_total = get_productive_salary_total_including_transport(
-                workshop=self.workshop,
-                workshop_cost=workshop_cost,
-            )
+
+            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+            if mechanic_salary_obj is not None:
+                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+                if salary_item is not None:
+                    productive_salary_total = salary_item.amount
 
         return {
             "pricing_reference_month": reference_month,
@@ -428,10 +425,12 @@ class Budget(TimeStampedModel):
             working_hours_per_month = workshop_cost.working_hours_per_month or Decimal("0.00")
             hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
             profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
-            productive_salary_total = get_productive_salary_total_including_transport(
-                workshop=self.workshop,
-                workshop_cost=workshop_cost,
-            )
+
+            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+            if mechanic_salary_obj is not None:
+                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+                if salary_item is not None:
+                    productive_salary_total = salary_item.amount
 
         cached = SimpleNamespace(
             hourly_cost_value=hourly_cost_value,
@@ -709,6 +708,8 @@ class Budget(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if (item.service or self._is_local_service_item(item)) and item.duration:
+                if item.service and item.service.is_third_party:
+                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -717,6 +718,9 @@ class Budget(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
+                if kit_service.service.is_third_party:
+                    continue
+
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
@@ -917,16 +921,7 @@ class Budget(TimeStampedModel):
         return self.resolved_discount_value
 
     @property
-    def stored_total_source_value(self) -> Money:
-        """Canonical value persisted into ``stored_total_amount``."""
-        if self.is_fixed_budget:
-            return self.summary_total_before_benefit_value
-        return self.total_budget_value
-
-    @property
     def display_total_budget_value(self) -> Money:
-        if self.is_fixed_budget:
-            return self.summary_total_before_benefit_value
         return self.total_budget_value
 
     @property
@@ -1055,7 +1050,7 @@ class Budget(TimeStampedModel):
         blockers = list(self._approval_date_blockers)
 
         if self.has_local_items:
-            blockers.append("Existem itens nao cadastrados no sistema.")
+            blockers.append("Existem itens não cadastrados no sistema.")
 
         return blockers
 

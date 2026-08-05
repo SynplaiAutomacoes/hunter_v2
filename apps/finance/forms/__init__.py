@@ -14,8 +14,14 @@ from .emission import (
     EmissionStep5Form,
 )
 from .financial_group import FinancialGroupForm
+from .fiscal_gateway import FISCAL_OPERATION_CHOICES, NFE_EMISSION_ORIGIN_CHOICES, FiscalOperation, FiscalOperationGatewayForm, NfeEmissionOriginGatewayForm
+from .fiscal_referenced_basis import FiscalReferencedBasisCreateForm
+from .fiscal_credit_product_preview import FiscalCreditProductPreviewCreateForm
 from .nfe import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
+from .nfe_manual import NfeManualEmissionForm
 from .nfse import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
+from .nfse_capabilities import NfseMunicipalCapabilityForm
+from .nfse_received import NfseReceivedDocumentBatchUploadForm, NfseReceivedDocumentUploadForm
 from .tax_class import (
     CST_PIS_COFINS_CHOICES,
     CofinsScenarioForm,
@@ -54,6 +60,13 @@ from .webmania import (
 
 __all__ = [
     "FinancialGroupForm",
+    "FISCAL_OPERATION_CHOICES",
+    "NFE_EMISSION_ORIGIN_CHOICES",
+    "FiscalOperation",
+    "FiscalOperationGatewayForm",
+    "NfeEmissionOriginGatewayForm",
+    "FiscalReferencedBasisCreateForm",
+    "FiscalCreditProductPreviewCreateForm",
     "EMISSION_NOTE_MODE_CHOICES",
     "EMISSION_NOTE_TYPE_CHOICES",
     "EmissionKitProductComponentForm",
@@ -81,9 +94,13 @@ __all__ = [
     "NfeRequestStep1Form",
     "NfeRequestStep2Form",
     "NfeRequestStep3Form",
+    "NfeManualEmissionForm",
     "NfseRequestStep1Form",
     "NfseRequestStep2Form",
     "NfseRequestStep3Form",
+    "NfseMunicipalCapabilityForm",
+    "NfseReceivedDocumentUploadForm",
+    "NfseReceivedDocumentBatchUploadForm",
     "NfseTaxClassForm",
     "NfeTaxClassForm",
     "PisScenarioForm",

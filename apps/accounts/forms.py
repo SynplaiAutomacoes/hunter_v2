@@ -29,7 +29,7 @@ def _phone_lookup_q(identifier: str) -> Q | None:
 
 
 class LoginForm(AuthenticationForm):
-    username = UsernameField(label="Usuário", widget=TextInput(attrs=USER_PLACEHOLDER))
+    username = UsernameField(label="Usuário ou e-mail", widget=TextInput(attrs=USER_PLACEHOLDER))
     password = forms.CharField(label="Senha", widget=PasswordInput())
 
     def __init__(self, request=None, *args, **kwargs):

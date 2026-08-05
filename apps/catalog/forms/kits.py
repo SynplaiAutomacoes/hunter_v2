@@ -630,7 +630,7 @@ class KitForm(CoreModelForm):
                                 <label for="kit-products-modal" class="btn btn-sm btn-primary" @click="openProductsModal()">Adicionar Produto</label>
                                 <label for="kit-services-modal" class="btn btn-sm btn-primary" @click="openServicesModal()">Adicionar Serviço</label>
                                 <label for="kit-distribute-time-modal" class="btn btn-sm btn-primary" @click="openDistributeTimeModal()">Inserir tempo total do Kit</label>
-                                <label for="kit-distribute-service-sell-modal" class="btn btn-sm btn-primary" @click="openDistributeServiceSellModal()">Inserir Valor Total Venda Serviços</label>
+                                <label for="kit-distribute-service-sell-modal" class="btn btn-sm btn-primary" @click="openDistributeServiceSellModal()">Inserir valor total de venda dos serviços</label>
                             </div>
 
                             <div class="p-4 bg-base-300 rounded-box mb-4">
@@ -707,7 +707,7 @@ class KitForm(CoreModelForm):
                                                 <th>Serviço</th>
                                                 <th class="text-right">Custo</th>
                                                 <th class="text-right transition-all duration-200" :class="servicePricingColumnClasses('by_duration', 'header')">Valor de venda por tempo</th>
-                                                <th class="text-right transition-all duration-200" :class="servicePricingColumnClasses('inserted_value', 'header')">Valor de Venda Inserido</th>
+                                                <th class="text-right transition-all duration-200" :class="servicePricingColumnClasses('inserted_value', 'header')">Valor de venda inserido</th>
                                                 <th class="text-center">Qtd</th>
                                                 <th class="text-center">Duração</th>
                                                 <th class="text-right"></th>
@@ -759,7 +759,7 @@ class KitForm(CoreModelForm):
                                             <tr>
                                                 <th colspan="2"></th>
                                                 <th colspan="2" class="pt-3 pb-1 px-0">
-                                                    <div class="text-[11px] font-semibold text-center mb-1 text-base-content/70">Escolha qual método esse kit será cobrado</div>
+                                                    <div class="text-[11px] font-semibold text-center mb-1 text-base-content/70">Escolha como este kit será cobrado</div>
                                                     <div class="relative grid grid-cols-2 items-center p-1 rounded-full bg-base-100 border border-base-300 w-full max-w-none mx-auto">
                                                         <div
                                                             class="absolute top-1 bottom-1 left-1 w-[calc(50%-0.25rem)] rounded-full bg-primary transition-transform duration-200"
@@ -848,7 +848,7 @@ class KitForm(CoreModelForm):
                                         <label for="kit-products-modal" class="btn btn-ghost">Fechar</label>
                                     </div>
                                 </div>
-                                <label class="modal-backdrop" for="kit-products-modal">Close</label>
+                                <label class="modal-backdrop" for="kit-products-modal">Fechar</label>
                             </div>
 
                             <input type="checkbox" id="kit-services-modal" class="modal-toggle" />
@@ -888,7 +888,7 @@ class KitForm(CoreModelForm):
                                         <label for="kit-services-modal" class="btn btn-ghost">Fechar</label>
                                     </div>
                                 </div>
-                                <label class="modal-backdrop" for="kit-services-modal">Close</label>
+                                <label class="modal-backdrop" for="kit-services-modal">Fechar</label>
                             </div>
 
                             <input type="checkbox" id="kit-distribute-time-modal" class="modal-toggle" />
@@ -915,13 +915,13 @@ class KitForm(CoreModelForm):
                                         <label for="kit-distribute-time-modal" class="btn btn-ghost">Fechar</label>
                                     </div>
                                 </div>
-                                <label class="modal-backdrop" for="kit-distribute-time-modal">Close</label>
+                                <label class="modal-backdrop" for="kit-distribute-time-modal">Fechar</label>
                             </div>
 
                             <input type="checkbox" id="kit-distribute-service-sell-modal" class="modal-toggle" />
                             <div class="modal" role="dialog" aria-modal="true">
                                 <div class="modal-box max-w-md">
-                                    <h3 class="text-lg font-bold">Inserir Valor Total Venda Serviços</h3>
+                                    <h3 class="text-lg font-bold">Inserir valor total de venda dos serviços</h3>
                                     <p class="text-sm text-base-content/70 mt-1">Informe o valor total de venda dos serviços do kit para distribuir entre os serviços com base na quantidade.</p>
                                     <div class="mt-4 space-y-2">
                                         <label class="label p-0" for="kit-total-service-sell-input">
@@ -942,7 +942,7 @@ class KitForm(CoreModelForm):
                                         <label for="kit-distribute-service-sell-modal" class="btn btn-ghost">Fechar</label>
                                     </div>
                                 </div>
-                                <label class="modal-backdrop" for="kit-distribute-service-sell-modal">Close</label>
+                                <label class="modal-backdrop" for="kit-distribute-service-sell-modal">Fechar</label>
                             </div>
 
                             <input type="checkbox" id="edit-item-modal" class="modal-toggle" @change="if (!$event.target.checked) resetEditModalContent()" />
@@ -954,7 +954,7 @@ class KitForm(CoreModelForm):
                                         <div class="p-6 text-sm text-base-content/70">Selecione um item para editar.</div>
                                     </div>
                                 </div>
-                                <label class="modal-backdrop" for="edit-item-modal" @click="resetEditModalContent()">Close</label>
+                                <label class="modal-backdrop" for="edit-item-modal" @click="resetEditModalContent()">Fechar</label>
                             </div>
 
                             <input type="checkbox" id="edit-kit-service-modal" class="modal-toggle" @change="if (!$event.target.checked) resetServiceEditForm()" />
@@ -1005,7 +1005,7 @@ class KitForm(CoreModelForm):
                                                 x-model="serviceEditForm.sellByDuration"
                                                 @input="handleServiceEditMoneyInput($event, 'sellByDuration')"
                                             />
-                                            <p class="text-xs text-base-content/70">Esse valor e recalculado automaticamente com base na duração do serviço.</p>
+                                            <p class="text-xs text-base-content/70">Esse valor é recalculado automaticamente com base na duração do serviço.</p>
                                         </div>
 
                                         <div class="space-y-2 md:col-span-2">
@@ -1029,7 +1029,7 @@ class KitForm(CoreModelForm):
                                         <label for="edit-kit-service-modal" class="btn btn-ghost" @click="resetServiceEditForm()">Cancelar</label>
                                     </div>
                                 </div>
-                                <label class="modal-backdrop" for="edit-kit-service-modal" @click="resetServiceEditForm()">Close</label>
+                                <label class="modal-backdrop" for="edit-kit-service-modal" @click="resetServiceEditForm()">Fechar</label>
                             </div>
                         </div>
 
@@ -1239,7 +1239,7 @@ class KitForm(CoreModelForm):
                                             application.fuelOptions = [];
                                         }} catch (error) {{
                                             console.error('Erro ao carregar modelos da FIPE:', error);
-                                            this.showToast('Nao foi possivel carregar os modelos da FIPE.', 'error');
+                                            this.showToast('Não foi possível carregar os modelos da FIPE.', 'error');
                                         }} finally {{
                                             application.loadingModels = false;
                                         }}
@@ -1291,7 +1291,7 @@ class KitForm(CoreModelForm):
                                             }}
                                         }} catch (error) {{
                                             console.error('Erro ao carregar combustíveis da FIPE:', error);
-                                            this.showToast('Nao foi possivel carregar os combustíveis da FIPE.', 'error');
+                                            this.showToast('Não foi possível carregar os combustíveis da FIPE.', 'error');
                                         }} finally {{
                                             application.loadingFuels = false;
                                         }}
@@ -1410,7 +1410,7 @@ class KitForm(CoreModelForm):
 
                                         const payload = await response.json().catch(() => ({{}}));
                                         if (!response.ok) {{
-                                            throw new Error(payload.error || 'Falha ao salvar alteracoes do serviço do kit.');
+                                            throw new Error(payload.error || 'Falha ao salvar alterações do serviço do kit.');
                                         }}
                                     }},
                                     async syncSelectedServicesState() {{
@@ -1519,7 +1519,7 @@ class KitForm(CoreModelForm):
                                                 this.serviceEditForm.sellByDuration = service.sell_by_duration;
                                             }} catch (error) {{
                                                 console.error('Error refreshing service pricing after local edit:', error);
-                                                this.showToast('Nao foi possivel recalcular custo e valor por duração.', 'error');
+                                                this.showToast('Não foi possível recalcular custo e valor por duração.', 'error');
                                             }}
                                         }}
 
@@ -1527,7 +1527,7 @@ class KitForm(CoreModelForm):
                                             await this.persistEditedService(service);
                                         }} catch (error) {{
                                             console.error('Error persisting local service edit:', error);
-                                            this.showToast('Nao foi possivel salvar as alteracoes do serviço no kit.', 'error');
+                                            this.showToast('Não foi possível salvar as alterações do serviço no kit.', 'error');
                                             return;
                                         }}
 
@@ -1632,7 +1632,7 @@ class KitForm(CoreModelForm):
                                         }} catch (error) {{
                                             this.servicePricingMode = previousMode;
                                             console.error('Error syncing service pricing mode:', error);
-                                            this.showToast('Nao foi possivel salvar o modo de precificação do kit.', 'error');
+                                            this.showToast('Não foi possível salvar o modo de precificação do kit.', 'error');
                                         }}
                                     }},
                                     servicePricingColumnClasses(mode, section = 'body') {{
@@ -1893,7 +1893,7 @@ class KitForm(CoreModelForm):
                                             await this.syncSelectedServicesState();
                                         }} catch (error) {{
                                             console.error('Error recalculating kit service pricing:', error);
-                                            this.showToast('Nao foi possivel recalcular custo e valor por duração.', 'error');
+                                            this.showToast('Não foi possível recalcular custo e valor por duração.', 'error');
                                         }}
 
                                         this.refreshTotalDurationDisplay();
@@ -1942,7 +1942,7 @@ class KitForm(CoreModelForm):
                                             await this.syncSelectedServicesState();
                                         }} catch (error) {{
                                             console.error('Error syncing distributed service selling values:', error);
-                                            this.showToast('Nao foi possivel salvar os valores de venda dos serviços.', 'error');
+                                            this.showToast('Não foi possível salvar os valores de venda dos serviços.', 'error');
                                             return;
                                         }}
 
@@ -1967,7 +1967,7 @@ class KitForm(CoreModelForm):
                                             await this.syncSelectedServicesState();
                                         }} catch (error) {{
                                             console.error('Error recalculating pricing after selecting services:', error);
-                                            this.showToast('Nao foi possivel salvar os serviços selecionados no kit.', 'error');
+                                            this.showToast('Não foi possível salvar os serviços selecionados no kit.', 'error');
                                         }}
 
                                         const modalToggle = document.getElementById('kit-services-modal');
@@ -1984,7 +1984,7 @@ class KitForm(CoreModelForm):
                                             await this.syncSelectedServicesState();
                                         }} catch (error) {{
                                             console.error('Error syncing service quantity:', error);
-                                            this.showToast('Nao foi possivel salvar a quantidade do serviço no kit.', 'error');
+                                            this.showToast('Não foi possível salvar a quantidade do serviço no kit.', 'error');
                                         }}
                                     }},
                                     removeProduct(index) {{ this.selectedProducts.splice(index, 1); }},
@@ -1995,7 +1995,7 @@ class KitForm(CoreModelForm):
                                             await this.syncSelectedServicesState();
                                         }} catch (error) {{
                                             console.error('Error removing service from kit sync:', error);
-                                            this.showToast('Nao foi possivel remover o serviço do kit.', 'error');
+                                            this.showToast('Não foi possível remover o serviço do kit.', 'error');
                                         }}
                                     }},
                                 }}

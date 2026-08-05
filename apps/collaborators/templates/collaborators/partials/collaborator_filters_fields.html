@@ -21,7 +21,7 @@
     </div>
 
     <div>
-        <label for="{{ table_id }}-filter-system-access">Acesso ao Sistema</label>
+        <label for="{{ table_id }}-filter-system-access">Acesso ao sistema</label>
         <select name="system_access" id="{{ table_id }}-filter-system-access" class="select select-bordered w-full">
             <option value="">Todos</option>
             <option value="1" {% if request.GET.system_access == '1' %}selected{% endif %}>Com acesso</option>

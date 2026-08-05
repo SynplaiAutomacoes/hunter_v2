@@ -1,30 +1,30 @@
 <div class="space-y-5">
     <div>
         <h4 class="text-sm font-semibold text-base-content">Filtros</h4>
-        <p class="text-sm text-base-content/60">Refine o estoque por peca, codigo, grupo, fornecedor e faixa de quantidade.</p>
+        <p class="text-sm text-base-content/60">Refine o estoque por peça, código, grupo, fornecedor e faixa de quantidade.</p>
     </div>
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-            <label for="{{ table_id }}-filter-piece">Peca</label>
+            <label for="{{ table_id }}-filter-piece">Peça</label>
             <input
                 type="text"
                 name="piece"
                 id="{{ table_id }}-filter-piece"
                 value="{{ request.GET.piece|default:'' }}"
-                placeholder="Digite o nome da peca"
+                placeholder="Digite o nome da peça"
                 class="input-theme"
             />
         </div>
 
         <div>
-            <label for="{{ table_id }}-filter-code">Codigo</label>
+            <label for="{{ table_id }}-filter-code">Código</label>
             <input
                 type="text"
                 name="code"
                 id="{{ table_id }}-filter-code"
                 value="{{ request.GET.code|default:'' }}"
-                placeholder="Digite o codigo"
+                placeholder="Digite o código"
                 class="input-theme"
             />
         </div>
@@ -50,7 +50,7 @@
         </div>
 
         <div>
-            <label for="{{ table_id }}-filter-quantity-min">Quantidade minima</label>
+            <label for="{{ table_id }}-filter-quantity-min">Quantidade mínima</label>
             <input
                 type="number"
                 step="1"
@@ -63,7 +63,7 @@
         </div>
 
         <div>
-            <label for="{{ table_id }}-filter-quantity-max">Quantidade maxima</label>
+            <label for="{{ table_id }}-filter-quantity-max">Quantidade máxima</label>
             <input
                 type="number"
                 step="1"
@@ -80,7 +80,7 @@
 
     <div class="space-y-3">
         <div>
-            <h4 class="text-sm font-semibold text-base-content">Campos do relatorio</h4>
+            <h4 class="text-sm font-semibold text-base-content">Campos do relatório</h4>
             <p class="text-sm text-base-content/60">Os campos selecionados aparecem na tabela, no Excel e no PDF.</p>
         </div>
 
@@ -99,6 +99,6 @@
             {% endfor %}
         </div>
 
-        <p class="text-xs text-base-content/55">Se nenhum campo for marcado, o sistema usa a configuracao padrao do relatorio.</p>
+        <p class="text-xs text-base-content/55">Se nenhum campo for marcado, o sistema usa a configuração padrão do relatório.</p>
     </div>
 </div>

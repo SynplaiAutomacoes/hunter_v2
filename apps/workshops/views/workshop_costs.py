@@ -38,7 +38,7 @@ class WorkshopCostListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
         context["fields"] = [
             TableColumn(label="Mês/Ano", attr="__str__", search_by=("month", "year")),
             TableColumn(label="Mecânicos", attr="mechanic_quantity"),
-            TableColumn(label="Horas Úteis/Mês", attr="working_hours_per_month"),
+            TableColumn(label="Horas úteis/mês", attr="working_hours_per_month"),
             TableColumn(label="Total Geral", attr="total_monthly_costs"),
             TableColumn(label="Multiplicador de Lucratividade", attr="profitability_multiplier"),
             TableColumn(label="Custo Hora Mínimo", attr="minimum_hourly_cost"),
@@ -144,31 +144,29 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         form = WorkshopCostForm(request.POST, workshop=self.workshop)
-        form.is_valid()
+
+        try:
+            form.full_clean()
+        except Exception:
+            pass
 
         instance = form.instance
-        cleaned_data = form.cleaned_data or {}
         cost_items = []
 
         @dataclass
         class MockItem:
             amount: Money
 
+        cleaned_data = getattr(form, "cleaned_data", {})
+
         for cost in form.active_costs:
             field_name = f"cost_item_{cost.id}"
             amount = cleaned_data.get(field_name)
-            if amount is None:
-                amount = self._money_from_post(request.POST, field_name)
+
             if amount is None:
                 amount = Money(0, "BRL")
-            cost_items.append(MockItem(amount=amount))
 
-        for field_name in ("parts_purchase_cap", "freight_cost", "third_party_service_cap"):
-            value = cleaned_data.get(field_name)
-            if value is None:
-                value = self._money_from_post(request.POST, field_name)
-            if value is not None:
-                setattr(instance, field_name, value)
+            cost_items.append(MockItem(amount=amount))
 
         total_value = instance.calculate_total_value()
         total_monthly_costs = instance.calculate_total_monthly_costs(items=cost_items)

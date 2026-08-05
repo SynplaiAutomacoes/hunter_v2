@@ -77,7 +77,7 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
         raise SignatureError("Orçamento sem cliente vinculado para assinatura")
 
     if not customer_email:
-        raise SignatureError("Cliente sem email para assinatura")
+        raise SignatureError("Cliente sem e-mail para assinatura")
 
     signatory, observers = get_signature_service().build_signatory_and_observers(
         signatory_id=f"customer-{budget.id}",
@@ -90,7 +90,7 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
 
     document_bytes = _build_budget_signature_html_bytes(budget=budget, request=request)
     file_name = f"orcamento-{budget.id}.html"
-    title = f"Orcamento #{budget.id}"
+    title = f"Orçamento #{budget.id}"
 
     try:
         api_key = get_workshop_synplaisign_api_key(budget.workshop)
@@ -106,7 +106,7 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
                 file_name=file_name,
                 document_ref_id=f"budget-{budget.id}",
                 title=title,
-                message="Segue orcamento para assinatura.",
+                message="Segue orçamento para assinatura.",
                 signatory=signatory,
                 observers=observers,
                 fields=[],

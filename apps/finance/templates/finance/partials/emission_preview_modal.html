@@ -30,26 +30,33 @@
         {% endfor %}
     </div>
 
-    <form
-        hx-post="{{ transmit_url }}"
-        hx-target="#step-container"
-        hx-swap="innerHTML"
-        class="p-6 border-t border-base-200 flex items-center justify-end gap-3 bg-base-50"
-        data-preview-transmit-form
-    >
-        {% csrf_token %}
-        <input type="hidden" name="intent" value="transmit">
-        {% for hidden_field in hidden_fields %}
-            <input type="hidden" name="{{ hidden_field.name }}" value="{{ hidden_field.value }}">
-        {% endfor %}
-        <button type="button" class="btn btn-ghost" onclick="window.closeEmissionModal && window.closeEmissionModal()" data-preview-cancel-button>Cancelar</button>
-        <button type="submit" class="btn btn-primary min-w-32" data-preview-submit-button>
-            <span class="loading loading-spinner loading-sm hidden" data-preview-submit-spinner></span>
-            <span data-preview-submit-label>Transmitir</span>
-        </button>
-    </form>
+    {% if allow_transmission != False %}
+        <form
+            hx-post="{{ transmit_url }}"
+            hx-target="{% if transmit_target %}{{ transmit_target }}{% else %}#step-container{% endif %}"
+            hx-swap="innerHTML"
+            class="p-6 border-t border-base-200 flex items-center justify-end gap-3 bg-base-50"
+            data-preview-transmit-form
+        >
+            {% csrf_token %}
+            <input type="hidden" name="intent" value="transmit">
+            {% for hidden_field in hidden_fields %}
+                <input type="hidden" name="{{ hidden_field.name }}" value="{{ hidden_field.value }}">
+            {% endfor %}
+            <button type="button" class="btn btn-ghost" onclick="window.closeEmissionModal && window.closeEmissionModal()" data-preview-cancel-button>Cancelar</button>
+            <button type="submit" class="btn btn-primary min-w-32" data-preview-submit-button data-idle-label="{% if transmit_label %}{{ transmit_label }}{% else %}Transmitir{% endif %}">
+                <span class="loading loading-spinner loading-sm hidden" data-preview-submit-spinner></span>
+                <span data-preview-submit-label>{% if transmit_label %}{{ transmit_label }}{% else %}Transmitir{% endif %}</span>
+            </button>
+        </form>
+    {% else %}
+        <div class="p-6 border-t border-base-200 flex items-center justify-end bg-base-50">
+            <button type="button" class="btn btn-primary min-w-32" onclick="window.closeEmissionModal && window.closeEmissionModal()">Fechar prévia</button>
+        </div>
+    {% endif %}
 </div>
 
+{% if allow_transmission != False %}
 <script>
     (function () {
         const form = document.querySelector('[data-preview-transmit-form]');
@@ -73,7 +80,7 @@
                 spinner.classList.toggle('hidden', !isLoading);
             }
             if (label) {
-                label.textContent = isLoading ? 'Transmitindo...' : 'Transmitir';
+                label.textContent = isLoading ? 'Transmitindo...' : (submitButton?.dataset.idleLabel || 'Transmitir');
             }
         };
 
@@ -94,3 +101,4 @@
         });
     })();
 </script>
+{% endif %}

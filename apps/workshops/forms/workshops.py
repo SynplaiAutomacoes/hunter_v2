@@ -243,7 +243,7 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         super().__init__(*args, workshop=workshop, **kwargs)
         self.fields["email"].required = True
         self.fields["logomarca"].disabled = True
-        self.fields["logomarca"].help_text = "A URL da logomarca e sincronizada automaticamente com o upload da logo da oficina."
+        self.fields["logomarca"].help_text = "A URL da logomarca é sincronizada automaticamente com o envio da logo da oficina."
         if self.workshop is not None:
             self.initial["workshop_is_active"] = bool(self.workshop.is_active)
             self.initial["whatsapp_phone"] = str(self.workshop.whatsapp_phone or "")
@@ -261,7 +261,7 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         has_pf_data = bool(cpf or nome_completo)
 
         if not has_pj_data and not has_pf_data:
-            message = "Preencha CNPJ + Razao Social ou CPF + Nome Completo."
+            message = "Preencha CNPJ + Razão Social ou CPF + Nome Completo."
             self.add_error("cnpj", message)
             self.add_error("cpf", message)
             self.add_error("razao_social", message)
@@ -270,15 +270,15 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
 
         if has_pj_data:
             if not cnpj:
-                self.add_error("cnpj", "Ao informar Razao Social, o CNPJ e obrigatorio.")
+                self.add_error("cnpj", "Ao informar Razão Social, o CNPJ é obrigatório.")
             if not razao_social:
-                self.add_error("razao_social", "Ao informar CNPJ, a Razao Social e obrigatoria.")
+                self.add_error("razao_social", "Ao informar CNPJ, a Razão Social é obrigatória.")
             return cleaned_data
 
         if not cpf:
-            self.add_error("cpf", "Ao informar Nome Completo, o CPF e obrigatorio.")
+            self.add_error("cpf", "Ao informar Nome Completo, o CPF é obrigatório.")
         if not nome_completo:
-            self.add_error("nome_completo", "Ao informar CPF, o Nome Completo e obrigatorio.")
+            self.add_error("nome_completo", "Ao informar CPF, o Nome Completo é obrigatório.")
 
         return cleaned_data
 
@@ -477,7 +477,7 @@ class WorkshopPdfObservationSectionForm(CoreModelForm):
             "pdf_observation": TextareaInput(
                 attrs={
                     "rows": 5,
-                    "placeholder": "Texto fixo que aparece em todos os PDFs de orcamento.",
+                    "placeholder": "Texto fixo que aparece em todos os PDFs de orçamento.",
                 }
             ),
         }
@@ -486,8 +486,8 @@ class WorkshopPdfObservationSectionForm(CoreModelForm):
         super().__init__(*args, **kwargs)
         field = self.fields.get("pdf_observation")
         if field is not None:
-            field.label = "Observacao fixa do PDF"
-            field.help_text = "Exibida no PDF abaixo das observacoes do orcamento."
+            field.label = "Observação fixa do PDF"
+            field.help_text = "Exibida no PDF abaixo das observações do orçamento."
 
 
 WEEKDAY_CHOICES: list[tuple[str, str]] = [
@@ -689,11 +689,11 @@ class WorkshopCertificateSectionForm(CoreForm):
         certificate_field = self.fields.get("pfx_certificate")
         if certificate_field is not None:
             certificate_field.label = "Novo certificado A1 (.pfx ou .p12)"
-            certificate_field.help_text = "Escolha o arquivo do certificado. Se ja existir um arquivo salvo, o novo upload vai substituir o atual."
+            certificate_field.help_text = "Escolha o arquivo do certificado. Se já existir um arquivo salvo, o novo envio vai substituir o atual."
 
         password_field = self.fields.get("certificate_password")
         if password_field is not None:
-            password_field.help_text = "Informe a senha do certificado para concluir a configuracao."
+            password_field.help_text = "Informe a senha do certificado para concluir a configuração."
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = dict(super().clean() or {})
@@ -704,10 +704,10 @@ class WorkshopCertificateSectionForm(CoreForm):
         resolved_password = certificate_password or current_password
 
         if uploaded_certificate is not None and not resolved_password:
-            self.add_error("certificate_password", "Informe a senha do certificado para concluir a configuracao.")
+            self.add_error("certificate_password", "Informe a senha do certificado para concluir a configuração.")
 
         if has_existing_certificate and "certificate_password" in self.changed_data and not certificate_password:
-            self.add_error("certificate_password", "A senha nao pode ficar vazia enquanto existir um certificado ativo.")
+            self.add_error("certificate_password", "A senha não pode ficar vazia enquanto existir um certificado ativo.")
 
         return cleaned_data
 

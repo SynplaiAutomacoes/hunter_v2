@@ -129,7 +129,7 @@
                     .then(function (response) {
                         return response.json().then(function (data) {
                             if (!response.ok || !data.ok) {
-                                throw new Error(data && data.error ? data.error : 'Nao foi possivel salvar a data.');
+                                throw new Error(data && data.error ? data.error : 'Não foi possível salvar a data.');
                             }
                             return data;
                         });
@@ -149,7 +149,7 @@
                     .catch(function (error) {
                         document.body.dispatchEvent(new CustomEvent('showToast', {
                             detail: {
-                                message: error && error.message ? error.message : 'Nao foi possivel salvar a data.',
+                                message: error && error.message ? error.message : 'Não foi possível salvar a data.',
                                 type: 'error',
                             },
                         }));

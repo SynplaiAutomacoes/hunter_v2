@@ -11,21 +11,3 @@
 {% block section_product_history %}
     {% include 'history/partial/customer-history_content.html' %}
 {% endblock %}
-
-{% block crud_form %}
-    {% crispy form %}
-    <script>
-        (function() {
-            var section = document.getElementById('vehicle-section');
-            if (section) {
-                section.setAttribute('hx-get', '{% url "customer:vehicle-section" pk=object.pk %}');
-                section.setAttribute('hx-trigger', 'vehicle-section-refresh from:body');
-                section.setAttribute('hx-target', '#vehicle-section');
-                section.setAttribute('hx-swap', 'innerHTML');
-                if (window.htmx) {
-                    htmx.process(section);
-                }
-            }
-        })();
-    </script>
-{% endblock %}

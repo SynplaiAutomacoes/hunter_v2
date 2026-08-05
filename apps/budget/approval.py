@@ -12,7 +12,7 @@ class BudgetApprovalError(Exception):
 def approve_budget_with_stock(*, budget: Budget, user: object | None = None) -> None:
     blockers = budget.approval_blockers
     if blockers:
-        raise BudgetApprovalError(f"Nao e possivel aprovar. {' '.join(blockers)}")
+        raise BudgetApprovalError(f"Não é possível aprovar. {' '.join(blockers)}")
 
     with transaction.atomic():
         budget.status = BudgetStatus.APPROVED

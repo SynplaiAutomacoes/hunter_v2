@@ -231,7 +231,7 @@ class ReplenishmentListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
         return StockProduct.objects.filter(workshop=self.workshop).annotate(suggested_order=suggested_order_calc).filter(suggested_order__gt=0)
 
 
-STOCK_REPORT_PDF_TITLE = "Relatorio de Estoque"
+STOCK_REPORT_PDF_TITLE = "Relatório de estoque"
 STOCK_REPORT_FILTER_PARAM_NAMES: tuple[str, ...] = ("piece", "code", "group", "supplier", "quantity_min", "quantity_max")
 
 
@@ -427,6 +427,7 @@ class StockReportListView(LoginRequiredMixin, StockReportDataMixin, WorkshopScop
     context_object_name = "stock_report_items"
     htmx_template_name = "stock/partials/report_table.html"
     workshop_permission_codename = "view_stockproduct"
+    paginate_by = 20
 
     def get_queryset(self):
         return self._get_stock_report_queryset()
@@ -586,7 +587,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             TableActionDefaults.edit(url_name="stock:history_edit", args=(), kwargs={"record_type": "record_type", "pk": "pk"}),
             TableActionDefaults.delete(url_name="stock:stock_delete", visible=lambda row: getattr(row, "can_delete", False)),
             TableAction(
-                label="Download XML",
+                label="Baixar XML",
                 icon="download",
                 a_class="btn-table-view",
                 aria_label="Baixar XML da NF-e",
@@ -957,7 +958,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             from apps.sources.models import Source
 
             resolved_nf_number = obj.nf_number_display or "S/N" if hasattr(obj, "nf_number_display") else (obj.nf_number or "S/N")
-            source_name = obj.supplier_name or "Fornecedor da Importação"
+            source_name = obj.supplier_name or "Fornecedor da importação"
             source_cnpj = obj.supplier_cnpj or ""
             source, _ = Source.objects.get_or_create(workshop=self.workshop, name=source_name, defaults={"cnpj": source_cnpj})
 
@@ -1167,7 +1168,7 @@ class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
     @staticmethod
     def _validate_item_context(stock_import: StockImport, item_idx: int | None) -> None:
         if stock_import.method != StockImport.ImportMethods.MANUAL and item_idx is None:
-            raise Http404("Indice do item obrigatorio para esta importacao.")
+            raise Http404("Índice do item obrigatório para esta importação.")
 
     @staticmethod
     def _get_item_data(stock_import: StockImport, item_idx: int | None) -> dict[str, str] | None:

@@ -150,7 +150,7 @@ class ChecklistCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedM
         uploaded_pdf = form.cleaned_data.get("imported_pdf")
 
         if checklist_source == Checklist.ChecklistSource.MANUAL and not checklist_items:
-            form.add_error(None, "Adicione itens para criar o checklist manual.")
+            form.add_error(None, "Adicione itens ao checklist manual.")
             return self.form_invalid(form)
 
         if checklist_source == Checklist.ChecklistSource.PDF and uploaded_pdf is None:
@@ -229,7 +229,7 @@ class ChecklistUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         uploaded_pdf = form.cleaned_data.get("imported_pdf")
 
         if checklist_source == Checklist.ChecklistSource.MANUAL and not checklist_items:
-            form.add_error(None, "Adicione itens para criar o checklist manual.")
+            form.add_error(None, "Adicione itens ao checklist manual.")
             return self.form_invalid(form)
 
         if checklist_source == Checklist.ChecklistSource.PDF and uploaded_pdf is None and not previous_file_id:
@@ -328,7 +328,7 @@ class AddChecklistItemRowView(LoginRequiredMixin, View):
 
         if response_type not in VALID_RESPONSE_TYPES:
             response = HttpResponse("", status=200)
-            response["HX-Trigger"] = build_showtoast_trigger("warning", "Selecione um tipo de resposta valido para o item.")
+            response["HX-Trigger"] = build_showtoast_trigger("warning", "Selecione um tipo de resposta válido para o item.")
             return response
 
         response_type_display = dict(ChecklistItem.TIPO_RESPOSTA_CHOICES).get(response_type)

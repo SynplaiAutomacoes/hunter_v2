@@ -14,10 +14,10 @@ from apps.core.presentation.forms import CoreModelForm
 
 
 class SharedEmissionWorkorderSelectionForm(CoreModelForm):
-    step_title = "Selecionar Ordem de Servico"
-    step_subtitle = "Selecione a ordem de servico aprovada que sera utilizada para emitir a nota fiscal."
-    workorder_label = "Ordem de Servico"
-    empty_customer_label = "Cliente nao informado"
+    step_title = "Selecionar ordem de serviço"
+    step_subtitle = "Selecione a ordem de serviço aprovada que será utilizada para emitir a nota fiscal."
+    workorder_label = "Ordem de Serviço"
+    empty_customer_label = "Cliente não informado"
 
     def __init__(self, *args, **kwargs):
         workshop = kwargs.pop("workshop", None)
@@ -45,7 +45,7 @@ class SharedEmissionWorkorderSelectionForm(CoreModelForm):
         def _label_from_instance(workorder: WorkOrder) -> str:
             customer = getattr(getattr(workorder, "budget", None), "customer", None)
             customer_name = customer.name if customer else self.empty_customer_label
-            return f"Ordem de Servico - {customer_name} - #{workorder.budget.pk}"
+            return f"Ordem de Serviço - {customer_name} - #{workorder.budget.pk}"
 
         field.label_from_instance = _label_from_instance
         field.widget = SearchableSelectInput(choices=field.choices)
@@ -65,7 +65,7 @@ class SharedEmissionWorkorderSelectionForm(CoreModelForm):
             has_nfe = NfeRequest.objects.filter(workorder=selected_workorder).exists()
             has_nfse = NfseRequest.objects.filter(workorder=selected_workorder).exists()
             if has_nfe and not has_nfse:
-                warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Servico será processada nesta emissão.</div>"
+                warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.</div>"
             elif has_nfse and not has_nfe:
                 warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Serviço emitida. Apenas a Nota Fiscal de Produto será processada nesta emissão.</div>"
 
@@ -84,8 +84,8 @@ class SharedEmissionWorkorderSelectionForm(CoreModelForm):
 
 class SharedEmissionCustomerReviewForm(CoreModelForm):
     step_title = "Conferir dados do cliente"
-    step_subtitle = "Valide os dados do cliente antes de avancar para a etapa de emissao."
-    empty_value_label = "Nao informado"
+    step_subtitle = "Valide os dados do cliente antes de avancar para a etapa de emissão."
+    empty_value_label = "Não informado"
     address_label = "Endereco"
     vehicle_label = "Veiculo"
 

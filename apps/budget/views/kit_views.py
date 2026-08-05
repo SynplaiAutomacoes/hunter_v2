@@ -289,7 +289,7 @@ class BudgetKitProductCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
         product_in_kit = item.kit.kit_products.filter(product_id=product_id).exists()
         if not product_in_kit:
-            return JsonResponse({"error": "product_not_in_kit"}, status=400)
+            return JsonResponse({"error": "Produto não pertence a este kit."}, status=400)
 
         product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
         existing_override = BudgetKitItemOverride.objects.filter(workshop=self.workshop, budget_item=item, product=product).first()
@@ -352,7 +352,7 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
         service_in_kit = item.kit.kit_services.filter(service_id=service_id).exists()
         if not service_in_kit:
-            return JsonResponse({"error": "service_not_in_kit"}, status=400)
+            return JsonResponse({"error": "Serviço não pertence a este kit."}, status=400)
 
         kit_service = get_object_or_404(item.kit.kit_services.select_related("service"), service_id=service_id)
         service = get_object_or_404(Service, id=service_id, workshop=self.workshop)

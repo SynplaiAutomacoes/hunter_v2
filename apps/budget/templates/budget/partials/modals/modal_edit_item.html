@@ -255,7 +255,7 @@
 
                     if (!modalContainer || typeof lowerPriceModalHost.open !== 'function') {
                         console.warn('ModalItemEditor: lower price modal not available, using window.confirm fallback');
-                        const confirmed = window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este item. Deseja continuar mesmo assim?');
+                        const confirmed = window.confirm('O valor informado está abaixo do último valor utilizado para este item. Deseja continuar mesmo assim?');
                         if (!confirmed) {
                             if (confirmLowerPriceInput) {
                                 confirmLowerPriceInput.value = '';
@@ -282,7 +282,7 @@
                                 <span class="material-icons text-warning text-3xl">warning</span>
                                 <div>
                                     <h3 class="font-bold text-xl text-base-content">Confirmar valor abaixo do ultimo uso</h3>
-                                    <p class="text-sm text-base-content/80 mt-2">O valor informado esta abaixo do ultimo valor utilizado para este item.</p>
+                                    <p class="text-sm text-base-content/80 mt-2">O valor informado está abaixo do último valor utilizado para este item.</p>
                                     <p class="text-sm text-base-content/80 mt-1">Deseja continuar mesmo assim?</p>
                                 </div>
                             </div>

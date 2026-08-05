@@ -67,7 +67,7 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
         raise WorkOrderSignatureError("Ordem de serviço sem cliente vinculado para assinatura")
 
     if not customer_email:
-        raise WorkOrderSignatureError("Cliente sem email para assinatura")
+        raise WorkOrderSignatureError("Cliente sem e-mail para assinatura")
 
     signatory, observers = get_signature_service().build_signatory_and_observers(
         signatory_id=f"customer-{workorder.id}",
@@ -80,7 +80,7 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
 
     document_bytes = _build_workorder_signature_html_bytes(workorder=workorder)
     file_name = f"ordem_servico-{workorder.get_id}.html"
-    title = f"Ordem de servico #{workorder.get_id}"
+    title = f"Ordem de serviço #{workorder.get_id}"
 
     try:
         api_key = get_workshop_synplaisign_api_key(workorder.workshop)
@@ -96,7 +96,7 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
                 file_name=file_name,
                 document_ref_id=f"workorder-{workorder.id}",
                 title=title,
-                message="Segue ordem de servico para assinatura.",
+                message="Segue ordem de serviço para assinatura.",
                 signatory=signatory,
                 observers=observers,
                 fields=[],

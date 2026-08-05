@@ -74,7 +74,7 @@ def _build_headers_from_credentials(*, consumer_key: str, consumer_secret: str, 
 
     if missing_fields:
         missing = ", ".join(missing_fields)
-        raise WebmaniaAuthError(f"Credenciais Webmania incompletas: {missing}.")
+        raise WebmaniaAuthError(f"Credenciais incompletas: {missing}.")
 
     headers = {
         "Content-Type": "application/json",
@@ -119,7 +119,7 @@ def _build_webmania_headers_from_settings() -> dict[str, str]:
 
     if missing_fields:
         missing = ", ".join(missing_fields)
-        raise WebmaniaAuthError(f"Configure as credenciais da Webmania no ambiente: {missing}.")
+        raise WebmaniaAuthError(f"Configure as credenciais no ambiente: {missing}.")
 
     api_key = _sanitize_value(getattr(settings, "WEBMANIA_API_KEY", ""))
     return _build_headers_from_credentials(

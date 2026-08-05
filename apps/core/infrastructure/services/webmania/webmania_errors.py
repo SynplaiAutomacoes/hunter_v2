@@ -11,6 +11,14 @@ _URL_PATTERN = re.compile(r"https?://[^\s]+", flags=re.IGNORECASE)
 _ERROR_KEYS = ("error", "message", "msg", "detail", "erro", "mensagem")
 
 
+def _omit_provider_name(message: str) -> str:
+    cleaned = message
+    for token in ("WEBMANIA", "Webmania", "webmania", "integração", "integraçao", "integracao"):
+        cleaned = cleaned.replace(token, "")
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,.;:-")
+    return cleaned
+
+
 def sanitize_webmania_api_message(message: object, *, scope: str | None = None) -> str:
     normalized_message = str(message or "").strip()
     if not normalized_message:
@@ -26,14 +34,14 @@ def sanitize_webmania_api_message(message: object, *, scope: str | None = None) 
     lowered_message = normalized_message.lower()
     if "configurar empresa" in lowered_message:
         if scope == "tax_class":
-            return "Configure a empresa na Webmania antes de continuar com classes de imposto."
+            return "Configure a empresa emissora antes de continuar com classes de imposto."
         if scope == "nfe":
-            return "Configure a empresa na Webmania antes de emitir Nota Fiscal."
+            return "Configure a empresa emissora antes de emitir Nota Fiscal."
         if scope == "nfse":
-            return "Configure a empresa na Webmania antes de emitir Nota Fiscal de Serviço."
-        return "Configure a empresa na Webmania antes de prosseguir."
+            return "Configure a empresa emissora antes de emitir Nota Fiscal de Serviço."
+        return "Configure a empresa emissora antes de prosseguir."
 
-    return normalized_message
+    return _omit_provider_name(normalized_message)
 
 
 def extract_webmania_error_message(payload: Any, *, scope: str | None = None) -> str:

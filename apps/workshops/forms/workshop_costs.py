@@ -597,7 +597,7 @@ class WorkshopCostForm(CoreModelForm):
                             button.type = 'button';
                             button.textContent = String(day);
                             button.dataset.date = dateValue;
-                            
+
                             let buttonClass = 'h-7 w-7 rounded-sm border text-[11px] font-semibold transition cursor-pointer ';
                             if (isSelected) {{
                                 buttonClass += 'cal-day-selected border-success bg-success/25 text-success-content hover:bg-success/35';
