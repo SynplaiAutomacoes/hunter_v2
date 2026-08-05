@@ -119,13 +119,36 @@ def _workorder_status_label(ctx: VariableContext) -> object:
 
 
 def _customer_first_name(ctx: VariableContext) -> object:
-    value = _customer_attr(ctx, "name")
+    value = _person_full_name(ctx)
     if value is MISSING:
         return MISSING
     name = str(value or "").strip()
     if not name:
         return ""
     return name.split(None, 1)[0]
+
+
+def _person_full_name(ctx: VariableContext) -> object:
+    """Resolve display name from Customer, then appointment guest, then extras."""
+    customer = _customer(ctx)
+    if customer is not None:
+        name = str(getattr(customer, "name", "") or "").strip()
+        if name:
+            return name
+
+    appointment = getattr(ctx, "appointment", None)
+    if appointment is not None:
+        guest = str(getattr(appointment, "guest_customer_name", "") or "").strip()
+        if guest:
+            return guest
+        display = str(getattr(appointment, "display_customer_name", "") or "").strip()
+        if display and display != "Cliente nao cadastrado":
+            return display
+
+    extra_name = _extra(ctx, "nome")
+    if extra_name is not MISSING:
+        return extra_name
+    return MISSING
 
 
 def _workshop_company_attr(ctx: VariableContext, attr_name: str) -> object:
@@ -164,7 +187,7 @@ def _extra(ctx: VariableContext, key: str) -> object:
 
 
 VARIABLE_DEFINITIONS: tuple[VariableDefinition, ...] = (
-    VariableDefinition(key="nome", group="cliente", label="Nome", description="Nome completo do cliente.", resolver=lambda ctx: _customer_attr(ctx, "name")),
+    VariableDefinition(key="nome", group="cliente", label="Nome", description="Nome completo do cliente.", resolver=_person_full_name),
     VariableDefinition(key="primeiro_nome", group="cliente", label="Primeiro nome", description="Primeiro nome do cliente.", resolver=_customer_first_name),
     VariableDefinition(key="cpf", group="cliente", label="CPF/CNPJ", description="Documento do cliente cadastrado.", resolver=_formatted_customer_document),
     VariableDefinition(key="rg", group="cliente", label="RG", description="RG do cliente.", resolver=lambda ctx: _customer_attr(ctx, "rg")),

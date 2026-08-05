@@ -12,6 +12,7 @@ from apps.customer.models import Customer, Vehicle
 from apps.messaging.application.services.appointment_alert import (
     build_appointment_alert_message,
     enqueue_appointment_confirmation,
+    refresh_pending_appointment_alerts_for_workshop,
     sync_appointment_alert_schedule,
 )
 from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
@@ -165,6 +166,38 @@ class TypedAlertTemplateTests(TestCase):
         self.assertIn("Cliente Alerta", scheduled[0].message)
         self.assertIn(timezone.localtime(starts).strftime("%d/%m/%Y"), scheduled[0].message)
 
+    def test_appointment_alert_refreshes_pending_when_template_changes(self) -> None:
+        template = MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Refresh",
+            message="Versao antiga %%primeiro_nome%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=2)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Revisao refresh",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[60],
+        )
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 1)
+        self.assertIn("Versao antiga", scheduled[0].message)
+
+        template.message = "Versao nova %%primeiro_nome%%"
+        template.save(update_fields=["message"])
+        updated = refresh_pending_appointment_alerts_for_workshop(self.workshop.pk)
+        scheduled[0].refresh_from_db()
+
+        self.assertEqual(updated, 1)
+        self.assertIn("Versao nova", scheduled[0].message)
+        self.assertNotIn("Versao antiga", scheduled[0].message)
+
     def test_appointment_alert_creates_one_message_per_lead_time(self) -> None:
         MessageTemplate.objects.create(
             workshop=self.workshop,
@@ -262,6 +295,55 @@ class TypedAlertTemplateTests(TestCase):
         self.assertEqual(len(scheduled), 1)
         self.assertEqual(scheduled[0].phone, "5511989472983")
         self.assertIn("maria", scheduled[0].message.lower())
+        self.assertNotIn("%%primeiro_nome%%", scheduled[0].message)
+
+    def test_guest_name_resolves_from_appointment_without_extras(self) -> None:
+        """Defense in depth: appointment in VariableContext alone must fill name tokens."""
+        from apps.messaging.rendering import render_message_template
+
+        starts = timezone.now() + timedelta(hours=3)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            guest_customer_name="Fabiano Bitencourt Leite",
+            guest_customer_phone="+5511981799270",
+            title="Guest harden",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+        )
+        rendered = render_message_template(
+            "Oi %%primeiro_nome%% / %%nome%%",
+            customer=None,
+            workshop=self.workshop,
+            appointment=appointment,
+        )
+        # Guest names are uppercased by Appointment.save normalization.
+        self.assertEqual(rendered, "Oi FABIANO / FABIANO BITENCOURT LEITE")
+        self.assertNotIn("%%", rendered)
+
+    def test_enqueue_guest_confirmation_substitutes_primeiro_nome(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Confirmacao Guest",
+            message="Confirmado %%primeiro_nome%% em %%hora_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT_CONFIRMATION,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=1)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            guest_customer_name="Fabiano Bitencourt Leite",
+            guest_customer_phone="+5511981799270",
+            title="Confirm guest",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+        )
+        row = enqueue_appointment_confirmation(appointment)
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertNotIn("%%primeiro_nome%%", row.message)
+        self.assertIn("FABIANO", row.message)
 
     def test_enqueue_appointment_confirmation_on_create_template(self) -> None:
         MessageTemplate.objects.create(

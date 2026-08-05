@@ -31,8 +31,9 @@ class RabbitMQPublisher:
                 host=host,
                 port=port,
                 credentials=credentials,
-                heartbeat=600,
-                blocked_connection_timeout=300,
+                heartbeat=60,
+                blocked_connection_timeout=60,
+                socket_timeout=10,
             )
             self._connection = pika.BlockingConnection(parameters)
             self._channel = self._connection.channel()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
@@ -17,8 +18,9 @@ from apps.messaging.application.services.dispatch_history import (
 )
 from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
 from apps.messaging.application.services.satisfaction_survey import mark_satisfaction_review_sent
+from apps.messaging.application.services.appointment_alert import refresh_appointment_alert_message
 from apps.messaging.domain.value_objects import DispatchItem
-from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPublisher
+from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPublisher, RabbitMQPublisherError
 from apps.messaging.models import MessageDispatchBatch, ScheduledOutboundMessage
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,42 @@ def _reschedule_review_plan_alert_if_repeating(row: ScheduledOutboundMessage) ->
     reschedule_after_review_plan_alert_sent(vehicle)
 
 
+def _reclaim_stale_processing(*, now, reclaim_seconds: int) -> int:
+    """Return PROCESSING rows stuck longer than TTL back to PENDING."""
+    if reclaim_seconds <= 0:
+        return 0
+    cutoff = now - timedelta(seconds=reclaim_seconds)
+    reclaimed = ScheduledOutboundMessage.objects.filter(
+        status=ScheduledOutboundMessage.Status.PROCESSING,
+        atualizado_em__lt=cutoff,
+    ).update(
+        status=ScheduledOutboundMessage.Status.PENDING,
+        error="",
+        atualizado_em=now,
+    )
+    if reclaimed:
+        logger.info(
+            "outbound_processing_reclaimed",
+            extra={"reclaimed_count": reclaimed, "reclaim_seconds": reclaim_seconds},
+        )
+    return reclaimed
+
+
+def _release_claimed_to_pending(claimed_ids: list[int], *, error: str) -> None:
+    if not claimed_ids:
+        return
+    now = timezone.now()
+    ScheduledOutboundMessage.objects.filter(pk__in=claimed_ids).update(
+        status=ScheduledOutboundMessage.Status.PENDING,
+        error=error[:500],
+        atualizado_em=now,
+    )
+    logger.warning(
+        "outbound_claim_released_after_connect_failure",
+        extra={"released_count": len(claimed_ids), "error": error[:200]},
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class DueOutboundResult:
     claimed: int
@@ -56,10 +94,13 @@ class DueOutboundResult:
     failed: int
     skipped_outside_hours: bool = False
     birthdays_enqueued: int = 0
+    reclaimed: int = 0
 
 
 def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> DueOutboundResult:
     now = timezone.now()
+    reclaim_seconds = int(getattr(settings, "OUTBOUND_PROCESSING_RECLAIM_SECONDS", 600))
+    reclaimed = _reclaim_stale_processing(now=now, reclaim_seconds=reclaim_seconds)
     birthdays_enqueued = enqueue_birthday_alerts_for_day(now=now)
     claimed_ids: list[int] = []
     had_due_outside_hours = False
@@ -95,14 +136,26 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
             failed=0,
             skipped_outside_hours=had_due_outside_hours,
             birthdays_enqueued=birthdays_enqueued,
+            reclaimed=reclaimed,
         )
 
-    publisher = RabbitMQPublisher(
-        host=settings.RABBITMQ_HOST,
-        port=settings.RABBITMQ_PORT,
-        username=settings.RABBITMQ_USER,
-        password=settings.RABBITMQ_PASSWORD,
-    )
+    try:
+        publisher = RabbitMQPublisher(
+            host=settings.RABBITMQ_HOST,
+            port=settings.RABBITMQ_PORT,
+            username=settings.RABBITMQ_USER,
+            password=settings.RABBITMQ_PASSWORD,
+        )
+    except RabbitMQPublisherError as exc:
+        _release_claimed_to_pending(claimed_ids, error=str(exc))
+        return DueOutboundResult(
+            claimed=len(claimed_ids),
+            sent=0,
+            failed=len(claimed_ids),
+            birthdays_enqueued=birthdays_enqueued,
+            reclaimed=reclaimed,
+        )
+
     sent = 0
     failed = 0
     notified_workshops: dict[int, str] = {}
@@ -113,21 +166,24 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
         )
         for row in rows:
             batch_source = _BATCH_SOURCE_BY_OUTBOUND.get(row.source, MessageDispatchBatch.Source.APPOINTMENT_ALERT)
-            batch = create_dispatch_batch(
-                workshop_id=row.workshop_id,
-                source=batch_source,
-            )
-            customer_id = int(row.customer_id or 0)
-            item = DispatchItem(
-                group_id=None,
-                workshop_id=row.workshop_id,
-                customer_id=customer_id,
-                phone=row.phone,
-                message=row.message,
-                client_message_id=str(row.client_message_id),
-                batch_id=batch.pk,
-            )
+            batch: MessageDispatchBatch | None = None
             try:
+                if row.source == ScheduledOutboundMessage.Source.APPOINTMENT_ALERT:
+                    refresh_appointment_alert_message(row)
+                batch = create_dispatch_batch(
+                    workshop_id=row.workshop_id,
+                    source=batch_source,
+                )
+                customer_id = int(row.customer_id or 0)
+                item = DispatchItem(
+                    group_id=None,
+                    workshop_id=row.workshop_id,
+                    customer_id=customer_id,
+                    phone=row.phone,
+                    message=row.message,
+                    client_message_id=str(row.client_message_id),
+                    batch_id=batch.pk,
+                )
                 publisher.publish_dispatch_item(item, workshop_id=row.workshop_id)
                 record_queued_log(
                     batch=batch,
@@ -148,23 +204,33 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
                 sent += 1
             except Exception as exc:
                 logger.exception("outbound_dispatch_failed", extra={"scheduled_id": row.pk})
-                record_queue_failure(
-                    batch=batch,
-                    client_message_id=row.client_message_id,
-                    customer_id=row.customer_id,
-                    phone=row.phone,
-                    message=row.message,
-                    error=str(exc),
-                )
-                finalize_batch_after_queue(batch)
+                if batch is not None:
+                    record_queue_failure(
+                        batch=batch,
+                        client_message_id=row.client_message_id,
+                        customer_id=row.customer_id,
+                        phone=row.phone,
+                        message=row.message,
+                        error=str(exc),
+                    )
+                    finalize_batch_after_queue(batch)
+                    row.batch = batch
                 row.status = ScheduledOutboundMessage.Status.FAILED
-                row.batch = batch
                 row.error = str(exc)
-                row.save(update_fields=["status", "batch", "error", "atualizado_em"])
+                update_fields = ["status", "error", "atualizado_em"]
+                if batch is not None:
+                    update_fields.append("batch")
+                row.save(update_fields=update_fields)
                 failed += 1
 
         for workshop_id, instance_name in notified_workshops.items():
-            publisher.publish_workshop_control(workshop_id, whatsapp_instance_name=instance_name)
+            try:
+                publisher.publish_workshop_control(workshop_id, whatsapp_instance_name=instance_name)
+            except Exception:
+                logger.exception(
+                    "outbound_workshop_control_publish_failed",
+                    extra={"workshop_id": workshop_id},
+                )
     finally:
         publisher.close()
 
@@ -173,6 +239,7 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
         sent=sent,
         failed=failed,
         birthdays_enqueued=birthdays_enqueued,
+        reclaimed=reclaimed,
     )
 
 

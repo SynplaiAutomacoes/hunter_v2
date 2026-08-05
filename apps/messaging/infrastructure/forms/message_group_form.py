@@ -95,6 +95,10 @@ class MessageTemplateForm(CoreModelForm):
                 )
             instance.save()
             self.save_m2m()
+            if instance.template_type == MessageTemplate.TemplateType.APPOINTMENT and instance.is_active:
+                from apps.messaging.application.services.appointment_alert import refresh_pending_appointment_alerts_for_workshop
+
+                refresh_pending_appointment_alerts_for_workshop(instance.workshop_id)
         return instance
 
 

@@ -111,25 +111,60 @@ def _generate_owner_password() -> str:
     return secrets.token_urlsafe(24)
 
 
-def _ensure_workshop_webhook(*, workshop: Workshop, api_key: str, webhook_url: str) -> None:
-    expected_events = ["ENVELOPE_COMPLETED"]
-    existing = gateway.list_webhooks(api_key=api_key)
-    for webhook in existing:
-        webhook_events = webhook.get("events")
-        if webhook.get("url") == webhook_url and isinstance(webhook_events, list) and all(event in webhook_events for event in expected_events):
-            webhook_id = str(webhook.get("id") or "").strip()
-            update_fields: list[str] = []
-            if webhook_id and workshop.synplaisign_webhook_id != webhook_id:
-                workshop.synplaisign_webhook_id = webhook_id
-                update_fields.append("synplaisign_webhook_id")
-            if update_fields:
-                workshop.save(update_fields=update_fields)
-            # Existing remote webhook matches — never rotate secret.
-            return
+EXPECTED_WEBHOOK_EVENTS: tuple[str, ...] = ("ENVELOPE_COMPLETED", "DOCUMENT_DECLINED")
 
-    # Only create a new webhook (and secret) when none matches the target URL.
-    # If the workshop already has a secret but no matching remote webhook, we still
-    # need a new remote registration; the new secret replaces the stale local one.
+
+def _delete_remote_webhooks(*, api_key: str, webhooks: list[dict[str, Any]]) -> None:
+    for webhook in webhooks:
+        webhook_id = str(webhook.get("id") or "").strip()
+        if not webhook_id:
+            continue
+        try:
+            gateway.delete_webhook(api_key=api_key, webhook_id=webhook_id)
+        except gateway.SynplaiSignGatewayError:
+            logger.exception(
+                "synplaisign_webhook_delete_failed",
+                extra={"webhook_id": webhook_id, "url": webhook.get("url")},
+            )
+
+
+def _ensure_workshop_webhook(*, workshop: Workshop, api_key: str, webhook_url: str) -> None:
+    expected_events = list(EXPECTED_WEBHOOK_EVENTS)
+    local_secret = decrypt_secret(getattr(workshop, "synplaisign_webhook_secret", "") or "")
+    existing = gateway.list_webhooks(api_key=api_key)
+    same_url = [webhook for webhook in existing if webhook.get("url") == webhook_url]
+
+    matching: dict[str, Any] | None = None
+    for webhook in same_url:
+        webhook_events = webhook.get("events")
+        if isinstance(webhook_events, list) and all(event in webhook_events for event in expected_events):
+            matching = webhook
+            break
+
+    if matching is not None and local_secret:
+        matching_id = str(matching.get("id") or "").strip()
+        duplicates = [webhook for webhook in same_url if str(webhook.get("id") or "").strip() != matching_id]
+        if duplicates:
+            _delete_remote_webhooks(api_key=api_key, webhooks=duplicates)
+        update_fields: list[str] = []
+        if matching_id and workshop.synplaisign_webhook_id != matching_id:
+            workshop.synplaisign_webhook_id = matching_id
+            update_fields.append("synplaisign_webhook_id")
+        if update_fields:
+            workshop.save(update_fields=update_fields)
+        # Existing remote webhook matches and local secret is present — never rotate secret.
+        return
+
+    if matching is not None and not local_secret:
+        logger.warning(
+            "synplaisign_webhook_secret_missing",
+            extra={"workshop_id": workshop.pk, "webhook_id": matching.get("id"), "url": webhook_url},
+        )
+
+    # Recreate: remove every remote config for this URL first to avoid duplicate secrets.
+    if same_url:
+        _delete_remote_webhooks(api_key=api_key, webhooks=same_url)
+
     created = gateway.create_webhook(api_key=api_key, url=webhook_url, events=expected_events)
     webhook_id = str(created.get("id") or "").strip()
     secret = str(created.get("secret") or "").strip()

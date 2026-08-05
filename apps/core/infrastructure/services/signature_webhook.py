@@ -41,6 +41,9 @@ def _normalize_event_name(raw_event: str) -> str:
         "ENVELOPE_COMPLETED": "ENVELOPE_COMPLETED",
         "DOCUMENT_COMPLETED": "ENVELOPE_COMPLETED",
         "ENVELOPE_COMPLETE": "ENVELOPE_COMPLETED",
+        "DOCUMENT_DECLINED": "DOCUMENT_DECLINED",
+        "DOCUMENT_DECLINE": "DOCUMENT_DECLINED",
+        "ENVELOPE_DECLINED": "DOCUMENT_DECLINED",
     }
     return alias_map.get(normalized, normalized)
 
@@ -138,6 +141,55 @@ def _resolve_workshop_for_envelope(envelope_id: str):
     return None, None, None
 
 
+def _reject_budget_from_decline(*, budget, envelope_id: str) -> None:
+    from apps.budget.models import BudgetStatus
+
+    if budget.status == BudgetStatus.REJECTED:
+        logger.info(
+            "signature_webhook_budget_already_rejected",
+            extra={"budget_id": budget.pk, "envelope_id": envelope_id},
+        )
+        return
+
+    has_active_workorder = budget.workorders.exclude(status=WorkOrderStatus.CANCELLED).exists()
+    if has_active_workorder:
+        logger.info(
+            "signature_webhook_budget_decline_skipped_active_workorder",
+            extra={"budget_id": budget.pk, "envelope_id": envelope_id},
+        )
+        return
+
+    if budget.is_status_locked:
+        logger.info(
+            "signature_webhook_budget_decline_skipped_locked",
+            extra={"budget_id": budget.pk, "envelope_id": envelope_id, "status": budget.status},
+        )
+        return
+
+    budget.status = BudgetStatus.REJECTED
+    budget.save(update_fields=["status"])
+    logger.info("signature_webhook_budget_rejected", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
+
+
+def _reject_workorder_from_decline(*, workorder, envelope_id: str) -> None:
+    if workorder.status == WorkOrderStatus.REJECTED:
+        logger.info(
+            "signature_webhook_workorder_already_rejected",
+            extra={"workorder_id": workorder.pk, "envelope_id": envelope_id},
+        )
+        return
+
+    if workorder.is_status_locked:
+        logger.info(
+            "signature_webhook_workorder_decline_skipped_locked",
+            extra={"workorder_id": workorder.pk, "envelope_id": envelope_id, "status": workorder.status},
+        )
+        return
+
+    workorder.reject(reason="Documento recusado pelo signatário")
+    logger.info("signature_webhook_workorder_rejected", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
+
+
 def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, workorder=None) -> HttpResponse:
     from apps.budget.models import Budget, SignatureStatus
     from apps.workorder.models import WorkOrderSignatureStatus
@@ -173,6 +225,24 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
                 "recent_sent_workorders": list(recent_workorder),
             },
         )
+        return HttpResponse(status=200)
+
+    if event_name == "DOCUMENT_DECLINED":
+        try:
+            if budget is not None:
+                _reject_budget_from_decline(budget=budget, envelope_id=envelope_id)
+            if workorder is not None:
+                _reject_workorder_from_decline(workorder=workorder, envelope_id=envelope_id)
+        except Exception:
+            logger.exception(
+                "signature_webhook_decline_processing_failed",
+                extra={
+                    "budget_id": budget.pk if budget is not None else None,
+                    "workorder_id": workorder.pk if workorder is not None else None,
+                    "envelope_id": envelope_id,
+                },
+            )
+            return HttpResponse(status=500)
         return HttpResponse(status=200)
 
     if event_name != "ENVELOPE_COMPLETED":

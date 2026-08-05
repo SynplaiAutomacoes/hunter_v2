@@ -282,3 +282,87 @@ class WorkshopSynplaiSignServiceTests(SimpleTestCase):
         provision_workshop_synplaisign(workshop=SimpleNamespace(pk=10), webhook_url="https://app/hook")
         register_mock.assert_not_called()
         ensure_webhook_mock.assert_called_once()
+
+
+class EnsureWorkshopWebhookTests(SimpleTestCase):
+    @patch("apps.workshops.services.synplaisign.gateway.create_webhook")
+    @patch("apps.workshops.services.synplaisign.gateway.delete_webhook")
+    @patch("apps.workshops.services.synplaisign.gateway.list_webhooks")
+    def test_recreates_when_local_secret_missing(
+        self,
+        list_mock: Mock,
+        delete_mock: Mock,
+        create_mock: Mock,
+    ) -> None:
+        from apps.workshops.services.synplaisign import _ensure_workshop_webhook
+
+        list_mock.return_value = [
+            {"id": "wh-old", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"]},
+        ]
+        create_mock.return_value = {"id": "wh-new", "secret": "whsec_recreated"}
+        workshop = Mock()
+        workshop.pk = 7
+        workshop.synplaisign_webhook_id = "wh-old"
+        workshop.synplaisign_webhook_secret = ""
+
+        _ensure_workshop_webhook(workshop=workshop, api_key="sk_live", webhook_url="https://app/hook")
+
+        delete_mock.assert_called_once_with(api_key="sk_live", webhook_id="wh-old")
+        create_mock.assert_called_once()
+        self.assertEqual(create_mock.call_args.kwargs["events"], ["ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"])
+        self.assertEqual(workshop.synplaisign_webhook_id, "wh-new")
+        self.assertEqual(decrypt_secret(workshop.synplaisign_webhook_secret), "whsec_recreated")
+        workshop.save.assert_called()
+
+    @patch("apps.workshops.services.synplaisign.gateway.create_webhook")
+    @patch("apps.workshops.services.synplaisign.gateway.delete_webhook")
+    @patch("apps.workshops.services.synplaisign.gateway.list_webhooks")
+    def test_keeps_matching_and_deletes_duplicates(
+        self,
+        list_mock: Mock,
+        delete_mock: Mock,
+        create_mock: Mock,
+    ) -> None:
+        from apps.workshops.services.synplaisign import _ensure_workshop_webhook
+
+        list_mock.return_value = [
+            {"id": "wh-keep", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"]},
+            {"id": "wh-dup", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED"]},
+        ]
+        workshop = Mock()
+        workshop.pk = 8
+        workshop.synplaisign_webhook_id = "wh-other"
+        workshop.synplaisign_webhook_secret = encrypt_secret("whsec_ok")
+
+        _ensure_workshop_webhook(workshop=workshop, api_key="sk_live", webhook_url="https://app/hook")
+
+        create_mock.assert_not_called()
+        delete_mock.assert_called_once_with(api_key="sk_live", webhook_id="wh-dup")
+        self.assertEqual(workshop.synplaisign_webhook_id, "wh-keep")
+
+    @patch("apps.workshops.services.synplaisign.gateway.create_webhook")
+    @patch("apps.workshops.services.synplaisign.gateway.delete_webhook")
+    @patch("apps.workshops.services.synplaisign.gateway.list_webhooks")
+    def test_recreates_when_events_incomplete(
+        self,
+        list_mock: Mock,
+        delete_mock: Mock,
+        create_mock: Mock,
+    ) -> None:
+        from apps.workshops.services.synplaisign import _ensure_workshop_webhook
+
+        list_mock.return_value = [
+            {"id": "wh-partial", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED"]},
+        ]
+        create_mock.return_value = {"id": "wh-full", "secret": "whsec_full"}
+        workshop = Mock()
+        workshop.pk = 9
+        workshop.synplaisign_webhook_id = "wh-partial"
+        workshop.synplaisign_webhook_secret = encrypt_secret("whsec_old")
+
+        _ensure_workshop_webhook(workshop=workshop, api_key="sk_live", webhook_url="https://app/hook")
+
+        delete_mock.assert_called_once_with(api_key="sk_live", webhook_id="wh-partial")
+        create_mock.assert_called_once()
+        self.assertEqual(workshop.synplaisign_webhook_id, "wh-full")
+        self.assertEqual(decrypt_secret(workshop.synplaisign_webhook_secret), "whsec_full")

@@ -125,6 +125,24 @@ Sem `APP_BASE_URL` correto:
 - confira se o webhook remoto da oficina foi sincronizado
 - confira HMAC `x-synplai-signature` (secret da oficina)
 
+### Webhook retorna HTTP 403 `invalid_signature`
+
+O algoritmo HMAC (header `x-synplai-signature: sha256=...`) e o mesmo no SynplaiSign e no Hunter. O 403 quase sempre indica **secret errado no POST**, nao bug de assinatura.
+
+Causa frequente em producao: varios `WebhookConfig` ativos no SynplaiSign apontando para a mesma URL (`www.hunterapp.io/budget/signature/webhook/`, staging, ngrok antigo), cada um com secret diferente. O `dispatch` do SynplaiSign (hoje) nao filtra por `apiKeyId`/`organizationId` e dispara para todos; o Hunter so guarda um secret por oficina — POSTs com secret stale falham, o que bate passa.
+
+Limpeza operacional:
+
+1. No SynplaiSign, listar webhooks e remover URLs ngrok/staging mortas e duplicatas da URL de prod
+2. Deixar **um** webhook por org/API key alinhado ao `synplaisign_webhook_secret` da oficina no Hunter
+3. Re-rodar provision/`manage.py webhook` se o secret local estiver vazio (o sync recria o remoto e grava o secret)
+
+Eventos tratados pelo Hunter: `ENVELOPE_COMPLETED` (aprova) e `DOCUMENT_DECLINED` (reprova orcamento/OS). Demais eventos sao ignorados com HTTP 200.
+
+### Lembrete de agendamento com `%%primeiro_nome%%` literal
+
+Agendamentos **guest** (sem `customer_id`) nao tem Customer no contexto de variaveis. O render resolve `nome`/`primeiro_nome` via `appointment.guest_customer_name` (e extras). Mensagens ja `SENT` com token literal nao se corrigem no WhatsApp; PENDING sao re-renderizados ao salvar o template de Agendamento ou no envio pelo poller.
+
 ### Calculo parece inconsistente
 
 - revise custos de oficina e regras de precificacao
