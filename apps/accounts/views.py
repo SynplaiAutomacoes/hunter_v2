@@ -197,7 +197,7 @@ def _method_missing_error(tipo: str, method: str) -> str:
         return "Conta sem e-mail cadastrado."
     if tipo == "password_reset":
         return "Conta sem número de WhatsApp cadastrado. Procure a oficina para recuperar sua senha."
-    return "Conta sem número de WhatsApp cadastrado."
+    return "Conta sem número de WhatsApp ou E-mail cadastrados."
 
 
 def _identify_and_send_code(request, tipo: str, user, identifier: str):
