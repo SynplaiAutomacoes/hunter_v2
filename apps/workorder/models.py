@@ -474,9 +474,15 @@ class WorkOrder(TimeStampedModel):
                 },
             )
 
+    def _ensure_no_payments(self, action: str) -> None:
+        if self.payments.exists():
+            raise WorkOrderError(f"Exclua os planos de pagamento antes de {action} a O.S.")
+
     def cancel(self, *, reason: str) -> None:
         if self.is_status_locked:
             raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
+
+        self._ensure_no_payments("cancelar")
 
         self.status = WorkOrderStatus.CANCELLED
         self.cancellation_reason = reason
@@ -487,6 +493,8 @@ class WorkOrder(TimeStampedModel):
     def reject(self, *, reason: str) -> None:
         if self.is_status_locked:
             raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
+
+        self._ensure_no_payments("reprovar")
 
         self.status = WorkOrderStatus.REJECTED
         self.rejection_reason = reason
