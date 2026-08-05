@@ -7,7 +7,7 @@ from django.utils import timezone
 
 class Supplier(TimeStampedModel, Address):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="suppliers")
-    cnpj = BRCPFCNPJField(verbose_name="Documento")
+    cnpj = BRCPFCNPJField(verbose_name="Documento", blank=True, null=True, default="")
     name = models.CharField(verbose_name="Razão Social", max_length=255)
     contact_person = models.CharField(verbose_name="Responsável", max_length=255, default="", blank=True)
     phone = PhoneNumberField(region="BR", verbose_name="Telefone", max_length=20, default="", blank=True)
