@@ -104,6 +104,9 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | --- | --- |
 | `APP_PROCESS` | define o processo do container: `web` (Gunicorn, default) ou `realtime` (Daphne ASGI + poller de outbound) |
 | `OUTBOUND_POLLER_INTERVAL_SECONDS` | intervalo do poller no realtime (default `60`); processa `run_due_outbound_messages` |
+| `OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS` | timeout de cada tick do poller (default `55`); evita tick travado em DB/RabbitMQ |
+| `OUTBOUND_POLLER_MAX_CONSECUTIVE_FAILURES` | falhas consecutivas (timeout/exit != 0) antes de derrubar o processo realtime (default `5`) |
+| `OUTBOUND_PROCESSING_RECLAIM_SECONDS` | TTL para reclaim de rows `PROCESSING` stale de volta a `PENDING` (default `600`) |
 | `MESSAGE_WORKER_BASE_URL` | base URL do worker de envio WhatsApp; o cancelamento usa `POST {BASE}/stop` |
 | `MESSAGE_DISPATCH_STATUS_TOKEN` | token esperado no header `X-Dispatch-Status-Token` na ingestao de status do worker |
 | `MESSAGE_DISPATCH_WS_BASE_URL` | base URL do servico ASGI de WebSocket (ex.: `wss://realtime.example.com`); se vazio, o front usa o host atual |

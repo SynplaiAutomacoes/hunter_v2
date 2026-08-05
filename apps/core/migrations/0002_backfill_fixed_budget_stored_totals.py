@@ -11,7 +11,21 @@ def forwards_backfill_fixed_stored_totals(apps: object, schema_editor: object) -
 
     Imports the live service (not historical models) because operational totals
     depend on kit/benefit helpers that historical migration state cannot reproduce.
+
+    Skip when there is nothing to rebuild: fresh/empty DBs (e.g. test creation)
+    would otherwise fail because the live Workshop model expects columns that do
+    not exist yet at this point in the migration graph.
     """
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) FROM budget_budget WHERE budget_type IN ('warranty', 'courtesy')"
+        )
+        remaining = int(cursor.fetchone()[0])
+    if remaining == 0:
+        return
+
     from apps.core.infrastructure.services.stored_totals import backfill_stored_totals
 
     backfill_stored_totals(budget_types=FIXED_BUDGET_TYPES)

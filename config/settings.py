@@ -247,8 +247,14 @@ DATABASES = {
         "PORT": os.getenv("DB_PORT", "5432"),
         "CONN_MAX_AGE": CONN_MAX_AGE,
         "CONN_HEALTH_CHECKS": True,
+        "OPTIONS": {
+            "connect_timeout": 10,
+        },
     }
 }
+
+# Seconds before a PROCESSING outbound row is reclaimed to PENDING by the poller.
+OUTBOUND_PROCESSING_RECLAIM_SECONDS = int(os.getenv("OUTBOUND_PROCESSING_RECLAIM_SECONDS", "600"))
 
 # Cache
 # https://docs.djangoproject.com/en/5.2/topics/cache/

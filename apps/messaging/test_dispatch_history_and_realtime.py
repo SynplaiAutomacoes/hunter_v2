@@ -290,6 +290,62 @@ class OutboundTickerTests(TestCase):
         self.assertEqual(len(publisher.published), 1)
         self.assertEqual(publisher.published[0].client_message_id, str(row.client_message_id))
 
+    @override_settings(OUTBOUND_PROCESSING_RECLAIM_SECONDS=600)
+    @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
+    def test_process_due_reclaims_stale_processing_to_pending_then_sends(self, publisher_cls: MagicMock) -> None:
+        workshop = _workshop(42)
+        customer = _customer(workshop, 42)
+        publisher = FakeQueuePublisher()
+        publisher_cls.return_value = publisher
+        stale_at = timezone.now() - timedelta(minutes=15)
+        row = ScheduledOutboundMessage.objects.create(
+            workshop=workshop,
+            customer=customer,
+            phone="5511999999999",
+            message="Travado",
+            run_at=timezone.now() - timedelta(minutes=20),
+            status=ScheduledOutboundMessage.Status.PROCESSING,
+            source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+            error="previous hang",
+        )
+        ScheduledOutboundMessage.objects.filter(pk=row.pk).update(atualizado_em=stale_at)
+
+        result = process_due_outbound_messages(limit=10, force=True)
+        row.refresh_from_db()
+
+        self.assertEqual(result.reclaimed, 1)
+        self.assertEqual(result.claimed, 1)
+        self.assertEqual(result.sent, 1)
+        self.assertEqual(row.status, ScheduledOutboundMessage.Status.SENT)
+        self.assertEqual(row.error, "")
+        self.assertEqual(len(publisher.published), 1)
+
+    @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
+    def test_process_due_releases_claim_when_rabbitmq_connect_fails(self, publisher_cls: MagicMock) -> None:
+        from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPublisherError
+
+        workshop = _workshop(43)
+        customer = _customer(workshop, 43)
+        publisher_cls.side_effect = RabbitMQPublisherError("connection refused")
+        row = ScheduledOutboundMessage.objects.create(
+            workshop=workshop,
+            customer=customer,
+            phone="5511999999999",
+            message="Lembrete",
+            run_at=timezone.now() - timedelta(minutes=1),
+            status=ScheduledOutboundMessage.Status.PENDING,
+            source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+        )
+
+        result = process_due_outbound_messages(limit=10, force=True)
+        row.refresh_from_db()
+
+        self.assertEqual(result.claimed, 1)
+        self.assertEqual(result.sent, 0)
+        self.assertEqual(result.failed, 1)
+        self.assertEqual(row.status, ScheduledOutboundMessage.Status.PENDING)
+        self.assertIn("connection refused", row.error)
+
     @override_settings(TIME_ZONE="America/Sao_Paulo")
     @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
     def test_process_due_skips_outside_business_hours(self, publisher_cls: MagicMock) -> None:
