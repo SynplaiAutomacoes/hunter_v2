@@ -455,10 +455,12 @@ class BudgetStatusReportDataMixin:
             raise Http404("Status de orcamento invalido")
 
         report_budgets = self._get_selection_report_items()
+        selected_status_choices = self._get_selected_status_choices()
         return {
             "workshop": self.workshop,
             "report_budgets": report_budgets,
-            "show_cancellation_reason_column": any(budget.cancellation_reason for budget in report_budgets),
+            "show_cancellation_reason_column": BudgetStatus.CANCELLED in selected_status_choices,
+            "show_rejection_reason_column": BudgetStatus.REJECTED in selected_status_choices,
             "selection_report": selection_report,
             "selected_status_report": selection_report,
             "status_report_pdf_title": self.status_report_pdf_title,
@@ -1310,12 +1312,18 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if not cancellation_reason:
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 budget.cancellation_reason = cancellation_reason
+            elif status == "reject":
+                rejection_reason = request.POST.get("rejection_reason")
+                if not rejection_reason:
+                    return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
+                budget.rejection_reason = rejection_reason
             elif status == "reopen":
                 reopen_reason = str(request.POST.get("reopen_reason") or "").strip()
                 if not reopen_reason:
                     return JsonResponse({"success": False, "error": "A justificativa da reabertura é obrigatória."}, status=400)
 
                 budget.cancellation_reason = ""
+                budget.rejection_reason = ""
                 budget.regenerate_signature_token()
 
                 # Salvar o estado inicial completo no momento da reabertura
