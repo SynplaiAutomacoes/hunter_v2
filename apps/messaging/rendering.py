@@ -21,6 +21,7 @@ class VariableContext:
     budget: Any = None
     workorder: Any = None
     workshop: Any = None
+    appointment: Any = None
     extras: dict[str, Any] = field(default_factory=dict)
 
 
@@ -31,15 +32,23 @@ def resolve_variable_context(
     budget: Any = None,
     workorder: Any = None,
     workshop: Any = None,
+    appointment: Any = None,
     extras: dict[str, Any] | None = None,
 ) -> VariableContext:
     resolved_workshop = workshop
     resolved_budget = budget or getattr(workorder, "budget", None)
-    resolved_customer = customer or getattr(resolved_budget, "customer", None)
-    resolved_vehicle = vehicle or getattr(resolved_budget, "vehicle", None)
+    resolved_customer = customer or getattr(resolved_budget, "customer", None) or getattr(appointment, "customer", None)
+    resolved_vehicle = vehicle or getattr(resolved_budget, "vehicle", None) or getattr(appointment, "vehicle", None)
+    resolved_appointment = appointment
 
     if resolved_workshop is None:
-        resolved_workshop = getattr(workorder, "workshop", None) or getattr(resolved_budget, "workshop", None) or getattr(resolved_customer, "workshop", None) or getattr(resolved_vehicle, "workshop", None)
+        resolved_workshop = (
+            getattr(workorder, "workshop", None)
+            or getattr(resolved_budget, "workshop", None)
+            or getattr(resolved_customer, "workshop", None)
+            or getattr(resolved_vehicle, "workshop", None)
+            or getattr(resolved_appointment, "workshop", None)
+        )
 
     return VariableContext(
         customer=resolved_customer,
@@ -47,6 +56,7 @@ def resolve_variable_context(
         budget=resolved_budget,
         workorder=workorder,
         workshop=resolved_workshop,
+        appointment=resolved_appointment,
         extras=dict(extras or {}),
     )
 
@@ -81,6 +91,7 @@ def render_message_template(
     budget: Any = None,
     workorder: Any = None,
     workshop: Any = None,
+    appointment: Any = None,
     extras: dict[str, Any] | None = None,
 ) -> str:
     from apps.messaging.variables import get_variable_definition_map, resolve_variable
@@ -91,6 +102,7 @@ def render_message_template(
         budget=budget,
         workorder=workorder,
         workshop=workshop,
+        appointment=appointment,
         extras=extras,
     )
     variable_definitions = get_variable_definition_map()

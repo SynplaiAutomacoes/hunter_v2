@@ -75,6 +75,7 @@ def build_appointment_typed_message(appointment: Appointment, template_type: str
         template.message,
         customer=appointment.customer,
         workshop=appointment.workshop,
+        appointment=appointment,
         extras=build_appointment_message_extras(appointment),
     )
 

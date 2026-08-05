@@ -139,6 +139,10 @@ Limpeza operacional:
 
 Eventos tratados pelo Hunter: `ENVELOPE_COMPLETED` (aprova) e `DOCUMENT_DECLINED` (reprova orcamento/OS). Demais eventos sao ignorados com HTTP 200.
 
+### Lembrete de agendamento com `%%primeiro_nome%%` literal
+
+Agendamentos **guest** (sem `customer_id`) nao tem Customer no contexto de variaveis. O render resolve `nome`/`primeiro_nome` via `appointment.guest_customer_name` (e extras). Mensagens ja `SENT` com token literal nao se corrigem no WhatsApp; PENDING sao re-renderizados ao salvar o template de Agendamento ou no envio pelo poller.
+
 ### Calculo parece inconsistente
 
 - revise custos de oficina e regras de precificacao
