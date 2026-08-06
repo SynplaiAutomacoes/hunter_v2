@@ -73,6 +73,7 @@ class StockMovement(TimeStampedModel):
     workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="stock_movements")
     reversal_of = models.OneToOneField("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reversal_entry")
     quantity = models.IntegerField(default=1, verbose_name="Quantidade")
+    reason = models.TextField(blank=True, default="", verbose_name="Motivo")
     status = models.CharField(max_length=10, choices=MovementStatus.choices, verbose_name="Status", default=MovementStatus.WAITING)
 
     class Meta:
