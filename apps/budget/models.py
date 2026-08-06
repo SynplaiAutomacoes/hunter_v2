@@ -880,7 +880,7 @@ class Budget(TimeStampedModel):
             BudgetStatus.WAITING_REVIEW: "badge-info",
             BudgetStatus.APPROVED: "badge-success",
             BudgetStatus.REJECTED: "badge-error",
-            BudgetStatus.CANCELLED: "badge-error",
+            BudgetStatus.CANCELLED: "badge-warning",
         }
 
         return {"text": BudgetStatus(self.status).label, "class": status_color.get(self.status, "badge-neutral")}

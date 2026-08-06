@@ -199,7 +199,7 @@ BUDGET_STATUS_BADGE_CLASSES = {
     BudgetStatus.WAITING_REVIEW: "badge-info min-w-sm",
     BudgetStatus.APPROVED: "badge-success min-w-sm",
     BudgetStatus.REJECTED: "badge-error min-w-sm",
-    BudgetStatus.CANCELLED: "badge-error min-w-sm",
+    BudgetStatus.CANCELLED: "badge-warning min-w-sm",
 }
 BUDGET_TYPE_BADGE_CLASSES = {
     BudgetType.SALE: "badge-success min-w-sm",
