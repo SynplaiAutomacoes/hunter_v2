@@ -121,6 +121,7 @@ class Budget(TimeStampedModel):
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
+    closed_at = models.DateTimeField(verbose_name="Data de fechamento", null=True, blank=True)
     customer_agreed_departure_at = models.DateTimeField(verbose_name="Data de saída combinada com o Cliente", null=True, blank=True)
     service_expected_completion_at = models.DateTimeField(verbose_name="Data prevista de término do serviço", null=True, blank=True)
     is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
@@ -191,6 +192,7 @@ class Budget(TimeStampedModel):
             "customer_agreed_departure_at",
             "service_expected_completion_at",
             "entry_date",
+            "closed_at",
             "expiration_date",
             "observations",
             "notes",
@@ -227,6 +229,12 @@ class Budget(TimeStampedModel):
         if not is_new:
             old_status, old_budget_type = Budget.objects.filter(pk=self.pk).values_list("status", "budget_type").first() or (None, None)
 
+        closed_at_changed = self._sync_closed_at(old_status=old_status, is_new=is_new)
+        if closed_at_changed and kwargs.get("update_fields") is not None:
+            update_fields_set = set(kwargs["update_fields"])
+            update_fields_set.add("closed_at")
+            kwargs["update_fields"] = list(update_fields_set)
+
         with transaction.atomic():
             super().save(*args, **kwargs)
 
@@ -252,6 +260,29 @@ class Budget(TimeStampedModel):
             if not skip_stored_refresh:
                 self.refresh_stored_total_amount()
 
+    _CLOSED_STATUSES = frozenset({BudgetStatus.APPROVED, BudgetStatus.REJECTED, BudgetStatus.CANCELLED})
+
+    def _sync_closed_at(self, *, old_status: str | None, is_new: bool) -> bool:
+        """Keep closed_at aligned with terminal status transitions. Returns True if value changed."""
+        previous_closed_at = self.closed_at
+        new_is_closed = self.status in self._CLOSED_STATUSES
+        old_is_closed = old_status in self._CLOSED_STATUSES if old_status is not None else False
+
+        if is_new:
+            if new_is_closed:
+                if self.closed_at is None:
+                    self.closed_at = timezone.now()
+            else:
+                self.closed_at = None
+        elif not old_is_closed and new_is_closed:
+            self.closed_at = timezone.now()
+        elif old_is_closed and not new_is_closed:
+            self.closed_at = None
+        elif old_is_closed and new_is_closed and old_status != self.status:
+            self.closed_at = timezone.now()
+
+        return previous_closed_at != self.closed_at
+
     def refresh_stored_total_amount(self) -> None:
         """Persist list/dashboard total for SQL aggregates.
 
@@ -272,6 +303,7 @@ class Budget(TimeStampedModel):
         verbose_name_plural = "Orçamentos"
         indexes = [
             models.Index(fields=["workshop", "status", "entry_date"], name="budget_ws_status_entry_idx"),
+            models.Index(fields=["workshop", "status", "closed_at"], name="budget_ws_status_closed_idx"),
             models.Index(fields=["workshop", "entry_date"], name="budget_ws_entry_idx"),
             models.Index(fields=["customer", "criado_em"], name="budget_customer_criado_idx"),
         ]
