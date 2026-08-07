@@ -206,7 +206,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.budget.criado_em,
                 "quantity": item.quantity,
                 "status": item.budget.get_status_display(),
-                "label": f"Orçamento #{item.budget.id}",
+                "label": f"Orçamento #{item.budget.number}",
                 "sub_label": "Orçamento",
                 "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget.id}),
             }
@@ -220,7 +220,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.budget_item.budget.criado_em,
                 "quantity": item.quantity,
                 "status": item.budget_item.budget.get_status_display(),
-                "label": f"Orçamento #{item.budget_item.budget.id}",
+                "label": f"Orçamento #{item.budget_item.budget.number}",
                 "sub_label": "Orçamento",
                 "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget_item.budget.id}),
             }
@@ -234,7 +234,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.workorder.criado_em,
                 "quantity": item.quantity,
                 "status": item.workorder.get_status_display(),
-                "label": f"OS #{item.workorder.budget.id}",
+                "label": f"OS #{item.workorder.budget.number}",
                 "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder.id)}),
             }
@@ -248,7 +248,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.workorder_item.workorder.criado_em,
                 "quantity": item.quantity,
                 "status": item.workorder_item.workorder.get_status_display(),
-                "label": f"OS #{item.workorder_item.workorder.budget.id}",
+                "label": f"OS #{item.workorder_item.workorder.budget.number}",
                 "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder_item.workorder.id)}),
             }

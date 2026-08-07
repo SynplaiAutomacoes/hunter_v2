@@ -165,7 +165,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "workorder__budget__notes",
                 ),
             )
-            workorder_query = Q(workorder__id__icontains=search) | Q(workorder__budget__id__icontains=search)
+            workorder_query = Q(workorder__id__icontains=search) | Q(workorder__budget__number__icontains=search) | Q(workorder__budget__id__icontains=search)
             queryset = queryset.filter(search_query | workorder_query if search_query.children else workorder_query)
 
         return queryset
