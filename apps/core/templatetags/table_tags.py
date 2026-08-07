@@ -150,10 +150,12 @@ def _resolve_attr(obj: Any, attr: str | Callable[[Any], Any] | None) -> Any:
 
     value: Any = obj
     for part in attr.split("."):
+        if value is None:
+            return ""
         try:
             value = getattr(value, part)
         except AttributeError:
-            return None
+            return ""
 
         if callable(value):
             value = value()
