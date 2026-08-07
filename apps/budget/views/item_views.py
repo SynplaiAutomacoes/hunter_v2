@@ -3,6 +3,7 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.utils import DataError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils.html import escape
@@ -806,6 +807,32 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget._skip_stored_total_refresh = False
                 budget.invalidate_pricing_snapshot_cache()
                 budget.refresh_stored_total_amount()
+        except DataError as exc:
+            logger.exception(
+                "budget_items_batch_add_failed",
+                extra={
+                    "budget_id": budget_id,
+                    "item_type": item_type,
+                    "selected_count": len(raw_selected_ids),
+                    "selected_ids": raw_selected_ids[:20],
+                },
+            )
+            error_message = str(exc).lower()
+            if "too long" in error_message or "stringdatarighttruncation" in error_message:
+                return _render_modal_error(
+                    title="Nome muito longo",
+                    message=(
+                        "O nome do produto, serviço ou kit selecionado excede o tamanho máximo "
+                        "permitido na descrição do item do orçamento. Encurte o nome no catálogo "
+                        "e tente novamente."
+                    ),
+                    icon="error",
+                )
+            return _render_modal_error(
+                title="Não foi possível adicionar os itens",
+                message="Tente novamente em instantes. Se o problema persistir, contate o suporte.",
+                icon="error",
+            )
         except Exception:
             logger.exception("budget_items_batch_add_failed", extra={"budget_id": budget_id, "item_type": item_type, "selected_count": len(raw_selected_ids), "selected_ids": raw_selected_ids[:20]})
             error_html = """
