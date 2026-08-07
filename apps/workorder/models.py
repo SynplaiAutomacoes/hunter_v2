@@ -249,7 +249,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def get_id(self) -> int:
-        return self.budget.pk
+        return self.budget.public_number
 
     @property
     def total_labor_cost_value(self) -> Money:

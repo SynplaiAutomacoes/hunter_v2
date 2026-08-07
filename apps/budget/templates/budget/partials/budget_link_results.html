@@ -25,10 +25,10 @@
                     <td>
                         <input type="radio" name="reference_budget_id" value="{{ item.pk|unlocalize }}" class="radio radio-primary" required>
                     </td>
-                    <td>#{{ item.pk }}</td>
+                    <td>#{{ item.number }}</td>
                     <td>{{ item.customer.name|default:'-' }}</td>
                     <td>{% if item.vehicle %}{{ item.vehicle.plate }}{% else %}-{% endif %}</td>
-                    <td>{% if item.reference_budget_id %}#{{ item.reference_budget_id }}{% else %}-{% endif %}</td>
+                    <td>{% if item.reference_budget %}#{{ item.reference_budget.number }}{% else %}-{% endif %}</td>
                 </tr>
                 {% empty %}
                 <tr>

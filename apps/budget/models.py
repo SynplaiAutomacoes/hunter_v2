@@ -104,6 +104,25 @@ class Defect(models.Model):
         return self.name
 
 
+class WorkshopBudgetSequence(models.Model):
+    """Per-workshop counter for allocating Budget.number values."""
+
+    workshop = models.OneToOneField(
+        "workshops.Workshop",
+        verbose_name="Oficina",
+        on_delete=models.CASCADE,
+        related_name="budget_sequence",
+    )
+    last_number = models.PositiveIntegerField(verbose_name="Último número alocado", default=0)
+
+    class Meta:
+        verbose_name = "Sequência de orçamento da oficina"
+        verbose_name_plural = "Sequências de orçamento das oficinas"
+
+    def __str__(self) -> str:
+        return f"Workshop {self.workshop_id}: last_number={self.last_number}"
+
+
 class Budget(TimeStampedModel):
     CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE = "Informe a data de saída combinada com o cliente."
     SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE = "Informe a data prevista de término do serviço."
@@ -117,6 +136,7 @@ class Budget(TimeStampedModel):
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="collaborators_budgets", blank=True)
     checklist = models.ForeignKey("checklist.Checklist", verbose_name="Checklist", on_delete=models.SET_NULL, related_name="budgets", null=True, blank=True)
     reference_budget = models.ForeignKey("self", verbose_name="Orçamento de Referência", on_delete=models.SET_NULL, related_name="related_budgets", null=True, blank=True)
+    number = models.PositiveIntegerField(verbose_name="Número")
 
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
@@ -236,6 +256,11 @@ class Budget(TimeStampedModel):
             kwargs["update_fields"] = list(update_fields_set)
 
         with transaction.atomic():
+            if is_new and self.number is None and self.workshop_id is not None:
+                from apps.budget.services.numbering import allocate_budget_number
+
+                self.number = allocate_budget_number(workshop_id=self.workshop_id)
+
             super().save(*args, **kwargs)
 
             if old_budget_type is not None and old_budget_type != self.budget_type:
@@ -294,6 +319,13 @@ class Budget(TimeStampedModel):
             models.Index(fields=["workshop", "entry_date"], name="budget_ws_entry_idx"),
             models.Index(fields=["customer", "criado_em"], name="budget_customer_criado_idx"),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "number"], name="unique_budget_number_per_workshop"),
+        ]
+
+    @property
+    def public_number(self) -> int:
+        return int(self.number) if self.number is not None else int(self.pk)
 
     @property
     def has_frozen_pricing_snapshot(self) -> bool:
@@ -1901,7 +1933,7 @@ class BudgetHistory(TimeStampedModel):
         ordering = ["-criado_em", "-pk"]
 
     def __str__(self) -> str:
-        return f"{self.get_action_display()} - Orçamento #{self.budget.pk}"
+        return f"{self.get_action_display()} - Orçamento #{self.budget.number}"
 
 
 class BudgetPdfRenderJob(TimeStampedModel):
