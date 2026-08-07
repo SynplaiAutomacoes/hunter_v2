@@ -354,10 +354,10 @@ class BudgetStatusReportDataMixin:
 
     def _get_budget_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="id", search_by="id"),
+            TableColumn("Nº", attr="number", search_by="number"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
-            TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
+            TableColumn("Vinculado à", attr="reference_budget.number", search_by="reference_budget__number"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn(str(Budget.entry_date.field.verbose_name), attr=Budget.entry_date.field.name, search_by="entry_date"),
             TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
@@ -1474,6 +1474,7 @@ class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
         context = {
             "reference_budget_id": budget.pk,
+            "reference_budget_number": budget.number,
             "is_workorder": is_workorder,
         }
         return render(request, "budget/partials/auto_link_warning.html", context)
@@ -1552,7 +1553,8 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
-                filters |= Q(pk=int(query))
+                query_number = int(query)
+                filters |= Q(number=query_number) | Q(pk=query_number)
             queryset = queryset.filter(filters)
 
         paginator = Paginator(queryset, 20)
@@ -1576,7 +1578,8 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
-                filters |= Q(pk=int(query))
+                query_number = int(query)
+                filters |= Q(number=query_number) | Q(pk=query_number)
             queryset = queryset.filter(filters)
 
         paginator = Paginator(queryset, 20)

@@ -4,7 +4,7 @@
 {% block crud_content %}
 <div class="p-6 space-y-6" x-data="{ activeTab: 'resumo' }">
     <div class="items-center">
-        <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.budget.id }}</h2>
+        <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.budget.number }}</h2>
         <p class="text-lg-content/70 mt-1">Status: <span class="badge badge-sm {{ workorder.workorder_status_badge.class|cut:' min-w-sm' }} uppercase font-bold">{{ workorder.workorder_status_badge.text }}</span></p>
     </div>
 

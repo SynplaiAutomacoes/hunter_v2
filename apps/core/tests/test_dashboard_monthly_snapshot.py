@@ -5,7 +5,7 @@ from decimal import Decimal
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from apps.accounts.models import Account
@@ -88,6 +88,7 @@ class DashboardMonthlySnapshotServiceTests(TestCase):
         self.assertEqual(second.total_sold_to_date, Decimal("111.11"))
         self.assertEqual(DashboardMonthlySnapshot.objects.filter(workshop=self.workshop, year=2026, month=7).count(), 1)
 
+    @override_settings(DASHBOARD_USE_MONTHLY_SNAPSHOTS=True)
     def test_closed_month_uses_snapshot_even_if_live_compute_changes(self) -> None:
         now = datetime(2026, 8, 6, 12, 0, 0, tzinfo=SAO_PAULO_TZ)
         with patch(
@@ -119,6 +120,27 @@ class DashboardMonthlySnapshotServiceTests(TestCase):
         self.assertEqual(snapshot.pk, DashboardMonthlySnapshot.objects.get(workshop=self.workshop, year=2026, month=7).pk)
         self.assertEqual(metrics.total_sold_to_date, Decimal("222673.56"))
         self.assertEqual(metrics.approval_rate, Decimal("61.250000"))
+
+    @override_settings(DASHBOARD_USE_MONTHLY_SNAPSHOTS=False)
+    def test_closed_month_stays_live_when_snapshots_disabled(self) -> None:
+        now = datetime(2026, 8, 6, 12, 0, 0, tzinfo=SAO_PAULO_TZ)
+        live = DashboardMetrics(
+            workshop_id=self.workshop.pk,
+            selected_month=7,
+            selected_year=2026,
+            total_sold_to_date=Decimal("555.00"),
+        )
+        with patch(
+            "apps.core.infrastructure.services.dashboard_snapshot_service.DashboardQueryService.compute",
+            return_value=live,
+        ) as compute_mock:
+            metrics = get_dashboard_metrics(self.workshop, selected_month=7, selected_year=2026, now=now)
+
+        compute_mock.assert_called_once()
+        self.assertEqual(metrics.total_sold_to_date, Decimal("555.00"))
+        self.assertFalse(
+            DashboardMonthlySnapshot.objects.filter(workshop=self.workshop, year=2026, month=7).exists()
+        )
 
     def test_open_month_stays_live(self) -> None:
         now = datetime(2026, 8, 6, 12, 0, 0, tzinfo=SAO_PAULO_TZ)

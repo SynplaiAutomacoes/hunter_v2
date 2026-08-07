@@ -67,6 +67,9 @@ class DashboardMetricsQueryTests(TestCase):
         closed_at = None
         if status in closed_statuses:
             closed_at = timezone.make_aware(datetime(entry_date.year, entry_date.month, entry_date.day, 12, 0, 0))
+        first_approved_at = None
+        if status == BudgetStatus.APPROVED:
+            first_approved_at = timezone.make_aware(datetime(entry_date.year, entry_date.month, entry_date.day, 12, 0, 0))
         return Budget.objects.create(
             workshop=workshop,
             customer=customer,
@@ -76,6 +79,7 @@ class DashboardMetricsQueryTests(TestCase):
             status=status,
             budget_type=budget_type,
             closed_at=closed_at,
+            first_approved_at=first_approved_at,
         )
 
     @staticmethod
