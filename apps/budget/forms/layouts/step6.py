@@ -53,6 +53,7 @@ def configure_budget_step6_form(form):
     base_pdf_download_url = ctx.base_pdf_download_url
     saved_observation_html = ctx.saved_observation_html
     cancellation_reason_html = ctx.cancellation_reason_html
+    rejection_reason_html = ctx.rejection_reason_html
     reopen_history_html = ctx.reopen_history_html
     approval_button_class = ctx.approval_button_class
     approval_button_attrs = ctx.approval_button_attrs
@@ -85,6 +86,17 @@ def configure_budget_step6_form(form):
                     <div class="modal-action">
                       <button type="button" class="btn" onclick="document.getElementById('cancelBudgetModal').close()">Voltar</button>
                       <button type="button" class="btn btn-error" id="confirm-cancel-btn">Confirmar Cancelamento</button>
+                    </div>
+                  </div>
+                </dialog>
+                <dialog id="rejectBudgetModal" class="modal">
+                  <div class="modal-box">
+                    <h3 class="font-bold text-lg">Reprovar Orçamento</h3>
+                    <p class="py-4">Por favor, informe o motivo da reprovação:</p>
+                    <textarea id="rejection-reason-input" class="textarea textarea-bordered w-full" rows="3" placeholder="Motivo da reprovação..."></textarea>
+                    <div class="modal-action">
+                      <button type="button" class="btn" onclick="document.getElementById('rejectBudgetModal').close()">Voltar</button>
+                      <button type="button" class="btn btn-warning" id="confirm-reject-btn">Confirmar Reprovação</button>
                     </div>
                   </div>
                 </dialog>
@@ -283,6 +295,7 @@ def configure_budget_step6_form(form):
                 # -------- APROVAÇÃO --------
                 Div(
                     HTML(cancellation_reason_html),
+                    HTML(rejection_reason_html),
                     HTML(reopen_history_html),
                     HTML('<h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>'),
                     HTML(f"""
