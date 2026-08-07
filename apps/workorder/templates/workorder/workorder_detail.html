@@ -1,10 +1,10 @@
 {% extends 'crud/page.html' %}
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags l10n %}
 
 {% block crud_content %}
 <div class="p-6 space-y-6" x-data="{ activeTab: 'resumo' }">
     <div class="items-center">
-        <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.budget.id }}</h2>
+        <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.budget.number }}</h2>
         <p class="text-lg-content/70 mt-1">Status: <span class="badge badge-sm {{ workorder.workorder_status_badge.class|cut:' min-w-sm' }} uppercase font-bold">{{ workorder.workorder_status_badge.text }}</span></p>
     </div>
 
@@ -84,15 +84,17 @@
     </dialog>
 </div>
 
-<dialog id="pdfModal" class="modal"                 x-data="{u:'', d:'', s:false, sl:false, sb:false, sr:'', kb:false, kbr:'', showPdfVariantToggle:false, pdfVariant:'signed', pdfToggleLabel:'Ver nao assinado', signedPdfUrl:'', basePdfUrl:'', signedDownloadUrl:'', baseDownloadUrl:'', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.u = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.d = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver nao assinado'; }}"
-        @open-pdf-modal.window="u=$event.detail.url; d=$event.detail.downloadUrl || ''; s=$event.detail.showSignatureBtn; sl=$event.detail.isStatusLocked || false; sb=$event.detail.signatureBlocked || false; sr=$event.detail.signatureBlockedReason || ''; kb=$event.detail.kmBlocked || false; kbr=$event.detail.kmBlockedReason || ''; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver nao assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
+<dialog id="pdfModal" class="modal"                 x-data="{u:'', d:'', s:false, sl:false, sb:false, sr:'', kb:false, kbr:'', slabel:'Enviar para Assinatura', isResend:false, showPdfVariantToggle:false, pdfVariant:'signed', pdfToggleLabel:'Ver nao assinado', signedPdfUrl:'', basePdfUrl:'', signedDownloadUrl:'', baseDownloadUrl:'', togglePdfVariant() { if (!this.showPdfVariantToggle) return; const shouldShowBase = this.pdfVariant === 'signed'; this.pdfVariant = shouldShowBase ? 'base' : 'signed'; this.u = shouldShowBase ? this.basePdfUrl : this.signedPdfUrl; this.d = shouldShowBase ? this.baseDownloadUrl : this.signedDownloadUrl; this.pdfToggleLabel = shouldShowBase ? 'Ver assinado' : 'Ver nao assinado'; }}"
+        @open-pdf-modal.window="u=$event.detail.url; d=$event.detail.downloadUrl || ''; s=$event.detail.showSignatureBtn; sl=$event.detail.isStatusLocked || false; sb=$event.detail.signatureBlocked || false; sr=$event.detail.signatureBlockedReason || ''; kb=$event.detail.kmBlocked || false; kbr=$event.detail.kmBlockedReason || ''; slabel=$event.detail.signatureButtonLabel || 'Enviar para Assinatura'; isResend=$event.detail.isSignatureResend || false; showPdfVariantToggle = $event.detail.showPdfVariantToggle || false; pdfVariant = $event.detail.pdfVariant || 'signed'; pdfToggleLabel = pdfVariant === 'base' ? 'Ver assinado' : 'Ver nao assinado'; signedPdfUrl = $event.detail.signedPdfUrl || ''; basePdfUrl = $event.detail.basePdfUrl || ''; signedDownloadUrl = $event.detail.signedDownloadUrl || ''; baseDownloadUrl = $event.detail.baseDownloadUrl || ''; $el.showModal()">
         <div class="modal-box max-w-5xl h-[90vh] p-0 flex flex-col">
             <div class="p-4 border-b flex justify-between items-center bg-base-200">
                 <h3 class="font-bold">Visualização da Ordem de Serviço</h3>
                 <div class="flex gap-2">
-                    <button x-show="s" class="btn btn-sm" :class="(sl || kb || sb) ? 'btn-disabled cursor-not-allowed' : 'btn-primary'" :disabled="sl || kb || sb" :title="sl ? 'Reabra a O.S. antes de alterar o status.' : (kbr || sr)"
+                    <button id="workorder-send-signature-btn" x-show="s" class="btn btn-sm" :class="(sl || kb || sb) ? 'btn-disabled cursor-not-allowed' : 'btn-primary'" :disabled="sl || kb || sb" :title="sl ? 'Reabra a O.S. antes de alterar o status.' : (kbr || sr)"
                         data-url="{% url 'workorder:send_signature' workorder.pk %}"
-                        onclick="sendBudgetForSignature(this)">Enviar para Assinatura</button>
+                        :data-is-resend="isResend ? 'true' : 'false'"
+                        onclick="sendWorkorderForSignature(this)"
+                        x-text="slabel">Enviar para Assinatura</button>
                     <button class="btn btn-sm btn-outline" x-show="showPdfVariantToggle" @click="togglePdfVariant()" x-text="pdfToggleLabel"></button>
                     <button class="btn btn-sm btn-success" data-allow-locked="1" x-show="d" @click="window.open(d, '_blank')">Baixar PDF</button>
                     <button class="btn btn-sm" data-allow-locked="1" onclick="pdfModal.close()">Fechar</button>
@@ -100,6 +102,16 @@
             </div>
             <iframe :src="u" class="w-full flex-1"></iframe>
         </div>
+</dialog>
+
+<dialog id="alert_confirm_modal" class="modal">
+    <div class="modal-box border-t-4 border-warning">
+        <h3 class="font-bold text-lg text-center" id="confirm-title">Deseja realmente prosseguir?</h3>
+        <div class="modal-action flex justify-center gap-4">
+            <button type="button" class="btn btn-ghost" data-allow-locked="1" onclick="alert_confirm_modal.close()">Cancelar</button>
+            <button type="button" class="btn btn-warning" id="confirm-yes" data-allow-locked="1">Confirmar</button>
+        </div>
+    </div>
 </dialog>
 
 <script>
@@ -112,20 +124,81 @@
         if (e.detail.kmBlockedReason !== undefined) data.kbr = e.detail.kmBlockedReason;
         if (e.detail.signatureBlocked !== undefined) data.sb = e.detail.signatureBlocked;
         if (e.detail.signatureBlockedReason !== undefined) data.sr = e.detail.signatureBlockedReason;
+        if (e.detail.signatureButtonLabel !== undefined) data.slabel = e.detail.signatureButtonLabel;
+        if (e.detail.isSignatureResend !== undefined) data.isResend = e.detail.isSignatureResend;
     });
 
-    async function sendBudgetForSignature(btn) {
+    function customConfirm(customTitle) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('alert_confirm_modal');
+            const titleElem = document.getElementById('confirm-title');
+            const yesBtn = document.getElementById('confirm-yes');
+            if (!modal || !yesBtn) {
+                resolve(window.confirm(customTitle || 'Deseja realmente prosseguir?'));
+                return;
+            }
+            if (customTitle && titleElem) titleElem.innerText = customTitle;
+            modal.showModal();
+            const newYesBtn = yesBtn.cloneNode(true);
+            yesBtn.parentNode.replaceChild(newYesBtn, yesBtn);
+            let isResolved = false;
+            newYesBtn.addEventListener('click', () => {
+                modal.close();
+                isResolved = true;
+                resolve(true);
+            });
+            modal.addEventListener('close', () => {
+                if (!isResolved) resolve(false);
+            }, { once: true });
+        });
+    }
+
+    async function sendWorkorderForSignature(btn) {
         if (!btn || btn.disabled) return;
         const url = btn.dataset.url;
+        const isResend = btn.dataset.isResend === 'true';
+        if (!url) {
+            document.body.dispatchEvent(new CustomEvent('showToast', {
+                detail: { type: 'error', message: 'Endpoint de assinatura não configurado.' },
+            }));
+            return;
+        }
+        if (isResend) {
+            const confirmed = await customConfirm('Você tem certeza que deseja reenviar este documento para assinatura?');
+            if (!confirmed) return;
+        }
         btn.disabled = true;
         try {
-            const r = await fetch(url, {
-                method: "POST",
-                headers: { "X-CSRFToken": "{{csrf_token}}", "X-Requested-With": "XMLHttpRequest" }
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest' },
             });
-            const j = await r.json();
-            document.body.dispatchEvent(new CustomEvent("showToast", {
-                detail: { type: j.success ? "success" : "error", message: j.message }
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.message || 'Falha ao enviar para assinatura.');
+            }
+            const toastType = payload.type || (payload.success ? 'success' : 'error');
+            const toastMessage = payload.message || (payload.success ? 'Ordem de serviço enviada para assinatura.' : 'Falha ao enviar para assinatura.');
+            document.body.dispatchEvent(new CustomEvent('showToast', {
+                detail: { type: toastType, message: toastMessage },
+            }));
+            if (payload.success && toastType === 'success') {
+                const modal = document.getElementById('pdfModal');
+                if (modal && typeof Alpine !== 'undefined') {
+                    const data = Alpine.$data(modal);
+                    if (data) {
+                        data.slabel = 'Reenviar Documento';
+                        data.isResend = true;
+                    }
+                }
+                btn.dataset.isResend = 'true';
+            }
+        } catch (error) {
+            document.body.dispatchEvent(new CustomEvent('showToast', {
+                detail: {
+                    type: 'error',
+                    message: error && error.message ? error.message : 'Falha ao enviar para assinatura. Tente novamente.',
+                },
             }));
         } finally {
             btn.disabled = false;
@@ -285,7 +358,7 @@
 
 <script>
     (function() {
-        const WORKORDER_ID = {{ workorder.pk }};
+        const WORKORDER_ID = {{ workorder.pk|unlocalize }};
         const OBJ_TYPE = 'workorder.workorder';
         const LOCK_REFRESH_INTERVAL_MS = 30000;
 

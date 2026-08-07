@@ -1,9 +1,10 @@
 {% extends 'crud/page.html' %}
+{% load l10n %}
 {% block crud_content %}
 
     <div class="flex items-center justify-between gap-4 w-full">
         <div>
-            <h1 class="text-3xl font-bold text-base-content">Novo Orçamento{% if form.instance.pk %} #{{ form.instance.pk }}{% endif %}</h1>
+            <h1 class="text-3xl font-bold text-base-content">Novo Orçamento{% if form.instance.pk %} #{{ form.instance.number }}{% endif %}</h1>
             <p class="text-base-content/70 mt-1">{% if form.instance.pk %}Edite o orçamento seguindo as etapas abaixo{% else %}Crie um novo orçamento seguindo as etapas abaixo{% endif %}</p>
         </div>
         <div class="flex items-center gap-2">
@@ -295,7 +296,7 @@
     {% if form.instance.pk %}
     <script>
     (function() {
-        var BUDGET_ID = {{ form.instance.pk }};
+        var BUDGET_ID = {{ form.instance.pk|unlocalize }};
         var OBJ_TYPE = 'budget.budget';
         var LOCK_REFRESH_INTERVAL_MS = 30000;
 

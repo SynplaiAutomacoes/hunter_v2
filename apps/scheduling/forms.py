@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import Any
 
 from crispy_forms.helper import FormHelper
@@ -13,13 +14,14 @@ from django.utils import timezone
 
 from apps.budget.models import Budget
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
-from apps.core.presentation.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CPForCNPJInput, CheckboxButtonGroupInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.cpf_cnpj_validator import is_valid_cpf
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.models import Customer, Vehicle
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.core.text_normalization import name_case, plate_case, sentence_case
-from apps.scheduling.models import Appointment, AppointmentStatus
+from apps.messaging.application.services.appointment_alert import enqueue_appointment_confirmation, sync_appointment_alert_schedule
+from apps.scheduling.models import ALERT_LEAD_TIME_CHOICES, DEFAULT_ALERT_LEAD_TIMES, Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
 from apps.core.presentation.forms import CoreForm, CoreModelForm
@@ -28,6 +30,22 @@ from apps.core.presentation.forms import CoreForm, CoreModelForm
 def _uppercase_text_input() -> TextInput:
     return TextInput(attrs={"oninput": "this.value = this.value.toUpperCase()", "autocapitalize": "characters"})
 
+
+def default_appointment_ends_at(starts_at: datetime) -> datetime:
+    """Same calendar day at 18:00 local time, or starts_at + 1h when entrada is already at/after 18:00."""
+    local_starts = timezone.localtime(starts_at) if timezone.is_aware(starts_at) else starts_at
+    candidate = local_starts.replace(hour=18, minute=0, second=0, microsecond=0)
+    if candidate <= local_starts:
+        return starts_at + timedelta(hours=1)
+    if timezone.is_aware(starts_at) and timezone.is_naive(candidate):
+        return timezone.make_aware(candidate, timezone.get_current_timezone())
+    return candidate
+
+
+def _format_datetime_local(value: datetime) -> str:
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+    return value.strftime("%Y-%m-%dT%H:%M")
 
 def _year_text_input() -> TextInput:
     return TextInput(attrs={"inputmode": "numeric", "maxlength": "4"})
@@ -180,6 +198,12 @@ class AppointmentForm(CoreModelForm):
     guest_vehicle_fuel = forms.CharField(label="Combustivel", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
     budget = forms.ModelChoiceField(label="Orcamento vinculado", queryset=Budget.objects.none(), widget=SearchableSelectInput(), required=False)
     workorder = forms.ModelChoiceField(label="Ordem de servico vinculada", queryset=WorkOrder.objects.none(), widget=SearchableSelectInput(), required=False)
+    alert_lead_times = forms.MultipleChoiceField(
+        label="Antecedência do alerta",
+        choices=ALERT_LEAD_TIME_CHOICES,
+        widget=CheckboxButtonGroupInput,
+        required=False,
+    )
 
     class Meta:
         model = Appointment
@@ -201,6 +225,7 @@ class AppointmentForm(CoreModelForm):
             "ends_at",
             "block_color",
             "alert_customer",
+            "alert_lead_times",
             "status",
             "budget",
             "workorder",
@@ -280,7 +305,7 @@ class AppointmentForm(CoreModelForm):
             workorder_field.queryset = workorder_qs
 
             def _budget_label_from_instance(obj):
-                return f"Orçamento #{obj.pk}"
+                return f"Orçamento #{obj.number}"
 
             def _workorder_label_from_instance(obj):
                 return f"O.S. #{obj.get_id}"
@@ -316,8 +341,13 @@ class AppointmentForm(CoreModelForm):
             "guest_vehicle_engine",
             "guest_vehicle_fuel",
         ]
+        required_guest_field_names = {
+            "guest_customer_name",
+            "guest_customer_phone",
+            "guest_vehicle_plate",
+        }
         for field_name in guest_field_names:
-            self.fields[field_name].required = True
+            self.fields[field_name].required = False
         self.fields["customer"].required = True
 
         if is_customer_registered:
@@ -325,18 +355,13 @@ class AppointmentForm(CoreModelForm):
                 self.fields[field_name].required = False
         else:
             self.fields["customer"].required = False
+            for field_name in required_guest_field_names:
+                self.fields[field_name].required = True
 
         customer_field.error_messages["required"] = "Selecione um cliente cadastrado para continuar."
         self.fields["guest_customer_name"].error_messages["required"] = "Informe o nome do cliente."
-        self.fields["guest_customer_cpf"].error_messages["required"] = "Informe o CPF do cliente."
         self.fields["guest_customer_phone"].error_messages["required"] = "Informe o telefone do cliente."
         self.fields["guest_vehicle_plate"].error_messages["required"] = "Informe a placa do veiculo."
-        self.fields["guest_vehicle_brand"].error_messages["required"] = "Informe a marca do veiculo."
-        self.fields["guest_vehicle_model"].error_messages["required"] = "Informe o modelo do veiculo."
-        self.fields["guest_vehicle_year_fabrication"].error_messages["required"] = "Informe o ano de fabricação."
-        self.fields["guest_vehicle_year_model"].error_messages["required"] = "Informe o ano do modelo."
-        self.fields["guest_vehicle_engine"].error_messages["required"] = "Informe a motorização ou selecione uma opção."
-        self.fields["guest_vehicle_fuel"].error_messages["required"] = "Informe o combustivel ou selecione uma opção."
 
         selected_customer_id = ""
         selected_vehicle_id = ""
@@ -418,6 +443,18 @@ class AppointmentForm(CoreModelForm):
                 self.initial["starts_at"] = timezone.localtime(self.instance.starts_at).strftime("%Y-%m-%dT%H:%M")
             if self.instance.ends_at:
                 self.initial["ends_at"] = timezone.localtime(self.instance.ends_at).strftime("%Y-%m-%dT%H:%M")
+        elif self.initial.get("starts_at") and not self.initial.get("ends_at"):
+            starts_initial = self.initial["starts_at"]
+            if isinstance(starts_initial, datetime):
+                self.initial["ends_at"] = _format_datetime_local(default_appointment_ends_at(starts_initial))
+            else:
+                try:
+                    parsed_starts = datetime.strptime(str(starts_initial), "%Y-%m-%dT%H:%M")
+                    if timezone.is_naive(parsed_starts):
+                        parsed_starts = timezone.make_aware(parsed_starts, timezone.get_current_timezone())
+                    self.initial["ends_at"] = _format_datetime_local(default_appointment_ends_at(parsed_starts))
+                except ValueError:
+                    pass
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -427,7 +464,31 @@ class AppointmentForm(CoreModelForm):
         all_engine_choices_json = json.dumps(_all_engine_choices)
         all_fuel_choices_json = json.dumps(_all_fuel_choices)
 
-        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isCustomerRegistered": is_customer_registered})
+        alert_customer_initial = bool(self.instance.alert_customer) if self.instance and self.instance.pk else bool(self.initial.get("alert_customer", True))
+        if self.is_bound:
+            alert_customer_initial = (self.data.get("alert_customer") or "") in {"on", "true", "1", "True"}
+
+        alert_lead_times_field = self.fields["alert_lead_times"]
+        alert_lead_times_field.required = False
+        alert_lead_times_field.label = ""
+        if not self.is_bound:
+            if self.instance and self.instance.pk:
+                alert_lead_times_field.initial = [str(value) for value in (self.instance.alert_lead_times or [])]
+            elif self.initial.get("alert_lead_times") is not None:
+                alert_lead_times_field.initial = [str(value) for value in self.initial["alert_lead_times"]]
+            else:
+                alert_lead_times_field.initial = [str(value) for value in DEFAULT_ALERT_LEAD_TIMES]
+
+        customer_vehicle_x_data = json.dumps(
+            {
+                "customerId": selected_customer_id,
+                "vehicleId": selected_vehicle_id,
+                "isCustomerRegistered": is_customer_registered,
+                "alertCustomer": alert_customer_initial,
+                "isUpdate": bool(self.instance and self.instance.pk),
+                "endsAtManuallyEdited": False,
+            }
+        )
         registered_vehicle_fields_html = "".join(
             [
                 _build_readonly_vehicle_field(
@@ -492,6 +553,33 @@ class AppointmentForm(CoreModelForm):
                         } catch (error) {
                             return null;
                         }
+                    }
+
+                    function defaultAppointmentEndsAtLocal(startsValue) {
+                        if (!startsValue || typeof startsValue !== 'string') return '';
+                        const match = startsValue.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+                        if (!match) return '';
+                        const year = Number(match[1]);
+                        const month = Number(match[2]) - 1;
+                        const day = Number(match[3]);
+                        const hour = Number(match[4]);
+                        const minute = Number(match[5]);
+                        const pad = (value) => String(value).padStart(2, '0');
+                        if (hour > 18 || (hour === 18 && minute > 0)) {
+                            let endHour = hour + 1;
+                            let endDay = day;
+                            let endMonth = month;
+                            let endYear = year;
+                            if (endHour >= 24) {
+                                endHour -= 24;
+                                const next = new Date(year, month, day + 1);
+                                endYear = next.getFullYear();
+                                endMonth = next.getMonth();
+                                endDay = next.getDate();
+                            }
+                            return `${endYear}-${pad(endMonth + 1)}-${pad(endDay)}T${pad(endHour)}:${pad(minute)}`;
+                        }
+                        return `${year}-${pad(month + 1)}-${pad(day)}T18:00`;
                     }
 
                     function syncAppointmentContextFromInput(name, value) {
@@ -1060,8 +1148,25 @@ class AppointmentForm(CoreModelForm):
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Horario e Status</div>'),
                 Field("starts_at", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("ends_at", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("alert_customer", wrapper_class="col-span-12 lg:col-span-6"),
+                Field(
+                    "alert_customer",
+                    wrapper_class="col-span-12 lg:col-span-6",
+                    **{"@change": "alertCustomer = !!$event.target.checked"},
+                ),
                 Field("status", wrapper_class="col-span-12 lg:col-span-6"),
+                Div(
+                    HTML(
+                        """
+                        <div class="mb-3">
+                            <span class="block text-sm font-semibold text-base-content">Antecedência do alerta</span>
+                            <p class="mt-0.5 text-xs text-base-content/60">Escolha um ou mais horários antes do agendamento para avisar o cliente.</p>
+                        </div>
+                        """
+                    ),
+                    Field("alert_lead_times", wrapper_class="mb-0"),
+                    css_class="col-span-12 rounded-box border border-base-300 bg-base-200/30 p-4",
+                    **{"x-show": "alertCustomer", "x-cloak": True},
+                ),
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Vinculos</div>'),
                 Field("budget", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("workorder", wrapper_class="col-span-12 lg:col-span-6"),
@@ -1095,6 +1200,14 @@ class AppointmentForm(CoreModelForm):
                             if (isCustomerRegistered) {
                                 updateRegisteredVehicleDetails(vehicleId);
                             }
+                        } else if ($event.target && $event.target.name === 'starts_at' && !isUpdate && !endsAtManuallyEdited) {
+                            const startsValue = $event.target.value || '';
+                            const endsInput = document.getElementById('id_ends_at');
+                            if (startsValue && endsInput && typeof defaultAppointmentEndsAtLocal === 'function') {
+                                endsInput.value = defaultAppointmentEndsAtLocal(startsValue);
+                            }
+                        } else if ($event.target && $event.target.name === 'ends_at' && !isUpdate) {
+                            endsAtManuallyEdited = true;
                         } else if ($event.target && $event.target.name === 'guest_vehicle_plate' && !isCustomerRegistered) {
                             updateGuestVehicleFields($event.target.value || '');
                         } else if ($event.target && $event.target.name === 'guest_vehicle_brand' && !isCustomerRegistered) {
@@ -1122,9 +1235,7 @@ class AppointmentForm(CoreModelForm):
         guest_vehicle_engine = self.cleaned_data.get("guest_vehicle_engine")
         normalized_guest_vehicle_engine = normalize_vehicle_engine_choice(guest_vehicle_engine)
         if guest_vehicle_engine and not normalized_guest_vehicle_engine:
-            self.instance._skip_guest_vehicle_engine_required_validation = True
             raise forms.ValidationError("Selecione um motor válido.")
-        self.instance._skip_guest_vehicle_engine_required_validation = False
         return normalized_guest_vehicle_engine
 
     def clean_guest_vehicle_fuel(self) -> str:
@@ -1219,9 +1330,19 @@ class AppointmentForm(CoreModelForm):
         if vehicle and customer is None:
             self.add_error("vehicle", "Selecione um cliente cadastrado para vincular um veiculo.")
 
+        alert_customer = bool(cleaned_data.get("alert_customer"))
+        alert_lead_times = cleaned_data.get("alert_lead_times") or []
+        if alert_customer and not alert_lead_times:
+            self.add_error("alert_lead_times", "Selecione ao menos uma antecedência do alerta.")
+        if not alert_customer:
+            cleaned_data["alert_lead_times"] = []
+        else:
+            cleaned_data["alert_lead_times"] = [int(value) for value in alert_lead_times]
+
         return cleaned_data
 
     def save(self, commit: bool = True) -> Appointment:
+        is_create = self.instance.pk is None
         self.instance.workshop = self.workshop
         if self.cleaned_data.get("is_customer_registered"):
             self.instance.guest_customer_name = ""
@@ -1239,7 +1360,12 @@ class AppointmentForm(CoreModelForm):
             self.instance.vehicle = None
             self.instance.budget = None
             self.instance.workorder = None
-        return super().save(commit=commit)
+        appointment = super().save(commit=commit)
+        if commit:
+            sync_appointment_alert_schedule(appointment)
+            if is_create:
+                enqueue_appointment_confirmation(appointment)
+        return appointment
 
 
 class AppointmentCalendarFilterForm(CoreForm):

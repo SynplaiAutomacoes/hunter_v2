@@ -29,7 +29,7 @@ class ImportItemsSearchForm(CoreForm):
         super().__init__(*args, **kwargs)
         choices = [("", "Selecione um orçamento")]
         for b in available_budgets:
-            display_name = f"Orçamento #{b.id}"
+            display_name = f"Orçamento #{b.number}"
             if b.customer:
                 display_name += f" - {b.customer.name}"
             if b.vehicle:

@@ -36,9 +36,9 @@ Bem-vindo de volta. Faça login para continuar.
                 </label>
                 {{ field }}
                 {% if field.errors %}
-                    <label class="label">
-                        <span class="label-text-alt text-error">{{ field.errors|striptags }}</span>
-                    </label>
+                    <div class="mt-1 w-full">
+                        <span class="label-text-alt text-error block break-words whitespace-normal">{{ field.errors|striptags }}</span>
+                    </div>
                 {% endif %}
             </div>
         {% endfor %}
@@ -52,29 +52,29 @@ Bem-vindo de volta. Faça login para continuar.
     <div id="code-step-1">
         <div class="form-control w-full">
             <label class="label">
-                <span class="label-text font-semibold">Usuário</span>
+                <span class="label-text font-semibold">Usuário, e-mail ou número de WhatsApp</span>
             </label>
-            <input type="text" id="login-identifier" class="input input-bordered w-full" placeholder="user123">
-            <label class="label hidden" id="identifier-error-label">
-                <span class="label-text-alt text-error" id="identifier-error-msg"></span>
-            </label>
+            <input type="text" id="login-identifier" class="input input-bordered w-full" placeholder="user123, email@exemplo.com ou WhatsApp">
+            <div class="mt-1 w-full hidden" id="identifier-error-label">
+                <span class="label-text-alt text-error block break-words whitespace-normal" id="identifier-error-msg"></span>
+            </div>
         </div>
         <button type="button" onclick="requestCode()" id="btn-request-code" class="btn btn-primary w-full mt-4">
-            Enviar código via WhatsApp
+            Enviar código
         </button>
     </div>
 
     <!-- Step 2: Verificação -->
     <div id="code-step-2" class="hidden">
-        <p class="text-sm mb-4">Enviamos um código para o WhatsApp final <span id="masked-phone" class="font-bold"></span>.</p>
+        <p class="text-sm mb-4">Enviamos um código para seu <span id="login-method-label" class="font-semibold"></span> <span id="login-masked-destination" class="font-bold"></span>.</p>
         <div class="form-control w-full text-center">
             <label class="label">
                 <span class="label-text font-semibold">Código</span>
             </label>
             <input type="text" id="login-code" maxlength="6" class="input input-bordered w-full text-center tracking-[0.5em] text-2xl font-mono" placeholder="XXXXXX">
-            <label class="label hidden" id="code-error-label">
-                <span class="label-text-alt text-error" id="code-error-msg"></span>
-            </label>
+            <div class="mt-1 w-full hidden" id="code-error-label">
+                <span class="label-text-alt text-error block break-words whitespace-normal" id="code-error-msg"></span>
+            </div>
         </div>
         <button type="button" onclick="verifyCode()" id="btn-verify-code" class="btn btn-primary w-full mt-4">
             Validar e entrar
@@ -106,7 +106,7 @@ Bem-vindo de volta. Faça login para continuar.
             passwordTab.classList.remove('tab-active');
             codeContainer.classList.remove('hidden');
             passwordContainer.classList.add('hidden');
-            subtitle.innerText = 'Entre rapidamente com seu WhatsApp.';
+            subtitle.innerText = 'Entre rapidamente com seu WhatsApp ou e-mail.';
         }
     }
 
@@ -144,7 +144,7 @@ Bem-vindo de volta. Faça login para continuar.
             if (data.success) {
                 document.getElementById('code-step-1').classList.add('hidden');
                 document.getElementById('code-step-2').classList.remove('hidden');
-                document.getElementById('masked-phone').innerText = data.phone;
+                setLoginDestination(data.method, data.destination);
             } else {
                 errorLabel.classList.remove('hidden');
                 errorMsg.innerText = data.error || 'Usuário não encontrado ou erro ao enviar código.';
@@ -154,8 +154,14 @@ Bem-vindo de volta. Faça login para continuar.
             errorMsg.innerText = 'Ocorreu um erro. Tente novamente mais tarde.';
         } finally {
             btn.disabled = false;
-            btn.innerText = 'Enviar código via WhatsApp';
+            btn.innerText = 'Enviar código';
         }
+    }
+
+    function setLoginDestination(method, destination) {
+        const methodLabel = method === 'email' ? 'e-mail' : 'WhatsApp';
+        document.getElementById('login-method-label').innerText = methodLabel;
+        document.getElementById('login-masked-destination').innerText = destination || '';
     }
 
     async function verifyCode() {
@@ -224,6 +230,7 @@ Bem-vindo de volta. Faça login para continuar.
             const data = await response.json();
 
             if (data.success) {
+                setLoginDestination(data.method, data.destination);
                 alert('Um novo código foi enviado!');
             } else {
                 errorLabel.classList.remove('hidden');

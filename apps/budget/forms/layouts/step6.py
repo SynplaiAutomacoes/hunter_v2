@@ -44,6 +44,7 @@ def configure_budget_step6_form(form):
     signature_blocked_json = ctx.signature_blocked_json
     signature_blocked_reason_json = ctx.signature_blocked_reason_json
     can_toggle_signed_pdf = ctx.can_toggle_signed_pdf
+    initial_pdf_variant = ctx.initial_pdf_variant
     default_pdf_url = ctx.default_pdf_url
     default_pdf_download_url = ctx.default_pdf_download_url
     signed_pdf_url = ctx.signed_pdf_url
@@ -251,7 +252,7 @@ def configure_budget_step6_form(form):
                     HTML(f"""
                             <div class="grid grid-cols-12 gap-3 text-center mb-8">
                                 <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                    onclick="openBudgetPdfModal({{ url: '{default_pdf_url}', downloadUrl: '{default_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: '', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }})">
+                                    onclick="openBudgetPdfModal({{ url: '{default_pdf_url}', downloadUrl: '{default_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: '{initial_pdf_variant}', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }})">
                                     PDF Cliente
                                 </button>
 

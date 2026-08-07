@@ -18,7 +18,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest
+from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest, NfseRequestStatus
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
@@ -179,6 +179,7 @@ class IssuedDocumentsFilterMixin:
             if search_raw.isdigit():
                 search_int = int(search_raw)
                 search_filters.append(Q(workorder__budget_id=search_int))
+                search_filters.append(Q(workorder__budget__number=search_int))
                 search_filters.append(Q(reserved_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 
@@ -197,6 +198,7 @@ class IssuedDocumentsFilterMixin:
             if search_raw.isdigit():
                 search_int = int(search_raw)
                 search_filters.append(Q(workorder_id=search_int))
+                search_filters.append(Q(workorder__budget__number=search_int))
                 search_filters.append(Q(reserved_rps_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 
@@ -261,7 +263,7 @@ class IssuedDocumentsFilterMixin:
             "has_xml": has_xml,
             "has_pdf": has_pdf,
             "is_selectable": has_xml or has_pdf,
-            "number": request_obj.number_display,
+            "number": request_obj.number_display_listing,
             "reference": f"Serie {series_value}",
             "workorder_id": request_obj.workorder.get_id,
             "customer_name": request_obj.customer_name,
@@ -294,7 +296,7 @@ class IssuedDocumentsFilterMixin:
             "has_xml": has_xml,
             "has_pdf": has_pdf,
             "is_selectable": has_xml or has_pdf,
-            "number": note_number or request_obj.rps_number_display,
+            "number": "-" if request_obj.status == NfseRequestStatus.REPROVED else (note_number or request_obj.rps_number_display),
             "reference": " / ".join(reference_parts) if reference_parts else "-",
             "workorder_id": request_obj.workorder.get_id,
             "customer_name": request_obj.customer_name,

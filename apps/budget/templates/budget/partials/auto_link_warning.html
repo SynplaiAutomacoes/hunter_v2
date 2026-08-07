@@ -1,0 +1,13 @@
+{% if reference_budget_id %}
+<div id="auto-link-warning" class="alert alert-info mt-4">
+    <span class="material-icons">link</span>
+    <span>
+        {% if is_workorder %}
+        A Ordem de Serviço #{{ reference_budget_number }} está aberta para este veículo, este orçamento será vinculado.
+        {% else %}
+        O Orçamento #{{ reference_budget_number }} está aberto para este veículo, este orçamento será vinculado.
+        {% endif %}
+    </span>
+    <input type="hidden" name="auto_reference_budget_id" value="{{ reference_budget_id }}" form="budget-form">
+</div>
+{% endif %}

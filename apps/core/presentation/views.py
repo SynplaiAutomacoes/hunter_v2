@@ -21,10 +21,10 @@ from apps.core.observability import observe_dependency_call
 from apps.core.presentation.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.infrastructure.services.dashboard_query_service import (
     INDICATOR_LABELS,
-    DashboardQueryService,
     build_financial_indicator_report_data,
     get_financial_indicator_data,
 )
+from apps.core.infrastructure.services.dashboard_snapshot_service import get_dashboard_metrics
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.utils import clean_id
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -72,8 +72,11 @@ class DashboardView(HtmxTemplateResponseMixin, TemplateView):
             except ValueError:
                 pass
 
-        service = DashboardQueryService()
-        metrics = service.compute(workshop=workshop, selected_month=selected_month, selected_year=selected_year)
+        metrics = get_dashboard_metrics(
+            workshop,
+            selected_month=selected_month,
+            selected_year=selected_year,
+        )
         return metrics.as_context()
 
 

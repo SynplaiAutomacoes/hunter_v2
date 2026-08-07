@@ -161,7 +161,7 @@ def visualizar_pdf_checklist(request, pk):
         workshop_cep_city = workshop_cep or workshop_city or "-"
 
     workshop_header = {
-        "name": workshop.name or "-",
+        "name": workshop.pdf_name,
         "address": workshop.address or "-",
         "cep_city": workshop_cep_city,
         "phone": workshop.pdf_phone,
@@ -247,16 +247,22 @@ def visualizar_pdf_assinatura(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
-    requested_variant = _get_requested_pdf_variant(request)
+    explicit_variant = _get_requested_pdf_variant(request)
+    requested_variant = explicit_variant
 
     if requested_variant is None:
         requested_variant = SIGNED_PDF_VARIANT if should_default_to_signed_budget_pdf(budget=budget) else BASE_PDF_VARIANT
 
     if requested_variant == SIGNED_PDF_VARIANT and can_use_signed_budget_pdf(budget=budget):
         try:
-            signed_pdf = get_signature_service().download_signed_document(
+            from apps.core.infrastructure.services.signature_download import download_signed_pdf
+            from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
+
+            synplaisign_api_key = get_workshop_synplaisign_api_key(budget.workshop)
+            signed_pdf = download_signed_pdf(
                 document_id=budget.signature_document_id,
                 envelope_id=budget.signature_external_id,
+                synplaisign_api_key=synplaisign_api_key,
             )
             return _build_budget_pdf_file_response(
                 budget=budget,
@@ -264,8 +270,20 @@ def visualizar_pdf_assinatura(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureServiceError:
-            logger.warning("budget_signed_pdf_load_failed", extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id})
+        except WorkshopSynplaiSignError as exc:
+            logger.warning(
+                "budget_signed_pdf_load_failed",
+                extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id, "error": str(exc)},
+            )
+            if explicit_variant == SIGNED_PDF_VARIANT:
+                return HttpResponse(str(exc) or "Erro ao carregar PDF assinado", status=502)
+        except SignatureServiceError as exc:
+            logger.warning(
+                "budget_signed_pdf_load_failed",
+                extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id, "error": str(exc)},
+            )
+            if explicit_variant == SIGNED_PDF_VARIANT:
+                return HttpResponse(str(exc) or "Erro ao carregar PDF assinado", status=502)
 
     try:
         document = render_budget_pdf_document(

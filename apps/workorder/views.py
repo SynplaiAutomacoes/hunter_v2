@@ -43,7 +43,6 @@ from apps.core.infrastructure.services.dashboard_query_service import (
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
-from apps.core.infrastructure.providers import get_signature_service
 from apps.core.text_normalization import sentence_case
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
@@ -117,7 +116,7 @@ def _can_use_signed_workorder_pdf(workorder: WorkOrder) -> bool:
 
 
 def _should_default_to_signed_workorder_pdf(workorder: WorkOrder) -> bool:
-    return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status == WorkOrderSignatureStatus.APPROVED
+    return _can_use_signed_workorder_pdf(workorder)
 
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -397,7 +396,7 @@ class WorkOrderStatusReportDataMixin:
 
     def _get_workorder_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="budget.id", search_by=("budget__id", "id")),
+            TableColumn("Nº", attr="budget.number", search_by=("budget__number", "id")),
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
@@ -730,7 +729,12 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
-        approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder, require_unsigned_delivery_reason=False)
+        approval_form = WorkOrderCustomerApprovalForm(
+            request.POST,
+            workorder=workorder,
+            require_unsigned_delivery_reason=False,
+            require_warranty_plan=False,
+        )
 
         if not approval_form.is_valid():
             km_final_errors = approval_form.errors.get("km_final", [])
@@ -1324,12 +1328,19 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             try:
                 km_final = approval_form.cleaned_data["km_final"]
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
-                workorder.complete_delivery(km_final=km_final, unsigned_delivery_reason=unsigned_delivery_reason)
+                workorder.complete_delivery(
+                    km_final=km_final,
+                    unsigned_delivery_reason=unsigned_delivery_reason,
+                    last_oil_change_date=approval_form.cleaned_data.get("last_oil_change_date"),
+                    last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
+                    review_plan=approval_form.cleaned_data.get("review_plan"),
+                    warranty_plan=approval_form.cleaned_data.get("warranty_plan"),
+                )
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)
 
-                workorder.refresh_from_db(fields=["status"])
+                workorder.refresh_from_db()
                 if workorder.status != WorkOrderStatus.APPROVED:
                     logger.warning(
                         "workorder_delivery_status_not_updated",
@@ -1340,6 +1351,14 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         {"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}}
                     )
                     return response
+
+                from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
+
+                handle_workorder_delivery_oil_and_mileage(workorder=workorder)
+
+                from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
+
+                schedule_satisfaction_survey_for_workorder(workorder)
             except WorkOrderApprovalError as exc:
                 logger.warning(
                     "workorder_delivery_approval_error",
@@ -1427,16 +1446,22 @@ def visualizar_pdf_workorder(request, pk):
     pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
     _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
     should_download = request.GET.get("download") == "1"
-    requested_variant = _get_requested_pdf_variant(request)
+    explicit_variant = _get_requested_pdf_variant(request)
+    requested_variant = explicit_variant
 
     if requested_variant is None:
         requested_variant = SIGNED_PDF_VARIANT if _should_default_to_signed_workorder_pdf(workorder) else BASE_PDF_VARIANT
 
     if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:
-            signed_pdf = get_signature_service().download_signed_document(
+            from apps.core.infrastructure.services.signature_download import download_signed_pdf
+            from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
+
+            synplaisign_api_key = get_workshop_synplaisign_api_key(workorder.workshop)
+            signed_pdf = download_signed_pdf(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,
+                synplaisign_api_key=synplaisign_api_key,
             )
             return _build_workorder_pdf_file_response(
                 workorder=workorder,
@@ -1444,8 +1469,20 @@ def visualizar_pdf_workorder(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureServiceError:
-            logger.warning("workorder_signed_pdf_load_failed", extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id})
+        except WorkshopSynplaiSignError as exc:
+            logger.warning(
+                "workorder_signed_pdf_load_failed",
+                extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id, "error": str(exc)},
+            )
+            if explicit_variant == SIGNED_PDF_VARIANT:
+                return HttpResponse(str(exc) or "Erro ao carregar PDF assinado", status=502)
+        except SignatureServiceError as exc:
+            logger.warning(
+                "workorder_signed_pdf_load_failed",
+                extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id, "error": str(exc)},
+            )
+            if explicit_variant == SIGNED_PDF_VARIANT:
+                return HttpResponse(str(exc) or "Erro ao carregar PDF assinado", status=502)
 
     try:
         document = render_workorder_pdf_document(

@@ -10,13 +10,14 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.catalog.forms.equivalent_products import EquivalentProductsFormMixin
-from apps.core.presentation.forms import CoreModelForm
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning
 from apps.core.presentation.widgets import (
     CheckboxInput,
     ImageInput,
     MoneyInput,
+    NumberInput,
     PercentageInput,
     SearchableSelectInput,
     TextInput,
@@ -390,3 +391,43 @@ class ProductForm(EquivalentProductsFormMixin, CoreModelForm):
             self.add_error("selling_price", price_warning.message)
 
         return cleaned_data
+
+
+class StockAdjustForm(CoreForm):
+    quantity = forms.IntegerField(
+        label="Quantidade em estoque",
+        min_value=0,
+        widget=NumberInput(attrs={"min": "0", "step": "1"}),
+    )
+    reason = forms.CharField(
+        label="Motivo",
+        widget=TextareaInput(attrs={"rows": 3, "placeholder": "Ex.: Inventário físico, correção de lançamento..."}),
+    )
+
+    def __init__(self, *args, current_quantity: int = 0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_quantity = current_quantity
+        if not self.is_bound:
+            self.fields["quantity"].initial = current_quantity
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("quantity"),
+                Field("reason"),
+                css_class="space-y-4",
+            )
+        )
+
+    def clean_reason(self) -> str:
+        reason = str(self.cleaned_data.get("reason") or "").strip()
+        if not reason:
+            raise forms.ValidationError("Informe o motivo do ajuste de estoque.")
+        return sentence_case(reason)
+
+    def clean_quantity(self) -> int:
+        quantity = int(self.cleaned_data["quantity"])
+        if quantity == self.current_quantity:
+            raise forms.ValidationError("A quantidade informada é igual ao estoque atual. Nada a ajustar.")
+        return quantity

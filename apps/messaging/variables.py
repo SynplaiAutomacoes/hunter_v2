@@ -26,8 +26,10 @@ class VariableDefinition:
 VARIABLE_GROUPS: tuple[tuple[str, str], ...] = (
     ("cliente", "Cliente"),
     ("veiculo", "Veículo"),
+    ("oficina", "Oficina"),
     ("orcamento", "Orçamento"),
     ("os", "O.S."),
+    ("agendamento", "Agendamento"),
 )
 
 
@@ -116,13 +118,86 @@ def _workorder_status_label(ctx: VariableContext) -> object:
     return WorkOrderStatus(status).label
 
 
+def _customer_first_name(ctx: VariableContext) -> object:
+    value = _person_full_name(ctx)
+    if value is MISSING:
+        return MISSING
+    name = str(value or "").strip()
+    if not name:
+        return ""
+    return name.split(None, 1)[0]
+
+
+def _person_full_name(ctx: VariableContext) -> object:
+    """Resolve display name from Customer, then appointment guest, then extras."""
+    customer = _customer(ctx)
+    if customer is not None:
+        name = str(getattr(customer, "name", "") or "").strip()
+        if name:
+            return name
+
+    appointment = getattr(ctx, "appointment", None)
+    if appointment is not None:
+        guest = str(getattr(appointment, "guest_customer_name", "") or "").strip()
+        if guest:
+            return guest
+        display = str(getattr(appointment, "display_customer_name", "") or "").strip()
+        if display and display != "Cliente nao cadastrado":
+            return display
+
+    extra_name = _extra(ctx, "nome")
+    if extra_name is not MISSING:
+        return extra_name
+    return MISSING
+
+
+def _workshop_company_attr(ctx: VariableContext, attr_name: str) -> object:
+    workshop = ctx.workshop
+    if workshop is None:
+        return MISSING
+
+    company = None
+    getter = getattr(workshop, "_get_webmania_company", None)
+    if callable(getter):
+        company = getter()
+    else:
+        from django.core.exceptions import ObjectDoesNotExist
+
+        try:
+            company = getattr(workshop, "webmania_company", None)
+        except ObjectDoesNotExist:
+            company = None
+
+    if company is not None:
+        value = str(getattr(company, attr_name, "") or "").strip()
+        if value:
+            return value
+
+    return getattr(workshop, "name", "") or ""
+
+
+def _extra(ctx: VariableContext, key: str) -> object:
+    extras = ctx.extras or {}
+    if key in extras:
+        return extras[key]
+    underscore = key.replace("-", "_")
+    if underscore in extras:
+        return extras[underscore]
+    return MISSING
+
+
 VARIABLE_DEFINITIONS: tuple[VariableDefinition, ...] = (
-    VariableDefinition(key="nome", group="cliente", label="Nome", description="Nome do cliente.", resolver=lambda ctx: _customer_attr(ctx, "name")),
+    VariableDefinition(key="nome", group="cliente", label="Nome", description="Nome completo do cliente.", resolver=_person_full_name),
+    VariableDefinition(key="primeiro_nome", group="cliente", label="Primeiro nome", description="Primeiro nome do cliente.", resolver=_customer_first_name),
     VariableDefinition(key="cpf", group="cliente", label="CPF/CNPJ", description="Documento do cliente cadastrado.", resolver=_formatted_customer_document),
     VariableDefinition(key="rg", group="cliente", label="RG", description="RG do cliente.", resolver=lambda ctx: _customer_attr(ctx, "rg")),
     VariableDefinition(key="data_nascimento", group="cliente", label="Data de nascimento", description="Data de nascimento do cliente.", resolver=lambda ctx: _customer_attr(ctx, "birth_date")),
     VariableDefinition(key="telefone", group="cliente", label="Telefone", description="Telefone principal do cliente.", resolver=_formatted_customer_phone),
     VariableDefinition(key="email", group="cliente", label="Email", description="Email do cliente.", resolver=lambda ctx: _customer_attr(ctx, "email")),
+    VariableDefinition(key="razao_social", group="oficina", label="Razão social", description="Razão social da empresa da oficina (cadastro fiscal). Se vazia, usa o nome da oficina.", resolver=lambda ctx: _workshop_company_attr(ctx, "razao_social")),
+    VariableDefinition(key="nome_fantasia", group="oficina", label="Nome fantasia", description="Nome fantasia da empresa da oficina (cadastro fiscal). Se vazio, usa o nome da oficina.", resolver=lambda ctx: _workshop_company_attr(ctx, "nome_fantasia")),
+    VariableDefinition(key="data_agendamento", group="agendamento", label="Data do agendamento", description="Data do agendamento (preenchida nos alertas).", resolver=lambda ctx: _extra(ctx, "data_agendamento")),
+    VariableDefinition(key="hora_agendamento", group="agendamento", label="Hora do agendamento", description="Hora do agendamento (preenchida nos alertas).", resolver=lambda ctx: _extra(ctx, "hora_agendamento")),
     VariableDefinition(key="placa", group="veiculo", label="Placa", description="Placa do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "plate")),
     VariableDefinition(key="marca", group="veiculo", label="Marca", description="Marca do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "brand")),
     VariableDefinition(key="modelo", group="veiculo", label="Modelo", description="Modelo do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "model")),
@@ -133,7 +208,7 @@ VARIABLE_DEFINITIONS: tuple[VariableDefinition, ...] = (
     VariableDefinition(key="cor", group="veiculo", label="Cor", description="Cor do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "color")),
     VariableDefinition(key="combustivel", group="veiculo", label="Combustível", description="Combustível do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "fuel")),
     VariableDefinition(key="motor", group="veiculo", label="Motor", description="Motor do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "engine")),
-    VariableDefinition(key="orcamento_numero", group="orcamento", label="Número do orçamento", description="Identificador do orçamento.", resolver=lambda ctx: _budget_attr(ctx, "pk")),
+    VariableDefinition(key="orcamento_numero", group="orcamento", label="Número do orçamento", description="Identificador do orçamento.", resolver=lambda ctx: _budget_attr(ctx, "number")),
     VariableDefinition(key="orcamento_status", group="orcamento", label="Status do orçamento", description="Status atual do orçamento.", resolver=_budget_status_label),
     VariableDefinition(key="orcamento_data_criacao", group="orcamento", label="Data de criação", description="Data de criação do orçamento.", resolver=lambda ctx: _budget_attr(ctx, "criado_em")),
     VariableDefinition(key="orcamento_data_entrada", group="orcamento", label="Data de entrada", description="Data de entrada do veículo no orçamento.", resolver=lambda ctx: _budget_attr(ctx, "entry_date")),
@@ -145,7 +220,7 @@ VARIABLE_DEFINITIONS: tuple[VariableDefinition, ...] = (
     VariableDefinition(key="orcamento_diagnostico_tecnico", group="orcamento", label="Diagnóstico técnico", description="Diagnóstico técnico do orçamento.", resolver=lambda ctx: _budget_attr(ctx, "technical_diagnosis")),
     VariableDefinition(key="orcamento_observacoes", group="orcamento", label="Observações", description="Observações complementares do orçamento.", resolver=lambda ctx: _budget_attr(ctx, "notes")),
     VariableDefinition(key="orcamento_colaborador", group="orcamento", label="Colaborador", description="Colaborador responsável pelo orçamento.", resolver=lambda ctx: _budget_attr(ctx, "collaborator_name")),
-    VariableDefinition(key="os_numero", group="os", label="Número da O.S.", description="Identificador da ordem de serviço.", resolver=lambda ctx: _workorder_attr(ctx, "pk")),
+    VariableDefinition(key="os_numero", group="os", label="Número da O.S.", description="Identificador da ordem de serviço.", resolver=lambda ctx: _workorder_attr(ctx, "public_number")),
     VariableDefinition(key="os_status", group="os", label="Status da O.S.", description="Status atual da ordem de serviço.", resolver=_workorder_status_label),
     VariableDefinition(key="os_data_criacao", group="os", label="Data de criação", description="Data de criação da ordem de serviço.", resolver=lambda ctx: _workorder_attr(ctx, "criado_em")),
     VariableDefinition(key="os_valor_total", group="os", label="Valor total da O.S.", description="Valor total calculado da ordem de serviço.", resolver=lambda ctx: _workorder_attr(ctx, "total_budget_value")),

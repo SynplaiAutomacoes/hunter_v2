@@ -1,0 +1,316 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import timedelta
+
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+
+from apps.customer.services.messaging_consent import blocked_customer_ids
+from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
+from apps.messaging.application.services.dispatch_history import (
+    create_dispatch_batch,
+    finalize_batch_after_queue,
+    record_queue_failure,
+    record_queued_log,
+)
+from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
+from apps.messaging.application.services.outbound_guards import appointment_guard_reason, outbound_cancel_reason
+from apps.messaging.application.services.satisfaction_survey import mark_satisfaction_review_sent
+from apps.messaging.application.services.appointment_alert import refresh_appointment_alert_message
+from apps.messaging.domain.value_objects import DispatchItem
+from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPublisher, RabbitMQPublisherError
+from apps.messaging.models import MessageDispatchBatch, ScheduledOutboundMessage
+
+logger = logging.getLogger(__name__)
+
+_BATCH_SOURCE_BY_OUTBOUND: dict[str, str] = {
+    ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT: MessageDispatchBatch.Source.REVIEW_PLAN_ALERT,
+    ScheduledOutboundMessage.Source.APPOINTMENT_ALERT: MessageDispatchBatch.Source.APPOINTMENT_ALERT,
+    ScheduledOutboundMessage.Source.APPOINTMENT_CONFIRMATION: MessageDispatchBatch.Source.APPOINTMENT_CONFIRMATION,
+    ScheduledOutboundMessage.Source.BIRTHDAY_ALERT: MessageDispatchBatch.Source.BIRTHDAY_ALERT,
+    ScheduledOutboundMessage.Source.SATISFACTION_SURVEY: MessageDispatchBatch.Source.SATISFACTION_SURVEY,
+}
+
+
+def _reschedule_review_plan_alert_if_repeating(row: ScheduledOutboundMessage) -> None:
+    if row.source != ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT:
+        return
+
+    vehicle = row.vehicle
+    if vehicle is None:
+        return
+
+    review_plan = getattr(vehicle, "review_plan", None)
+    if review_plan is None or not review_plan.repeat_notification:
+        return
+
+    from apps.customer.services.oil_change import reschedule_after_review_plan_alert_sent
+
+    reschedule_after_review_plan_alert_sent(vehicle)
+
+
+def _reclaim_stale_processing(*, now, reclaim_seconds: int) -> int:
+    """Return PROCESSING rows stuck longer than TTL back to PENDING."""
+    if reclaim_seconds <= 0:
+        return 0
+    cutoff = now - timedelta(seconds=reclaim_seconds)
+    reclaimed = ScheduledOutboundMessage.objects.filter(
+        status=ScheduledOutboundMessage.Status.PROCESSING,
+        atualizado_em__lt=cutoff,
+    ).update(
+        status=ScheduledOutboundMessage.Status.PENDING,
+        error="",
+        atualizado_em=now,
+    )
+    if reclaimed:
+        logger.info(
+            "outbound_processing_reclaimed",
+            extra={"reclaimed_count": reclaimed, "reclaim_seconds": reclaim_seconds},
+        )
+    return reclaimed
+
+
+def _release_claimed_to_pending(claimed_ids: list[int], *, error: str) -> None:
+    if not claimed_ids:
+        return
+    now = timezone.now()
+    ScheduledOutboundMessage.objects.filter(pk__in=claimed_ids).update(
+        status=ScheduledOutboundMessage.Status.PENDING,
+        error=error[:500],
+        atualizado_em=now,
+    )
+    logger.warning(
+        "outbound_claim_released_after_connect_failure",
+        extra={"released_count": len(claimed_ids), "error": error[:200]},
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DueOutboundResult:
+    claimed: int
+    sent: int
+    failed: int
+    skipped_outside_hours: bool = False
+    birthdays_enqueued: int = 0
+    reclaimed: int = 0
+    cancelled_stale: int = 0
+    cancelled_appointment: int = 0
+
+
+def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> DueOutboundResult:
+    now = timezone.now()
+    reclaim_seconds = int(getattr(settings, "OUTBOUND_PROCESSING_RECLAIM_SECONDS", 600))
+    reclaimed = _reclaim_stale_processing(now=now, reclaim_seconds=reclaim_seconds)
+    birthdays_enqueued = enqueue_birthday_alerts_for_day(now=now)
+    claimed_ids: list[int] = []
+    had_due_outside_hours = False
+    cancelled_stale = 0
+    cancelled_appointment = 0
+    guard_cancel_ids: list[int] = []
+    guard_cancel_errors: dict[int, str] = {}
+
+    with transaction.atomic():
+        due = list(ScheduledOutboundMessage.objects.select_for_update(of=("self",), skip_locked=True).select_related("workshop", "appointment").filter(status=ScheduledOutboundMessage.Status.PENDING, run_at__lte=now).order_by("run_at", "pk")[:limit])
+        blocked_customers = blocked_customer_ids(row.customer_id for row in due)
+        opted_out_ids: list[int] = []
+        for row in due:
+            if row.customer_id in blocked_customers:
+                opted_out_ids.append(row.pk)
+                continue
+            cancel_reason = outbound_cancel_reason(row, now=now)
+            if cancel_reason:
+                guard_cancel_ids.append(row.pk)
+                guard_cancel_errors[row.pk] = cancel_reason
+                if cancel_reason == "stale":
+                    cancelled_stale += 1
+                else:
+                    cancelled_appointment += 1
+                continue
+            if force or is_within_outbound_business_hours(row.workshop, moment=now):
+                claimed_ids.append(row.pk)
+            else:
+                had_due_outside_hours = True
+        if opted_out_ids:
+            ScheduledOutboundMessage.objects.filter(pk__in=opted_out_ids).update(
+                status=ScheduledOutboundMessage.Status.CANCELLED,
+                atualizado_em=now,
+            )
+            logger.info("outbound_dispatch_cancelled_customer_opted_out", extra={"cancelled_count": len(opted_out_ids)})
+        if guard_cancel_ids:
+            for row_id in guard_cancel_ids:
+                ScheduledOutboundMessage.objects.filter(pk=row_id).update(
+                    status=ScheduledOutboundMessage.Status.CANCELLED,
+                    error=guard_cancel_errors[row_id][:500],
+                    atualizado_em=now,
+                )
+            logger.info(
+                "outbound_dispatch_cancelled_guard",
+                extra={
+                    "cancelled_count": len(guard_cancel_ids),
+                    "cancelled_stale": cancelled_stale,
+                    "cancelled_appointment": cancelled_appointment,
+                },
+            )
+        if claimed_ids:
+            ScheduledOutboundMessage.objects.filter(pk__in=claimed_ids).update(
+                status=ScheduledOutboundMessage.Status.PROCESSING,
+                atualizado_em=now,
+            )
+
+    if not claimed_ids:
+        return DueOutboundResult(
+            claimed=0,
+            sent=0,
+            failed=0,
+            skipped_outside_hours=had_due_outside_hours,
+            birthdays_enqueued=birthdays_enqueued,
+            reclaimed=reclaimed,
+            cancelled_stale=cancelled_stale,
+            cancelled_appointment=cancelled_appointment,
+        )
+
+    try:
+        publisher = RabbitMQPublisher(
+            host=settings.RABBITMQ_HOST,
+            port=settings.RABBITMQ_PORT,
+            username=settings.RABBITMQ_USER,
+            password=settings.RABBITMQ_PASSWORD,
+        )
+    except RabbitMQPublisherError as exc:
+        _release_claimed_to_pending(claimed_ids, error=str(exc))
+        return DueOutboundResult(
+            claimed=len(claimed_ids),
+            sent=0,
+            failed=len(claimed_ids),
+            birthdays_enqueued=birthdays_enqueued,
+            reclaimed=reclaimed,
+            cancelled_stale=cancelled_stale,
+            cancelled_appointment=cancelled_appointment,
+        )
+
+    sent = 0
+    failed = 0
+    notified_workshops: dict[int, str] = {}
+
+    try:
+        rows = list(ScheduledOutboundMessage.objects.select_related("workshop", "appointment", "vehicle", "vehicle__review_plan").filter(pk__in=claimed_ids))
+        for row in rows:
+            batch_source = _BATCH_SOURCE_BY_OUTBOUND.get(row.source, MessageDispatchBatch.Source.APPOINTMENT_ALERT)
+            batch: MessageDispatchBatch | None = None
+            try:
+                recheck_reason = appointment_guard_reason(row, now=timezone.now())
+                if recheck_reason:
+                    row.status = ScheduledOutboundMessage.Status.CANCELLED
+                    row.error = recheck_reason[:500]
+                    row.save(update_fields=["status", "error", "atualizado_em"])
+                    cancelled_appointment += 1
+                    logger.info(
+                        "outbound_dispatch_cancelled_guard",
+                        extra={"scheduled_id": row.pk, "reason": recheck_reason},
+                    )
+                    continue
+                if row.source == ScheduledOutboundMessage.Source.APPOINTMENT_ALERT:
+                    refresh_appointment_alert_message(row)
+                batch = create_dispatch_batch(
+                    workshop_id=row.workshop_id,
+                    source=batch_source,
+                )
+                customer_id = int(row.customer_id or 0)
+                item = DispatchItem(
+                    group_id=None,
+                    workshop_id=row.workshop_id,
+                    customer_id=customer_id,
+                    phone=row.phone,
+                    message=row.message,
+                    client_message_id=str(row.client_message_id),
+                    batch_id=batch.pk,
+                )
+                publisher.publish_dispatch_item(item, workshop_id=row.workshop_id)
+                record_queued_log(
+                    batch=batch,
+                    client_message_id=row.client_message_id,
+                    customer_id=row.customer_id or None,
+                    phone=row.phone,
+                    message=row.message,
+                )
+                finalize_batch_after_queue(batch)
+                row.status = ScheduledOutboundMessage.Status.SENT
+                row.batch = batch
+                row.error = ""
+                row.save(update_fields=["status", "batch", "error", "atualizado_em"])
+                mark_satisfaction_review_sent(row)
+                _reschedule_review_plan_alert_if_repeating(row)
+                instance_name = str(getattr(row.workshop, "whatsapp_instance_name", "") or "")
+                notified_workshops[row.workshop_id] = instance_name
+                sent += 1
+            except Exception as exc:
+                logger.exception("outbound_dispatch_failed", extra={"scheduled_id": row.pk})
+                if batch is not None:
+                    record_queue_failure(
+                        batch=batch,
+                        client_message_id=row.client_message_id,
+                        customer_id=row.customer_id,
+                        phone=row.phone,
+                        message=row.message,
+                        error=str(exc),
+                    )
+                    finalize_batch_after_queue(batch)
+                    row.batch = batch
+                row.status = ScheduledOutboundMessage.Status.FAILED
+                row.error = str(exc)
+                update_fields = ["status", "error", "atualizado_em"]
+                if batch is not None:
+                    update_fields.append("batch")
+                row.save(update_fields=update_fields)
+                failed += 1
+
+        for workshop_id, instance_name in notified_workshops.items():
+            try:
+                publisher.publish_workshop_control(workshop_id, whatsapp_instance_name=instance_name)
+            except Exception:
+                logger.exception(
+                    "outbound_workshop_control_publish_failed",
+                    extra={"workshop_id": workshop_id},
+                )
+    finally:
+        publisher.close()
+
+    return DueOutboundResult(
+        claimed=len(claimed_ids),
+        sent=sent,
+        failed=failed,
+        birthdays_enqueued=birthdays_enqueued,
+        reclaimed=reclaimed,
+        cancelled_stale=cancelled_stale,
+        cancelled_appointment=cancelled_appointment,
+    )
+
+
+def cancel_pending_outbound_for_customer(customer_id: int) -> int:
+    """Cancel every pending outbound message of a customer that opted out."""
+    cancelled = ScheduledOutboundMessage.objects.filter(
+        customer_id=customer_id,
+        status=ScheduledOutboundMessage.Status.PENDING,
+    ).update(status=ScheduledOutboundMessage.Status.CANCELLED, atualizado_em=timezone.now())
+    if cancelled:
+        logger.info("outbound_pending_cancelled_customer_opted_out", extra={"customer_id": customer_id, "cancelled_count": cancelled})
+    return cancelled
+
+
+def cancel_pending_outbound_for_customers(customer_ids: list[int]) -> int:
+    """Cancel pending outbound messages for many customers at once."""
+    if not customer_ids:
+        return 0
+    cancelled = ScheduledOutboundMessage.objects.filter(
+        customer_id__in=customer_ids,
+        status=ScheduledOutboundMessage.Status.PENDING,
+    ).update(status=ScheduledOutboundMessage.Status.CANCELLED, atualizado_em=timezone.now())
+    if cancelled:
+        logger.info(
+            "outbound_pending_cancelled_customers_opted_out",
+            extra={"customer_count": len(customer_ids), "cancelled_count": cancelled},
+        )
+    return cancelled

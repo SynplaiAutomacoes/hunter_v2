@@ -322,8 +322,8 @@ class WorkshopCollaboratorCreateForm(BaseWorkshopCollaboratorForm):
 
 
 class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
-    password1 = forms.CharField(label="Senha", required=False, widget=PasswordInput())
-    password2 = forms.CharField(label="Confirmar senha", required=False, widget=PasswordInput())
+    password1 = forms.CharField(label="Senha", required=False, widget=PasswordInput(attrs={"placeholder": "Deixe em branco para manter a senha atual"}))
+    password2 = forms.CharField(label="Confirmar senha", required=False, widget=PasswordInput(attrs={"placeholder": "Deixe em branco para manter a senha atual"}))
 
     def get_access_extra_layout_fields(self) -> list[Field]:
         if getattr(self.instance, "user_id", None):
@@ -337,16 +337,20 @@ class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
     def clean(self):
         cleaned = super().clean()
 
-        if cleaned.get("system_access") and not getattr(self.instance, "user_id", None):
+        if cleaned.get("system_access"):
             p1 = cleaned.get("password1")
             p2 = cleaned.get("password2")
 
-            if not p1:
-                self.add_error("password1", "Informe a senha.")
-            if not p2:
-                self.add_error("password2", "Confirme a senha.")
-            if p1 and p2 and p1 != p2:
-                self.add_error("password2", "As senhas não conferem.")
+            if getattr(self.instance, "user_id", None):
+                if not p1 and not p2:
+                    p1 = p2 = None
+            if p1 or p2:
+                if not p1:
+                    self.add_error("password1", "Informe a senha.")
+                if not p2:
+                    self.add_error("password2", "Confirme a senha.")
+                if p1 and p2 and p1 != p2:
+                    self.add_error("password2", "As senhas não conferem.")
 
         return cleaned
 

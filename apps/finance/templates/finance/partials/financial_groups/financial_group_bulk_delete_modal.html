@@ -1,0 +1,42 @@
+<div class="modal modal-open" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <h3 class="text-lg font-bold">Excluir grupos selecionados</h3>
+    <p class="text-base-content/70 mt-1">Tem certeza que deseja excluir os grupos selecionados e seus subgrupos?</p>
+
+    {% if total_count > 0 %}
+      <div class="alert alert-warning mt-4">
+        <span class="material-icons">warning</span>
+        <div>
+          <div class="font-semibold">Confirmar exclusão em lote</div>
+          <div class="text-sm">
+            Serão excluídos <strong>{{ selected_count }}</strong> grupo(s) selecionado(s)
+            e seus subgrupos, totalizando <strong>{{ total_count }}</strong> registro(s).
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="alert alert-info mt-4">
+        <span class="material-icons">info</span>
+        <div>
+          <div class="font-semibold">Nenhum grupo selecionado</div>
+          <div class="text-sm">Selecione ao menos um grupo para excluir.</div>
+        </div>
+      </div>
+    {% endif %}
+
+    <form
+      method="post"
+      class="modal-action"
+      hx-post="{% url 'finance:financial_groups_bulk_delete' %}"
+      hx-target="#modal-container"
+      hx-swap="innerHTML"
+      hx-include=".row-checkbox:checked"
+    >
+      {% csrf_token %}
+      <button type="button" class="btn btn-ghost" onclick="document.getElementById('modal-container').innerHTML=''">Cancelar</button>
+      {% if total_count > 0 %}
+        <button type="submit" class="btn btn-error">Confirmar exclusão</button>
+      {% endif %}
+    </form>
+  </div>
+</div>

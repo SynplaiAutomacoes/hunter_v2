@@ -82,6 +82,7 @@ def noop_reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("budget", "0017_alter_budgetitem_options_budgetkititemoverride"),
         ("workorder", "0005_workorder_discount_value_and_more"),
     ]
 

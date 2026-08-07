@@ -1,7 +1,17 @@
+{% load l10n %}
 <section class="card bg-base-100 shadow-md">
   <div class="card-body">
-    <div class="flex justify-between items-center">
+    <div class="flex justify-between items-center gap-4">
       <h2 class="text-lg font-semibold">Informações de Estoque</h2>
+      <button
+        type="button"
+        class="btn btn-primary btn-sm"
+        hx-get="{% url 'catalog:stock_adjust' product_id=product.id %}"
+        hx-target="#modal-container"
+        hx-swap="innerHTML"
+      >
+        Ajustar estoque
+      </button>
     </div>
     <div class="mt-2 border-b-2 border-primary w-full mb-6"></div>
 
@@ -23,7 +33,7 @@
                hx-post="{% url 'catalog:update_stock_fields' %}"
                hx-trigger="blur"
                hx-swap="innerHTML"
-               hx-vals='{"product_id": "{{ product.id }}"}'>
+               hx-vals='{"product_id": "{{ product.id|unlocalize }}"}'>
       </div>
 
       <div class="form-control">
@@ -35,7 +45,7 @@
                hx-post="{% url 'catalog:update_stock_fields' %}"
                hx-trigger="blur"
                hx-swap="innerHTML"
-               hx-vals='{"product_id": "{{ product.id }}"}'>
+               hx-vals='{"product_id": "{{ product.id|unlocalize }}"}'>
       </div>
     </div>
   </div>

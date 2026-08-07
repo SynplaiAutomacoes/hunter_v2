@@ -104,6 +104,25 @@ class Defect(models.Model):
         return self.name
 
 
+class WorkshopBudgetSequence(models.Model):
+    """Per-workshop counter for allocating Budget.number values."""
+
+    workshop = models.OneToOneField(
+        "workshops.Workshop",
+        verbose_name="Oficina",
+        on_delete=models.CASCADE,
+        related_name="budget_sequence",
+    )
+    last_number = models.PositiveIntegerField(verbose_name="Último número alocado", default=0)
+
+    class Meta:
+        verbose_name = "Sequência de orçamento da oficina"
+        verbose_name_plural = "Sequências de orçamento das oficinas"
+
+    def __str__(self) -> str:
+        return f"Workshop {self.workshop_id}: last_number={self.last_number}"
+
+
 class Budget(TimeStampedModel):
     CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE = "Informe a data de saída combinada com o cliente."
     SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE = "Informe a data prevista de término do serviço."
@@ -117,10 +136,12 @@ class Budget(TimeStampedModel):
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="collaborators_budgets", blank=True)
     checklist = models.ForeignKey("checklist.Checklist", verbose_name="Checklist", on_delete=models.SET_NULL, related_name="budgets", null=True, blank=True)
     reference_budget = models.ForeignKey("self", verbose_name="Orçamento de Referência", on_delete=models.SET_NULL, related_name="related_budgets", null=True, blank=True)
+    number = models.PositiveIntegerField(verbose_name="Número")
 
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
+    first_approved_at = models.DateTimeField(verbose_name="Data da primeira aprovação", null=True, blank=True)
     customer_agreed_departure_at = models.DateTimeField(verbose_name="Data de saída combinada com o Cliente", null=True, blank=True)
     service_expected_completion_at = models.DateTimeField(verbose_name="Data prevista de término do serviço", null=True, blank=True)
     is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
@@ -193,6 +214,7 @@ class Budget(TimeStampedModel):
             "customer_agreed_departure_at",
             "service_expected_completion_at",
             "entry_date",
+            "first_approved_at",
             "expiration_date",
             "observations",
             "notes",
@@ -229,13 +251,29 @@ class Budget(TimeStampedModel):
         if not is_new:
             old_status, old_budget_type = Budget.objects.filter(pk=self.pk).values_list("status", "budget_type").first() or (None, None)
 
+        first_approved_at_changed = self._sync_first_approved_at(old_status=old_status, is_new=is_new)
+        if first_approved_at_changed and kwargs.get("update_fields") is not None:
+            update_fields_set = set(kwargs["update_fields"])
+            update_fields_set.add("first_approved_at")
+            kwargs["update_fields"] = list(update_fields_set)
+
         with transaction.atomic():
+            if is_new and self.number is None and self.workshop_id is not None:
+                from apps.budget.services.numbering import allocate_budget_number
+
+                self.number = allocate_budget_number(workshop_id=self.workshop_id)
+
             super().save(*args, **kwargs)
 
             if old_budget_type is not None and old_budget_type != self.budget_type:
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
+                if self.vehicle_id and self.current_km is not None:
+                    from apps.customer.services.oil_change import handle_budget_approved_mileage
+
+                    handle_budget_approved_mileage(budget=self)
+
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},
@@ -248,6 +286,16 @@ class Budget(TimeStampedModel):
 
             if not skip_stored_refresh:
                 self.refresh_stored_total_amount()
+
+    def _sync_first_approved_at(self, *, old_status: str | None, is_new: bool) -> bool:
+        """Set first_approved_at once on first transition to approved. Never clears or overwrites."""
+        if self.first_approved_at is not None:
+            return False
+        becoming_approved = self.status == BudgetStatus.APPROVED and (is_new or old_status != BudgetStatus.APPROVED)
+        if not becoming_approved:
+            return False
+        self.first_approved_at = timezone.now()
+        return True
 
     def refresh_stored_total_amount(self) -> None:
         """Persist list/dashboard total for SQL aggregates.
@@ -269,9 +317,17 @@ class Budget(TimeStampedModel):
         verbose_name_plural = "Orçamentos"
         indexes = [
             models.Index(fields=["workshop", "status", "entry_date"], name="budget_ws_status_entry_idx"),
+            models.Index(fields=["workshop", "status", "first_approved_at"], name="budget_ws_status_1st_appr_idx"),
             models.Index(fields=["workshop", "entry_date"], name="budget_ws_entry_idx"),
             models.Index(fields=["customer", "criado_em"], name="budget_customer_criado_idx"),
         ]
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "number"], name="unique_budget_number_per_workshop"),
+        ]
+
+    @property
+    def public_number(self) -> int:
+        return int(self.number) if self.number is not None else int(self.pk)
 
     @property
     def has_frozen_pricing_snapshot(self) -> bool:
@@ -706,8 +762,6 @@ class Budget(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if (item.service or self._is_local_service_item(item)) and item.duration:
-                if item.service and item.service.is_third_party:
-                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -716,9 +770,6 @@ class Budget(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
-                if kit_service.service.is_third_party:
-                    continue
-
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
@@ -778,7 +829,7 @@ class Budget(TimeStampedModel):
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
         resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.total_base_value,
+            total_base_value=self.display_total_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
@@ -898,6 +949,8 @@ class Budget(TimeStampedModel):
 
     @property
     def display_total_base_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self.summary_total_before_benefit_value
         return self.total_base_value
 
     @property
@@ -1157,7 +1210,7 @@ class BudgetItem(TimeStampedModel):
         blank=True,
         default="",
     )
-    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
+    is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     ## Produto
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
@@ -1882,7 +1935,7 @@ class BudgetHistory(TimeStampedModel):
         ordering = ["-criado_em", "-pk"]
 
     def __str__(self) -> str:
-        return f"{self.get_action_display()} - Orçamento #{self.budget.pk}"
+        return f"{self.get_action_display()} - Orçamento #{self.budget.number}"
 
 
 class BudgetPdfRenderJob(TimeStampedModel):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
+from datetime import time, timedelta
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
@@ -56,6 +56,89 @@ class Workshop(TimeStampedModel):
         max_length=64,
         blank=True,
         default="",
+    )
+    # Outbound automated alerts send window (America/Sao_Paulo via TIME_ZONE).
+    # End time is exclusive: default 08:00–18:00 means 08:00 <= now < 18:00, all weekdays.
+    outbound_business_hours_enabled = BooleanField(
+        verbose_name="Respeitar horário de disparo",
+        default=True,
+    )
+    outbound_business_weekdays = CharField(
+        verbose_name="Dias de disparo",
+        max_length=32,
+        blank=False,
+        default="0,1,2,3,4,5,6",
+        help_text="Dias da semana (Python: Mon=0 … Sun=6), separados por vírgula.",
+    )
+    outbound_business_start_time = models.TimeField(
+        verbose_name="Hora inicial",
+        default=time(8, 0),
+        help_text="Horário inicial inclusivo da janela de envio.",
+    )
+    outbound_business_end_time = models.TimeField(
+        verbose_name="Hora final",
+        default=time(18, 0),
+        help_text="Horário final exclusivo da janela de envio.",
+    )
+    satisfaction_survey_enabled = BooleanField(
+        verbose_name="Ativar pesquisa de satisfação",
+        default=False,
+    )
+    satisfaction_survey_delay_days = models.PositiveSmallIntegerField(
+        verbose_name="Dias após entrega para enviar pesquisa",
+        default=1,
+        help_text="Quantidade de dias após o fechamento da O.S. para enviar o link de avaliação.",
+    )
+    satisfaction_survey_send_immediately = BooleanField(
+        verbose_name="Enviar pesquisa imediatamente",
+        default=False,
+        help_text="Disponível apenas fora de produção. Agenda o envio no momento do fechamento da O.S.",
+    )
+    google_review_url = models.URLField(
+        verbose_name="Link de avaliação no Google",
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="URL do Google Maps / Place para pedir avaliação pública.",
+    )
+    google_review_min_rating = models.PositiveSmallIntegerField(
+        verbose_name="Nota mínima para pedir avaliação no Google",
+        default=4,
+        help_text="Se a nota do cliente for igual ou maior que este valor (1-5), exibe o link do Google.",
+    )
+    # SynplaiSign — API key por oficina (valor criptografado; plaintext só no create remoto)
+    synplaisign_api_key_id = models.CharField(
+        verbose_name="SynplaiSign API Key ID",
+        max_length=64,
+        blank=True,
+        default="",
+    )
+    synplaisign_api_key = models.CharField(
+        verbose_name="SynplaiSign API Key",
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Armazenada criptografada. Criada automaticamente no cadastro da oficina.",
+    )
+    synplaisign_webhook_id = models.CharField(
+        verbose_name="SynplaiSign Webhook ID",
+        max_length=64,
+        blank=True,
+        default="",
+    )
+    synplaisign_webhook_secret = models.CharField(
+        verbose_name="SynplaiSign Webhook Secret",
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Armazenado criptografado. Usado para validar HMAC dos callbacks.",
+    )
+    synplaisign_owner_password = models.CharField(
+        verbose_name="SynplaiSign Owner Password",
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Senha aleatoria do OWNER na SynplaiSign (criptografada). Nao e a senha do Hunter.",
     )
 
     class Meta:
@@ -169,6 +252,16 @@ class Workshop(TimeStampedModel):
             if company_phone:
                 return company_phone
         return str(self.phone or "").strip()
+
+    @property
+    def pdf_name(self) -> str:
+        """Nome exibido em PDFs e páginas públicas: prioriza nome fantasia."""
+        company = self._get_webmania_company()
+        if company is not None:
+            trade_name = str(company.nome_fantasia or "").strip()
+            if trade_name:
+                return trade_name
+        return str(self.name or "").strip() or "-"
 
     @property
     def webmania_company_unit_display(self) -> str:

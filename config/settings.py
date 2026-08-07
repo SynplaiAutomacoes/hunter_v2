@@ -38,6 +38,9 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS = float(os.getenv("BUDGET_SSE_CHECK_INTERVAL_S
 
 # Logger config
 PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "true", "yes")
+
+# Temporary: keep dashboard live until monthly snapshots are re-enabled in production.
+DASHBOARD_USE_MONTHLY_SNAPSHOTS = os.getenv("DASHBOARD_USE_MONTHLY_SNAPSHOTS", "0").lower() in ("1", "true", "yes")
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
@@ -74,6 +77,13 @@ WEBMANIA_B2B_ACCESS_TOKEN = os.getenv("WEBMANIA_B2B_ACCESS_TOKEN", "")
 WEBMANIA_B2B_ACCESS_TOKEN_SECRET = os.getenv("WEBMANIA_B2B_ACCESS_TOKEN_SECRET", "")
 WEBMANIA_WEBHOOK_TOKEN = os.getenv("WEBMANIA_WEBHOOK_TOKEN", "")
 
+SYNPLAISIGN_BASE_URL = os.getenv("SYNPLAISIGN_BASE_URL", "https://synplaisign.up.railway.app")
+SYNPLAISIGN_MASTER_KEY = os.getenv("SYNPLAISIGN_MASTER_KEY", "")
+# Deprecated global key — prefer per-workshop keys created via SYNPLAISIGN_MASTER_KEY.
+SYNPLAISIGN_API_KEY = os.getenv("SYNPLAISIGN_API_KEY", "")
+SYNPLAISIGN_WEBHOOK_SECRET = os.getenv("SYNPLAISIGN_WEBHOOK_SECRET", "")
+
+# Legacy SuperSign settings kept for reference during cutover cleanup.
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
 SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
 SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "")
@@ -88,6 +98,15 @@ STORAGE_REGION = os.getenv("REGION", "auto")
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
 
+# E-mail (SMTP)
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1").lower() in ("1", "true", "yes")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "")
+
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
     SESSION_COOKIE_SECURE = True
@@ -101,6 +120,8 @@ if not DEBUG:
 # Application definition
 
 INSTALLED_APPS = [
+    # ASGI / realtime (safe when unused by Gunicorn WSGI process)
+    "daphne",
     # Django
     "django.contrib.admin",
     "django.contrib.auth",
@@ -120,6 +141,7 @@ INSTALLED_APPS = [
     "phonenumber_field",
     "simple_history",
     "django_tables2",
+    "channels",
     # Local
     "apps.core",
     "apps.accounts",
@@ -186,12 +208,22 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}
 
 CRISPY_TEMPLATE_PACK = "tailwind"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
+MESSAGE_WORKER_BASE_URL = os.getenv("MESSAGE_WORKER_BASE_URL", "").strip()
+MESSAGE_DISPATCH_STATUS_TOKEN = os.getenv("MESSAGE_DISPATCH_STATUS_TOKEN", "").strip()
+MESSAGE_DISPATCH_WS_BASE_URL = os.getenv("MESSAGE_DISPATCH_WS_BASE_URL", "").strip()
 
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
@@ -218,8 +250,17 @@ DATABASES = {
         "PORT": os.getenv("DB_PORT", "5432"),
         "CONN_MAX_AGE": CONN_MAX_AGE,
         "CONN_HEALTH_CHECKS": True,
+        "OPTIONS": {
+            "connect_timeout": 10,
+        },
     }
 }
+
+# Seconds before a PROCESSING outbound row is reclaimed to PENDING by the poller.
+OUTBOUND_PROCESSING_RECLAIM_SECONDS = int(os.getenv("OUTBOUND_PROCESSING_RECLAIM_SECONDS", "600"))
+
+# Max delay after the first legal send moment for appointment alerts before they are cancelled.
+OUTBOUND_MAX_DELAY_MINUTES = int(os.getenv("OUTBOUND_MAX_DELAY_MINUTES", "15"))
 
 # Cache
 # https://docs.djangoproject.com/en/5.2/topics/cache/

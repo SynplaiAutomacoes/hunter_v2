@@ -1,9 +1,10 @@
+{% load l10n %}
 <div class="modal-box w-full max-w-[95vw] relative overflow-hidden flex flex-col h-[90vh]" style="width: 65vw;">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
 
-    <h3 class="font-bold text-lg mb-2 flex-shrink-0">Importar itens do Orçamento #{{ reference_budget.pk }}</h3>
+    <h3 class="font-bold text-lg mb-2 flex-shrink-0">Importar itens do Orçamento #{{ reference_budget.number }}</h3>
     <p class="text-sm text-base-content/70 mb-4 flex-shrink-0">
-        Selecione os itens que deseja importar para o orçamento atual (#{{ budget.pk }}).
+        Selecione os itens que deseja importar para o orçamento atual (#{{ budget.number }}).
     </p>
 
     <form method="post" action="{% url 'budget:import_items_process' pk=budget.pk %}" hx-post="{% url 'budget:import_items_process' pk=budget.pk %}" hx-target="#modal-container" hx-swap="innerHTML" class="flex-grow flex flex-col min-h-0" id="import-items-form">
@@ -29,7 +30,7 @@
                             {% for item in products %}
                             <tr>
                                 <td class="text-center">
-                                    <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-sm import-product-cb">
+                                    <input type="checkbox" name="selected_items" value="{{ item.id|unlocalize }}" class="checkbox checkbox-sm import-product-cb">
                                 </td>
                                 <td>{{ item.description }}</td>
                                 <td class="text-center">{{ item.quantity }}</td>
@@ -62,7 +63,7 @@
                             {% for item in services %}
                             <tr>
                                 <td class="text-center">
-                                    <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-sm import-service-cb">
+                                    <input type="checkbox" name="selected_items" value="{{ item.id|unlocalize }}" class="checkbox checkbox-sm import-service-cb">
                                 </td>
                                 <td>{{ item.description }}</td>
                                 <td class="text-center">{{ item.quantity }}</td>
@@ -95,7 +96,7 @@
                             {% for item in kits %}
                             <tr>
                                 <td class="text-center">
-                                    <input type="checkbox" name="selected_items" value="{{ item.id }}" class="checkbox checkbox-sm import-kit-cb">
+                                    <input type="checkbox" name="selected_items" value="{{ item.id|unlocalize }}" class="checkbox checkbox-sm import-kit-cb">
                                 </td>
                                 <td>{{ item.description }}</td>
                                 <td class="text-center">{{ item.quantity }}</td>

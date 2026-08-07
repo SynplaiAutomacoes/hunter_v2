@@ -15,6 +15,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.models.financial_group import FinancialGroup
+from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
 from apps.finance.services.reports import build_financial_overview
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -184,15 +185,16 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             payment_movement = movement
         customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
         payment_method = getattr(payment_movement, "payment_method", None) or getattr(payment, "payment_method", None)
+        agent, description = resolve_payroll_movement_display(movement=payment_movement, user=self.request.user, workshop=self.workshop, request=self.request)
 
         return {
             "component": f"workorder-payment-{payment.pk}",
             "is_expandable": False,
             "type_badge": payment_movement.report_direction_badge,
             "due_date": payment.due_date,
-            "agent": getattr(customer, "name", "-") or "-",
+            "agent": (getattr(customer, "name", "-") or "-") if workorder is not None else agent,
             "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
-            "description": self._resolve_workorder_description(workorder) if workorder is not None else movement.report_description_display,
+            "description": self._resolve_workorder_description(workorder) if workorder is not None else description,
             "budget_plan": payment_movement.report_budget_plan_display,
             "account": payment_movement.report_bank_account_display,
             "payment_type": getattr(payment_method, "description", "-") or "-",
@@ -215,14 +217,16 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         if not movement.is_reconciled:
             return None
 
+        agent, description = resolve_payroll_movement_display(movement=movement, user=self.request.user, workshop=self.workshop, request=self.request)
+
         return {
             "component": f"financial-movement-{movement.pk}",
             "is_expandable": False,
             "type_badge": movement.report_direction_badge,
             "due_date": movement.due_date,
-            "agent": movement.report_agent_display if not workorder else (getattr(customer, "name", "-") or "-"),
+            "agent": agent if not workorder else (getattr(customer, "name", "-") or "-"),
             "origin": movement.report_origin_display if not workorder else f"OS #{workorder.pk}",
-            "description": movement.report_description_display,
+            "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
             "payment_type": movement.report_payment_method_display,
@@ -272,6 +276,8 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             row = self._build_financial_movement_row(movement, filter_params["start_date"], filter_params["end_date"])
             if row is not None:
                 rows.append(row)
+
+        rows.sort(key=lambda r: (r["due_date"], r["component"]), reverse=True)
         return rows
 
     def get_context_data(self, **kwargs):

@@ -13,14 +13,14 @@
 
             <div class="flex justify-between items-start p-4 border-b border-gray-200">
                 <div>
-                    <h3 class="font-bold text-xl uppercase">{{workorder.workshop.name}}</h3>
+                    <h3 class="font-bold text-xl uppercase">{{ workorder.workshop.pdf_name }}</h3>
                     <p class="">CNPJ: {{ workorder.workshop.cnpj|cnpj_br|default:"-" }}</p>
                     <p class="">{{ workorder.workshop.address|default:"-" }}</p>
                     <p class="">Telefone: {{ workorder.workshop.phone|default:"-" }}</p>
                 </div>
                 <div class="text-right">
                     <h4 class="font-bold text-lg">ORDEM DE SERVIÇO</h4>
-                    <p class="text-2xl font-bold">{{workorder.budget.id}}</p>
+                    <p class="text-2xl font-bold">{{workorder.budget.number}}</p>
                     <p class="">{{workorder.criado_em}}</p>
                 </div>
             </div>
@@ -289,7 +289,7 @@
                     {% endif %}
                     <p class="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-gray-300">
                         <span>TOTAL GERAL:</span>
-                        <span>{{workorder.total_budget_value}}</span>
+                        <span>{{workorder.display_total_budget_value}}</span>
                     </p>
                 </div>
             </div>

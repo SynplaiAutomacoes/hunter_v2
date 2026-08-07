@@ -1,7 +1,7 @@
 {% load format_tags %}
 <p class="text-xs font-semibold uppercase tracking-[0.22em] text-base-content/45">Relatorio gerencial</p>
 <h3 class="mt-2 text-2xl font-black text-balance text-base-content xl:text-[2rem]">{{ report_title }}</h3>
-<p class="mt-2 text-sm text-base-content/70">{{ workshop.name|default:"-" }} <span class="mx-2 text-base-content/30">/</span> {{ periodo_label }}</p>
+<p class="mt-2 text-sm text-base-content/70">{{ workshop.pdf_name|default:"-" }} <span class="mx-2 text-base-content/30">/</span> {{ periodo_label }}</p>
 
 <div class="mt-5 space-y-4">
     <section class="rounded-[1.75rem] border border-base-300/70 bg-base-100 p-4 shadow-sm sm:p-5">
@@ -66,20 +66,24 @@
                     </thead>
                     <tbody>
                         {% for row in report_rows %}
-                            <tr class="hover">
-                                <td class="font-semibold">#{{ row.pk|default:row.id }}</td>
+                          {% with wo=row.workorders.first %}
+                            <tr class="hover{% if wo %} cursor-pointer{% endif %}" {% if wo %}onclick="window.open('{% url 'workorder:workorder_detail' pk=wo.pk %}', '_blank')"{% endif %}>
+                                <td class="font-semibold">
+                                  {% if wo %}
+                                    <a href="{% url 'workorder:workorder_detail' pk=wo.pk %}" target="_blank" class="hover:text-primary transition-colors">#{{ row.pk|default:row.id }}</a>
+                                  {% else %}
+                                    #{{ row.pk|default:row.id }}
+                                  {% endif %}
+                                </td>
                                 <td><div class="font-medium text-base-content">{{ row.customer|default:"-" }}</div></td>
                                 <td>{{ row.entry_date|date:"d/m/Y"|default:"-" }}</td>
                                 <td>{{ row.vehicle|default:"-" }}</td>
                                 {% if indicator == 'reprovados' %}<td>{{ row.rejection_reason|default:"-" }}</td>{% endif %}
                                 <td class="text-right text-base font-bold tabular-nums text-success">
-                                    {% if indicator == 'reprovados' %}
-                                        {{ row.display_total_budget_value|money_br }}
-                                    {% else %}
-                                        {{ row.total_budget_value|money_br }}
-                                    {% endif %}
+                                    {{ row.display_total_budget_value|money_br }}
                                 </td>
                             </tr>
+                          {% endwith %}
                         {% empty %}
                             <tr>
                                 <td colspan="{% if indicator == 'reprovados' %}6{% else %}5{% endif %}" class="py-10 text-center text-base-content/60">Nenhum registro encontrado para os filtros selecionados.</td>
@@ -129,8 +133,10 @@
                                     </thead>
                                     <tbody>
                                         {% with color=group.primary_item.budget_type|budget_type_color %}
-                                        <tr class="bg-{{ color }}/5">
-                                            <td class="font-semibold">#{{ group.primary_item.get_id }}</td>
+                                        <tr class="bg-{{ color }}/5 cursor-pointer" onclick="window.open('{% url 'workorder:workorder_detail' pk=group.primary_item.pk %}', '_blank')">
+                                            <td class="font-semibold">
+                                              <a href="{% url 'workorder:workorder_detail' pk=group.primary_item.pk %}" target="_blank" class="hover:text-primary transition-colors">#{{ group.primary_item.get_id }}</a>
+                                            </td>
                                             <td class="font-medium">{{ group.primary_item.budget.customer|default:"-" }}</td>
                                             <td>{{ group.primary_item.budget.vehicle|default:"-" }}</td>
                                             <td>
@@ -144,8 +150,10 @@
                                         </tr>
                                         {% endwith %}
                                         {% for child in group.child_items %}
-                                            <tr class="hover">
-                                                <td class="pl-6 font-semibold">#{{ child.get_id }}</td>
+                                            <tr class="hover cursor-pointer" onclick="window.open('{% url 'workorder:workorder_detail' pk=child.pk %}', '_blank')">
+                                                <td class="pl-6 font-semibold">
+                                                  <a href="{% url 'workorder:workorder_detail' pk=child.pk %}" target="_blank" class="hover:text-primary transition-colors">#{{ child.get_id }}</a>
+                                                </td>
                                                 <td>{{ child.budget.customer|default:"-" }}</td>
                                                 <td>{{ child.budget.vehicle|default:"-" }}</td>
                                                 <td>
@@ -160,7 +168,7 @@
                                                 {% if indicator|slice:':10' == 'a_receber_' %}
                                                     {{ child.pending_payment_value|money_br }}
                                                 {% else %}
-                                                    {{ child.total_budget_value|money_br }}
+                                                    {{ child.display_total_budget_value|money_br }}
                                                 {% endif %}
                                             </td>
                                             {% endwith %}

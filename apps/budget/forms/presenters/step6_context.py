@@ -27,6 +27,7 @@ class Step6ReviewContext:
     signature_blocked_json: str
     signature_blocked_reason_json: str
     can_toggle_signed_pdf: bool
+    initial_pdf_variant: str
     default_pdf_url: str
     default_pdf_download_url: str
     signed_pdf_url: str
@@ -49,6 +50,44 @@ class Step6ReviewContext:
     products_html: str
     services_html: str
     kits_html: str
+
+
+@dataclass(frozen=True, slots=True)
+class BudgetPdfModalUrls:
+    initial_pdf_variant: str
+    default_pdf_url: str
+    default_pdf_download_url: str
+    signed_pdf_url: str
+    base_pdf_url: str
+    signed_pdf_download_url: str
+    base_pdf_download_url: str
+
+
+def resolve_budget_pdf_modal_urls(*, budget_id: int, can_toggle_signed_pdf: bool) -> BudgetPdfModalUrls:
+    pdf_view_url = reverse("budget:visualizar_pdf_assinatura", args=[budget_id])
+    signed_pdf_url = "{pdf_view_url}?variant=signed".format(pdf_view_url=pdf_view_url)
+    base_pdf_url = "{pdf_view_url}?variant=base".format(pdf_view_url=pdf_view_url)
+    signed_pdf_download_url = "{pdf_view_url}?download=1&variant=signed".format(pdf_view_url=pdf_view_url)
+    base_pdf_download_url = "{pdf_view_url}?download=1&variant=base".format(pdf_view_url=pdf_view_url)
+    if can_toggle_signed_pdf:
+        return BudgetPdfModalUrls(
+            initial_pdf_variant="signed",
+            default_pdf_url=signed_pdf_url,
+            default_pdf_download_url=signed_pdf_download_url,
+            signed_pdf_url=signed_pdf_url,
+            base_pdf_url=base_pdf_url,
+            signed_pdf_download_url=signed_pdf_download_url,
+            base_pdf_download_url=base_pdf_download_url,
+        )
+    return BudgetPdfModalUrls(
+        initial_pdf_variant="base",
+        default_pdf_url=base_pdf_url,
+        default_pdf_download_url=base_pdf_download_url,
+        signed_pdf_url=signed_pdf_url,
+        base_pdf_url=base_pdf_url,
+        signed_pdf_download_url=signed_pdf_download_url,
+        base_pdf_download_url=base_pdf_download_url,
+    )
 
 
 def build_step6_context(budget, form: Any) -> Step6ReviewContext:
@@ -96,12 +135,14 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
     signature_blocked_json = "true" if signature_blockers else "false"
     signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
     can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
-    default_pdf_url = reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])
-    default_pdf_download_url = "{default_pdf_url}?download=1".format(default_pdf_url=default_pdf_url)
-    signed_pdf_url = "{default_pdf_url}?variant=signed".format(default_pdf_url=default_pdf_url)
-    base_pdf_url = "{default_pdf_url}?variant=base".format(default_pdf_url=default_pdf_url)
-    signed_pdf_download_url = "{default_pdf_url}?download=1&variant=signed".format(default_pdf_url=default_pdf_url)
-    base_pdf_download_url = "{default_pdf_url}?download=1&variant=base".format(default_pdf_url=default_pdf_url)
+    pdf_urls = resolve_budget_pdf_modal_urls(budget_id=budget.pk, can_toggle_signed_pdf=can_toggle_signed_pdf)
+    initial_pdf_variant = pdf_urls.initial_pdf_variant
+    default_pdf_url = pdf_urls.default_pdf_url
+    default_pdf_download_url = pdf_urls.default_pdf_download_url
+    signed_pdf_url = pdf_urls.signed_pdf_url
+    base_pdf_url = pdf_urls.base_pdf_url
+    signed_pdf_download_url = pdf_urls.signed_pdf_download_url
+    base_pdf_download_url = pdf_urls.base_pdf_download_url
 
     saved_observation = budget.observations or ""
     saved_observation_html = escape(saved_observation)
@@ -214,10 +255,15 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
                     html += '<div class="mb-5">';
                     html += '<h4 class="font-semibold text-base mb-2 border-b pb-1 text-base-content">Informações Gerais Modificadas</h4>';
                     html += '<ul class="list-disc list-inside space-y-1 text-sm text-base-content/80">';
+                    const budgetTypeLabels = {sale: 'Venda', warranty: 'Garantia', courtesy: 'Cortesia'};
                     fieldKeys.forEach(function(key) {
                         const change = fields[key];
-                        const oldVal = (change.old !== null && change.old !== undefined && change.old !== '') ? change.old : '<i>(vazio)</i>';
-                        const newVal = (change.new !== null && change.new !== undefined && change.new !== '') ? change.new : '<i>(vazio)</i>';
+                        let oldVal = (change.old !== null && change.old !== undefined && change.old !== '') ? change.old : '<i>(vazio)</i>';
+                        let newVal = (change.new !== null && change.new !== undefined && change.new !== '') ? change.new : '<i>(vazio)</i>';
+                        if (key === 'budget_type') {
+                            oldVal = budgetTypeLabels[oldVal] || oldVal;
+                            newVal = budgetTypeLabels[newVal] || newVal;
+                        }
                         html += '<li><strong>' + change.label + '</strong>: de ' + oldVal + ' para ' + newVal + '</li>';
                     });
                     html += '</ul>';
@@ -333,6 +379,7 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         signature_blocked_json=signature_blocked_json,
         signature_blocked_reason_json=signature_blocked_reason_json,
         can_toggle_signed_pdf=can_toggle_signed_pdf,
+        initial_pdf_variant=initial_pdf_variant,
         default_pdf_url=default_pdf_url,
         default_pdf_download_url=default_pdf_download_url,
         signed_pdf_url=signed_pdf_url,

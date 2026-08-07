@@ -40,7 +40,7 @@ from apps.finance.views.ncm_validation import (
     store_invalid_ncm_modal_context,
 )
 from apps.workorder.forms import WorkOrderItemEditForm
-from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderItem, WorkOrderKitItemOverride
+from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -960,12 +960,59 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return self.render_to_response(self.get_context_data(form=form))
         return super().post(request, *args, **kwargs)
 
+    def _seed_state_from_workorder_query(self) -> HttpResponse | None:
+        raw_workorder_id = str(self.request.GET.get("workorder") or "").strip()
+        if not raw_workorder_id:
+            return None
+
+        try:
+            workorder_id = int(raw_workorder_id)
+        except (TypeError, ValueError):
+            messages.error(self.request, "Ordem de serviço inválida para emissão.")
+            return self._redirect_to_step(1)
+
+        workorder = WorkOrder.objects.filter(pk=workorder_id, workshop=self.workshop, status=WorkOrderStatus.APPROVED).first()
+        if workorder is None:
+            messages.error(self.request, "Selecione uma ordem de serviço válida antes de emitir a nota.")
+            return self._redirect_to_step(1)
+
+        has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+        has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+        if has_nfe and has_nfse:
+            messages.error(self.request, "Esta OS já possui ambas as notas fiscais emitidas.")
+            return self._redirect_to_step(1)
+
+        if has_nfe and not has_nfse:
+            messages.warning(self.request, "Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.")
+        elif has_nfse and not has_nfe:
+            messages.warning(self.request, "Esta OS já possui Nota Fiscal de Serviço emitida. Apenas a Nota Fiscal de Produto será processada nesta emissão.")
+
+        state = self._default_state()
+        state.update(
+            {
+                "workorder_id": workorder.pk,
+                "pricing_slider": None,
+                "discount_type_override": "",
+                "note_mode": _normalize_note_mode(self.request.GET.get("tipo") or self.request.GET.get("note_mode")),
+                "nfe_config": {"tax_class": "", "additional_information": ""},
+                "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
+            }
+        )
+        self._clear_submission_progress(state)
+        next_step = self._set_current_step(state=state, step_key="customer")
+        self._write_state(state)
+        return self._redirect_to_step(next_step)
+
     def get(self, request, *args, **kwargs):
         if request.GET.get("close") == "1":
             return self._close_wizard()
 
         if request.GET.get("reset") == "1":
             self._clear_state()
+
+        seeded_redirect = self._seed_state_from_workorder_query()
+        if seeded_redirect is not None:
+            return seeded_redirect
 
         return super().get(request, *args, **kwargs)
 

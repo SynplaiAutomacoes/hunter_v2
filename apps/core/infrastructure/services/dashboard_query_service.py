@@ -22,9 +22,9 @@ from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.finance.services.dre import COMP_COGS, COMP_COS, COMP_GROSS_REVENUE, build_dre_calculation
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
-from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.util.monthly_costs import get_productive_salary_total_including_transport
+from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 
 logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
@@ -261,10 +261,11 @@ def _build_injected_pricing_context(*, workshop: Workshop, workshop_cost: Worksh
         hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
         profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
         minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
-        productive_salary_total = get_productive_salary_total_including_transport(
-            workshop=workshop,
-            workshop_cost=workshop_cost,
-        )
+        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=workshop)
+        if mechanic_salary_obj is not None:
+            salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+            if salary_item is not None:
+                productive_salary_total = salary_item.amount
 
     return SimpleNamespace(
         minimum_hourly_cost=minimum_hourly_cost,
@@ -392,22 +393,55 @@ def resolve_indicator_row_amount(*, item: Any, indicator: str, is_budget_report:
     return resolve_decimal_amount(item.total_budget_value)
 
 
+def _resolve_root_budget_id(*, budget_id: int, reference_map: dict[int, int | None]) -> int:
+    """Resolve the root budget id of a ``reference_budget_id`` chain.
+
+    ``reference_map`` maps budget ids to their direct reference; only budgets
+    present in the map can be followed, so chains ending outside the loaded scope
+    stop at the first unresolved budget. Cycles are guarded: if a cycle is
+    detected the budget is treated as independent (its own root).
+    """
+    visited: set[int] = set()
+    current = budget_id
+    while current in reference_map:
+        if current in visited:
+            return budget_id
+        visited.add(current)
+        next_id = reference_map[current]
+        if next_id is None:
+            return current
+        current = next_id
+    return current
+
+
 def _build_workorder_groups(*, items: list[WorkOrder], indicator: str) -> list[FinancialIndicatorWorkOrderGroup]:
     """Group WorkOrders into parent/child structure for the modal report.
 
-    Primary items: OSs where budget.reference_budget_id is None (same criteria as qtd_carros_mes).
-    Child items: OSs where budget.reference_budget_id is set, nested under their parent budget.
-    Orphan children (parent not in items) are simply omitted.
+    Primary items: OSs whose budget is the root of a reference chain
+    (budget.reference_budget_id is None at the top level, same criteria as qtd_carros_mes).
+    Child items: OSs linked via reference_budget_id, nested under the root budget
+    of their chain. Orphan children (root budget not present in items) are
+    promoted to their own group so no OS is silently omitted.
     """
+    reference_map: dict[int, int | None] = {
+        workorder.budget_id: workorder.budget.reference_budget_id
+        for workorder in items
+        if workorder.budget_id is not None
+    }
+    budget_ids_in_scope = set(reference_map.keys())
+
     primary_items: list[WorkOrder] = []
     child_map: dict[int, list[WorkOrder]] = {}
 
     for workorder in items:
-        ref_id = workorder.budget.reference_budget_id
-        if ref_id is None:
+        if workorder.budget_id is None:
             primary_items.append(workorder)
             continue
-        child_map.setdefault(ref_id, []).append(workorder)
+        root_budget_id = _resolve_root_budget_id(budget_id=workorder.budget_id, reference_map=reference_map)
+        if root_budget_id == workorder.budget_id or root_budget_id not in budget_ids_in_scope:
+            primary_items.append(workorder)
+            continue
+        child_map.setdefault(root_budget_id, []).append(workorder)
 
     groups: list[FinancialIndicatorWorkOrderGroup] = []
     for workorder in primary_items:
@@ -602,7 +636,6 @@ class DashboardQueryService:
                 workshop_id=workshop_id,
                 selected_month=selected_month,
                 selected_year=selected_year,
-                approved_count=approved_budget_metrics.approved_count,
             ),
         )
         pending_receivable_metrics = _run_section(
@@ -903,18 +936,26 @@ class DashboardQueryService:
         total_revenue: Decimal | None = None,
         pricing_context: SimpleNamespace | None = None,
     ) -> ApprovedBudgetMetrics:
-        approved_budgets = list(
-            Budget.objects.filter(
+        """Rentability from delivered work orders; markup from DRE for the selected month."""
+        delivered_budget_ids = (
+            WorkOrder.objects.filter(
                 workshop_id=workshop_id,
-                status=BudgetStatus.APPROVED,
-                entry_date__month=selected_month,
-                entry_date__year=selected_year,
+                status=WorkOrderStatus.APPROVED,
+                delivered_at__isnull=False,
+                delivered_at__month=selected_month,
+                delivered_at__year=selected_year,
+                budget_id__isnull=False,
             )
+            .values_list("budget_id", flat=True)
+            .distinct()
+        )
+        delivered_budgets = list(
+            Budget.objects.filter(pk__in=delivered_budget_ids)
             .select_related("workshop")
             .prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
         profitabilities: list[Any] = []
-        for budget in approved_budgets:
+        for budget in delivered_budgets:
             _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
             rentability = budget.rentability
             if rentability is not None:
@@ -929,7 +970,7 @@ class DashboardQueryService:
         return ApprovedBudgetMetrics(
             accumulated_profitability=accumulated_profitability,
             accumulated_markup=accumulated_markup,
-            approved_count=len(approved_budgets),
+            approved_count=len(delivered_budgets),
         )
 
     @staticmethod
@@ -948,8 +989,9 @@ class DashboardQueryService:
             approved_count = Budget.objects.filter(
                 workshop_id=workshop_id,
                 status=BudgetStatus.APPROVED,
-                entry_date__month=selected_month,
-                entry_date__year=selected_year,
+                first_approved_at__isnull=False,
+                first_approved_at__month=selected_month,
+                first_approved_at__year=selected_year,
             ).count()
         return ApprovalRateMetrics(created_count=created_count, approved_count=approved_count)
 
@@ -973,7 +1015,6 @@ class DashboardQueryService:
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
                 status=WorkOrderStatus.DRAFT,
-                budget_type="sale",
                 budget__isnull=False,
             )
             .annotate(pending_amount=pending_expr)
@@ -1039,7 +1080,6 @@ class DashboardQueryService:
         decimal_out = DecimalField(max_digits=14, decimal_places=2)
         result = Budget.objects.filter(
             workshop_id=workshop_id,
-            budget_type=BudgetType.SALE,
             status__in=REJECTED_BUDGET_STATUS_VALUES,
             entry_date__month=selected_month,
             entry_date__year=selected_year,
@@ -1052,21 +1092,21 @@ class DashboardQueryService:
 _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     "a_receber_em_execucao": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_mes_atual": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_meses_anteriores": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": True,
@@ -1094,7 +1134,7 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     },
     "reprovados": {
         "model": "budget",
-        "filters": {"budget_type": BudgetType.SALE, "status__in": REJECTED_BUDGET_STATUS_VALUES},
+        "filters": {"status__in": REJECTED_BUDGET_STATUS_VALUES},
         "date_field": "entry_date",
         "value_field": "display_total_budget_value",
         "exclude_month": False,

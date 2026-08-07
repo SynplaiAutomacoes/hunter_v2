@@ -1,0 +1,16 @@
+{% load crispy_forms_tags %}
+<div class="modal modal-open">
+    <div class="modal-box w-11/12 max-w-lg">
+        <h3 class="font-bold text-lg mb-2">Ajustar estoque</h3>
+        <p class="text-sm opacity-70 mb-4">Informe a quantidade atual correta e o motivo do ajuste.</p>
+        <form hx-post="{% url 'catalog:stock_adjust' product_id=product.id %}" hx-target="#modal-container">
+            {% csrf_token %}
+            {% crispy form %}
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('modal-container').innerHTML=''">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Confirmar ajuste</button>
+            </div>
+        </form>
+    </div>
+    <div class="modal-backdrop" onclick="document.getElementById('modal-container').innerHTML=''"></div>
+</div>

@@ -37,6 +37,7 @@ from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.budget.views.shared import reset_steps_after_step_4
 from ...core.domain.services.editing_lock_service import get_lock_info
 from ...core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.core.presentation.navigation import BUDGET_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
@@ -54,6 +55,7 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
+from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -100,6 +102,8 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
         },
     )
     success_message = "Documento reenviado para assinatura do cliente." if is_resend else "Orçamento enviado para assinatura do cliente."
+    customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
+    success_message += build_signature_whatsapp_skip_note(workshop=budget.workshop, phone=customer_phone)
     return "success", success_message, reverse("budget:budget_list")
 
 
@@ -350,10 +354,10 @@ class BudgetStatusReportDataMixin:
 
     def _get_budget_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="id", search_by="id"),
+            TableColumn("Nº", attr="number", search_by="number"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
-            TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
+            TableColumn("Vinculado à", attr="reference_budget.number", search_by="reference_budget__number"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn(str(Budget.entry_date.field.verbose_name), attr=Budget.entry_date.field.name, search_by="entry_date"),
             TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
@@ -450,9 +454,11 @@ class BudgetStatusReportDataMixin:
         if selection_report is None:
             raise Http404("Status de orcamento invalido")
 
+        report_budgets = self._get_selection_report_items()
         return {
             "workshop": self.workshop,
-            "report_budgets": self._get_selection_report_items(),
+            "report_budgets": report_budgets,
+            "show_cancellation_reason_column": any(budget.cancellation_reason for budget in report_budgets),
             "selection_report": selection_report,
             "selected_status_report": selection_report,
             "status_report_pdf_title": self.status_report_pdf_title,
@@ -551,6 +557,29 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             query_params["appointment_id"] = appointment_id
 
         return f"{reverse('budget:budget_create')}?{urlencode(query_params)}"
+
+    def _apply_auto_link(self) -> None:
+        auto_ref_id = self.request.POST.get("auto_reference_budget_id", "").strip()
+        if not auto_ref_id or not auto_ref_id.isdigit():
+            return
+        ref_id = int(auto_ref_id)
+        if ref_id == (self.object.pk or 0):
+            return
+
+        budget = find_oldest_open_budget_for_vehicle(
+            workshop_id=self.workshop.pk,
+            vehicle_id=self.object.vehicle_id,
+        )
+        if budget is None or budget.pk != ref_id:
+            return
+
+        if budget.workshop_id != self.workshop.pk:
+            return
+        if self.object.vehicle_id and budget.vehicle_id and budget.vehicle_id != self.object.vehicle_id:
+            return
+
+        self.object.reference_budget = budget
+        self.object.save(update_fields=["reference_budget"])
 
     def _sync_originating_appointment(self) -> None:
         appointment_id = self._get_origin_appointment_id()
@@ -721,12 +750,15 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
 
-        self.object = form.save()  # Salva o progresso atual
+        is_creating = form.instance.pk is None
+
+        self.object = form.save()
         assert self.object is not None
         current_step = self.get_current_step()
 
-        if current_step == 1:
+        if current_step == 1 and is_creating:
             self._sync_originating_appointment()
+            self._apply_auto_link()
 
         # Aplicar status automático em memória; coalesce com current_step abaixo.
         status_changed = False
@@ -1095,6 +1127,9 @@ def _compute_budget_diff(state_old, state_new):
         s_new = str(val_new or "").strip()
 
         if s_old != s_new:
+            if field == "budget_type":
+                val_old = BudgetType(val_old).label if val_old in BudgetType.values else val_old
+                val_new = BudgetType(val_new).label if val_new in BudgetType.values else val_new
             diff["fields"][field] = {"label": label, "old": val_old, "new": val_new}
 
     old_items = state_old.get("items", {})
@@ -1117,7 +1152,7 @@ def _compute_budget_diff(state_old, state_new):
                 "product_selling_price": "Valor Venda (Peça)",
                 "service_selling_price": "Valor Venda (Serviço)",
                 "shipping": "Frete",
-                "is_customer_supplied": "Peça trazida pelo cliente",
+                "is_customer_supplied": "Peça fornecida pelo cliente",
                 "total": "Total",
             }
             for f, f_label in item_fields.items():
@@ -1418,6 +1453,31 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"success": False}, status=400)
 
 
+class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "view_budget"
+
+    def get(self, request):
+        vehicle_id = request.GET.get("vehicle_id", "").strip()
+        if not vehicle_id or not vehicle_id.isdigit():
+            return HttpResponse("")
+
+        budget = find_oldest_open_budget_for_vehicle(
+            workshop_id=self.workshop.pk,
+            vehicle_id=int(vehicle_id),
+        )
+        if budget is None:
+            return HttpResponse("")
+
+        is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
+        context = {
+            "reference_budget_id": budget.pk,
+            "reference_budget_number": budget.number,
+            "is_workorder": is_workorder,
+        }
+        return render(request, "budget/partials/auto_link_warning.html", context)
+
+
 class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "change_budget"
@@ -1491,7 +1551,8 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
-                filters |= Q(pk=int(query))
+                query_number = int(query)
+                filters |= Q(number=query_number) | Q(pk=query_number)
             queryset = queryset.filter(filters)
 
         paginator = Paginator(queryset, 20)
@@ -1515,7 +1576,8 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
-                filters |= Q(pk=int(query))
+                query_number = int(query)
+                filters |= Q(number=query_number) | Q(pk=query_number)
             queryset = queryset.filter(filters)
 
         paginator = Paginator(queryset, 20)

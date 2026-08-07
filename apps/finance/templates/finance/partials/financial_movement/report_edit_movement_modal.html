@@ -1,4 +1,4 @@
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags l10n %}
 
 <dialog
     id="report-edit-movement-modal"
@@ -35,7 +35,7 @@
             hx-encoding="multipart/form-data"
         >
             {% csrf_token %}
-            <input type="hidden" name="selected_workorder_payment_id" value="{{ selected_workorder_payment_id }}">
+            <input type="hidden" name="selected_workorder_payment_id" value="{{ selected_workorder_payment_id|unlocalize }}">
 
             <div class="tabs tabs-boxed mb-8 flex w-full flex-wrap gap-2 bg-base-200/70 p-2">
                 {% if not movement.workorder_id %}
