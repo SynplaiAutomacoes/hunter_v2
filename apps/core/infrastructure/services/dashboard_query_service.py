@@ -414,14 +414,43 @@ def _resolve_root_budget_id(*, budget_id: int, reference_map: dict[int, int | No
     return current
 
 
+def _count_unique_vehicle_groups(workorders: list[WorkOrder]) -> int:
+    """Count distinct vehicles by ``reference_budget`` root among work orders.
+
+    Linked approved budgets that share a root count once. When the root budget is
+    absent from ``workorders`` (e.g. rejected) but at least one linked child is
+    present, the external root id still collapses those children into one vehicle.
+    """
+    reference_map: dict[int, int | None] = {
+        workorder.budget_id: workorder.budget.reference_budget_id
+        for workorder in workorders
+        if workorder.budget_id is not None
+    }
+    roots = {
+        _resolve_root_budget_id(budget_id=workorder.budget_id, reference_map=reference_map)
+        for workorder in workorders
+        if workorder.budget_id is not None
+    }
+    no_budget_count = sum(1 for workorder in workorders if workorder.budget_id is None)
+    return len(roots) + no_budget_count
+
+
+def _count_unique_vehicle_groups_from_reference_rows(rows: list[tuple[int, int | None]]) -> int:
+    """Count distinct vehicle roots from ``(budget_id, reference_budget_id)`` rows."""
+    reference_map: dict[int, int | None] = {budget_id: reference_budget_id for budget_id, reference_budget_id in rows}
+    roots = {_resolve_root_budget_id(budget_id=budget_id, reference_map=reference_map) for budget_id, _ in rows}
+    return len(roots)
+
+
 def _build_workorder_groups(*, items: list[WorkOrder], indicator: str) -> list[FinancialIndicatorWorkOrderGroup]:
     """Group WorkOrders into parent/child structure for the modal report.
 
-    Primary items: OSs whose budget is the root of a reference chain
-    (budget.reference_budget_id is None at the top level, same criteria as qtd_carros_mes).
-    Child items: OSs linked via reference_budget_id, nested under the root budget
-    of their chain. Orphan children (root budget not present in items) are
-    promoted to their own group so no OS is silently omitted.
+    Primary items: OSs whose budget is the root of a reference chain present in
+    ``items``, matching ``qtd_carros_mes`` vehicle-group semantics. Child items:
+    OSs linked via ``reference_budget_id``, nested under the root budget of their
+    chain. Orphan children that share the same external root (root not present in
+    ``items``, e.g. rejected parent) collapse into one group: the first orphan is
+    primary and the rest nest under it.
     """
     reference_map: dict[int, int | None] = {
         workorder.budget_id: workorder.budget.reference_budget_id
@@ -432,16 +461,25 @@ def _build_workorder_groups(*, items: list[WorkOrder], indicator: str) -> list[F
 
     primary_items: list[WorkOrder] = []
     child_map: dict[int, list[WorkOrder]] = {}
+    orphan_primary_by_root: dict[int, WorkOrder] = {}
 
     for workorder in items:
         if workorder.budget_id is None:
             primary_items.append(workorder)
             continue
         root_budget_id = _resolve_root_budget_id(budget_id=workorder.budget_id, reference_map=reference_map)
-        if root_budget_id == workorder.budget_id or root_budget_id not in budget_ids_in_scope:
+        if root_budget_id == workorder.budget_id:
             primary_items.append(workorder)
             continue
-        child_map.setdefault(root_budget_id, []).append(workorder)
+        if root_budget_id in budget_ids_in_scope:
+            child_map.setdefault(root_budget_id, []).append(workorder)
+            continue
+        existing_orphan_primary = orphan_primary_by_root.get(root_budget_id)
+        if existing_orphan_primary is None:
+            orphan_primary_by_root[root_budget_id] = workorder
+            primary_items.append(workorder)
+            continue
+        child_map.setdefault(existing_orphan_primary.budget.pk, []).append(workorder)
 
     groups: list[FinancialIndicatorWorkOrderGroup] = []
     for workorder in primary_items:
@@ -521,7 +559,6 @@ def _build_workorder_report(*, indicator: str, report_title: str, periodo_label:
 
     if indicator == "carros_mes":
         total_value = sum((resolve_decimal_amount(item.total_budget_value) for item in items), Decimal("0.00"))
-        summary_count = sum(1 for item in items if item.budget.reference_budget_id is None)
 
     return FinancialIndicatorReportData(
         indicator=indicator,
@@ -765,7 +802,7 @@ class DashboardQueryService:
 
     @staticmethod
     def _compute_delivery_counts(*, sale_workorders: list[WorkOrder], warranty_workorders: list[WorkOrder]) -> tuple[int, int, float]:
-        cars_this_month = sum(1 for wo in sale_workorders if wo.budget.reference_budget_id is None)
+        cars_this_month = _count_unique_vehicle_groups(sale_workorders)
         warranty_courtesy_cars = sum(1 for wo in warranty_workorders if wo.budget.reference_budget_id is None)
         warranty_count = sum(1 for wo in warranty_workorders if wo.budget_type == "warranty")
         total_cars_with_warranty = cars_this_month + warranty_count
@@ -780,15 +817,19 @@ class DashboardQueryService:
             delivered_at__month=selected_month,
             delivered_at__year=selected_year,
         )
+        sale_reference_rows = list(
+            delivered.filter(budget_type="sale", budget_id__isnull=False).values_list("budget_id", "budget__reference_budget_id")
+        )
+        cars_this_month = _count_unique_vehicle_groups_from_reference_rows(sale_reference_rows)
+        cars_this_month += delivered.filter(budget_type="sale", budget_id__isnull=True).count()
+
         counts = delivered.aggregate(
-            cars_this_month=Count("pk", filter=Q(budget_type="sale", budget__reference_budget_id__isnull=True)),
             warranty_courtesy_cars=Count(
                 "pk",
                 filter=Q(budget_type__in=("warranty", "courtesy"), budget__reference_budget_id__isnull=True),
             ),
             warranty_count=Count("pk", filter=Q(budget_type="warranty")),
         )
-        cars_this_month = int(counts["cars_this_month"] or 0)
         warranty_courtesy_cars = int(counts["warranty_courtesy_cars"] or 0)
         warranty_count = int(counts["warranty_count"] or 0)
         total_cars_with_warranty = cars_this_month + warranty_count
