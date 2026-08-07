@@ -121,7 +121,7 @@
                 <tbody>
                     {% for budget in report_budgets %}
                         <tr class="border-t border-gray-200 align-top">
-                            <td class="px-3 py-3 font-semibold">#{{ budget.pk }}</td>
+                            <td class="px-3 py-3 font-semibold">#{{ budget.number }}</td>
                             <td class="px-3 py-3">{{ budget.customer|default:"-" }}</td>
                             <td class="px-3 py-3">{{ budget.vehicle|default:"-" }}</td>
                             <td class="px-3 py-3">{{ budget.collaborator_name|default:"-" }}</td>

@@ -636,7 +636,6 @@ class DashboardQueryService:
                 workshop_id=workshop_id,
                 selected_month=selected_month,
                 selected_year=selected_year,
-                approved_count=approved_budget_metrics.approved_count,
             ),
         )
         pending_receivable_metrics = _run_section(
@@ -937,18 +936,26 @@ class DashboardQueryService:
         total_revenue: Decimal | None = None,
         pricing_context: SimpleNamespace | None = None,
     ) -> ApprovedBudgetMetrics:
-        approved_budgets = list(
-            Budget.objects.filter(
+        """Rentability from delivered work orders; markup from DRE for the selected month."""
+        delivered_budget_ids = (
+            WorkOrder.objects.filter(
                 workshop_id=workshop_id,
-                status=BudgetStatus.APPROVED,
-                entry_date__month=selected_month,
-                entry_date__year=selected_year,
+                status=WorkOrderStatus.APPROVED,
+                delivered_at__isnull=False,
+                delivered_at__month=selected_month,
+                delivered_at__year=selected_year,
+                budget_id__isnull=False,
             )
+            .values_list("budget_id", flat=True)
+            .distinct()
+        )
+        delivered_budgets = list(
+            Budget.objects.filter(pk__in=delivered_budget_ids)
             .select_related("workshop")
             .prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
         profitabilities: list[Any] = []
-        for budget in approved_budgets:
+        for budget in delivered_budgets:
             _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
             rentability = budget.rentability
             if rentability is not None:
@@ -963,7 +970,7 @@ class DashboardQueryService:
         return ApprovedBudgetMetrics(
             accumulated_profitability=accumulated_profitability,
             accumulated_markup=accumulated_markup,
-            approved_count=len(approved_budgets),
+            approved_count=len(delivered_budgets),
         )
 
     @staticmethod
@@ -982,8 +989,9 @@ class DashboardQueryService:
             approved_count = Budget.objects.filter(
                 workshop_id=workshop_id,
                 status=BudgetStatus.APPROVED,
-                entry_date__month=selected_month,
-                entry_date__year=selected_year,
+                first_approved_at__isnull=False,
+                first_approved_at__month=selected_month,
+                first_approved_at__year=selected_year,
             ).count()
         return ApprovalRateMetrics(created_count=created_count, approved_count=approved_count)
 

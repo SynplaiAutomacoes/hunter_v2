@@ -554,7 +554,7 @@ class BudgetByVehicleListView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if vehicle_id:
             budgets = Budget.objects.filter(workshop=self.workshop, vehicle_id=vehicle_id).select_related("customer", "vehicle").order_by("-criado_em")
 
-        data = [{"id": budget.pk, "label": f"Orçamento #{budget.pk}"} for budget in budgets]
+        data = [{"id": budget.pk, "label": f"Orçamento #{budget.number}"} for budget in budgets]
         return JsonResponse(data, safe=False)
 
 
