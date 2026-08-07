@@ -457,10 +457,9 @@ class WorkOrder(TimeStampedModel):
             self.save(update_fields=["status"])
 
     def _ensure_stock_consumed_on_approve(self, user: object | None = None) -> None:
-        from apps.stock.services.workorder_stock import has_unreversed_exit_movements
-        from apps.workorder.approval import approve_workorder_with_stock
+        from apps.workorder.approval import approve_workorder_with_stock, workorder_needs_stock_reconcile
 
-        if has_unreversed_exit_movements(workorder=self):
+        if not workorder_needs_stock_reconcile(workorder=self):
             return
 
         try:

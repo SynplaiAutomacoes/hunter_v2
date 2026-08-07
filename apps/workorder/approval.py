@@ -8,9 +8,9 @@ from django.db import transaction
 from apps.catalog.product_issues import has_invalid_ncm
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.stock.models import StockMovement, StockProduct
-from apps.stock.services.workorder_stock import has_unreversed_exit_movements
+from apps.stock.services.workorder_stock import get_consumed_stock_quantities
 from apps.workorder.models import WorkOrderItem
-from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus
 
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,13 @@ def _collect_required_products(workorder: WorkOrder) -> tuple[dict[int, int], di
     return dict(required_quantities), product_names, list(dict.fromkeys(invalid_ncm_products))
 
 
+def workorder_needs_stock_reconcile(*, workorder: WorkOrder) -> bool:
+    """Indica se a O.S. precisa ter o consumo de estoque reconciliado por delta."""
+    required_quantities, _, _ = _collect_required_products(workorder)
+    consumed_quantities = get_consumed_stock_quantities(workorder=workorder)
+    return required_quantities != consumed_quantities
+
+
 def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = None, signature_approved: bool = False) -> None:
     logger.info(
         "workorder_stock_approval_started",
@@ -108,78 +115,75 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
             },
         )
 
-        has_active_exit_movements = has_unreversed_exit_movements(workorder=locked_workorder)
+        required_quantities, product_names, _ = _collect_required_products(locked_workorder)
+        consumed_quantities = get_consumed_stock_quantities(workorder=locked_workorder)
 
-        if has_active_exit_movements:
-            if locked_workorder.status != WorkOrderStatus.APPROVED:
-                locked_workorder._skip_stock_consumption_guard = True
-                locked_workorder.approve()
-                logger.info(
-                    "workorder_stock_approval_recovered_status_for_consumed_stock",
-                    extra={"workorder_id": locked_workorder.pk, "status": locked_workorder.status},
-                )
-            elif signature_approved and locked_workorder.signature_request_status != WorkOrderSignatureStatus.APPROVED:
-                locked_workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
-                locked_workorder.save(update_fields=["signature_request_status"])
-                logger.info("workorder_stock_approval_signature_updated_for_approved_workorder", extra={"workorder_id": locked_workorder.pk})
-            workorder.refresh_from_db(fields=["status", "delivered_at", "signature_request_status"])
-            return
+        deltas = {
+            product_id: required_quantities.get(product_id, 0) - consumed_quantities.get(product_id, 0)
+            for product_id in (set(required_quantities) | set(consumed_quantities))
+        }
+        to_consume = {product_id: quantity for product_id, quantity in deltas.items() if quantity > 0}
+        to_return = {product_id: abs(quantity) for product_id, quantity in deltas.items() if quantity < 0}
 
-        required_quantities, product_names, invalid_ncm_products = _collect_required_products(locked_workorder)
+        logger.info(
+            "workorder_stock_approval_delta_computed",
+            extra={
+                "workorder_id": locked_workorder.pk,
+                "required": required_quantities,
+                "consumed": consumed_quantities,
+                "to_consume": to_consume,
+                "to_return": to_return,
+            },
+        )
 
-        blockers: list[str] = []
-        stock_by_product_id: dict[int, StockProduct] = {}
-
-        if required_quantities:
-            stock_entries = StockProduct.objects.select_for_update().select_related("product").filter(workshop=locked_workorder.workshop, product_id__in=list(required_quantities.keys()))
-            stock_by_product_id = {getattr(entry, "product_id"): entry for entry in stock_entries}
-            logger.info(
-                "workorder_stock_entries_loaded",
-                extra={
-                    "workorder_id": locked_workorder.pk,
-                    "stock_entries_count": len(stock_by_product_id),
-                    "required_product_ids": list(required_quantities.keys()),
-                },
+        if to_consume:
+            stock_entries = StockProduct.objects.select_for_update().select_related("product").filter(
+                workshop=locked_workorder.workshop, product_id__in=list(to_consume.keys())
             )
-            stock_issue_labels: list[str] = []
+            stock_by_product_id: dict[int, StockProduct] = {getattr(entry, "product_id"): entry for entry in stock_entries}
 
-            for product_id, required_quantity in required_quantities.items():
+            blockers: list[str] = []
+            stock_issue_labels: list[str] = []
+            ncm_issue_labels: list[str] = []
+
+            for product_id, delta in to_consume.items():
                 stock_entry = stock_by_product_id.get(product_id)
                 available_quantity = stock_entry.current_quantity if stock_entry is not None else 0
-                excess_quantity = max(required_quantity - available_quantity, 0)
+                excess_quantity = max(delta - available_quantity, 0)
                 if excess_quantity > 0:
                     product_name = product_names.get(product_id) or (stock_entry.product.name if stock_entry else str(product_id))
                     stock_issue_labels.append(f"{product_name} (+{excess_quantity})")
+                elif stock_entry is not None and has_invalid_ncm(stock_entry.product):
+                    ncm_issue_labels.append(product_names.get(product_id) or stock_entry.product.name)
 
             if stock_issue_labels:
                 blockers.append(f"Existem pecas com quantidade acima do estoque disponivel: {', '.join(stock_issue_labels)}.")
 
-        if invalid_ncm_products:
-            blockers.append(f"Existem produtos com NCM invalido: {', '.join(invalid_ncm_products)}.")
+            if ncm_issue_labels:
+                blockers.append(f"Existem produtos com NCM invalido: {', '.join(ncm_issue_labels)}.")
 
-        if blockers:
-            logger.warning(
-                "workorder_stock_approval_blocked",
-                extra={
-                    "workorder_id": locked_workorder.pk,
-                    "blockers": blockers,
-                },
-            )
-            raise WorkOrderApprovalError(" ".join(blockers))
+            if blockers:
+                logger.warning(
+                    "workorder_stock_approval_blocked",
+                    extra={
+                        "workorder_id": locked_workorder.pk,
+                        "blockers": blockers,
+                    },
+                )
+                raise WorkOrderApprovalError(" ".join(blockers))
 
-        if required_quantities:
-            for product_id, required_quantity in required_quantities.items():
+            for product_id, consume_quantity in to_consume.items():
                 stock_entry = stock_by_product_id[product_id]
                 logger.info(
                     "workorder_stock_decrementing_product",
                     extra={
                         "workorder_id": locked_workorder.pk,
                         "product_id": product_id,
-                        "required_quantity": required_quantity,
+                        "quantity": consume_quantity,
                         "previous_quantity": stock_entry.current_quantity,
                     },
                 )
-                stock_entry.current_quantity -= required_quantity
+                stock_entry.current_quantity -= consume_quantity
                 stock_entry.save(update_fields=["current_quantity"])
 
                 StockMovement.objects.create(
@@ -187,7 +191,7 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
                     stock_product=stock_entry,
                     workorder=locked_workorder,
                     type=StockMovement.MovementType.EXIT,
-                    quantity=required_quantity,
+                    quantity=consume_quantity,
                     status=StockMovement.MovementStatus.APPROVED,
                     transcation_by=user,
                 )
@@ -201,7 +205,42 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
                     },
                 )
         else:
-            logger.info("workorder_stock_approval_no_products_to_decrement", extra={"workorder_id": locked_workorder.pk})
+            logger.info("workorder_stock_approval_no_products_to_consume", extra={"workorder_id": locked_workorder.pk})
+
+        if to_return:
+            return_stock_entries = StockProduct.objects.select_for_update().select_related("product").filter(
+                workshop=locked_workorder.workshop, product_id__in=list(to_return.keys())
+            )
+            return_stock_by_product_id = {getattr(entry, "product_id"): entry for entry in return_stock_entries}
+
+            for product_id, return_quantity in to_return.items():
+                stock_entry = return_stock_by_product_id.get(product_id)
+                if stock_entry is None:
+                    continue
+                logger.info(
+                    "workorder_stock_returning_product",
+                    extra={
+                        "workorder_id": locked_workorder.pk,
+                        "product_id": product_id,
+                        "quantity": return_quantity,
+                        "previous_quantity": stock_entry.current_quantity,
+                    },
+                )
+                stock_entry.current_quantity += return_quantity
+                stock_entry.save(update_fields=["current_quantity"])
+
+                StockMovement.objects.create(
+                    workshop=locked_workorder.workshop,
+                    stock_product=stock_entry,
+                    workorder=locked_workorder,
+                    type=StockMovement.MovementType.ENTRY,
+                    quantity=return_quantity,
+                    status=StockMovement.MovementStatus.APPROVED,
+                    transcation_by=user,
+                    reason="Devolução de excedente por reabertura da O.S.",
+                )
+        else:
+            logger.info("workorder_stock_approval_no_products_to_return", extra={"workorder_id": locked_workorder.pk})
 
         locked_workorder._skip_stock_consumption_guard = True
         locked_workorder.approve()
