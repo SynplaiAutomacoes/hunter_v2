@@ -179,6 +179,7 @@ class IssuedDocumentsFilterMixin:
             if search_raw.isdigit():
                 search_int = int(search_raw)
                 search_filters.append(Q(workorder__budget_id=search_int))
+                search_filters.append(Q(workorder__budget__number=search_int))
                 search_filters.append(Q(reserved_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 
@@ -197,6 +198,7 @@ class IssuedDocumentsFilterMixin:
             if search_raw.isdigit():
                 search_int = int(search_raw)
                 search_filters.append(Q(workorder_id=search_int))
+                search_filters.append(Q(workorder__budget__number=search_int))
                 search_filters.append(Q(reserved_rps_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 

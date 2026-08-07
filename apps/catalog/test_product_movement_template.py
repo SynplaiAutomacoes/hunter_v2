@@ -15,11 +15,34 @@ class ProductMovementTemplateTests(SimpleTestCase):
             type="SAIDA",
             transcation_by=None,
             quantity=1,
+            reason="",
             supplier=None,
             status="APROVADO",
             get_status_display="Aprovado",
+            display_date=timezone.make_aware(datetime(2026, 7, 9, 0, 42)),
+            workorder_reference=None,
         )
 
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
         self.assertIn("Sistema", html)
+        self.assertIn("Motivo", html)
+        self.assertIn("—", html)
+
+    def test_renders_reason_when_present(self) -> None:
+        movement = SimpleNamespace(
+            criado_em=timezone.make_aware(datetime(2026, 7, 9, 0, 42)),
+            type="ENTRADA",
+            transcation_by=None,
+            quantity=2,
+            reason="Inventário físico",
+            supplier=None,
+            status="APROVADO",
+            get_status_display="Aprovado",
+            display_date=timezone.make_aware(datetime(2026, 7, 9, 0, 42)),
+            workorder_reference=None,
+        )
+
+        html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
+
+        self.assertIn("Inventário físico", html)

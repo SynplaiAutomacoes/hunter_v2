@@ -12,6 +12,7 @@
             <th>Tipo</th>
             <th>Responsável</th>
             <th>Qtd.</th>
+            <th>Motivo</th>
             <th>Fornecedor</th>
             <th>Status</th>
           </tr>
@@ -36,6 +37,7 @@
               {% endif %}
             </td>
             <td class="font-bold">{{ m.quantity }}</td>
+            <td class="max-w-xs truncate" title="{{ m.reason }}">{{ m.reason|default:"—" }}</td>
             <td>{{ m.supplier.name|default:"—" }}</td>
             <td>
                 <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
@@ -45,7 +47,7 @@
           </tr>
           {% empty %}
           <tr>
-            <td colspan="7" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
+            <td colspan="8" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
           </tr>
           {% endfor %}
         </tbody>

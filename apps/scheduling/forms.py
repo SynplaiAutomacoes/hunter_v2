@@ -305,7 +305,7 @@ class AppointmentForm(CoreModelForm):
             workorder_field.queryset = workorder_qs
 
             def _budget_label_from_instance(obj):
-                return f"Orçamento #{obj.pk}"
+                return f"Orçamento #{obj.number}"
 
             def _workorder_label_from_instance(obj):
                 return f"O.S. #{obj.get_id}"

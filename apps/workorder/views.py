@@ -396,7 +396,7 @@ class WorkOrderStatusReportDataMixin:
 
     def _get_workorder_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="budget.id", search_by=("budget__id", "id")),
+            TableColumn("Nº", attr="budget.number", search_by=("budget__number", "id")),
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),

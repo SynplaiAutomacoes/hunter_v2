@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -63,6 +63,9 @@ class DashboardMetricsQueryTests(TestCase):
 
     @staticmethod
     def _create_budget(workshop: Workshop, customer: Customer, vehicle: Vehicle, entry_date: date, status: str, budget_type: str) -> Budget:
+        first_approved_at = None
+        if status == BudgetStatus.APPROVED:
+            first_approved_at = timezone.make_aware(datetime(entry_date.year, entry_date.month, entry_date.day, 12, 0, 0))
         return Budget.objects.create(
             workshop=workshop,
             customer=customer,
@@ -71,6 +74,7 @@ class DashboardMetricsQueryTests(TestCase):
             expiration_date=entry_date,
             status=status,
             budget_type=budget_type,
+            first_approved_at=first_approved_at,
         )
 
     @staticmethod
