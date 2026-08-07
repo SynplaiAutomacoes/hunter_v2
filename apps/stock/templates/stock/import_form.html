@@ -36,6 +36,14 @@
                 childContainer.innerHTML = '';
             }
         };
+
+        if (!window.__stockSupplierSavedBound) {
+            window.__stockSupplierSavedBound = true;
+            document.body.addEventListener('supplierSaved', function () {
+                window.closeStockParentModal();
+                window.location.reload();
+            });
+        }
     })();
 </script>
 {% endblock %}

@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import base64
 import gzip
+import json
 import logging
 from typing import Any
 
 from lxml.etree import QName, fromstring
 
 from apps.finance.models.payment_method import PaymentMethod
+from apps.suppliers.models import Supplier
 
 
 logger = logging.getLogger(__name__)
 
 SEFAZ_NFE_NAMESPACE = {"ns": "http://www.portalfiscal.inf.br/nfe"}
+
+
+def build_supplier_saved_trigger(supplier: Supplier) -> str:
+    return json.dumps({"supplierSaved": {"id": str(supplier.pk), "name": supplier.name}})
 
 
 def _normalize_text(value: object) -> str:

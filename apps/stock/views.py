@@ -66,6 +66,7 @@ from ..workshops.models.workshops import Workshop
 from ..workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 from .report_documents import build_stock_report_excel_document, build_stock_report_pdf_render_request, render_stock_report_pdf_document
 from .reporting import build_stock_report_column_options, build_stock_report_pdf_rows, build_stock_report_summary, get_stock_report_columns
+from .utils import build_supplier_saved_trigger
 
 
 @dataclass(frozen=True)
@@ -1497,7 +1498,9 @@ class SupplierQuickCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateVie
         self.object.save()
 
         if self.request.headers.get("HX-Request"):
-            return HttpResponse(headers={"HX-Refresh": "true"})
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = build_supplier_saved_trigger(self.object)
+            return response
 
         return super().form_valid(form)
 
@@ -1523,7 +1526,9 @@ class SupplierQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateVie
         self.object.save()
 
         if self.request.headers.get("HX-Request"):
-            return HttpResponse(headers={"HX-Refresh": "true"})
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = build_supplier_saved_trigger(self.object)
+            return response
 
         return super().form_valid(form)
 
