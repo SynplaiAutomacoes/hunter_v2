@@ -154,6 +154,15 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         "both": "Produtos e Serviços",
     }
 
+    @staticmethod
+    def _empty_nfe_config() -> dict[str, Any]:
+        return {
+            "tax_class": "",
+            "additional_information": "",
+            "freight_mode": "9",
+            "transport_snapshot": {},
+        }
+
     def _default_state(self) -> dict[str, Any]:
         return {
             "current_step": 1,
@@ -162,7 +171,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "pricing_slider": None,
             "discount_type_override": "",
             "note_mode": "",
-            "nfe_config": {"tax_class": "", "additional_information": ""},
+            "nfe_config": self._empty_nfe_config(),
             "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
             "nfe_request_id": None,
             "nfse_request_id": None,
@@ -177,7 +186,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state.update(stored_state)
 
         if not isinstance(state.get("nfe_config"), dict):
-            state["nfe_config"] = {"tax_class": "", "additional_information": ""}
+            state["nfe_config"] = self._empty_nfe_config()
         if not isinstance(state.get("nfse_config"), dict):
             state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
 
@@ -668,6 +677,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfe_request.status = NfeRequestStatus.CHECKING_PRODUCTS
         nfe_request.tax_class = str((state.get("nfe_config") or {}).get("tax_class") or "")
         nfe_request.additional_information = str((state.get("nfe_config") or {}).get("additional_information") or "")
+        nfe_request.freight_mode = int((state.get("nfe_config") or {}).get("freight_mode") or 9)
+        nfe_request.transport_snapshot = dict((state.get("nfe_config") or {}).get("transport_snapshot") or {})
         nfe_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfe_request.discount_type_override = str(state.get("discount_type_override") or "")
         nfe_request.save()
@@ -864,7 +875,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                         "pricing_slider": None,
                         "discount_type_override": "",
                         "note_mode": _normalize_note_mode(self.request.GET.get("tipo")),
-                        "nfe_config": {"tax_class": "", "additional_information": ""},
+                        "nfe_config": self._empty_nfe_config(),
                         "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
                     }
                 )
@@ -921,7 +932,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 if selected_mode == "nfe":
                     state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
                 elif selected_mode == "nfse":
-                    state["nfe_config"] = {"tax_class": "", "additional_information": ""}
+                    state["nfe_config"] = self._empty_nfe_config()
             state["note_mode"] = selected_mode
             next_key = "nfe_config" if selected_mode in {"nfe", "both"} else "nfse_config"
             next_step = self._set_current_step(state=state, step_key=next_key)
@@ -932,6 +943,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfe_config"] = {
                 "tax_class": form.cleaned_data["tax_class"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
+                "freight_mode": form.cleaned_data.get("freight_mode", "9"),
+                "transport_snapshot": form.cleaned_data.get("transport_snapshot", {}),
             }
             self._write_state(state)
             if state.get("note_mode") == "both":
