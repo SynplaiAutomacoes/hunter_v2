@@ -6,7 +6,7 @@ from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWo
 from .fiscal_gateway import FiscalOperationGatewayView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportPdfView, CommissionReportView
-from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
+from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
@@ -65,6 +65,8 @@ __all__ = [
     "NfeRequestListView",
     "NfeRequestReconcileView",
     "NfeRequestUpdateView",
+    "NfeReturnDownloadView",
+    "NfeReturnIssueView",
     "NfseCreateRedirectView",
     "NfseRequestCancelView",
     "NfseDocumentDownloadView",
