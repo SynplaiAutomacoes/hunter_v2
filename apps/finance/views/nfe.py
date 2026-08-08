@@ -19,9 +19,11 @@ from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
-from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus
+from apps.finance.models.finance import FiscalDocumentEvent, FiscalDocumentEventType, NfeItem, NfeRequest, NfeRequestStatus
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
 from apps.finance.views.request_workflow import (
@@ -31,6 +33,7 @@ from apps.finance.views.request_workflow import (
     render_emission_preview_modal,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import has_workshop_perm
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,11 @@ class NfeCancelForm(CoreForm):
 
 class NfeInvalidateForm(CoreForm):
     reason = forms.CharField(min_length=15, max_length=255)
+
+
+class NfeCorrectionForm(CoreForm):
+    correction = forms.CharField(min_length=15, max_length=1000)
+    confirm_legal_restrictions = forms.BooleanField(required=True)
 
 
 def _can_invalidate_nfe_request(*, nfe_request: NfeRequest, latest_item: NfeItem | None) -> bool:
@@ -101,6 +109,17 @@ def _build_field(label: str, value: object) -> dict[str, str]:
     return {"label": label, "value": normalized}
 
 
+def _user_can_issue_cce(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="fiscaldocumentevent",
+        codename="issue_nfe_correction",
+        request=request,
+    )
+
+
 class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = NfeRequest
     workshop_permission_model = "nfserequest"
@@ -116,6 +135,14 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         latest_item = self.object.items.order_by("-id").first()
         can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
         can_invalidate = _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item)
+        can_issue_cce = bool(latest_item and is_nfe_item_eligible_for_cce(latest_item) and _user_can_issue_cce(user=self.request.user, workshop=self.workshop, request=self.request))
+        cce_events = FiscalDocumentEvent.objects.none()
+        if latest_item is not None:
+            cce_events = FiscalDocumentEvent.objects.filter(
+                document__workshop=self.workshop,
+                document__legacy_nfe_item=latest_item,
+                event_type=FiscalDocumentEventType.CCE,
+            ).order_by("event_sequence")
         fallback_back_url = reverse("finance:nfe_list")
         context.update(
             {
@@ -134,9 +161,44 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 ],
                 "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
                 "can_invalidate": can_invalidate,
+                "can_issue_cce": can_issue_cce,
+                "cce_form": NfeCorrectionForm(),
+                "cce_events": cce_events,
             }
         )
         return context
+
+
+class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocumentevent"
+    workshop_permission_codename = "issue_nfe_correction"
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfe_request.items.order_by("-id").first()
+        if not is_nfe_item_eligible_for_cce(latest_item):
+            messages.error(request, "Carta de correcao permitida somente para NF-e autorizada com chave de acesso ou UUID valido.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        form = NfeCorrectionForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Informe a correcao entre 15 e 1000 caracteres e confirme as restricoes legais.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        try:
+            emit_nfe_correction(
+                nfe_item=latest_item,
+                correction_text=str(form.cleaned_data["correction"]),
+                requested_by=request.user,
+                request=request,
+            )
+        except NfeCorrectionError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Carta de correcao enviada com sucesso.")
+
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
 class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -299,6 +361,43 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         identifier = str(item.number or item.access_key or item.uuid or "documento").strip()
         safe_identifier = identifier.replace(" ", "-")
         return f'attachment; filename="nfe-{document_kind}-{safe_identifier}.{extension}"'
+
+
+class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocumentevent"
+    workshop_permission_codename = "download_nfe_correction"
+
+    document_fields = {
+        "xml": ("xml_url", "xml"),
+        "dacce": ("dacce_url", "pdf"),
+    }
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        document_kind = str(kwargs.get("document") or "").strip().lower()
+        if document_kind not in self.document_fields:
+            raise Http404("Documento nao suportado")
+
+        event = get_object_or_404(
+            FiscalDocumentEvent.objects.select_related("document", "document__legacy_nfe_item"),
+            pk=kwargs.get("event_pk"),
+            document__workshop=self.workshop,
+            document__legacy_nfe_item__request=nfe_request,
+            event_type=FiscalDocumentEventType.CCE,
+        )
+        field_name, extension = self.document_fields[document_kind]
+        document_url = str(getattr(event, field_name, "") or "").strip()
+
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        identifier = str(event.remote_uuid or event.document.access_key or event.pk or "documento").strip().replace(" ", "-")
+        response["Content-Disposition"] = f'attachment; filename="nfe-cce-{document_kind}-{identifier}.{extension}"'
+        return response
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")
