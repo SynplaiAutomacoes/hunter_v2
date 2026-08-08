@@ -3,6 +3,7 @@ from __future__ import annotations
 from .financial_group import FinancialGroupBulkDeleteView, FinancialGroupCreateView, FinancialGroupDeleteView, FinancialGroupListView, FinancialGroupUpdateView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
+from .fiscal_gateway import FiscalOperationGatewayView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportPdfView, CommissionReportView
 from .nfe import NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
@@ -31,6 +32,7 @@ __all__ = [
     "DirectorWorkshopAccessMixin",
     "EmissionPreviewView",
     "EmissionRequestCreateView",
+    "FiscalOperationGatewayView",
     "EmissionWorkOrderKitComponentUpdateView",
     "EmissionWorkOrderItemUpdateView",
     "FinancialGroupCreateView",

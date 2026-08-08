@@ -736,7 +736,7 @@ class EmissionStep4Form(CoreForm):
         allowed_note_modes = set(kwargs.pop("allowed_note_modes", {"nfe", "nfse", "both"}))
         availability_message = str(kwargs.pop("availability_message", "") or "").strip()
         form_selector = str(kwargs.pop("form_selector", "#emission-form") or "#emission-form")
-        preview_url = str(kwargs.pop("preview_url", "") or f"{reverse('finance:emission_create')}?step=4&preview=1")
+        preview_url = str(kwargs.pop("preview_url", "") or f"{reverse('finance:emission_normal')}?step=4&preview=1")
         super().__init__(*args, **kwargs)
 
         initial_slider = self.initial.get("pricing_slider", getattr(getattr(workorder, "budget", None), "slider", 0))
