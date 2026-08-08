@@ -64,11 +64,12 @@ class EmissionCreateRedirectBaseView(LoginRequiredMixin, WorkshopScopedMixin, Re
 
     def get_redirect_url(self, *args, **kwargs) -> str:
         note_mode = _normalize_note_mode(self.emission_note_type) or "nfe"
-        return f"{reverse('finance:emission_create')}?tipo={note_mode}&reset=1"
+        return f"{reverse('finance:emission_normal')}?tipo={note_mode}&reset=1"
 
 
 class NfeCreateRedirectView(EmissionCreateRedirectBaseView):
-    emission_note_type = "nfe"
+    def get_redirect_url(self, *args, **kwargs) -> str:
+        return reverse("finance:emission_create")
 
 
 class NfseCreateRedirectView(EmissionCreateRedirectBaseView):
@@ -591,13 +592,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         context["retry_notice"] = self._retry_notice(state=state, step_key=current_step_key)
         context["wizard_state"] = state
         context["selected_workorder"] = self._selected_workorder(state)
-        context["close_emission_url"] = f"{reverse('finance:emission_create')}?close=1"
+        context["close_emission_url"] = f"{reverse('finance:emission_normal')}?close=1"
         context["created_request_actions"] = self._build_created_request_actions(state=state)
         context["ncm_invalid_modal"] = pop_invalid_ncm_modal_context(request=self.request)
         return context
 
     def _step_url(self, step: int) -> str:
-        return f"{reverse('finance:emission_create')}?step={step}"
+        return f"{reverse('finance:emission_normal')}?step={step}"
 
     def _redirect_to_step(self, step: int):
         target_url = self._step_url(step)
