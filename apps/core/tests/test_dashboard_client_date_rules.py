@@ -132,3 +132,33 @@ class DashboardClientDateRulesTests(TestCase):
         # august_approved delivered in July; july_approved delivered in August.
         self.assertEqual(july.approved_count, 1)
         self.assertEqual(august.approved_count, 1)
+
+    @patch("apps.core.infrastructure.services.dashboard_query_service.calculate_aggregate_markup", return_value=Decimal("1.50"))
+    def test_rentability_excludes_warranty_and_courtesy(self, _markup_mock) -> None:
+        customer = self.july_approved.customer
+        vehicle = self.july_approved.vehicle
+        for budget_type in (BudgetType.WARRANTY, BudgetType.COURTESY):
+            budget = Budget.objects.create(
+                workshop=self.workshop,
+                customer=customer,
+                vehicle=vehicle,
+                entry_date=date(2026, 8, 3),
+                expiration_date=date(2026, 8, 10),
+                status=BudgetStatus.APPROVED,
+                budget_type=budget_type,
+            )
+            WorkOrder.objects.create(
+                workshop=self.workshop,
+                budget=budget,
+                status=WorkOrderStatus.APPROVED,
+                budget_type=budget_type,
+                delivered_at=timezone.make_aware(datetime(2026, 8, 4, 11, 0, 0)),
+            )
+
+        august = DashboardQueryService._get_approved_budget_metrics(
+            workshop_id=self.workshop.pk,
+            selected_month=8,
+            selected_year=2026,
+        )
+        # Only the sale OS delivered in August counts; warranty/courtesy are ignored.
+        self.assertEqual(august.approved_count, 1)
