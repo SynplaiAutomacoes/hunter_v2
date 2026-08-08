@@ -977,7 +977,10 @@ class DashboardQueryService:
         total_revenue: Decimal | None = None,
         pricing_context: SimpleNamespace | None = None,
     ) -> ApprovedBudgetMetrics:
-        """Rentability from delivered work orders; markup from DRE for the selected month."""
+        """Rentability from delivered sale work orders; markup from DRE for the selected month.
+
+        Uses OS delivery date (delivered_at / saída do veículo). Excludes warranty and courtesy.
+        """
         delivered_budget_ids = (
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
@@ -987,6 +990,7 @@ class DashboardQueryService:
                 delivered_at__year=selected_year,
                 budget_id__isnull=False,
             )
+            .exclude(budget_type__in=["warranty", "courtesy"])
             .values_list("budget_id", flat=True)
             .distinct()
         )
