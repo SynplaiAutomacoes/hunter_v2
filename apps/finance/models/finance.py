@@ -79,6 +79,15 @@ class NfeItemStatus(models.TextChoices):
     contingencia = "contingencia"
 
 
+class NfeFreightMode(models.IntegerChoices):
+    SENDER = 0, "Por conta do emitente (CIF)"
+    RECIPIENT = 1, "Por conta do destinatario (FOB)"
+    THIRD_PARTY = 2, "Por conta de terceiros"
+    OWN_SENDER = 3, "Transporte proprio do emitente"
+    OWN_RECIPIENT = 4, "Transporte proprio do destinatario"
+    NO_TRANSPORT = 9, "Sem transporte"
+
+
 class NfeRequestStatus(models.TextChoices):
     WAITING_WO = "waiting_wo", "Aguardando Ordem de Serviço"
     CHECKING_CLIENT = "checking_client", "Verificando Cliente"
@@ -574,6 +583,8 @@ class NfeRequest(TimeStampedModel):
     )
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+    freight_mode = models.PositiveSmallIntegerField(verbose_name="Modalidade de frete", choices=NfeFreightMode.choices, default=NfeFreightMode.NO_TRANSPORT)
+    transport_snapshot = models.JSONField(verbose_name="Snapshot de transporte", blank=True, default=dict)
     reserved_number = models.PositiveIntegerField(verbose_name="Número reservado", null=True, blank=True)
     reserved_series = models.PositiveIntegerField(verbose_name="Série reservada", null=True, blank=True)
     invalidation_reason = models.TextField(verbose_name="Motivo da inutilização", blank=True, default="")

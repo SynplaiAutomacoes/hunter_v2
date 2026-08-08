@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('accounts', '0009_remove_logincode_unused_fields'),
-        ('finance', '0047_nfe_correction_support'),
+        ('finance', '0049_nfe_correction_support'),
         ('workshops', '0044_outbound_business_weekdays_all_days'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
