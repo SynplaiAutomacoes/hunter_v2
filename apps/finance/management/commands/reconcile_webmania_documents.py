@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from django.core.management.base import BaseCommand
 
-from apps.finance.models.finance import NfeItem
+from apps.finance.models.finance import FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, NfeItem
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
+from apps.finance.services.nfe_events import NfeCorrectionError, reconcile_cce_event
 
 
 class Command(BaseCommand):
@@ -19,6 +20,7 @@ class Command(BaseCommand):
         processed_webhooks = process_pending_webhook_events(limit=limit)
 
         reconciled = 0
+        reconciled_cce = 0
         failed = 0
         service = get_fiscal_service()
         pending_items = NfeItem.objects.filter(status__in=["processando", "contingencia"]).select_related("workshop", "request").order_by("pk")[:limit]
@@ -30,4 +32,25 @@ class Command(BaseCommand):
             else:
                 reconciled += 1
 
-        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled}. Falhas: {failed}."))
+        pending_cce_events = (
+            FiscalDocumentEvent.objects.filter(
+                event_type=FiscalDocumentEventType.CCE,
+                status__in=[FiscalDocumentEventStatus.SENT, FiscalDocumentEventStatus.PROCESSING, FiscalDocumentEventStatus.UNCERTAIN],
+            )
+            .exclude(remote_uuid="")
+            .select_related("document", "document__workshop")
+            .order_by("pk")[:limit]
+        )
+        for event in pending_cce_events:
+            try:
+                reconcile_cce_event(event=event)
+            except NfeCorrectionError:
+                failed += 1
+            else:
+                reconciled_cce += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled}. Cartas de correcao reconciliadas: {reconciled_cce}. Falhas: {failed}."
+            )
+        )

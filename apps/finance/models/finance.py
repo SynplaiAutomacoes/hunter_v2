@@ -92,6 +92,45 @@ class NfeRequestStatus(models.TextChoices):
     INVALIDATED = "invalidated", "Inutilizada"
 
 
+class FiscalEmissionAttemptStatus(models.TextChoices):
+    STARTED = "started", "Iniciada"
+    SENT = "sent", "Enviada"
+    SUCCEEDED = "succeeded", "Concluída"
+    FAILED = "failed", "Falhou"
+    UNCERTAIN = "uncertain", "Incerta"
+
+
+class FiscalEmissionDocumentKind(models.TextChoices):
+    NFE = "nfe", "NF-e"
+
+
+class FiscalEmissionOperationType(models.TextChoices):
+    CCE = "cce", "Carta de correção"
+
+
+class FiscalDocumentType(models.TextChoices):
+    NFE = "nfe", "NF-e"
+
+
+class FiscalDocumentStatus(models.TextChoices):
+    APPROVED = "aprovado", "Aprovado"
+
+
+class FiscalDocumentEventType(models.TextChoices):
+    CCE = "cce", "Carta de correção"
+
+
+class FiscalDocumentEventStatus(models.TextChoices):
+    STARTED = "started", "Iniciado"
+    SENT = "sent", "Enviado"
+    SUCCEEDED = "succeeded", "Concluído"
+    PROCESSING = "processando", "Processando"
+    APPROVED = "aprovado", "Aprovado"
+    REPROVED = "reprovado", "Reprovado"
+    FAILED = "failed", "Falhou"
+    UNCERTAIN = "uncertain", "Incerto"
+
+
 class TaxClassNfe(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="tax_classes_nfe")
     reference = models.CharField(verbose_name="Referência", max_length=30)
@@ -684,6 +723,102 @@ class NfeItem(models.Model):
         indexes = [
             models.Index(fields=["workshop", "status"]),
         ]
+
+
+class FiscalDocument(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="fiscal_documents")
+    account = models.ForeignKey("accounts.Account", verbose_name="Conta", on_delete=models.PROTECT, null=True, blank=True, related_name="fiscal_documents")
+    document_type = models.CharField(max_length=12, choices=FiscalDocumentType.choices, default=FiscalDocumentType.NFE, db_index=True)
+    legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, related_name="fiscal_document")
+    remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    access_key = models.CharField(max_length=80, blank=True, default="", db_index=True)
+    series = models.CharField(max_length=20, blank=True, default="")
+    number = models.CharField(max_length=40, blank=True, default="")
+    environment = models.CharField(max_length=10, blank=True, default="")
+    status = models.CharField(max_length=20, choices=FiscalDocumentStatus.choices, default=FiscalDocumentStatus.APPROVED, db_index=True)
+    remote_status = models.CharField(max_length=40, blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "legacy_nfe_item"], name="unique_fiscal_document_per_legacy_nfe_item"),
+            models.UniqueConstraint(fields=["workshop", "document_type", "remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_remote_uuid_per_workshop"),
+            models.UniqueConstraint(fields=["workshop", "document_type", "access_key"], condition=~models.Q(access_key=""), name="unique_fiscal_document_access_key_per_workshop"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "document_type", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"FiscalDocument[{self.document_type}:{self.number or self.access_key or self.remote_uuid or self.pk}]"
+
+
+class FiscalDocumentEvent(TimeStampedModel):
+    document = models.ForeignKey(FiscalDocument, verbose_name="Documento fiscal", on_delete=models.CASCADE, related_name="events")
+    event_type = models.CharField(max_length=20, choices=FiscalDocumentEventType.choices, default=FiscalDocumentEventType.CCE, db_index=True)
+    event_sequence = models.PositiveSmallIntegerField()
+    status = models.CharField(max_length=20, choices=FiscalDocumentEventStatus.choices, default=FiscalDocumentEventStatus.STARTED, db_index=True)
+    remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    remote_event_id = models.CharField(max_length=80, blank=True, default="")
+    remote_model = models.CharField(max_length=32, blank=True, default="cce")
+    correction_text = models.TextField(blank=True, default="")
+    request_payload = models.JSONField(blank=True, default=dict)
+    response_payload = models.JSONField(blank=True, default=dict)
+    xml_url = models.URLField(blank=True, default="")
+    dacce_url = models.URLField(blank=True, default="")
+    requested_by = models.ForeignKey("accounts.User", verbose_name="Solicitante", on_delete=models.SET_NULL, null=True, blank=True, related_name="fiscal_document_events")
+    legal_confirmation = models.BooleanField(default=False)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["document", "event_type", "event_sequence"], name="unique_fiscal_document_event_sequence"),
+            models.UniqueConstraint(fields=["remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_event_remote_uuid"),
+        ]
+        indexes = [
+            models.Index(fields=["document", "event_type", "status"]),
+            models.Index(fields=["remote_model", "remote_uuid"]),
+        ]
+        permissions = [
+            ("issue_nfe_correction", "Pode emitir carta de correção NF-e"),
+            ("download_nfe_correction", "Pode baixar XML/DACCE de carta de correção NF-e"),
+        ]
+
+    def __str__(self) -> str:
+        return f"FiscalEvent[{self.event_type}:{self.event_sequence}:{self.status}]"
+
+
+class FiscalEmissionAttempt(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="fiscal_emission_attempts")
+    document_kind = models.CharField(max_length=12, choices=FiscalEmissionDocumentKind.choices, default=FiscalEmissionDocumentKind.NFE)
+    operation_type = models.CharField(max_length=32, choices=FiscalEmissionOperationType.choices, default=FiscalEmissionOperationType.CCE, db_index=True)
+    request_model = models.CharField(max_length=40)
+    request_id = models.PositiveIntegerField()
+    fiscal_document = models.ForeignKey(FiscalDocument, verbose_name="Documento fiscal", on_delete=models.SET_NULL, null=True, blank=True, related_name="emission_attempts")
+    fiscal_document_event = models.ForeignKey(FiscalDocumentEvent, verbose_name="Evento fiscal", on_delete=models.SET_NULL, null=True, blank=True, related_name="emission_attempts")
+    idempotency_key = models.CharField(max_length=160)
+    payload_hash = models.CharField(max_length=64, blank=True, default="")
+    status = models.CharField(max_length=20, choices=FiscalEmissionAttemptStatus.choices, default=FiscalEmissionAttemptStatus.STARTED, db_index=True)
+    remote_model = models.CharField(max_length=32, blank=True, default="")
+    remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    remote_key = models.CharField(max_length=80, blank=True, default="")
+    request_payload = models.JSONField(blank=True, default=dict)
+    response_payload = models.JSONField(blank=True, default=dict)
+    error_message = models.TextField(blank=True, default="")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "document_kind", "idempotency_key"], name="unique_fiscal_attempt_per_intention"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "document_kind", "status"]),
+            models.Index(fields=["operation_type", "status"]),
+            models.Index(fields=["fiscal_document_event"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"FiscalAttempt[{self.document_kind}:{self.idempotency_key}:{self.status}]"
 
 
 class WebmaniaWebhookEvent(TimeStampedModel):

@@ -30,6 +30,12 @@
             Cancelar Nota Fiscal de Produto
         </button>
     {% endif %}
+    {% if can_issue_cce %}
+        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="cce_nfe_modal.showModal()">
+            <span class="material-icons text-sm">edit_note</span>
+            Emitir Carta de Correção
+        </button>
+    {% endif %}
 {% endblock %}
 
 {% block crud_detail_content %}
@@ -137,6 +143,65 @@
                         <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilizacao</a>
                     {% endif %}
                 </div>
+
+                {% if cce_events %}
+                    <div class="mt-8">
+                        <h3 class="mb-3 text-base font-semibold text-base-content">Cartas de correção</h3>
+                        <div class="overflow-x-auto rounded-lg border border-base-200">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Sequência</th>
+                                        <th>Status</th>
+                                        <th>Correção</th>
+                                        <th>Mensagem</th>
+                                        <th>UUID</th>
+                                        <th>Protocolo</th>
+                                        <th>Atualizado em</th>
+                                        <th class="text-right">Documentos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for event in cce_events %}
+                                        <tr>
+                                            <td>{{ event.event_sequence }}</td>
+                                            <td>{{ event.get_status_display }}</td>
+                                            <td class="min-w-64 whitespace-normal">{{ event.correction_text|default:'-' }}</td>
+                                            <td class="min-w-48 whitespace-normal">
+                                                {% if event.response_payload.motivo %}
+                                                    {{ event.response_payload.motivo }}
+                                                {% elif event.response_payload.message %}
+                                                    {{ event.response_payload.message }}
+                                                {% elif event.response_payload.msg %}
+                                                    {{ event.response_payload.msg }}
+                                                {% elif event.response_payload.error %}
+                                                    {{ event.response_payload.error }}
+                                                {% elif event.response_payload.reconciliation_error %}
+                                                    {{ event.response_payload.reconciliation_error }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
+                                            <td class="break-all">{{ event.remote_uuid|default:'-' }}</td>
+                                            <td class="break-all">{{ event.remote_event_id|default:'-' }}</td>
+                                            <td>{{ event.atualizado_em|date:'d/m/Y H:i' }}</td>
+                                            <td class="text-right">
+                                                <div class="flex flex-wrap justify-end gap-2">
+                                                    {% if event.xml_url %}
+                                                        <a href="{% url 'finance:nfe_correction_download' pk=nfe_request.pk event_pk=event.pk document='xml' %}" class="btn btn-outline btn-xs">XML</a>
+                                                    {% endif %}
+                                                    {% if event.dacce_url %}
+                                                        <a href="{% url 'finance:nfe_correction_download' pk=nfe_request.pk event_pk=event.pk document='dacce' %}" class="btn btn-outline btn-xs">DACCE</a>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endif %}
             {% else %}
                 <div class="alert alert-warning">
                     <span>A Nota Fiscal de Produto ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
@@ -167,6 +232,36 @@
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="invalidate_nfe_modal.close()">Cancelar</button>
                         <button type="submit" class="btn btn-warning">Confirmar inutilizacao</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
+    {% if can_issue_cce %}
+        <dialog id="cce_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-2xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfe_correction_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Emitir Carta de Correção</h3>
+                    <div class="alert alert-warning mt-4 text-sm">
+                        <span>A Carta de Correção não pode alterar base de cálculo, alíquota, preço, quantidade, remetente, destinatário, data de emissão ou saída, série ou número da NF-e.</span>
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="nfe-cce-correction" class="label">
+                            <span class="label-text">Correção</span>
+                        </label>
+                        <textarea id="nfe-cce-correction" name="correction" class="textarea textarea-bordered w-full" rows="6" minlength="15" maxlength="1000" required></textarea>
+                    </div>
+
+                    <label class="label cursor-pointer justify-start gap-3 mt-3">
+                        <input type="checkbox" name="confirm_legal_restrictions" class="checkbox checkbox-sm" required>
+                        <span class="label-text">Confirmo que a correção respeita as restrições legais da CC-e.</span>
+                    </label>
+
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="cce_nfe_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Enviar CC-e</button>
                     </div>
                 </form>
             </div>
