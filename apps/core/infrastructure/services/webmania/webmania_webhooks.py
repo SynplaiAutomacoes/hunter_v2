@@ -10,6 +10,14 @@ from apps.core.infrastructure.services.webmania.emission import apply_nfse_batch
 from apps.finance.services.mappers import extract_items_from_batch
 from apps.core.infrastructure.services.webmania.nfe_emission import apply_nfe_item_payload
 from apps.finance.services.nfe_events import NfeCorrectionError, confirm_cce_event_from_payload, validate_cce_payload_identity
+from apps.finance.services.nfe_returns import (
+    NfeReturnError,
+    confirm_nfe_return_document_from_payload,
+    is_ambiguous_nfe_return_webhook,
+    resolve_nfe_return_document_for_webhook,
+    validate_nfe_return_document_link,
+    validate_nfe_return_payload_identity,
+)
 
 
 def extract_event_uuid(payload: dict[str, Any]) -> str:
@@ -77,6 +85,21 @@ def _is_regressive_cce_status(*, current_status: str, incoming_status: str) -> b
         "succeeded": 30,
         "reprovado": 40,
         "failed": 40,
+    }
+    current_rank = ranks.get(str(current_status or "").strip().lower(), 0)
+    incoming_rank = ranks.get(str(incoming_status or "").strip().lower(), 0)
+    return bool(current_rank and incoming_rank and incoming_rank < current_rank)
+
+
+def _is_regressive_nfe_status(*, current_status: str, incoming_status: str) -> bool:
+    ranks = {
+        "processando": 10,
+        "uncertain": 15,
+        "contingencia": 20,
+        "aprovado": 30,
+        "reprovado": 40,
+        "denegado": 40,
+        "cancelado": 50,
     }
     current_rank = ranks.get(str(current_status or "").strip().lower(), 0)
     incoming_rank = ranks.get(str(incoming_status or "").strip().lower(), 0)
@@ -168,6 +191,34 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         return True
 
     if model == "nfe":
+        derived_document = resolve_nfe_return_document_for_webhook(payload=payload)
+        if derived_document is not None:
+            try:
+                with transaction.atomic():
+                    derived_document = derived_document.__class__.objects.select_for_update().get(pk=derived_document.pk)
+                    validate_nfe_return_document_link(document=derived_document)
+                    validate_nfe_return_payload_identity(
+                        document=derived_document,
+                        payload=payload,
+                        expected_uuid=str(derived_document.remote_uuid or "").strip(),
+                        expected_access_key=str(derived_document.access_key or "").strip(),
+                        require_model=True,
+                        require_safe_identifier=True,
+                    )
+                    if not _is_regressive_nfe_status(current_status=derived_document.status, incoming_status=str(payload.get("status") or "")):
+                        confirm_nfe_return_document_from_payload(document=derived_document, response_payload=payload)
+            except NfeReturnError as exc:
+                _mark_event_deferred(event, error=str(exc))
+                return False
+
+            _mark_event_processed(event)
+            return True
+
+        if is_ambiguous_nfe_return_webhook(payload=payload):
+            identifier = event_uuid or str(payload.get("chave") or "").strip()
+            _mark_event_deferred(event, error=f"NF-e de devolução ou estorno {identifier} ambigua entre documentos.")
+            return False
+
         nfe_item = NfeItem.objects.filter(uuid=event_uuid).select_related("request").order_by("-id").first()
         if nfe_item is None:
             _mark_event_deferred(event, error=f"Nota Fiscal {event_uuid} ainda nao foi sincronizada localmente.")

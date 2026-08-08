@@ -106,6 +106,8 @@ class FiscalEmissionDocumentKind(models.TextChoices):
 
 class FiscalEmissionOperationType(models.TextChoices):
     CCE = "cce", "Carta de correção"
+    RETURN = "return", "Devolução"
+    REVERSAL = "reversal", "Estorno"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -113,7 +115,30 @@ class FiscalDocumentType(models.TextChoices):
 
 
 class FiscalDocumentStatus(models.TextChoices):
+    PROCESSING = "processando", "Processando"
     APPROVED = "aprovado", "Aprovado"
+    REPROVED = "reprovado", "Reprovado"
+    CANCELED = "cancelado", "Cancelado"
+    DENIED = "denegado", "Denegado"
+    CONTINGENCY = "contingencia", "Contingência"
+    UNCERTAIN = "uncertain", "Incerto"
+
+
+class FiscalDocumentOrigin(models.TextChoices):
+    LOCAL = "local", "Local"
+    EXTERNAL = "external", "Externo"
+    DERIVED = "derived", "Derivado"
+
+
+class FiscalDocumentPurpose(models.TextChoices):
+    NORMAL = "normal", "Normal"
+    RETURN = "return", "Devolução"
+    REVERSAL = "reversal", "Estorno"
+
+
+class FiscalDocumentLinkRole(models.TextChoices):
+    RETURNS = "returns", "Devolve"
+    REVERSES = "reverses", "Estorna"
 
 
 class FiscalDocumentEventType(models.TextChoices):
@@ -736,14 +761,24 @@ class FiscalDocument(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="fiscal_documents")
     account = models.ForeignKey("accounts.Account", verbose_name="Conta", on_delete=models.PROTECT, null=True, blank=True, related_name="fiscal_documents")
     document_type = models.CharField(max_length=12, choices=FiscalDocumentType.choices, default=FiscalDocumentType.NFE, db_index=True)
-    legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, related_name="fiscal_document")
+    origin = models.CharField(max_length=16, choices=FiscalDocumentOrigin.choices, default=FiscalDocumentOrigin.LOCAL, db_index=True)
+    purpose = models.CharField(max_length=24, choices=FiscalDocumentPurpose.choices, default=FiscalDocumentPurpose.NORMAL, db_index=True)
+    legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, null=True, blank=True, related_name="fiscal_document")
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
     access_key = models.CharField(max_length=80, blank=True, default="", db_index=True)
     series = models.CharField(max_length=20, blank=True, default="")
     number = models.CharField(max_length=40, blank=True, default="")
+    receipt = models.CharField(max_length=40, blank=True, default="")
     environment = models.CharField(max_length=10, blank=True, default="")
     status = models.CharField(max_length=20, choices=FiscalDocumentStatus.choices, default=FiscalDocumentStatus.APPROVED, db_index=True)
     remote_status = models.CharField(max_length=40, blank=True, default="")
+    request_payload = models.JSONField(blank=True, default=dict)
+    response_payload = models.JSONField(blank=True, default=dict)
+    xml_url = models.URLField(blank=True, default="")
+    danfe_url = models.URLField(blank=True, default="")
+    requested_by = models.ForeignKey("accounts.User", verbose_name="Solicitante", on_delete=models.SET_NULL, null=True, blank=True, related_name="requested_fiscal_documents")
+    external_confirmation = models.BooleanField(default=False)
+    external_confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TimeStampedModel.Meta):
         constraints = [
@@ -753,10 +788,35 @@ class FiscalDocument(TimeStampedModel):
         ]
         indexes = [
             models.Index(fields=["workshop", "document_type", "status"]),
+            models.Index(fields=["workshop", "document_type", "origin", "purpose"]),
+        ]
+        permissions = [
+            ("issue_nfe_return", "Pode emitir NF-e de devolução"),
+            ("issue_nfe_reversal", "Pode emitir NF-e de estorno"),
+            ("download_nfe_return", "Pode baixar XML/DANFE de NF-e de devolução ou estorno"),
         ]
 
     def __str__(self) -> str:
         return f"FiscalDocument[{self.document_type}:{self.number or self.access_key or self.remote_uuid or self.pk}]"
+
+
+class FiscalDocumentLink(TimeStampedModel):
+    document = models.ForeignKey(FiscalDocument, verbose_name="Documento derivado", on_delete=models.CASCADE, related_name="links_from")
+    related_document = models.ForeignKey(FiscalDocument, verbose_name="Documento original", on_delete=models.CASCADE, related_name="links_to")
+    role = models.CharField(max_length=24, choices=FiscalDocumentLinkRole.choices, db_index=True)
+    metadata = models.JSONField(blank=True, default=dict)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["document", "related_document", "role"], name="unique_fiscal_document_link_role"),
+        ]
+        indexes = [
+            models.Index(fields=["related_document", "role"]),
+            models.Index(fields=["document", "role"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"FiscalDocumentLink[{self.document_id}->{self.related_document_id}:{self.role}]"
 
 
 class FiscalDocumentEvent(TimeStampedModel):
