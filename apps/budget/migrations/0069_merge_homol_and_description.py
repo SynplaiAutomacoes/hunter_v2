@@ -7,6 +7,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("budget", "0063_fix_budget_discount_type_choice_labels"),
         ("budget", "0067_merge_20260807_1206"),
         ("budget", "0068_merge_description_and_closed_at"),
     ]

@@ -6,6 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
+        ("workorder", "0040_merge_20260801_1957"),
         ("workorder", "0043_workorder_courtesy_reason_fields"),
         ("workorder", "0043_workorder_signature_decline_pending"),
     ]

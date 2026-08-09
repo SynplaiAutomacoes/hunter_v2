@@ -18,7 +18,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
@@ -302,7 +302,7 @@ class IssuedDocumentsFilterMixin:
             "has_xml": has_xml,
             "has_pdf": has_pdf,
             "is_selectable": has_xml or has_pdf,
-            "number": request_obj.number_display_listing,
+            "number": "-" if request_obj.status == NfeRequestStatus.REPROVED else request_obj.number_display,
             "reference": f"Serie {series_value}",
             "workorder_id": request_obj.workorder.get_id,
             "customer_name": request_obj.customer_name,

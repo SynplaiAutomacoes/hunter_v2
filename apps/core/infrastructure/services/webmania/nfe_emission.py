@@ -472,7 +472,7 @@ def _apply_transport_to_nfe_payload(*, payload: dict[str, Any], nfe_request: Nfe
 
     pedido_payload = payload.get("pedido")
     if not isinstance(pedido_payload, dict):
-        raise NfeEmissionError("Pedido invalido ao aplicar dados de transporte na Nota Fiscal.")
+        raise NfeEmissionError("Pedido inválido ao aplicar dados de transporte na Nota Fiscal.")
     pedido_payload["modalidade_frete"] = freight_mode
     if transport_payload:
         payload["transporte"] = transport_payload

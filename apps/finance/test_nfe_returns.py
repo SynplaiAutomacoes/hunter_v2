@@ -281,7 +281,7 @@ class NfeReturnOperationalTests(TestCase):
 
         with self.assertRaisesMessage(NfeReturnError, "excede o saldo"):
             self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}])
-        with self.assertRaisesMessage(NfeReturnError, "nao foi encontrado"):
+        with self.assertRaisesMessage(NfeReturnError, "não foi encontrado"):
             self._draft(item=item, products=[{"sequencial": 99, "quantidade": "1"}])
         with self.assertRaisesMessage(NfeReturnError, "mais de uma vez"):
             self._draft(
@@ -302,7 +302,7 @@ class NfeReturnOperationalTests(TestCase):
         item.save(update_fields=["raw_payload"])
 
         with patch("apps.finance.services.nfe_returns.requests.post") as post_mock:
-            with self.assertRaisesMessage(NfeReturnError, "nao possui snapshot de itens"):
+            with self.assertRaisesMessage(NfeReturnError, "não possui snapshot de itens"):
                 self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}])
 
         post_mock.assert_not_called()
@@ -313,7 +313,7 @@ class NfeReturnOperationalTests(TestCase):
         self._transmit(document=self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}]))
 
         with patch("apps.finance.services.nfe_returns.requests.post") as post_mock:
-            with self.assertRaisesMessage(NfeReturnError, "saldo disponivel"):
+            with self.assertRaisesMessage(NfeReturnError, "saldo disponível"):
                 self._draft(item=item, products=[])
 
         post_mock.assert_not_called()
@@ -326,7 +326,7 @@ class NfeReturnOperationalTests(TestCase):
             patch("apps.finance.services.nfe_returns.requests.post", return_value=_mock_response(self._remote_payload())) as post_mock,
         ):
             transmit_nfe_return_document(document=document)
-            with self.assertRaisesMessage(NfeReturnError, "ja possui envio remoto"):
+            with self.assertRaisesMessage(NfeReturnError, "já possui envio remoto"):
                 transmit_nfe_return_document(document=document)
 
         self.assertEqual(post_mock.call_count, 1)
@@ -508,7 +508,7 @@ class NfeReturnOperationalTests(TestCase):
         document.save(update_fields=["remote_uuid", "status"])
 
         with patch("apps.finance.services.nfe_returns.requests.get") as get_mock:
-            with self.assertRaisesMessage(NfeReturnError, "UUID remoto invalido"):
+            with self.assertRaisesMessage(NfeReturnError, "UUID remoto inválido"):
                 reconcile_nfe_return_document(document=document)
 
         get_mock.assert_not_called()

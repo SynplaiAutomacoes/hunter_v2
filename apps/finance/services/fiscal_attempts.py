@@ -8,7 +8,7 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, FiscalNumberInutilization
 
 
 SENSITIVE_PAYLOAD_KEYS = {
@@ -23,6 +23,7 @@ SENSITIVE_PAYLOAD_KEYS = {
     "senha",
     "token",
 }
+
 _SENSITIVE_QUERY_PATTERN = re.compile(r"([?&](?:token|access_token|authorization)=)[^&]+", flags=re.IGNORECASE)
 
 
@@ -35,26 +36,34 @@ def sanitize_fiscal_payload(value: Any) -> Any:
         sanitized: dict[str, Any] = {}
         for key, nested_value in value.items():
             normalized_key = str(key).strip().lower()
-            if normalized_key in SENSITIVE_PAYLOAD_KEYS or any(fragment in normalized_key for fragment in ("secret", "senha", "token", "certificado", "authorization")):
+            if normalized_key in SENSITIVE_PAYLOAD_KEYS or any(secret_fragment in normalized_key for secret_fragment in ("secret", "senha", "token", "certificado", "authorization")):
                 sanitized[str(key)] = "[REDACTED]"
-            else:
-                sanitized[str(key)] = sanitize_fiscal_payload(nested_value)
+                continue
+            sanitized[str(key)] = sanitize_fiscal_payload(nested_value)
         return sanitized
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list):
+        return [sanitize_fiscal_payload(item) for item in value]
+    if isinstance(value, tuple):
         return [sanitize_fiscal_payload(item) for item in value]
     if isinstance(value, str):
         return _SENSITIVE_QUERY_PATTERN.sub(r"\1[REDACTED]", value)
     return value
 
 
+def build_fiscal_idempotency_key(*, document_kind: str, request_id: int) -> str:
+    return f"{document_kind}:request:{request_id}"
+
+
 def build_fiscal_operation_idempotency_key(*, workshop_id: int, document_id: int, operation_type: str, sequence: int) -> str:
     raw_value = f"{workshop_id}:{document_id}:{operation_type}:{sequence}"
-    return f"{operation_type}:{hashlib.sha256(raw_value.encode('utf-8')).hexdigest()}"
+    digest = hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+    return f"{operation_type}:{digest}"
 
 
 def build_fiscal_document_operation_idempotency_key(*, workshop_id: int, derived_document_id: int, operation_type: str, request_generation: int = 1) -> str:
     raw_value = f"{workshop_id}:{derived_document_id}:{operation_type}:{request_generation}"
-    return f"{operation_type}:{hashlib.sha256(raw_value.encode('utf-8')).hexdigest()}"
+    digest = hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+    return f"{operation_type}:{digest}"
 
 
 def build_payload_hash(payload: dict[str, Any]) -> str:
@@ -64,10 +73,10 @@ def build_payload_hash(payload: dict[str, Any]) -> str:
 
 def _blocked_message(attempt: FiscalEmissionAttempt) -> str:
     if attempt.status == FiscalEmissionAttemptStatus.UNCERTAIN:
-        return "Ja existe uma tentativa fiscal em estado incerto para esta emissao. Consulte ou reconcilie o documento remoto antes de tentar novamente."
+        return "Já existe uma tentativa fiscal em estado incerto para esta emissão. Consulte ou reconcilie o documento remoto antes de tentar novamente."
     if attempt.status == FiscalEmissionAttemptStatus.SUCCEEDED:
-        return "Esta emissao fiscal ja possui uma tentativa remota concluida."
-    return "Ja existe uma tentativa fiscal remota registrada para esta emissao."
+        return "Esta emissão fiscal já possui uma tentativa remota concluída."
+    return "Já existe uma tentativa fiscal remota registrada para esta emissão."
 
 
 def begin_emission_attempt(
@@ -77,13 +86,17 @@ def begin_emission_attempt(
     request_model: str,
     request_id: int,
     request_payload: dict[str, Any],
-    idempotency_key: str,
-    operation_type: str = FiscalEmissionOperationType.CCE,
+    idempotency_key: str | None = None,
+    operation_type: str = FiscalEmissionOperationType.EMISSION,
     fiscal_document: FiscalDocument | None = None,
     fiscal_document_event: FiscalDocumentEvent | None = None,
+    fiscal_number_inutilization: FiscalNumberInutilization | None = None,
     payload_hash: str = "",
 ) -> FiscalEmissionAttempt:
+    idempotency_key = idempotency_key or build_fiscal_idempotency_key(document_kind=document_kind, request_id=request_id)
     sanitized_payload = sanitize_fiscal_payload(request_payload)
+    payload_hash = payload_hash or build_payload_hash(sanitized_payload)
+
     try:
         with transaction.atomic():
             attempt, created = FiscalEmissionAttempt.objects.select_for_update().get_or_create(
@@ -96,8 +109,10 @@ def begin_emission_attempt(
                     "operation_type": operation_type,
                     "fiscal_document": fiscal_document,
                     "fiscal_document_event": fiscal_document_event,
+                    "fiscal_number_inutilization": fiscal_number_inutilization,
                     "request_payload": sanitized_payload,
-                    "payload_hash": payload_hash or build_payload_hash(sanitized_payload),
+                    "payload_hash": payload_hash,
+                    "status": FiscalEmissionAttemptStatus.STARTED,
                 },
             )
             if not created:
