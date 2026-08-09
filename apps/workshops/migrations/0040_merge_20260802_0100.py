@@ -3,8 +3,8 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("finance", "0046_revert_staging_merge"),
-        ("finance", "0090_alter_fiscaldocumentlink_role_and_more"),
+        ("workshops", "0039_alter_workshopcost_profit_margin"),
+        ("workshops", "0039_merge_20260801_1956"),
     ]
 
     operations = []

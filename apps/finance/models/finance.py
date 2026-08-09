@@ -134,6 +134,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     EMISSION = "emission", "Emissão"
     CCE = "cce", "Carta de correção"
     RETURN = "return", "Devolução"
+    TRANSPORT = "transport", "Nota de Transporte"
     REVERSAL = "reversal", "Estorno"
     COMPLEMENTARY_PRICE_QUANTITY = "complementary_price_quantity", "Complementar preço/quantidade"
     ADJUSTMENT = "adjustment", "Ajuste"
@@ -195,6 +196,7 @@ class FiscalDocumentLinkRole(models.TextChoices):
     ADJUSTS = "adjusts", "Ajusta"
     CREDITS = "credits", "Credita"
     DEBITS = "debits", "Debita"
+    TRANSPORTS = "transports", "Transporta"
 
 
 class FiscalDocumentEventType(models.TextChoices):
