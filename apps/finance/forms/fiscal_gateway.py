@@ -11,6 +11,7 @@ class FiscalOperation:
     CORRECTION = "correction"
     COMPLEMENTARY = "complementary"
     ADJUSTMENT = "adjustment"
+    TRANSPORT = "transport"
 
 
 FISCAL_OPERATION_CHOICES: tuple[tuple[str, str], ...] = (
@@ -19,6 +20,7 @@ FISCAL_OPERATION_CHOICES: tuple[tuple[str, str], ...] = (
     (FiscalOperation.CORRECTION, "Carta de Correção"),
     (FiscalOperation.COMPLEMENTARY, "Nota Complementar"),
     (FiscalOperation.ADJUSTMENT, "Nota de Ajuste"),
+    (FiscalOperation.TRANSPORT, "Nota de Transporte"),
 )
 
 

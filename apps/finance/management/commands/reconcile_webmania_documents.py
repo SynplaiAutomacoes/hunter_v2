@@ -17,6 +17,7 @@ from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
 from apps.finance.services.nfe_events import NfeCorrectionError, reconcile_cce_event
 from apps.finance.services.nfe_returns import NfeReturnError, reconcile_nfe_return_document
+from apps.finance.services.transport_requests import TransportRequestError, reconcile_transport_document
 
 
 class Command(BaseCommand):
@@ -32,6 +33,7 @@ class Command(BaseCommand):
         reconciled = 0
         reconciled_cce = 0
         reconciled_returns = 0
+        reconciled_transport = 0
         failed = 0
         service = get_fiscal_service()
         pending_items = NfeItem.objects.filter(status__in=["processando", "contingencia"]).select_related("workshop", "request").order_by("pk")[:limit]
@@ -78,8 +80,25 @@ class Command(BaseCommand):
             else:
                 reconciled_returns += 1
 
+        pending_transport = (
+            FiscalDocument.objects.filter(
+                transport_request__isnull=False,
+                status__in=[FiscalDocumentStatus.PROCESSING, FiscalDocumentStatus.CONTINGENCY, FiscalDocumentStatus.UNCERTAIN],
+            )
+            .exclude(remote_uuid="")
+            .select_related("workshop")
+            .order_by("pk")[:limit]
+        )
+        for document in pending_transport:
+            try:
+                reconcile_transport_document(document=document)
+            except TransportRequestError:
+                failed += 1
+            else:
+                reconciled_transport += 1
+
         self.stdout.write(
             self.style.SUCCESS(
-                f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled}. Cartas de correcao reconciliadas: {reconciled_cce}. Devolucoes/estornos reconciliados: {reconciled_returns}. Falhas: {failed}."
+                f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled}. Cartas de correcao reconciliadas: {reconciled_cce}. Devolucoes/estornos reconciliados: {reconciled_returns}. Notas de Transporte reconciliadas: {reconciled_transport}. Falhas: {failed}."
             )
         )

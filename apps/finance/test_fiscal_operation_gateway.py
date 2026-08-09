@@ -41,7 +41,8 @@ class FiscalOperationGatewayTests(SimpleTestCase):
     def test_gateway_exposes_only_selected_nfe_operations(self) -> None:
         request = self.factory.get("/finance/emissao/")
         view = self._build_view(request)
-        response = view.get(request)
+        with patch("apps.finance.views.fiscal_gateway.has_workshop_perm", return_value=True):
+            response = view.get(request)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.template_name, ["finance/fiscal_operation_gateway.html"])
@@ -51,7 +52,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         )
         self.assertEqual(
             {value for value, _label in FISCAL_OPERATION_CHOICES},
-            {"normal", "return", "correction", "complementary", "adjustment"},
+            {"normal", "return", "correction", "complementary", "adjustment", "transport"},
         )
 
     def test_normal_operation_redirects_to_existing_wizard_with_reset(self) -> None:
@@ -104,6 +105,17 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
                 expected_url = f"{reverse('finance:issued_documents_list')}?tipo=nfe&operacao={operation}"
                 self.assertRedirects(response, expected_url, fetch_redirect_response=False)
+
+    def test_transport_operation_redirects_to_independent_workflow(self) -> None:
+        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.TRANSPORT})
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        with patch("apps.finance.views.fiscal_gateway.has_workshop_perm", return_value=True):
+            response = view.form_valid(form)
+
+        self.assertRedirects(response, reverse("finance:transport_create"), fetch_redirect_response=False)
 
     def test_nfe_redirect_opens_gateway_while_nfse_keeps_existing_wizard(self) -> None:
         nfe_view = NfeCreateRedirectView()
