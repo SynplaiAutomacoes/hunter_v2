@@ -23,6 +23,7 @@ from apps.finance.forms.emission_ui import (
     clamp_slider_value,
     format_money,
 )
+from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
@@ -725,7 +726,7 @@ class EmissionStep4Form(CoreForm):
         slider_field = self.fields["pricing_slider"]
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
-                preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
+                preview_url=f"{reverse('finance:emission_normal')}?step=4&preview=1",
                 include_selector="#emission-form",
                 target_selector="#emission-preview-block",
                 swap="none",
@@ -869,6 +870,11 @@ class EmissionNfeConfigForm(CoreForm):
         selected_slider = int(kwargs.pop("selected_slider", 0) or 0)
         discount_type_override = str(kwargs.pop("discount_type_override", "") or "")
         super().__init__(*args, **kwargs)
+        configure_nfe_transport_form(
+            form=self,
+            snapshot=self.initial.get("transport_snapshot", {}),
+            freight_mode=self.initial.get("freight_mode", 9),
+        )
 
         dropdown_choices = [("", "Selecione a classe de imposto")]
         dropdown_choices.extend(tax_class_choices)
@@ -898,6 +904,7 @@ class EmissionNfeConfigForm(CoreForm):
                 HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serão enviados na Nota Fiscal de Produto e selecione a classe de imposto.</p>"),
                 Field("tax_class"),
                 Field("additional_information"),
+                build_nfe_transport_form_layout(),
                 HTML(warning_html),
                 HTML(preview_html),
                 css_class="space-y-4",
@@ -913,6 +920,12 @@ class EmissionNfeConfigForm(CoreForm):
     def clean_additional_information(self) -> str:
         value = str(self.cleaned_data.get("additional_information") or "").strip()
         return sentence_case(value) if value else value
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        if not self.errors:
+            cleaned_data["transport_snapshot"] = clean_nfe_transport_form(cleaned_data)
+        return cleaned_data
 
 
 class EmissionNfseConfigForm(CoreForm):
