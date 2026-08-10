@@ -71,6 +71,7 @@ class MovementStep1Form(FinancialMovementBaseForm):
                     const personType = document.querySelector('[name="person_type"]');
                     const entityField = document.querySelector('[name="entity"]');
                     const directionField = document.querySelector('[name="direction"]');
+                    const supplierQuickBtn = document.getElementById('supplier-quick-btn');
 
                     const step2 = document.getElementById('step-2');
                     const step3 = document.getElementById('step-3');
@@ -89,6 +90,24 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         }
                     }
 
+                    function syncSupplierQuickButton() {
+                        if (!supplierQuickBtn) return;
+
+                        if (personType.value === 'supplier') {
+                            supplierQuickBtn.classList.remove('hidden');
+                            const hasSupplier = Boolean(entityField.value);
+                            supplierQuickBtn.classList.toggle('btn-warning', hasSupplier);
+                            supplierQuickBtn.classList.toggle('btn-primary', !hasSupplier);
+                            supplierQuickBtn.title = hasSupplier ? 'Editar Fornecedor' : 'Cadastrar Fornecedor';
+                            const icon = supplierQuickBtn.querySelector('.material-icons');
+                            if (icon) {
+                                icon.textContent = hasSupplier ? 'edit' : 'note_add';
+                            }
+                        } else {
+                            supplierQuickBtn.classList.add('hidden');
+                        }
+                    }
+
                     function handleDirection() {
                         updateTitles();
 
@@ -102,10 +121,42 @@ class MovementStep1Form(FinancialMovementBaseForm):
                             personType.value = "";
                             entityField.innerHTML = "";
                             resumeContainer.innerHTML = "";
+                            syncSupplierQuickButton();
                         }
                     }
 
-                    function loadEntities() {
+                    function selectEntityOption(entityId, entityName) {
+                        if (!entityId) return;
+
+                        const container = entityField.closest('[x-data]');
+                        if (!container || !window.Alpine) return;
+
+                        const alpineData = Alpine.$data(container);
+                        const optionsList = container.querySelector('[x-ref="options"]');
+                        if (!optionsList || !alpineData || typeof alpineData.select !== 'function') return;
+
+                        const selectedId = String(entityId);
+                        const selectedName = entityName || 'Fornecedor';
+                        let option = optionsList.querySelector(`li[data-value='${selectedId}']`);
+
+                        if (!option) {
+                            option = document.createElement('li');
+                            option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
+                            option.dataset.value = selectedId;
+                            option.dataset.label = selectedName;
+                            option.dataset.searchText = selectedName.toLowerCase();
+                            option.setAttribute('x-show', "!search || $el.dataset.searchText.includes(search.toLowerCase())");
+                            option.setAttribute('@click', 'select($el)');
+                            option.innerHTML = `<span class="block truncate" :class="{'font-bold': value == '${selectedId}'}">${selectedName}</span>`;
+                            optionsList.appendChild(option);
+                        }
+
+                        alpineData.select(option);
+                        syncSupplierQuickButton();
+                        loadDetails();
+                    }
+
+                    function loadEntities(selectedEntity) {
                         const type = personType.value;
                         const entityTitle = document.getElementById('entity-title');
 
@@ -114,7 +165,8 @@ class MovementStep1Form(FinancialMovementBaseForm):
                             step4.classList.add('hidden');
                     
                             entityTitle.innerText = "Fornecedor/Colaborador";
-                            return;
+                            syncSupplierQuickButton();
+                            return Promise.resolve();
                         }
 
                         // Atualiza o título dinamicamente
@@ -125,8 +177,9 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         }
                     
                         step3.classList.remove('hidden');
+                        syncSupplierQuickButton();
 
-                        fetch(`/finance/entities?type=${type}`, {
+                        return fetch(`/finance/entities?type=${type}`, {
                             headers: { 'X-Requested-With': 'XMLHttpRequest' }
                         })
                         .then(r => r.json())
@@ -173,6 +226,12 @@ class MovementStep1Form(FinancialMovementBaseForm):
                             noResults.className = "py-2 pl-3 text-gray-500 italic";
                             noResults.textContent = "Nenhum resultado encontrado...";
                             optionsList.appendChild(noResults);
+
+                            if (selectedEntity && selectedEntity.id) {
+                                selectEntityOption(selectedEntity.id, selectedEntity.name);
+                            } else {
+                                syncSupplierQuickButton();
+                            }
                         });
                     }
 
@@ -182,10 +241,12 @@ class MovementStep1Form(FinancialMovementBaseForm):
 
                         if (!id) {
                             step4.classList.add('hidden');
+                            syncSupplierQuickButton();
                             return;
                         }
 
                         step4.classList.remove('hidden');
+                        syncSupplierQuickButton();
 
                         fetch(`/finance/entity_details?type=${type}&id=${id}`, {
                             headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -196,14 +257,72 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         });
                     }
 
+                    function openSupplierQuickForm() {
+                        const supplierId = entityField.value;
+                        const url = supplierId
+                            ? `/stock/supplier/quick-update/${supplierId}/`
+                            : '/stock/supplier/quick-create/';
+                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                    }
+
+                    function selectPersonType(value) {
+                        const container = personType.closest('[x-data]');
+                        if (!container || !window.Alpine) {
+                            personType.value = value;
+                            personType.dispatchEvent(new Event('change', { bubbles: true }));
+                            return;
+                        }
+
+                        const alpineData = Alpine.$data(container);
+                        const optionsList = container.querySelector('[x-ref="options"]');
+                        const option = optionsList ? optionsList.querySelector(`li[data-value='${value}']`) : null;
+                        if (option && typeof alpineData.select === 'function') {
+                            alpineData.select(option);
+                        } else {
+                            personType.value = value;
+                            personType.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+
                     directionField.addEventListener('change', handleDirection);
-                    personType.addEventListener('change', loadEntities);
+                    personType.addEventListener('change', function() {
+                        if (window.__financeSelectingSupplier) return;
+                        loadEntities();
+                        syncSupplierQuickButton();
+                    });
                     entityField.addEventListener('change', loadDetails);
+                    if (supplierQuickBtn) {
+                        supplierQuickBtn.addEventListener('click', openSupplierQuickForm);
+                    }
+
+                    if (!window.__financeSupplierSavedBound) {
+                        window.__financeSupplierSavedBound = true;
+                        document.body.addEventListener('supplierSaved', function (evt) {
+                            const modalContainer = document.getElementById('modal-container');
+                            if (modalContainer) {
+                                modalContainer.innerHTML = '';
+                            }
+
+                            const supplier = evt && evt.detail ? evt.detail : null;
+                            if (!supplier || !supplier.id) return;
+
+                            if (personType.value !== 'supplier') {
+                                window.__financeSelectingSupplier = true;
+                                try {
+                                    selectPersonType('supplier');
+                                } finally {
+                                    window.__financeSelectingSupplier = false;
+                                }
+                            }
+                            loadEntities(supplier);
+                        });
+                    }
 
                     // Estado inicial
                     handleDirection();
                     loadEntities();
                     loadDetails();
+                    syncSupplierQuickButton();
                 });
             </script>"""),
             Div(
@@ -219,7 +338,26 @@ class MovementStep1Form(FinancialMovementBaseForm):
                 ),
                 Div(
                     # Opção 3
-                    Div(HTML('<h2 id="entity-title" class="text-xl font-bold mb-4">Fornecedor/Colaborador</h2>'), Field("entity"), css_id="step-3"),
+                    Div(
+                        HTML('<h2 id="entity-title" class="text-xl font-bold mb-4">Fornecedor/Colaborador</h2>'),
+                        Div(
+                            Div(Field("entity"), css_class="flex-grow"),
+                            HTML(
+                                """
+                                <button
+                                    id="supplier-quick-btn"
+                                    type="button"
+                                    class="btn btn-circle btn-primary mb-2 ml-2 hidden"
+                                    title="Cadastrar Fornecedor"
+                                >
+                                    <span class="material-icons">note_add</span>
+                                </button>
+                                """
+                            ),
+                            css_class="flex items-end mb-2",
+                        ),
+                        css_id="step-3",
+                    ),
                     # Opção 4
                     Div(HTML('<h2 class="text-xl font-bold mt-15 mb-4">Confirme os dados</h2>'), Div(id="entity-details"), css_class="hidden", css_id="step-4"),
                     css_class="col-span-12 lg:col-span-6",
