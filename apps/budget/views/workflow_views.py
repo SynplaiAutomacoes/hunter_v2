@@ -199,7 +199,7 @@ BUDGET_STATUS_BADGE_CLASSES = {
     BudgetStatus.WAITING_REVIEW: "badge-info min-w-sm",
     BudgetStatus.APPROVED: "badge-success min-w-sm",
     BudgetStatus.REJECTED: "badge-error min-w-sm",
-    BudgetStatus.CANCELLED: "badge-error min-w-sm",
+    BudgetStatus.CANCELLED: "badge-warning min-w-sm",
 }
 BUDGET_TYPE_BADGE_CLASSES = {
     BudgetType.SALE: "badge-success min-w-sm",
@@ -673,6 +673,8 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
         form_kwargs = self.get_form_kwargs()
+        if step != self.get_current_step():
+            form_kwargs.pop("data", None)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object

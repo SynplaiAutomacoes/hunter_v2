@@ -67,144 +67,181 @@ class MovementStep1Form(FinancialMovementBaseForm):
         self.helper.layout = Layout(
             HTML("""
             <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    const personType = document.querySelector('[name="person_type"]');
-                    const entityField = document.querySelector('[name="entity"]');
-                    const directionField = document.querySelector('[name="direction"]');
-
-                    const step2 = document.getElementById('step-2');
-                    const step3 = document.getElementById('step-3');
-                    const step4 = document.getElementById('step-4');
-
-                    const personTitle = document.getElementById('person-title');
-                    const resumeContainer = document.getElementById('entity-details');
-
-                    function updateTitles() {
-                        const direction = directionField.value;
-
-                        if (direction === "DEBIT") {
-                            personTitle.innerText = "Escolha o credor";
-                        } else if (direction === "CREDIT") {
-                            personTitle.innerText = "Escolha o devedor";
+                (function initMovementStep1() {
+                    function getSearchableData(input) {
+                        if (!input || !window.Alpine) {
+                            return null;
+                        }
+                        const container = input.closest('[x-data]');
+                        if (!container) {
+                            return null;
+                        }
+                        try {
+                            return Alpine.$data(container);
+                        } catch (error) {
+                            return null;
                         }
                     }
 
-                    function handleDirection() {
-                        updateTitles();
-
-                        if (directionField.value) {
-                            step2.classList.remove('hidden');
-                        } else {
-                            step2.classList.add('hidden');
-                            step3.classList.add('hidden');
-                            step4.classList.add('hidden');
-
-                            personType.value = "";
-                            entityField.innerHTML = "";
-                            resumeContainer.innerHTML = "";
-                        }
-                    }
-
-                    function loadEntities() {
-                        const type = personType.value;
-                        const entityTitle = document.getElementById('entity-title');
-
-                        if (!type) {
-                            step3.classList.add('hidden');
-                            step4.classList.add('hidden');
-                    
-                            entityTitle.innerText = "Fornecedor/Colaborador";
+                    function clearSearchable(input, { clearOptions = false } = {}) {
+                        const alpineData = getSearchableData(input);
+                        if (!alpineData) {
+                            if (input) {
+                                input.value = '';
+                            }
                             return;
                         }
-
-                        // Atualiza o título dinamicamente
-                        if (type === "supplier") {
-                            entityTitle.innerText = "Fornecedor";
-                        } else if (type === "collaborator") {
-                            entityTitle.innerText = "Colaborador";
+                        if (typeof alpineData.clear === 'function') {
+                            alpineData.clear();
                         }
-                    
-                        step3.classList.remove('hidden');
+                        if (clearOptions && typeof alpineData.setOptions === 'function') {
+                            alpineData.setOptions([]);
+                        }
+                    }
 
-                        fetch(`/finance/entities?type=${type}`, {
-                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                        })
-                        .then(r => r.json())
-                        .then(data => {
-                            // Encontra o container do SearchableSelectInput (tem x-data)
-                            const container = entityField.closest('[x-data]');
-                            if (!container) return;
+                    function setSearchableOptions(input, options) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.setOptions === 'function') {
+                            alpineData.setOptions(options);
+                            return;
+                        }
+                        const container = input && input.closest('[x-data]');
+                        if (!container) {
+                            return;
+                        }
+                        container.dispatchEvent(new CustomEvent('searchable-set-options', {
+                            detail: { options },
+                            bubbles: true,
+                        }));
+                    }
 
-                            // Acessa os dados do Alpine se possível, ou apenas manipula o DOM
-                            const optionsList = container.querySelector('[x-ref="options"]');
-                            if (!optionsList) return;
+                    function bindMovementStep1() {
+                        const personType = document.querySelector('[name="person_type"]');
+                        const entityField = document.querySelector('[name="entity"]');
+                        const directionField = document.querySelector('[name="direction"]');
 
-                            // Limpa o valor atual no componente Alpine
-                            if (window.Alpine) {
-                                const alpineData = Alpine.$data(container);
-                                if (alpineData && typeof alpineData.clear === 'function') {
-                                    alpineData.clear();
+                        const step2 = document.getElementById('step-2');
+                        const step3 = document.getElementById('step-3');
+                        const step4 = document.getElementById('step-4');
+
+                        const personTitle = document.getElementById('person-title');
+                        const resumeContainer = document.getElementById('entity-details');
+
+                        if (!personType || !entityField || !directionField || !step2 || !step3 || !step4) {
+                            return;
+                        }
+                        if (personType.dataset.movementStep1Bound === '1') {
+                            return;
+                        }
+                        personType.dataset.movementStep1Bound = '1';
+
+                        function updateTitles() {
+                            if (!personTitle) {
+                                return;
+                            }
+                            const direction = directionField.value;
+
+                            if (direction === "DEBIT") {
+                                personTitle.innerText = "Escolha o credor";
+                            } else if (direction === "CREDIT") {
+                                personTitle.innerText = "Escolha o devedor";
+                            }
+                        }
+
+                        function handleDirection() {
+                            updateTitles();
+
+                            if (directionField.value) {
+                                step2.classList.remove('hidden');
+                            } else {
+                                step2.classList.add('hidden');
+                                step3.classList.add('hidden');
+                                step4.classList.add('hidden');
+
+                                clearSearchable(personType, { clearOptions: false });
+                                clearSearchable(entityField, { clearOptions: true });
+                                if (resumeContainer) {
+                                    resumeContainer.innerHTML = "";
+                                }
+                            }
+                        }
+
+                        function loadEntities() {
+                            const type = personType.value;
+                            const entityTitle = document.getElementById('entity-title');
+
+                            if (!type) {
+                                step3.classList.add('hidden');
+                                step4.classList.add('hidden');
+                                clearSearchable(entityField, { clearOptions: true });
+                                if (entityTitle) {
+                                    entityTitle.innerText = "Fornecedor/Colaborador";
+                                }
+                                return;
+                            }
+
+                            if (entityTitle) {
+                                if (type === "supplier") {
+                                    entityTitle.innerText = "Fornecedor";
+                                } else if (type === "collaborator") {
+                                    entityTitle.innerText = "Colaborador";
                                 }
                             }
 
-                            optionsList.innerHTML = "";
+                            step3.classList.remove('hidden');
 
-                            data.forEach(item => {
-                                const li = document.createElement("li");
-                                li.setAttribute("x-show", "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                                li.setAttribute("@click", "select($el)");
-                                li.dataset.value = item.id;
-                                li.dataset.label = item.name;
-                                li.dataset.searchText = item.name.toLowerCase();
-                                li.className = "relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group";
-                                
-                                const span = document.createElement("span");
-                                span.className = "block truncate";
-                                span.setAttribute(":class", `{'font-bold': value == '${item.id}'}`);
-                                span.textContent = item.name;
-                                
-                                li.appendChild(span);
-                                optionsList.appendChild(li);
+                            fetch(`/finance/entities?type=${type}`, {
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                            })
+                            .then(r => r.json())
+                            .then(data => {
+                                const options = (Array.isArray(data) ? data : []).map((item) => ({
+                                    value: item.id,
+                                    label: item.name,
+                                }));
+
+                                clearSearchable(entityField);
+                                setSearchableOptions(entityField, options);
                             });
-
-                            // Adiciona a mensagem de "Nenhum resultado"
-                            const noResults = document.createElement("li");
-                            noResults.setAttribute("x-show", "search && $refs.options.querySelectorAll('li[data-value]:not([style*=\\'display: none\\'])').length === 0");
-                            noResults.className = "py-2 pl-3 text-gray-500 italic";
-                            noResults.textContent = "Nenhum resultado encontrado...";
-                            optionsList.appendChild(noResults);
-                        });
-                    }
-
-                    function loadDetails() {
-                        const id = entityField.value;
-                        const type = personType.value;
-
-                        if (!id) {
-                            step4.classList.add('hidden');
-                            return;
                         }
 
-                        step4.classList.remove('hidden');
+                        function loadDetails() {
+                            const id = entityField.value;
+                            const type = personType.value;
 
-                        fetch(`/finance/entity_details?type=${type}&id=${id}`, {
-                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                        })
-                        .then(r => r.text())
-                        .then(html => {
-                            resumeContainer.innerHTML = html;
-                        });
+                            if (!id) {
+                                step4.classList.add('hidden');
+                                return;
+                            }
+
+                            step4.classList.remove('hidden');
+
+                            fetch(`/finance/entity_details?type=${type}&id=${id}`, {
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                            })
+                            .then(r => r.text())
+                            .then(html => {
+                                if (resumeContainer) {
+                                    resumeContainer.innerHTML = html;
+                                }
+                            });
+                        }
+
+                        directionField.addEventListener('change', handleDirection);
+                        personType.addEventListener('change', loadEntities);
+                        entityField.addEventListener('change', loadDetails);
+
+                        handleDirection();
+                        loadEntities();
+                        loadDetails();
                     }
 
-                    directionField.addEventListener('change', handleDirection);
-                    personType.addEventListener('change', loadEntities);
-                    entityField.addEventListener('change', loadDetails);
-
-                    // Estado inicial
-                    handleDirection();
-                    loadEntities();
-                    loadDetails();
-                });
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', bindMovementStep1);
+                    } else {
+                        bindMovementStep1();
+                    }
+                })();
             </script>"""),
             Div(
                 Div(

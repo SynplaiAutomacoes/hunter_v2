@@ -123,14 +123,18 @@ def _description_from_item(item: Any, product: Any | None, product_id: int | Non
     return f"Produto {product_id}"
 
 
-def annotate_product_issues(*, workshop: Any, items: Iterable[Any]) -> ProductIssueSummary:
+def annotate_product_issues(*, workshop: Any, items: Iterable[Any], check_stock: bool = True) -> ProductIssueSummary:
     items_list = list(items)
     product_ids = {_product_id_from_item(item) for item in items_list}
     product_ids.discard(None)
 
-    stock_by_product_id = get_stock_quantities(
-        workshop=workshop,
-        product_ids=product_ids,
+    stock_by_product_id = (
+        get_stock_quantities(
+            workshop=workshop,
+            product_ids=product_ids,
+        )
+        if check_stock
+        else {}
     )
 
     issues: list[ProductIssue] = []
@@ -139,11 +143,14 @@ def annotate_product_issues(*, workshop: Any, items: Iterable[Any]) -> ProductIs
         product = _product_object_from_item(item)
         quantity = int(getattr(item, "quantity", 0) or 0)
 
-        stock_quantity = stock_by_product_id.get(product_id, 0) if product_id is not None else None
+        stock_quantity = stock_by_product_id.get(product_id, 0) if check_stock and product_id is not None else None
         is_customer_supplied = bool(getattr(item, "is_customer_supplied", False))
         excess_quantity = (
-            0 if is_customer_supplied else
-            max(quantity - max(stock_quantity or 0, 0), 0) if stock_quantity is not None else 0
+            0
+            if not check_stock or is_customer_supplied
+            else max(quantity - max(stock_quantity or 0, 0), 0)
+            if stock_quantity is not None
+            else 0
         )
         invalid_ncm = has_invalid_ncm(product)
         warning_messages: tuple[str, ...] = ()

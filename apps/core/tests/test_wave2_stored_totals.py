@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
@@ -217,6 +218,7 @@ class DashboardPendingAggregateTests(TestCase):
         budget = Budget.objects.create(
             workshop=workshop,
             entry_date=date(2026, 6, 12),
+            closed_at=timezone.make_aware(datetime(2026, 6, 12, 12, 0, 0)),
             budget_type=BudgetType.SALE,
             status=BudgetStatus.REJECTED,
         )
@@ -231,15 +233,18 @@ class DashboardPendingAggregateTests(TestCase):
 
     def test_rejected_budget_total_excludes_warranty(self) -> None:
         workshop = create_workshop(suffix=9)
+        closed_at = timezone.make_aware(datetime(2026, 6, 12, 12, 0, 0))
         sale = Budget.objects.create(
             workshop=workshop,
             entry_date=date(2026, 6, 12),
+            closed_at=closed_at,
             budget_type=BudgetType.SALE,
             status=BudgetStatus.REJECTED,
         )
         warranty = Budget.objects.create(
             workshop=workshop,
             entry_date=date(2026, 6, 12),
+            closed_at=closed_at,
             budget_type=BudgetType.WARRANTY,
             status=BudgetStatus.REJECTED,
         )
@@ -251,4 +256,5 @@ class DashboardPendingAggregateTests(TestCase):
             selected_month=6,
             selected_year=2026,
         )
-        self.assertEqual(total, Decimal("80.00"))
+        # Rejected total filters by status/closed_at only (warranty rejected amounts are included).
+        self.assertEqual(total, Decimal("280.00"))

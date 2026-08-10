@@ -1522,14 +1522,25 @@ class ManualLinkItemEditForm(CoreForm):
         quantity = Decimal(str(self.cleaned_data["quantity"] or 0))
         unit_cost = self.cleaned_data["unit_cost"]
         selling_price = self.cleaned_data["selling_price"]
+        selling_price_amount = selling_price.amount.quantize(MONEY_QUANTIZER)
+        confirm_lower_price = str(self.cleaned_data.get("confirm_lower_price") or "").strip() == "1"
 
         item_data = dict(existing_item or {})
         item_data.setdefault("ref", str(self.product.code))
         item_data.setdefault("desc", str(self.product.name))
         item_data["qtd"] = str(quantity)
         item_data["valor"] = str(unit_cost.amount.quantize(MONEY_QUANTIZER))
-        item_data["selling_price"] = str(selling_price.amount.quantize(MONEY_QUANTIZER))
+        item_data["selling_price"] = str(selling_price_amount)
         item_data["linked_product_id"] = str(self.product.pk)
+
+        warning = build_product_price_warning(product=self.product, attempted_price=selling_price)
+        if warning and confirm_lower_price:
+            item_data["lower_price_confirmed"] = True
+            item_data["lower_price_confirmed_selling_price"] = str(selling_price_amount)
+        else:
+            item_data.pop("lower_price_confirmed", None)
+            item_data.pop("lower_price_confirmed_selling_price", None)
+
         return item_data
 
     def clean_product_id(self) -> int:
@@ -1608,19 +1619,28 @@ class ImportManualItemsForm(CoreModelForm):
                 HTML(f'<input type="hidden" name="confirm_lower_price" id="manual-confirm-lower-price-input" value="{confirm_lower_price_value}">'),
                 HTML("""
                     {% if form.non_field_errors %}
-                        <div class="alert alert-warning mb-4">
-                            <span class="material-icons">warning</span>
-                            <div class="space-y-1 text-sm">
-                                {% for error in form.non_field_errors %}
-                                    <p>{{ error }}</p>
-                                {% endfor %}
+                        <div class="alert alert-warning mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div class="flex items-start gap-2">
+                                <span class="material-icons">warning</span>
+                                <div class="space-y-1 text-sm">
+                                    {% for error in form.non_field_errors %}
+                                        <p>{{ error }}</p>
+                                    {% endfor %}
+                                    <p class="opacity-80">O valor de venda está abaixo do último valor utilizado. Você pode continuar mesmo assim.</p>
+                                </div>
                             </div>
+                            <button type="submit"
+                                    form="import-form"
+                                    name="confirm_lower_price_btn"
+                                    value="1"
+                                    class="btn btn-warning btn-sm whitespace-nowrap">
+                                Continuar mesmo assim
+                            </button>
                         </div>
                     {% endif %}
                 """),
                 HTML(self._generate_manual_table_html()),
                 HTML(self._build_lower_price_warning_modal()),
-                HTML(self._build_lower_price_warning_script()),
                 css_class="mt-4",
             )
         )
@@ -1696,13 +1716,34 @@ class ImportManualItemsForm(CoreModelForm):
 
         return rows
 
-    def _sync_instance_items_from_rows(self, rows: list[dict[str, Any]]) -> None:
+    @staticmethod
+    def _item_has_lower_price_confirmation(item: dict[str, Any], selling_price: Decimal) -> bool:
+        if not item.get("lower_price_confirmed"):
+            return False
+
+        confirmed_price = _parse_decimal_value(item.get("lower_price_confirmed_selling_price"))
+        if confirmed_price is None:
+            return False
+
+        return confirmed_price.quantize(MONEY_QUANTIZER) == selling_price
+
+    def _sync_instance_items_from_rows(self, rows: list[dict[str, Any]], *, confirm_lower_price: bool = False) -> None:
         items = [dict(item) for item in (self.instance.items_data or [])]
         for row in rows:
             item = items[row["idx"]]
+            selling_price = str(row["selling_price"])
             item["qtd"] = str(row["quantity"])
             item["valor"] = str(row["unit_cost"])
-            item["selling_price"] = str(row["selling_price"])
+            item["selling_price"] = selling_price
+
+            warning = build_product_price_warning(product=row["product"], attempted_price=Money(row["selling_price"], "BRL"))
+            if warning and (confirm_lower_price or self._item_has_lower_price_confirmation(item, row["selling_price"])):
+                item["lower_price_confirmed"] = True
+                item["lower_price_confirmed_selling_price"] = selling_price
+            elif not warning:
+                item.pop("lower_price_confirmed", None)
+                item.pop("lower_price_confirmed_selling_price", None)
+
         self.instance.items_data = items
 
     def _generate_manual_table_html(self) -> str:
@@ -1720,13 +1761,20 @@ class ImportManualItemsForm(CoreModelForm):
 
             estoque_atual = product.stock_products.current_quantity if hasattr(product, "stock_products") else 0
             last_used_price = getattr(product, "last_used_price", None)
+            selling_price_amount = str(selling_price.quantize(MONEY_QUANTIZER))
+            last_used_amount = ""
+            if last_used_price is not None:
+                last_used_amount = str(last_used_price.amount.quantize(MONEY_QUANTIZER))
 
             quantity_html = f'<div class="w-full text-center font-medium">{escape(str(quantidade))}</div>'
             unit_cost_html = f'<div class="w-full text-right whitespace-nowrap">{_format_money_display(Money(valor, "BRL"))}</div>'
             selling_price_html = f'<div class="w-full text-right whitespace-nowrap">{_format_money_display(Money(selling_price, "BRL"))}</div>'
 
             rows += f"""
-                <tr class="h-16 border-b border-base-300">
+                <tr class="js-manual-price-row h-16 border-b border-base-300"
+                    data-product-name="{escape(product.name)}"
+                    data-selling-price="{escape(selling_price_amount)}"
+                    data-last-used-price="{escape(last_used_amount)}">
                     <td>
                         <div class="font-medium">{escape(product.name)}</div>
                         <div class="text-xs opacity-50">{escape(product.code)}</div>
@@ -1815,128 +1863,32 @@ class ImportManualItemsForm(CoreModelForm):
             </form>
         </dialog>"""
 
-    @staticmethod
-    def _build_lower_price_warning_script() -> str:
-        return """
-        <script>
-            (function() {
-                const form = document.getElementById('import-form');
-                const confirmInput = document.getElementById('manual-confirm-lower-price-input');
-                const modal = document.getElementById('manual-import-lower-price-modal');
-                const productLabel = document.getElementById('manual-import-lower-price-product');
-                const lastUsedLabel = document.getElementById('manual-import-lower-price-last-used');
-
-                if (!form || !confirmInput || form.dataset.manualLowerPriceWarningReady === '1') {
-                    return;
-                }
-
-                form.dataset.manualLowerPriceWarningReady = '1';
-
-                let pendingSubmitter = null;
-
-                const getSellingInputs = () => Array.from(form.querySelectorAll('.js-manual-selling-price-input'));
-                const formatCurrency = (value) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-                const getRawValue = (input) => {
-                    const hiddenId = input.id ? input.id.replace(/_display$/, '') : '';
-                    const hiddenInput = hiddenId ? document.getElementById(hiddenId) : null;
-                    return Number.parseFloat(hiddenInput?.value || '0') || 0;
-                };
-                const findLowerPriceInput = () => getSellingInputs().find((input) => {
-                    const lastUsedPrice = Number.parseFloat(input.dataset.lastUsedPrice || '0') || 0;
-                    const sellingPrice = getRawValue(input);
-                    return lastUsedPrice > 0 && sellingPrice > 0 && sellingPrice < lastUsedPrice;
-                }) || null;
-                const closeModal = () => {
-                    if (modal?.open) {
-                        modal.close();
-                    }
-                };
-                const submitForm = () => {
-                    if (pendingSubmitter) {
-                        form.requestSubmit(pendingSubmitter);
-                        return;
-                    }
-                    form.requestSubmit();
-                };
-                const openModal = (input) => {
-                    const lastUsedPrice = Number.parseFloat(input.dataset.lastUsedPrice || '0') || 0;
-
-                    if (!modal || typeof modal.showModal !== 'function') {
-                        return window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este produto. Deseja continuar mesmo assim?');
-                    }
-
-                    if (productLabel) {
-                        productLabel.textContent = input.dataset.productName || 'este produto';
-                    }
-
-                    if (lastUsedLabel) {
-                        lastUsedLabel.textContent = `Último valor usado: ${formatCurrency(lastUsedPrice)}`;
-                    }
-
-                    if (!modal.open) {
-                        modal.showModal();
-                    }
-
-                    return null;
-                };
-                const resetConfirmation = () => {
-                    confirmInput.value = '';
-                };
-                const cancelConfirmation = () => {
-                    resetConfirmation();
-                    pendingSubmitter = null;
-                    closeModal();
-                };
-
-                getSellingInputs().forEach((input) => {
-                    input.addEventListener('input', resetConfirmation);
-                });
-
-                form.addEventListener('submit', (event) => {
-                    if (confirmInput.value === '1') {
-                        return;
-                    }
-
-                    const lowerPriceInput = findLowerPriceInput();
-                    if (!lowerPriceInput) {
-                        return;
-                    }
-
-                    event.preventDefault();
-                    pendingSubmitter = event.submitter || null;
-
-                    const fallbackConfirmed = openModal(lowerPriceInput);
-                    if (fallbackConfirmed === true) {
-                        confirmInput.value = '1';
-                        submitForm();
-                    }
-                });
-
-                document.getElementById('manual-import-lower-price-cancel')?.addEventListener('click', cancelConfirmation);
-                document.getElementById('manual-import-lower-price-close')?.addEventListener('click', cancelConfirmation);
-                document.getElementById('manual-import-lower-price-continue')?.addEventListener('click', () => {
-                    confirmInput.value = '1';
-                    closeModal();
-                    submitForm();
-                });
-            })();
-        </script>"""
-
     def clean(self):
         cleaned_data = super().clean()
         rows = self._build_manual_rows()
-        self._sync_instance_items_from_rows(rows)
 
         if not rows:
             raise forms.ValidationError("Adicione pelo menos um item para prosseguir.")
 
-        confirm_lower_price = str(self.data.get("confirm_lower_price") or "").strip() == "1"
+        confirm_lower_price = (
+            str(self.data.get("confirm_lower_price") or "").strip() == "1"
+            or str(self.data.get("confirm_lower_price_btn") or "").strip() == "1"
+        )
+        items = list(self.instance.items_data or [])
+
         for row in rows:
             warning = build_product_price_warning(product=row["product"], attempted_price=Money(row["selling_price"], "BRL"))
-            if warning and not confirm_lower_price:
-                self.add_error(None, f"{row['product'].name}: {warning.message}")
-                break
+            if not warning:
+                continue
 
+            item = items[row["idx"]] if 0 <= row["idx"] < len(items) else {}
+            if confirm_lower_price or self._item_has_lower_price_confirmation(item, row["selling_price"]):
+                continue
+
+            self.add_error(None, f"{row['product'].name}: {warning.message}")
+            break
+
+        self._sync_instance_items_from_rows(rows, confirm_lower_price=confirm_lower_price)
         return cleaned_data
 
 
