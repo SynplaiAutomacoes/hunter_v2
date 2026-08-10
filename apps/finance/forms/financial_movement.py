@@ -101,7 +101,7 @@ class MovementStep1Form(FinancialMovementBaseForm):
                             supplierQuickBtn.title = hasSupplier ? 'Editar Fornecedor' : 'Cadastrar Fornecedor';
                             const icon = supplierQuickBtn.querySelector('.material-icons');
                             if (icon) {
-                                icon.textContent = hasSupplier ? 'edit' : 'local_shipping';
+                                icon.textContent = hasSupplier ? 'edit' : 'note_add';
                             }
                         } else {
                             supplierQuickBtn.classList.add('hidden');
@@ -350,7 +350,7 @@ class MovementStep1Form(FinancialMovementBaseForm):
                                     class="btn btn-circle btn-primary mb-2 ml-2 hidden"
                                     title="Cadastrar Fornecedor"
                                 >
-                                    <span class="material-icons">local_shipping</span>
+                                    <span class="material-icons">note_add</span>
                                 </button>
                                 """
                             ),
