@@ -59,7 +59,7 @@ class DashboardClientDateRulesTests(TestCase):
             color="Azul",
         )
 
-        # Approved in July (first_approved_at), edited conceptually in August — stays July for taxa.
+        # Entry in July; first_approved_at in July. Delivered in August → rentability in August.
         cls.july_approved = Budget.objects.create(
             workshop=cls.workshop,
             customer=customer,
@@ -71,7 +71,6 @@ class DashboardClientDateRulesTests(TestCase):
             closed_at=timezone.make_aware(datetime(2026, 7, 6, 12, 0, 0)),
             first_approved_at=timezone.make_aware(datetime(2026, 7, 6, 10, 0, 0)),
         )
-        # Delivered in August → rentability counts in August, not July.
         WorkOrder.objects.create(
             workshop=cls.workshop,
             budget=cls.july_approved,
@@ -80,7 +79,7 @@ class DashboardClientDateRulesTests(TestCase):
             delivered_at=timezone.make_aware(datetime(2026, 8, 2, 15, 0, 0)),
         )
 
-        # Approved in August by first_approved_at, entry in July; closed in August.
+        # Entry in July; first_approved_at in August — taxa still counts July (entry_date, as of 31/07).
         cls.august_approved = Budget.objects.create(
             workshop=cls.workshop,
             customer=customer,
@@ -100,7 +99,7 @@ class DashboardClientDateRulesTests(TestCase):
             delivered_at=timezone.make_aware(datetime(2026, 7, 25, 12, 0, 0)),
         )
 
-    def test_approval_rate_uses_first_approved_at(self) -> None:
+    def test_approval_rate_uses_entry_date(self) -> None:
         july = DashboardQueryService._get_approval_rate_metrics(
             workshop_id=self.workshop.pk,
             selected_month=7,
@@ -111,11 +110,11 @@ class DashboardClientDateRulesTests(TestCase):
             selected_month=8,
             selected_year=2026,
         )
-        # Denominator uses closed_at; numerator uses first_approved_at.
-        self.assertEqual(july.created_count, 1)
-        self.assertEqual(july.approved_count, 1)
-        self.assertEqual(august.created_count, 1)
-        self.assertEqual(august.approved_count, 1)
+        # Both budgets have entry_date in July (sale, non-cancelled); approved count follows entry_date.
+        self.assertEqual(july.created_count, 2)
+        self.assertEqual(july.approved_count, 2)
+        self.assertEqual(august.created_count, 0)
+        self.assertEqual(august.approved_count, 0)
 
     @patch("apps.core.infrastructure.services.dashboard_query_service.calculate_aggregate_markup", return_value=Decimal("1.50"))
     def test_rentability_uses_delivered_workorders(self, _markup_mock) -> None:
