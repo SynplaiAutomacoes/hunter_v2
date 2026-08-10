@@ -17,6 +17,7 @@ from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
 from apps.finance.services.reports import build_financial_overview
+from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -62,10 +63,9 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
     @staticmethod
     def _resolve_workorder_description(workorder: WorkOrder) -> str:
-        budget = getattr(workorder, "budget", None)
-        if budget is None:
+        if getattr(workorder, "budget", None) is None:
             return "-"
-        return str(budget.problem_description or budget.notes or "-")
+        return build_workorder_revenue_description(workorder=workorder)
 
     @staticmethod
     def _resolve_payment_method_summary(payments: list[WorkOrderPaymentMethod]) -> str:
