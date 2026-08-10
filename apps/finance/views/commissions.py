@@ -6,7 +6,7 @@ from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Max, Q, Sum
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -181,6 +181,17 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             return "-"
         return str(budget.problem_description or budget.notes or "-")
 
+    @staticmethod
+    def _sum_distinct_workorder_service_totals(*, queryset) -> Decimal:
+        """Sum service-only commission bases once per work order (sale OS only)."""
+        per_workorder_totals = queryset.order_by().values("workorder_id").annotate(service_total=Max("base_amount"))
+        total = Decimal("0.00")
+        for row in per_workorder_totals:
+            service_total = row.get("service_total")
+            amount = getattr(service_total, "amount", service_total)
+            total += Decimal(str(amount or 0))
+        return total
+
     def _build_summary_cards(self, *, queryset) -> list[dict[str, str]]:
         aggregates = queryset.aggregate(
             forecast_total=Sum("commission_amount", filter=Q(status=CollaboratorCommissionEntry.Status.FORECAST)),
@@ -190,8 +201,14 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             workorder_count=Count("workorder", distinct=True),
             collaborator_count=Count("collaborator", distinct=True),
         )
+        services_total = self._sum_distinct_workorder_service_totals(queryset=queryset)
 
         return [
+            {
+                "title": "Total de serviços",
+                "value": format_money(services_total),
+                "support": "somente serviços de O.S. de venda",
+            },
             {
                 "title": "Comissões não pagas",
                 "value": format_money(aggregates.get("forecast_total") or Decimal("0.00")),
