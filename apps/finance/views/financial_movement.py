@@ -30,6 +30,7 @@ from apps.core.utils import clean_id
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
+from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.finance.views.navigation import append_query_params
 from apps.accounts.models import User
 from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements
@@ -39,6 +40,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.sources.models import Source
 from apps.suppliers.models import Supplier
+from apps.workorder.models import WorkOrder
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 
@@ -252,10 +254,9 @@ def _movement_pdf_collaborator_label(movement: FinancialMovement) -> str:
 
 
 def _resolve_workorder_description(workorder: object) -> str:
-    budget = getattr(workorder, "budget", None)
-    if budget is None:
+    if not isinstance(workorder, WorkOrder) or getattr(workorder, "budget", None) is None:
         return "-"
-    return str(budget.problem_description or budget.notes or "-")
+    return build_workorder_revenue_description(workorder=workorder)
 
 
 def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str, Any], per_payment_movements: dict[int, FinancialMovement], workshop: Any, aggregate_movements: dict[int, FinancialMovement] | None = None) -> list[object]:
