@@ -249,7 +249,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def get_id(self) -> int:
-        return self.budget.pk
+        return self.budget.public_number
 
     @property
     def total_labor_cost_value(self) -> Money:
@@ -323,7 +323,13 @@ class WorkOrder(TimeStampedModel):
     def product_issue_summary(self) -> ProductIssueSummary:
         cached_summary = getattr(self, "_product_issue_summary_cache", None)
         if cached_summary is None:
-            cached_summary = annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
+            # After delivery/cancel/reject, stock was already consumed or will not be used —
+            # comparing against current stock would show misleading shortage warnings.
+            cached_summary = annotate_product_issues(
+                workshop=self.workshop,
+                items=self.pricing_snapshot.product_lines,
+                check_stock=not self.is_status_locked,
+            )
             setattr(self, "_product_issue_summary_cache", cached_summary)
         return cached_summary
 

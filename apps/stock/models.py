@@ -120,6 +120,9 @@ class StockMovement(TimeStampedModel):
     @property
     def workorder_reference(self):
         if self.workorder_id:
+            budget = getattr(self.workorder, "budget", None)
+            if budget is not None and getattr(budget, "number", None) is not None:
+                return f"OS #{budget.number}"
             budget_id = getattr(self.workorder, "budget_id", None)
             return f"OS #{budget_id}" if budget_id else f"OS (WO #{self.workorder_id})"
         return None

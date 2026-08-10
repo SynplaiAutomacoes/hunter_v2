@@ -213,8 +213,15 @@ def get_dashboard_metrics(
     selected_year: int,
     now: datetime | None = None,
 ) -> DashboardMetrics:
-    """Serve frozen metrics for closed months; live compute for open months."""
-    if is_month_closed(selected_year, selected_month, now=now):
+    """Serve dashboard metrics for the selected month.
+
+    When ``DASHBOARD_USE_MONTHLY_SNAPSHOTS`` is enabled, closed months return the
+    frozen snapshot (lazy-creating if missing). Otherwise always compute live.
+    """
+    from django.conf import settings
+
+    use_snapshots = bool(getattr(settings, "DASHBOARD_USE_MONTHLY_SNAPSHOTS", False))
+    if use_snapshots and is_month_closed(selected_year, selected_month, now=now):
         snapshot = create_snapshot_if_missing(workshop, selected_month, selected_year, now=now)
         return metrics_from_snapshot(snapshot, now=now)
     return DashboardQueryService().compute(
