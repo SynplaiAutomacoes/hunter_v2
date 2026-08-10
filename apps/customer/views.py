@@ -76,13 +76,13 @@ def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
     return {
         "date": budget.criado_em,
         "type_label": "Orçamento",
-        "document_number": budget.pk,
+        "document_number": budget.number,
         "vehicle_label": _build_customer_history_vehicle_label(budget.vehicle),
         "total_value": budget.display_total_budget_value,
         "status_badge": budget.budget_status_badge,
         "delivered_at": None,
         "warranty_status_label": None,
-        "pdf_title": f"Orçamento #{budget.pk}",
+        "pdf_title": f"Orçamento #{budget.number}",
         "pdf_url": pdf_url,
         "pdf_download_url": f"{pdf_url}?download=1",
     }

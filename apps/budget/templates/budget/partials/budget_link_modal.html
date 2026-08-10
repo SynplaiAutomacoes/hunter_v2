@@ -2,7 +2,7 @@
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="closeBudgetParentModal()">x</button>
 
     <h3 class="font-bold text-2xl mb-2">Vincular orçamento</h3>
-    <p class="text-base-content/70 mb-4">Busque por numero do orçamento ou nome do cliente e selecione um orçamento para vincular ao orçamento atual (#{{ budget.pk }}).</p>
+    <p class="text-base-content/70 mb-4">Busque por numero do orçamento ou nome do cliente e selecione um orçamento para vincular ao orçamento atual (#{{ budget.number }}).</p>
 
     <form
         hx-get="{% url 'budget:budget_link_search' pk=budget.pk %}"

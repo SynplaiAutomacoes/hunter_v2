@@ -107,7 +107,7 @@
         </div>
         <div class="text-right">
           <h4 class="font-bold">ORDEM DE SERVIÇO</h4>
-          <p class="text-2xl font-bold leading-none m-0">#{{ budget.id|default:"-" }}</p>
+          <p class="text-2xl font-bold leading-none m-0">#{{ budget.number|default:"-" }}</p>
           {% if is_warranty_or_courtesy %}
           <div
             class="mt-2 inline-block rounded border border-amber-400 bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900"
@@ -433,6 +433,18 @@
             >{{ budget.budget_status }}</span
           >
         </p>
+        {% if budget.cancellation_reason %}
+        <p>
+          Motivo do Cancelamento:
+          <span class="font-bold text-gray-700">{{ budget.cancellation_reason }}</span>
+        </p>
+        {% endif %}
+        {% if budget.rejection_reason %}
+        <p>
+          Motivo da Reprovação:
+          <span class="font-bold text-gray-700">{{ budget.rejection_reason }}</span>
+        </p>
+        {% endif %}
       </div>
     </div>
   </body>

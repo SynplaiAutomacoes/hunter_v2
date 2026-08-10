@@ -90,7 +90,7 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
 
     document_bytes = _build_budget_signature_html_bytes(budget=budget, request=request)
     file_name = f"orcamento-{budget.id}.html"
-    title = f"Orcamento #{budget.id}"
+    title = f"Orcamento #{budget.number}"
 
     try:
         api_key = get_workshop_synplaisign_api_key(budget.workshop)

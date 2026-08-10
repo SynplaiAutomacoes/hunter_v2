@@ -38,6 +38,9 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS = float(os.getenv("BUDGET_SSE_CHECK_INTERVAL_S
 
 # Logger config
 PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "true", "yes")
+
+# Temporary: keep dashboard live until monthly snapshots are re-enabled in production.
+DASHBOARD_USE_MONTHLY_SNAPSHOTS = os.getenv("DASHBOARD_USE_MONTHLY_SNAPSHOTS", "0").lower() in ("1", "true", "yes")
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")

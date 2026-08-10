@@ -4,7 +4,7 @@
 
     <div class="flex items-center justify-between gap-4 w-full">
         <div>
-            <h1 class="text-3xl font-bold text-base-content">Novo Orçamento{% if form.instance.pk %} #{{ form.instance.pk }}{% endif %}</h1>
+            <h1 class="text-3xl font-bold text-base-content">Novo Orçamento{% if form.instance.pk %} #{{ form.instance.number }}{% endif %}</h1>
             <p class="text-base-content/70 mt-1">{% if form.instance.pk %}Edite o orçamento seguindo as etapas abaixo{% else %}Crie um novo orçamento seguindo as etapas abaixo{% endif %}</p>
         </div>
         <div class="flex items-center gap-2">

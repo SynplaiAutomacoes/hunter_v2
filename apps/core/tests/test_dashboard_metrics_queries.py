@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -63,6 +63,13 @@ class DashboardMetricsQueryTests(TestCase):
 
     @staticmethod
     def _create_budget(workshop: Workshop, customer: Customer, vehicle: Vehicle, entry_date: date, status: str, budget_type: str) -> Budget:
+        closed_statuses = {BudgetStatus.APPROVED, BudgetStatus.REJECTED, BudgetStatus.CANCELLED}
+        closed_at = None
+        if status in closed_statuses:
+            closed_at = timezone.make_aware(datetime(entry_date.year, entry_date.month, entry_date.day, 12, 0, 0))
+        first_approved_at = None
+        if status == BudgetStatus.APPROVED:
+            first_approved_at = timezone.make_aware(datetime(entry_date.year, entry_date.month, entry_date.day, 12, 0, 0))
         return Budget.objects.create(
             workshop=workshop,
             customer=customer,
@@ -71,6 +78,8 @@ class DashboardMetricsQueryTests(TestCase):
             expiration_date=entry_date,
             status=status,
             budget_type=budget_type,
+            closed_at=closed_at,
+            first_approved_at=first_approved_at,
         )
 
     @staticmethod
@@ -152,7 +161,8 @@ class DashboardMetricsQueryTests(TestCase):
                 approved_count=2,
             )
 
-        self.assertEqual(metrics.created_count, 2)
+        # Denominator counts closed sale budgets only (drafts without closed_at are excluded).
+        self.assertEqual(metrics.created_count, 1)
         self.assertEqual(metrics.approved_count, 2)
 
     def test_approval_counts_preserve_previous_month_and_empty_workshop(self) -> None:

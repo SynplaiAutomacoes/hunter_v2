@@ -3,12 +3,13 @@ from __future__ import annotations
 import calendar
 import logging
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, Q, Sum, Value
+from django.db.models import Prefetch, Q, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from djmoney.money import Money
@@ -55,6 +56,24 @@ PAYROLL_COMPONENT_LABELS: dict[str, str] = {
     FinancialMovement.PayrollComponent.TRANSPORT: "Vale Transporte",
     FinancialMovement.PayrollComponent.COMMISSION: "Comissões",
 }
+
+
+def work_assignable_collaborators(*, workshop: Workshop, include_ids: Iterable[int] | None = None) -> "QuerySet[WorkshopCollaborator]":
+    """Retorna colaboradores elegíveis para vínculo como mecânico responsável.
+
+    Base: produtivos (``CollaboratorType.PRODUCTIVE``) e ativos do workshop, ordenados por nome.
+    IDs em ``include_ids`` (vínculos já existentes) permanecem na lista mesmo quando
+    administrativos, pró-labore ou inativos, preservando edições de registros antigos.
+    """
+    base = WorkshopCollaborator.objects.filter(
+        workshop=workshop,
+        is_active=True,
+        collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+    )
+    include_ids = list(include_ids or [])
+    if include_ids:
+        base = base | WorkshopCollaborator.objects.filter(workshop=workshop, pk__in=include_ids)
+    return base.order_by("name").distinct()
 
 
 def _quantize(value: Decimal) -> Decimal:

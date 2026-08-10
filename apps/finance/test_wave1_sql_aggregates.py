@@ -7,8 +7,11 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetType
-from apps.core.infrastructure.services.dashboard_query_service import DashboardQueryService
+from apps.budget.models import Budget, BudgetStatus, BudgetType
+from apps.core.infrastructure.services.dashboard_query_service import (
+    DashboardQueryService,
+    build_financial_indicator_report_data,
+)
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
@@ -172,5 +175,117 @@ class DashboardDeliveryCountsSqlTests(TestCase):
             selected_year=2026,
         )
         self.assertEqual(sql_counts, list_counts)
-        self.assertEqual(sql_counts[0], 1)  # only non-reference sale
+        self.assertEqual(sql_counts[0], 1)  # linked root+child collapse to one vehicle
         self.assertEqual(sql_counts[1], 2)  # warranty + courtesy without reference
+
+
+class DashboardSaleVehicleLinkingTests(TestCase):
+    def _delivered_at(self) -> datetime:
+        return timezone.make_aware(datetime(2026, 7, 10, 12, 0, 0))
+
+    def _create_sale_budget(
+        self,
+        workshop: Workshop,
+        *,
+        status: str = BudgetStatus.APPROVED,
+        reference_budget: Budget | None = None,
+        day: int = 1,
+    ) -> Budget:
+        return Budget.objects.create(
+            workshop=workshop,
+            entry_date=date(2026, 7, day),
+            budget_type=BudgetType.SALE,
+            status=status,
+            reference_budget=reference_budget,
+        )
+
+    def _create_approved_wo(self, budget: Budget) -> WorkOrder:
+        return WorkOrder.objects.create(
+            workshop=budget.workshop,
+            budget=budget,
+            status=WorkOrderStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            delivered_at=self._delivered_at(),
+        )
+
+    def _counts(self, workshop: Workshop) -> tuple[int, int, float]:
+        sale_list, warranty_list = DashboardQueryService._get_delivered_workorders(
+            workshop_id=workshop.pk,
+            selected_month=7,
+            selected_year=2026,
+        )
+        list_counts = DashboardQueryService._compute_delivery_counts(
+            sale_workorders=sale_list,
+            warranty_workorders=warranty_list,
+        )
+        sql_counts = DashboardQueryService._compute_delivery_counts_sql(
+            workshop_id=workshop.pk,
+            selected_month=7,
+            selected_year=2026,
+        )
+        self.assertEqual(sql_counts, list_counts)
+        return sql_counts
+
+    def test_rejected_root_with_one_approved_child_counts_one_vehicle(self) -> None:
+        workshop = create_workshop(suffix=3)
+        root = self._create_sale_budget(workshop, status=BudgetStatus.REJECTED, day=1)
+        child = self._create_sale_budget(workshop, reference_budget=root, day=2)
+        self._create_approved_wo(child)
+
+        cars_this_month, _, _ = self._counts(workshop)
+        self.assertEqual(cars_this_month, 1)
+
+    def test_rejected_root_with_two_approved_children_counts_one_vehicle(self) -> None:
+        workshop = create_workshop(suffix=4)
+        root = self._create_sale_budget(workshop, status=BudgetStatus.REJECTED, day=1)
+        child_a = self._create_sale_budget(workshop, reference_budget=root, day=2)
+        child_b = self._create_sale_budget(workshop, reference_budget=root, day=3)
+        self._create_approved_wo(child_a)
+        self._create_approved_wo(child_b)
+
+        cars_this_month, _, _ = self._counts(workshop)
+        self.assertEqual(cars_this_month, 1)
+
+    def test_approved_root_and_child_count_one_vehicle(self) -> None:
+        workshop = create_workshop(suffix=5)
+        root = self._create_sale_budget(workshop, day=1)
+        child = self._create_sale_budget(workshop, reference_budget=root, day=2)
+        self._create_approved_wo(root)
+        self._create_approved_wo(child)
+
+        cars_this_month, _, _ = self._counts(workshop)
+        self.assertEqual(cars_this_month, 1)
+
+    def test_two_unlinked_sales_count_two_vehicles(self) -> None:
+        workshop = create_workshop(suffix=6)
+        sale_a = self._create_sale_budget(workshop, day=1)
+        sale_b = self._create_sale_budget(workshop, day=2)
+        self._create_approved_wo(sale_a)
+        self._create_approved_wo(sale_b)
+
+        cars_this_month, _, _ = self._counts(workshop)
+        self.assertEqual(cars_this_month, 2)
+
+    def test_carros_mes_report_summary_count_collapses_orphan_linked_children(self) -> None:
+        workshop = create_workshop(suffix=7)
+        root = self._create_sale_budget(workshop, status=BudgetStatus.REJECTED, day=1)
+        child_a = self._create_sale_budget(workshop, reference_budget=root, day=2)
+        child_b = self._create_sale_budget(workshop, reference_budget=root, day=3)
+        wo_a = self._create_approved_wo(child_a)
+        wo_b = self._create_approved_wo(child_b)
+
+        items = list(
+            WorkOrder.objects.filter(pk__in=[wo_a.pk, wo_b.pk])
+            .select_related("budget__customer", "budget__vehicle", "budget__reference_budget")
+            .order_by("pk")
+        )
+        report = build_financial_indicator_report_data(
+            indicator="carros_mes",
+            month=7,
+            year=2026,
+            items=items,
+            is_budget_report=False,
+        )
+        self.assertEqual(report.summary_count, 1)
+        self.assertEqual(len(report.workorder_groups), 1)
+        self.assertEqual(len(report.workorder_groups[0].child_items), 1)

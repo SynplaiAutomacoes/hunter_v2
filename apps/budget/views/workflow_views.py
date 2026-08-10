@@ -354,10 +354,10 @@ class BudgetStatusReportDataMixin:
 
     def _get_budget_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="id", search_by="id"),
+            TableColumn("Nº", attr="number", search_by="number"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
-            TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
+            TableColumn("Vinculado à", attr="reference_budget.number", search_by="reference_budget__number"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn(str(Budget.entry_date.field.verbose_name), attr=Budget.entry_date.field.name, search_by="entry_date"),
             TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
@@ -458,7 +458,7 @@ class BudgetStatusReportDataMixin:
         return {
             "workshop": self.workshop,
             "report_budgets": report_budgets,
-            "show_cancellation_reason_column": any(budget.cancellation_reason for budget in report_budgets),
+            "show_reason_column": any(budget.cancellation_reason or budget.rejection_reason for budget in report_budgets),
             "selection_report": selection_report,
             "selected_status_report": selection_report,
             "status_report_pdf_title": self.status_report_pdf_title,
@@ -673,6 +673,8 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
         form_kwargs = self.get_form_kwargs()
+        if step != self.get_current_step():
+            form_kwargs.pop("data", None)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object
@@ -1308,12 +1310,18 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if not cancellation_reason:
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 budget.cancellation_reason = cancellation_reason
+            elif status == "reject":
+                rejection_reason = request.POST.get("rejection_reason")
+                if not rejection_reason:
+                    return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
+                budget.rejection_reason = rejection_reason
             elif status == "reopen":
                 reopen_reason = str(request.POST.get("reopen_reason") or "").strip()
                 if not reopen_reason:
                     return JsonResponse({"success": False, "error": "A justificativa da reabertura é obrigatória."}, status=400)
 
                 budget.cancellation_reason = ""
+                budget.rejection_reason = ""
                 budget.regenerate_signature_token()
 
                 # Salvar o estado inicial completo no momento da reabertura
@@ -1466,6 +1474,7 @@ class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
         context = {
             "reference_budget_id": budget.pk,
+            "reference_budget_number": budget.number,
             "is_workorder": is_workorder,
         }
         return render(request, "budget/partials/auto_link_warning.html", context)
@@ -1544,7 +1553,8 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
-                filters |= Q(pk=int(query))
+                query_number = int(query)
+                filters |= Q(number=query_number) | Q(pk=query_number)
             queryset = queryset.filter(filters)
 
         paginator = Paginator(queryset, 20)
@@ -1568,7 +1578,8 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
-                filters |= Q(pk=int(query))
+                query_number = int(query)
+                filters |= Q(number=query_number) | Q(pk=query_number)
             queryset = queryset.filter(filters)
 
         paginator = Paginator(queryset, 20)

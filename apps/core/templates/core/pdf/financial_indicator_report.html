@@ -50,18 +50,18 @@
         .table {
             width: 100%;
             text-align: left;
-            font-size: 0.875rem;
-            line-height: 1.25rem;
+            font-size: 0.7rem;
+            line-height: 1.1rem;
             border-collapse: collapse;
         }
         .table th {
-            padding: 0.75rem;
+            padding: 0.5rem;
             vertical-align: middle;
             font-weight: 600;
             background-color: oklch(var(--b2));
         }
         .table td {
-            padding: 0.75rem;
+            padding: 0.5rem;
             vertical-align: middle;
         }
         .table-zebra tbody tr:nth-child(even) td,
@@ -70,7 +70,7 @@
         }
         .table-sm th,
         .table-sm td {
-            padding: 0.5rem;
+            padding: 0.375rem;
         }
 
         .bg-base-200\/70 { background-color: oklch(96% 0 0 / 0.7); }
@@ -104,8 +104,61 @@
         .border-info\/20 { border-color: oklch(60% 0.15 200 / 0.2); }
         .text-info\/70 { color: oklch(60% 0.15 200 / 0.7); }
     </style>
+    <style>
+        .pdf-mode .text-2xl { font-size: 1.125rem !important; }
+        .pdf-mode .text-3xl { font-size: 1.375rem !important; }
+        .pdf-mode .text-lg { font-size: 0.875rem !important; }
+        .pdf-mode .text-sm { font-size: 0.75rem !important; }
+        .pdf-mode .text-xs { font-size: 0.625rem !important; }
+        .pdf-mode [class*="text-[11px]"] { font-size: 9px !important; }
+        .pdf-mode [class*="xl:text-[2rem]"] { font-size: 1.25rem !important; }
+        .pdf-mode .text-base { font-size: 0.6875rem !important; }
+        .pdf-mode .table { font-size: 0.625rem !important; line-height: 0.9375rem !important; }
+        .pdf-mode p.tabular-nums { font-size: 0.875rem !important; white-space: nowrap !important; }
+
+        .pdf-mode .p-4 { padding: 0.625rem !important; }
+        .pdf-mode .p-5 { padding: 0.75rem !important; }
+        .pdf-mode .p-6 { padding: 1rem !important; }
+        .pdf-mode .px-4 { padding-left: 0.625rem !important; padding-right: 0.625rem !important; }
+        .pdf-mode .px-5 { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+        .pdf-mode .px-6 { padding-left: 1rem !important; padding-right: 1rem !important; }
+        .pdf-mode .py-3 { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+        .pdf-mode .py-4 { padding-top: 0.625rem !important; padding-bottom: 0.625rem !important; }
+        .pdf-mode .py-5 { padding-top: 0.75rem !important; padding-bottom: 0.75rem !important; }
+        .pdf-mode .gap-2 { gap: 0.25rem !important; }
+        .pdf-mode .gap-3 { gap: 0.375rem !important; }
+        .pdf-mode .gap-4 { gap: 0.5rem !important; }
+        .pdf-mode .gap-5 { gap: 0.625rem !important; }
+        .pdf-mode .gap-10 { gap: 1.25rem !important; }
+        .pdf-mode .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem !important; }
+        .pdf-mode .mt-2 { margin-top: 0.25rem !important; }
+        .pdf-mode .mt-5 { margin-top: 0.625rem !important; }
+        .pdf-mode .mt-6 { margin-top: 0.75rem !important; }
+
+        .pdf-mode [class*="min-w-[220px]"] { min-width: 115px !important; }
+        .pdf-mode [class*="min-w-[240px]"] { min-width: 125px !important; }
+        .pdf-mode .w-44 { width: 100px !important; }
+        .pdf-mode .w-36 { width: 80px !important; }
+        .pdf-mode .w-28 { width: 60px !important; }
+        .pdf-mode .w-24 { width: 55px !important; }
+
+        .pdf-mode .table th,
+        .pdf-mode .table td { padding: 0.3rem !important; }
+        .pdf-mode .table-sm th,
+        .pdf-mode .table-sm td { padding: 0.2rem !important; }
+
+        .pdf-mode [class*="rounded-[1.75rem]"] { border-radius: 0.75rem !important; }
+        .pdf-mode [class*="rounded-[1.25rem]"] { border-radius: 0.5rem !important; }
+        .pdf-mode [class*="rounded-[1.5rem]"] { border-radius: 0.625rem !important; }
+
+        .pdf-mode .overflow-x-auto { overflow: hidden !important; }
+        .pdf-mode table td.tabular-nums,
+        .pdf-mode table th.tabular-nums { white-space: nowrap !important; }
+        .pdf-mode table td:not(.tabular-nums),
+        .pdf-mode table th:not(.tabular-nums) { overflow-wrap: break-word !important; }
+    </style>
 </head>
-<body class="bg-base-200">
+<body class="bg-base-200 pdf-mode">
     <div class="pdf-page mx-auto bg-base-100 p-6 shadow-lg">
         {% include "core/partials/_financial_report_content.html" %}
 

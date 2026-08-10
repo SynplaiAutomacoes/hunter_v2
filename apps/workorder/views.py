@@ -65,7 +65,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -396,7 +396,7 @@ class WorkOrderStatusReportDataMixin:
 
     def _get_workorder_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="budget.id", search_by=("budget__id", "id")),
+            TableColumn("Nº", attr="budget.number", search_by=("budget__number", "id")),
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
@@ -1335,6 +1335,9 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
                     review_plan=approval_form.cleaned_data.get("review_plan"),
                     warranty_plan=approval_form.cleaned_data.get("warranty_plan"),
+                    previous_mechanic_id=getattr(approval_form.cleaned_data.get("previous_mechanic"), "pk", None),
+                    courtesy_reason_type=approval_form.cleaned_data.get("courtesy_reason_type"),
+                    courtesy_reason_description=approval_form.cleaned_data.get("courtesy_reason_description") or "",
                 )
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
@@ -1392,10 +1395,15 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 context["reject_form"] = reason_form
             return render(request, "workorder/partials/customer_approvement_section.html", context)
 
-        if next_status == WorkOrderStatus.CANCELLED:
-            workorder.cancel(reason=reason_form.cleaned_data["status_reason"])
-        else:
-            workorder.reject(reason=reason_form.cleaned_data["status_reason"])
+        try:
+            if next_status == WorkOrderStatus.CANCELLED:
+                workorder.cancel(reason=reason_form.cleaned_data["status_reason"])
+            else:
+                workorder.reject(reason=reason_form.cleaned_data["status_reason"])
+        except WorkOrderError as exc:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
+            return response
 
         return HttpResponse(headers={"HX-Refresh": "true"})
 

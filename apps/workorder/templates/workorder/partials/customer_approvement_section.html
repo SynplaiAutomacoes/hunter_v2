@@ -1,6 +1,14 @@
 {% load crispy_forms_tags %}
 
 <div class="card-body">
+    {% if workorder.signature_decline_pending and not workorder.is_status_locked %}
+    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
+        <div class="flex flex-col gap-1 text-warning">
+            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Documento Recusado</span>
+            <span class="text-lg text-gray-900">O documento foi recusado na plataforma de assinatura. Exclua os planos de pagamento antes de reprovar a O.S. manualmente.</span>
+        </div>
+    </div>
+    {% endif %}
     {% if workorder.status == 'cancelled' and workorder.cancellation_reason %}
     <div class="alert alert-error shadow-sm mb-6 bg-opacity-20 border-error">
         <div class="flex flex-col gap-1 text-error">
@@ -153,7 +161,18 @@
         <h4 class="font-bold text-xl mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
 
         <div class="flex flex-wrap gap-3">
-            <button type="button" class="btn btn-error" onclick="cancelWorkOrderModal.showModal()" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Cancelar</button>
+            <span
+                class="inline-flex {% if workorder.is_status_locked or has_payments %}tooltip tooltip-top{% endif %}"
+                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de cancelar a O.S." title="Exclua os planos de pagamento antes de cancelar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de cancelar a O.S." tabindex="0"{% endif %}
+                {% if workorder.is_status_locked or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
+            >
+                <button
+                    type="button"
+                    class="btn btn-error {% if workorder.is_status_locked or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
+                    {% if workorder.is_status_locked or has_payments %}disabled{% endif %}
+                    {% if not workorder.is_status_locked and not has_payments %}onclick="cancelWorkOrderModal.showModal()"{% endif %}
+                >Cancelar</button>
+            </span>
 
             <span
                 id="workorder-delivery-button-tooltip"
@@ -174,7 +193,18 @@
                 </button>
             </span>
 
-            <button type="button" class="btn btn-warning" onclick="rejectWorkOrderModal.showModal()" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Reprovar</button>
+            <span
+                class="inline-flex {% if workorder.is_status_locked or has_payments %}tooltip tooltip-top{% endif %}"
+                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de reprovar a O.S." title="Exclua os planos de pagamento antes de reprovar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de reprovar a O.S." tabindex="0"{% endif %}
+                {% if workorder.is_status_locked or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
+            >
+                <button
+                    type="button"
+                    class="btn btn-warning {% if workorder.is_status_locked or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
+                    {% if workorder.is_status_locked or has_payments %}disabled{% endif %}
+                    {% if not workorder.is_status_locked and not has_payments %}onclick="rejectWorkOrderModal.showModal()"{% endif %}
+                >Reprovar</button>
+            </span>
 
             {% if workorder.can_reopen %}
             <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
@@ -336,6 +366,10 @@
         const reopenForm = document.getElementById('reopen-workorder-form');
         const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
         const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
+
+        window.showBlockedWorkorderStatusToast = function (message) {
+            document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message, type: 'error' } }));
+        };
 
         const syncDeliveryOilLayout = () => {
             if (!oilFieldsPanel) {
