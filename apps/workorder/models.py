@@ -99,6 +99,7 @@ class WorkOrder(TimeStampedModel):
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
+    signature_decline_pending = models.BooleanField(verbose_name="Recusa de assinatura pendente", default=False)
     delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
     warranty_plan = models.CharField(
         verbose_name="Plano de garantia",
@@ -323,7 +324,13 @@ class WorkOrder(TimeStampedModel):
     def product_issue_summary(self) -> ProductIssueSummary:
         cached_summary = getattr(self, "_product_issue_summary_cache", None)
         if cached_summary is None:
-            cached_summary = annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
+            # After delivery/cancel/reject, stock was already consumed or will not be used —
+            # comparing against current stock would show misleading shortage warnings.
+            cached_summary = annotate_product_issues(
+                workshop=self.workshop,
+                items=self.pricing_snapshot.product_lines,
+                check_stock=not self.is_status_locked,
+            )
             setattr(self, "_product_issue_summary_cache", cached_summary)
         return cached_summary
 

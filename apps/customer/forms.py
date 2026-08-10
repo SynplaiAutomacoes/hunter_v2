@@ -539,6 +539,8 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
             "name",
             "phone",
             "email",
+            "birth_date",
+            "sex",
             "cep",
             "logradouro",
             "numero",
@@ -551,6 +553,8 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
             "name": TextInput(),
             "phone": PhoneInput(),
             "email": EmailInput(),
+            "birth_date": CalendarDateInput(),
+            "sex": SearchableSelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -660,6 +664,12 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
                 ),
                 Field("phone", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("email", wrapper_class="col-span-12 lg:col-span-6"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-6">'),
+                Field("birth_date", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-6">'),
+                Field("sex", wrapper_class="col-span-12"),
+                HTML("</div>"),
                 HTML('<div class="col-span-12 divider my-1"></div>'),
                 address_layout(include_complemento=False),
                 HTML("</div>"),
