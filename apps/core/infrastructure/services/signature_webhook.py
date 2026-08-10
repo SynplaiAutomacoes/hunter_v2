@@ -14,7 +14,7 @@ from django.utils.decorators import method_decorator
 
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.approval import approve_workorder_with_stock
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderError, WorkOrderStatus
 
 
 logger = logging.getLogger(__name__)
@@ -186,7 +186,15 @@ def _reject_workorder_from_decline(*, workorder, envelope_id: str) -> None:
         )
         return
 
-    workorder.reject(reason="Documento recusado pelo signatário")
+    try:
+        workorder.reject(reason="Documento recusado pelo signatário")
+    except WorkOrderError:
+        WorkOrder.objects.filter(pk=workorder.pk).update(signature_decline_pending=True)
+        logger.info(
+            "signature_webhook_workorder_decline_skipped_payments",
+            extra={"workorder_id": workorder.pk, "envelope_id": envelope_id},
+        )
+        return
     logger.info("signature_webhook_workorder_rejected", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
 
 
