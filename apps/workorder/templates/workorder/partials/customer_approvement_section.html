@@ -1,6 +1,14 @@
 {% load crispy_forms_tags %}
 
 <div class="card-body">
+    {% if workorder.signature_decline_pending and not workorder.is_status_locked %}
+    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
+        <div class="flex flex-col gap-1 text-warning">
+            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Documento Recusado</span>
+            <span class="text-lg text-gray-900">O documento foi recusado na plataforma de assinatura. Exclua os planos de pagamento antes de reprovar a O.S. manualmente.</span>
+        </div>
+    </div>
+    {% endif %}
     {% if workorder.status == 'cancelled' and workorder.cancellation_reason %}
     <div class="alert alert-error shadow-sm mb-6 bg-opacity-20 border-error">
         <div class="flex flex-col gap-1 text-error">

@@ -99,6 +99,7 @@ class WorkOrder(TimeStampedModel):
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
+    signature_decline_pending = models.BooleanField(verbose_name="Recusa de assinatura pendente", default=False)
     delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
     warranty_plan = models.CharField(
         verbose_name="Plano de garantia",
