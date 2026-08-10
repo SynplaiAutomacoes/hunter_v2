@@ -70,9 +70,9 @@
                             <tr class="hover{% if wo %} cursor-pointer{% endif %}" {% if wo %}onclick="window.open('{% url 'workorder:workorder_detail' pk=wo.pk %}', '_blank')"{% endif %}>
                                 <td class="font-semibold">
                                   {% if wo %}
-                                    <a href="{% url 'workorder:workorder_detail' pk=wo.pk %}" target="_blank" class="hover:text-primary transition-colors">#{{ row.pk|default:row.id }}</a>
+                                    <a href="{% url 'workorder:workorder_detail' pk=wo.pk %}" target="_blank" class="hover:text-primary transition-colors">#{{ row.public_number }}</a>
                                   {% else %}
-                                    #{{ row.pk|default:row.id }}
+                                    #{{ row.public_number }}
                                   {% endif %}
                                 </td>
                                 <td><div class="font-medium text-base-content">{{ row.customer|default:"-" }}</div></td>
