@@ -2,6 +2,7 @@
 from .base import BudgetStepBaseForm
 from .common import *
 from .step3_support import *
+from apps.collaborators.services import work_assignable_collaborators
 
 
 class BudgetStep3Form(BudgetStepBaseForm):
@@ -27,7 +28,8 @@ class BudgetStep3Form(BudgetStepBaseForm):
         super().__init__(*args, **kwargs)
 
         if self.workshop:
-            self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
+            include_ids = list(self.instance.collaborators.values_list("id", flat=True)) if self.instance.pk else []
+            self.fields["collaborator"].queryset = work_assignable_collaborators(workshop=self.workshop, include_ids=include_ids)
             diagnostic_checklists = Checklist.objects.filter(
                 workshop=self.workshop,
                 checklist_type=Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,

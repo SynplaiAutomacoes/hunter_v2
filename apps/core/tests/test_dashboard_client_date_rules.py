@@ -68,6 +68,7 @@ class DashboardClientDateRulesTests(TestCase):
             expiration_date=date(2026, 7, 12),
             status=BudgetStatus.APPROVED,
             budget_type=BudgetType.SALE,
+            closed_at=timezone.make_aware(datetime(2026, 7, 6, 12, 0, 0)),
             first_approved_at=timezone.make_aware(datetime(2026, 7, 6, 10, 0, 0)),
         )
         WorkOrder.objects.create(
@@ -87,6 +88,7 @@ class DashboardClientDateRulesTests(TestCase):
             expiration_date=date(2026, 7, 27),
             status=BudgetStatus.APPROVED,
             budget_type=BudgetType.SALE,
+            closed_at=timezone.make_aware(datetime(2026, 8, 1, 12, 0, 0)),
             first_approved_at=timezone.make_aware(datetime(2026, 8, 1, 9, 0, 0)),
         )
         WorkOrder.objects.create(
