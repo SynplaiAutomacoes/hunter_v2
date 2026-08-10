@@ -18,6 +18,7 @@ from apps.finance.services.nfe_returns import (
     validate_nfe_return_document_link,
     validate_nfe_return_payload_identity,
 )
+from apps.finance.services.transport_requests import TransportRequestError, confirm_transport_document_from_payload, is_ambiguous_transport_webhook, resolve_transport_document_for_webhook
 
 
 def extract_event_uuid(payload: dict[str, Any]) -> str:
@@ -217,6 +218,24 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         if is_ambiguous_nfe_return_webhook(payload=payload):
             identifier = event_uuid or str(payload.get("chave") or "").strip()
             _mark_event_deferred(event, error=f"NF-e de devolução ou estorno {identifier} ambigua entre documentos.")
+            return False
+
+        transport_document = resolve_transport_document_for_webhook(payload=payload)
+        if transport_document is not None:
+            try:
+                with transaction.atomic():
+                    transport_document = transport_document.__class__.objects.select_for_update().get(pk=transport_document.pk)
+                    if not _is_regressive_nfe_status(current_status=transport_document.status, incoming_status=str(payload.get("status") or "")):
+                        confirm_transport_document_from_payload(document=transport_document, response_payload=payload)
+            except TransportRequestError as exc:
+                _mark_event_deferred(event, error=str(exc))
+                return False
+            _mark_event_processed(event)
+            return True
+
+        if is_ambiguous_transport_webhook(payload=payload):
+            identifier = event_uuid or str(payload.get("chave") or "").strip()
+            _mark_event_deferred(event, error=f"Nota de Transporte {identifier} ambigua entre documentos.")
             return False
 
         nfe_item = NfeItem.objects.filter(uuid=event_uuid).select_related("request").order_by("-id").first()

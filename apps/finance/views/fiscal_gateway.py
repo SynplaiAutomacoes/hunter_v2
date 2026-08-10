@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
 from django.views.generic import FormView
 
-from apps.finance.forms.fiscal_gateway import FiscalOperation, FiscalOperationGatewayForm
+from apps.finance.forms.fiscal_gateway import FISCAL_OPERATION_CHOICES, FiscalOperation, FiscalOperationGatewayForm
 from apps.finance.views.emission import EmissionRequestCreateView
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import has_workshop_perm
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +64,12 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             description="Abre a Central de Notas para acessar a operação de ajuste já disponível no detalhe da NF-e.",
             icon="tune",
         ),
+        FiscalOperationCard(
+            value=FiscalOperation.TRANSPORT,
+            label="Nota de Transporte",
+            description="Selecione uma NF-e de entrada e os produtos próprios que serão transportados.",
+            icon="local_shipping",
+        ),
     )
     EXISTING_OPERATION_MESSAGES: ClassVar[dict[str, str]] = {
         FiscalOperation.RETURN: "Selecione uma NF-e e abra seus detalhes para usar o atalho Devolução/Estorno.",
@@ -69,6 +77,22 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperation.COMPLEMENTARY: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota Complementar.",
         FiscalOperation.ADJUSTMENT: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota de Ajuste.",
     }
+
+    def _has_transport_permission(self) -> bool:
+        return has_workshop_perm(
+            user=self.request.user,
+            workshop=self.workshop,
+            app_label="finance",
+            model="transportrequest",
+            codename="issue_nfe_transport",
+            request=self.request,
+        )
+
+    def get_form(self, form_class: type[FiscalOperationGatewayForm] | None = None) -> FiscalOperationGatewayForm:
+        form = cast(FiscalOperationGatewayForm, super().get_form(form_class))
+        if not self._has_transport_permission():
+            form.fields["operation"].choices = [(value, label) for value, label in FISCAL_OPERATION_CHOICES if value != FiscalOperation.TRANSPORT]
+        return form
 
     def _is_legacy_wizard_request(self) -> bool:
         return any(key in self.request.GET for key in self.LEGACY_WIZARD_QUERY_KEYS)
@@ -91,7 +115,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
 
     def get_context_data(self, **kwargs: Any) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
-        context["operation_cards"] = self.OPERATION_CARDS
+        context["operation_cards"] = tuple(card for card in self.OPERATION_CARDS if card.value != FiscalOperation.TRANSPORT or self._has_transport_permission())
         return context
 
     def form_valid(self, form: FiscalOperationGatewayForm) -> HttpResponse:
@@ -99,6 +123,11 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         if operation == FiscalOperation.NORMAL:
             query = urlencode({"reset": 1})
             return HttpResponseRedirect(f"{self._normal_wizard_url()}?{query}")
+
+        if operation == FiscalOperation.TRANSPORT:
+            if not self._has_transport_permission():
+                raise PermissionDenied("Usuário sem permissão para iniciar esta operação fiscal.")
+            return HttpResponseRedirect(reverse("finance:transport_create"))
 
         messages.info(self.request, self.EXISTING_OPERATION_MESSAGES[operation])
         query = urlencode({"tipo": "nfe", "operacao": operation})

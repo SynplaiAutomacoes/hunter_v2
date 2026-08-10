@@ -11,6 +11,7 @@ from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCance
 from .payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassDeleteView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
+from .transport_request import TransportCreateView, TransportPreviewPdfView, TransportPreviewView, TransportTransmitView, TransportWorkflowView
 from .webhook import WebhookView
 from .webmania import (
     WebmaniaCompanyDetailView,
@@ -84,6 +85,11 @@ __all__ = [
     "TaxClassPresetListView",
     "TaxClassPresetUpdateView",
     "TaxClassUpdateView",
+    "TransportCreateView",
+    "TransportPreviewPdfView",
+    "TransportPreviewView",
+    "TransportTransmitView",
+    "TransportWorkflowView",
     "WebhookView",
     "WebmaniaCompanyDetailView",
     "WebmaniaCompanyListView",

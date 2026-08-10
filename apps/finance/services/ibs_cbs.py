@@ -3,6 +3,8 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from apps.finance.models.finance import TaxClassNfe
+
 
 ALLOWED_IBS_CBS_DETAIL_KEYS = frozenset(
     {
@@ -16,6 +18,7 @@ ALLOWED_IBS_CBS_DETAIL_KEYS = frozenset(
         "estorno_credito",
     }
 )
+
 DECIMAL_KEYWORDS = ("valor", "aliquota", "percentual", "reducao", "diferimento")
 
 
@@ -23,8 +26,18 @@ class IbsCbsConfigurationError(Exception):
     pass
 
 
-def _format_decimal(value: Decimal) -> str:
-    return format(value.normalize(), "f")
+def clean_ibs_cbs_details(value: Any) -> dict[str, Any]:
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, dict):
+        raise IbsCbsConfigurationError("Detalhes IBS/CBS devem ser um objeto JSON.")
+
+    normalized_value = {str(key).strip().lower(): item for key, item in value.items() if str(key).strip()}
+    unknown_keys = sorted(set(normalized_value) - ALLOWED_IBS_CBS_DETAIL_KEYS)
+    if unknown_keys:
+        raise IbsCbsConfigurationError(f"Detalhes IBS/CBS possuem chaves desconhecidas: {', '.join(unknown_keys)}.")
+
+    return {key: _clean_json_value(item) for key, item in normalized_value.items() if item not in (None, "", {}, [])}
 
 
 def _clean_json_value(value: Any) -> Any:
@@ -38,19 +51,12 @@ def _clean_json_value(value: Any) -> Any:
         return value
     if isinstance(value, float):
         return _format_decimal(Decimal(str(value)))
-    return str(value).strip()
+    text = str(value).strip()
+    return text
 
 
-def _clean_details(value: Any) -> dict[str, Any]:
-    if value in (None, ""):
-        return {}
-    if not isinstance(value, dict):
-        raise IbsCbsConfigurationError("Detalhes IBS/CBS devem ser um objeto JSON.")
-    normalized = {str(key).strip().lower(): item for key, item in value.items() if str(key).strip()}
-    unknown_keys = sorted(set(normalized) - ALLOWED_IBS_CBS_DETAIL_KEYS)
-    if unknown_keys:
-        raise IbsCbsConfigurationError(f"Detalhes IBS/CBS possuem chaves desconhecidas: {', '.join(unknown_keys)}.")
-    return {key: _clean_json_value(item) for key, item in normalized.items() if item not in (None, "", {}, [])}
+def _format_decimal(value: Decimal) -> str:
+    return format(value.normalize(), "f")
 
 
 def _validate_decimal_nodes(value: Any, *, path: str = "") -> None:
@@ -61,9 +67,10 @@ def _validate_decimal_nodes(value: Any, *, path: str = "") -> None:
                 try:
                     Decimal(str(item).replace(",", "."))
                 except (InvalidOperation, ValueError) as exc:
-                    raise IbsCbsConfigurationError(f"Valor decimal invalido em IBS/CBS: {child_path}.") from exc
+                    raise IbsCbsConfigurationError(f"Valor decimal inválido em IBS/CBS: {child_path}.") from exc
             _validate_decimal_nodes(item, path=child_path)
-    elif isinstance(value, list):
+        return
+    if isinstance(value, list):
         for index, item in enumerate(value):
             _validate_decimal_nodes(item, path=f"{path}[{index}]")
 
@@ -84,7 +91,7 @@ def build_ibs_cbs_payload_from_values(
     classificacao = str(classificacao_tributaria or "").strip()
     situacao_regular = str(situacao_tributaria_regular or "").strip()
     classificacao_regular = str(classificacao_tributaria_regular or "").strip()
-    cleaned_details = _clean_details(details)
+    cleaned_details = clean_ibs_cbs_details(details)
     _validate_decimal_nodes(cleaned_details)
 
     errors: list[str] = []
@@ -102,6 +109,7 @@ def build_ibs_cbs_payload_from_values(
         errors.append("situacao_tributaria 620 exige tributacao_monofasica.")
     if situacao == "811" and not cleaned_details.get("ajuste_competencia"):
         errors.append("situacao_tributaria 811 exige ajuste_competencia.")
+
     if errors:
         raise IbsCbsConfigurationError(" ".join(errors))
 
@@ -114,3 +122,36 @@ def build_ibs_cbs_payload_from_values(
         payload["classificacao_tributaria_regular"] = classificacao_regular
     payload.update(cleaned_details)
     return payload
+
+
+def build_tax_class_ibs_cbs_payload(tax_class: TaxClassNfe) -> dict[str, Any]:
+    return build_ibs_cbs_payload_from_values(
+        enabled=bool(tax_class.ibs_cbs_enabled),
+        situacao_tributaria=tax_class.ibs_cbs_situacao_tributaria,
+        classificacao_tributaria=tax_class.ibs_cbs_classificacao_tributaria,
+        situacao_tributaria_regular=tax_class.ibs_cbs_situacao_tributaria_regular,
+        classificacao_tributaria_regular=tax_class.ibs_cbs_classificacao_tributaria_regular,
+        details=tax_class.ibs_cbs_details,
+    )
+
+
+def is_tax_class_ibs_cbs_ready(tax_class: TaxClassNfe) -> bool:
+    try:
+        return bool(build_tax_class_ibs_cbs_payload(tax_class))
+    except IbsCbsConfigurationError:
+        return False
+
+
+def require_ready_tax_class_for_normal_emission(*, workshop: Any, reference: str, product_label: str = "item") -> TaxClassNfe:
+    normalized_reference = str(reference or "").strip()
+    if not normalized_reference:
+        raise IbsCbsConfigurationError(f"Informe classe de imposto para {product_label}.")
+
+    tax_class = TaxClassNfe.objects.filter(workshop=workshop, reference=normalized_reference).first()
+    if tax_class is None:
+        raise IbsCbsConfigurationError(f"Classe de imposto '{normalized_reference}' não encontrada na oficina ativa para {product_label}.")
+
+    if not is_tax_class_ibs_cbs_ready(tax_class):
+        raise IbsCbsConfigurationError(f"Classe de imposto '{normalized_reference}' sem configuração IBS/CBS válida para emissão NF-e/NFC-e.")
+
+    return tax_class

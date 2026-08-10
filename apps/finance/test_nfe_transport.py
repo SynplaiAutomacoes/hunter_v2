@@ -233,7 +233,7 @@ class NfeTransportFormTests(SimpleTestCase):
         form = EmissionNfeConfigForm(data=data, tax_class_choices=[("REF-NFE", "Classe NF-e")])
 
         self.assertFalse(form.is_valid())
-        self.assertIn("campos nao permitidos", form.non_field_errors()[0])
+        self.assertIn("campos não permitidos", form.non_field_errors()[0])
 
 
 @override_settings(WEBMANIA_NFE_NATUREZA_OPERACAO="Venda de mercadoria", WEBMANIA_AMBIENT="2")

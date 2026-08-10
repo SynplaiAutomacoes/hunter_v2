@@ -170,7 +170,7 @@ class NfeCorrectionOperationalTests(TestCase):
             patch("apps.finance.services.nfe_events._build_headers", return_value={}),
             patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(payload)),
         ):
-            with self.assertRaisesMessage(NfeCorrectionError, "Carta de correcao rejeitada"):
+            with self.assertRaisesMessage(NfeCorrectionError, "Carta de correção rejeitada"):
                 emit_nfe_correction(nfe_item=self.item, correction_text=CORRECTION_TEXT, requested_by=self.user)
 
         event = FiscalDocumentEvent.objects.get(document__legacy_nfe_item=self.item)
@@ -215,7 +215,7 @@ class NfeCorrectionOperationalTests(TestCase):
 
     def test_validation_rejects_changes_to_protected_fiscal_data_before_post(self) -> None:
         with patch("apps.finance.services.nfe_events.requests.post") as post_mock:
-            with self.assertRaisesMessage(NfeCorrectionError, "nao pode alterar valores"):
+            with self.assertRaisesMessage(NfeCorrectionError, "não pode alterar valores"):
                 validate_correction_text("Alterar o valor total da nota fiscal emitida.")
 
         post_mock.assert_not_called()
@@ -336,7 +336,7 @@ class NfeCorrectionOperationalTests(TestCase):
         event.save(update_fields=["remote_uuid"])
 
         with patch("apps.finance.services.nfe_events.requests.get") as get_mock:
-            with self.assertRaisesMessage(NfeCorrectionError, "UUID remoto invalido"):
+            with self.assertRaisesMessage(NfeCorrectionError, "UUID remoto inválido"):
                 reconcile_cce_event(event=event)
 
         get_mock.assert_not_called()
