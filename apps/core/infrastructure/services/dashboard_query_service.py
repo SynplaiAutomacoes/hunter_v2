@@ -1034,9 +1034,8 @@ class DashboardQueryService:
             approved_count = Budget.objects.filter(
                 workshop_id=workshop_id,
                 status=BudgetStatus.APPROVED,
-                first_approved_at__isnull=False,
-                first_approved_at__month=selected_month,
-                first_approved_at__year=selected_year,
+                entry_date__month=selected_month,
+                entry_date__year=selected_year,
             ).count()
         return ApprovalRateMetrics(created_count=created_count, approved_count=approved_count)
 
