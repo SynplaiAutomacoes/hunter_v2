@@ -754,7 +754,7 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
         "workorder_id": workorder.pk if workorder else None,
         "summary": summary,
         "reference": reference,
-        "entry_date": getattr(payment, "criado_em", None),
+        "entry_date": getattr(payment, "criado_em", None).date() if getattr(payment, "criado_em", None) else None,
         "payment_date": payment.due_date,
         "amount": payment.total_paid,
     }
@@ -783,8 +783,8 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool, budg
         "workorder_id": wo.pk,
         "summary": summary,
         "reference": reference,
-        "entry_date": getattr(wo, "criado_em", None),
-        "payment_date": getattr(wo, "criado_em", None),
+        "entry_date": getattr(wo, "criado_em", None).date() if getattr(wo, "criado_em", None) else None,
+        "payment_date": getattr(wo, "criado_em", None).date() if getattr(wo, "criado_em", None) else None,
         "amount": getattr(wo, "dre_local_cost", _ZERO),
         "budget_plan": budget_plan,
     }
@@ -812,8 +812,8 @@ def _build_workorder_cost_component_detail(
         "workorder_id": workorder.pk,
         "summary": f"{component_label} - O.S #{pk} - {name}",
         "reference": reference,
-        "entry_date": getattr(workorder, "criado_em", None),
-        "payment_date": getattr(workorder, "criado_em", None),
+        "entry_date": getattr(workorder, "criado_em", None).date() if getattr(workorder, "criado_em", None) else None,
+        "payment_date": getattr(workorder, "criado_em", None).date() if getattr(workorder, "criado_em", None) else None,
         "amount": amount,
         "budget_plan": budget_plan,
     }
