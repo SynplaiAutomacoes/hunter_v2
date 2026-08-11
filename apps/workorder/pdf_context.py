@@ -28,6 +28,7 @@ def _build_pdf_pages(produtos: list[dict[str, Any]], servicos: list[dict[str, An
 @dataclass(slots=True)
 class WorkOrderPdfBudgetProxy:
     id: int
+    number: int | None
     workshop: Workshop
     created: Any
     criado_em: Any
@@ -299,6 +300,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
 
     budget_proxy = WorkOrderPdfBudgetProxy(
         id=workorder.budget.number,
+        number=workorder.budget.number,
         workshop=workorder.workshop,
         created=workorder.criado_em,
         criado_em=workorder.criado_em,
