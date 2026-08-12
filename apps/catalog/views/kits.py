@@ -18,11 +18,11 @@ from djmoney.money import Money
 
 from apps.catalog.fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_model_options, get_vehicle_model_metadata, register_catalog_access_and_maybe_sync
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
-from apps.budget.models import BudgetItem, BudgetKitItemOverride
+from apps.budget.models import BudgetItem
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.workorder.models import WorkOrderItem, WorkOrderKitItemOverride
+from apps.workorder.models import WorkOrderItem
 from apps.catalog.util import build_product_kits_assignment_context, calculate_catalog_service_prices, get_current_workshop_cost, recalculate_kit_totals
 from apps.core.presentation.navigation import KIT_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
@@ -364,15 +364,15 @@ class KitServiceBulkPricingView(LoginRequiredMixin, WorkshopScopedMixin, View):
             normalized_rows.append({"id": service_id, "duration": KitForm._format_duration(duration)})
 
         valid_service_ids = set(Service.objects.filter(workshop=self.workshop, id__in=service_ids).values_list("id", flat=True))
-        if set(service_ids) != valid_service_ids:
-            return JsonResponse({"error": "service_not_found"}, status=400)
+        missing_ids = [service_id for service_id in service_ids if service_id not in valid_service_ids]
+        priced_source_rows = [row for row in normalized_rows if int(row["id"]) in valid_service_ids]
 
         workshop_cost, missing = get_current_workshop_cost(self.workshop)
         if missing or workshop_cost is None:
-            return JsonResponse({"services": [], "workshop_cost_missing": True})
+            return JsonResponse({"services": [], "workshop_cost_missing": True, "missing_ids": missing_ids})
 
         priced_rows = []
-        for row in normalized_rows:
+        for row in priced_source_rows:
             duration = KitForm._parse_duration_value(str(row["duration"])) or KitForm._parse_duration_value("00:00:00")
             cost_price, selling_price = calculate_catalog_service_prices(duration, workshop_cost)
             priced_rows.append(
@@ -383,7 +383,7 @@ class KitServiceBulkPricingView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 }
             )
 
-        return JsonResponse({"services": priced_rows, "workshop_cost_missing": False})
+        return JsonResponse({"services": priced_rows, "workshop_cost_missing": False, "missing_ids": missing_ids})
 
 
 class KitServicesSyncView(LoginRequiredMixin, WorkshopScopedMixin, View):
