@@ -17,7 +17,10 @@ from apps.messaging.application.services.appointment_alert import (
 )
 from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
 from apps.messaging.application.services.review_plan_alert import sync_review_plan_alert_schedule
-from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
+from apps.messaging.application.services.satisfaction_survey import (
+    reschedule_pending_satisfaction_surveys,
+    schedule_satisfaction_survey_for_workorder,
+)
 from apps.messaging.infrastructure.forms.message_group_form import MessageTemplateForm
 from apps.messaging.models import MessageTemplate, SatisfactionReview, ScheduledOutboundMessage
 from apps.messaging.rendering import render_message_template
@@ -492,6 +495,44 @@ class SatisfactionSurveyTests(TestCase):
         assert review.scheduled_message is not None
         assert self.workorder.delivered_at is not None
         self.assertEqual(review.scheduled_message.run_at, self.workorder.delivered_at + timedelta(days=2))
+
+    def test_reschedule_pending_updates_run_at_when_delay_changes(self) -> None:
+        self.workshop.satisfaction_survey_delay_days = 1
+        self.workshop.save(update_fields=["satisfaction_survey_delay_days"])
+
+        review = schedule_satisfaction_survey_for_workorder(self.workorder)
+        assert review is not None
+        assert review.scheduled_message is not None
+        assert self.workorder.delivered_at is not None
+        self.assertEqual(review.scheduled_message.run_at, self.workorder.delivered_at + timedelta(days=1))
+
+        self.workshop.satisfaction_survey_delay_days = 3
+        self.workshop.save(update_fields=["satisfaction_survey_delay_days"])
+        updated = reschedule_pending_satisfaction_surveys(self.workshop)
+
+        self.assertEqual(updated, 1)
+        review.scheduled_message.refresh_from_db()
+        self.assertEqual(review.scheduled_message.run_at, self.workorder.delivered_at + timedelta(days=3))
+
+    def test_reschedule_ignores_sent_or_non_pending(self) -> None:
+        review = schedule_satisfaction_survey_for_workorder(self.workorder)
+        assert review is not None
+        assert review.scheduled_message is not None
+        original_run_at = review.scheduled_message.run_at
+
+        review.status = SatisfactionReview.Status.SENT
+        review.sent_at = timezone.now()
+        review.save(update_fields=["status", "sent_at", "atualizado_em"])
+        review.scheduled_message.status = ScheduledOutboundMessage.Status.SENT
+        review.scheduled_message.save(update_fields=["status", "atualizado_em"])
+
+        self.workshop.satisfaction_survey_delay_days = 5
+        self.workshop.save(update_fields=["satisfaction_survey_delay_days"])
+        updated = reschedule_pending_satisfaction_surveys(self.workshop)
+
+        self.assertEqual(updated, 0)
+        review.scheduled_message.refresh_from_db()
+        self.assertEqual(review.scheduled_message.run_at, original_run_at)
 
     def test_public_review_shows_google_cta_when_rating_meets_threshold(self) -> None:
         review = schedule_satisfaction_survey_for_workorder(self.workorder)
