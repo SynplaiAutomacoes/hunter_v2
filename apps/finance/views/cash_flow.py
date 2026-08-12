@@ -1,25 +1,37 @@
 from __future__ import annotations
 
+import calendar
 from datetime import date
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlencode
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
 from django.urls import reverse
+from django.utils import timezone
 from django.views.generic import TemplateView
 
-from django.db.models import Q
 from apps.core.infrastructure.search import apply_text_search
+from apps.core.presentation.views import MESES_PT
 from apps.finance.forms.emission_ui import format_money
-from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.bank_account import BankAccount
-from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.models.financial_group import FinancialGroup
+from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
 from apps.finance.services.reports import build_financial_overview
 from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
+
+_SORTABLE_ATTRS = frozenset({"due_date"})
+_DEFAULT_SORT = "-due_date"
+
+
+def month_bounds(*, year: int, month: int) -> tuple[date, date]:
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, 1), date(year, month, last_day)
 
 
 class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -49,17 +61,147 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         except ValueError:
             return None
 
-    def _get_filter_params(self) -> dict[str, Any]:
+    def _parse_month_year(self) -> tuple[int, int]:
+        today = timezone.localdate()
+        mes_param = self.request.GET.get("mes")
+        ano_param = self.request.GET.get("ano")
+
+        selected_month = int(mes_param) if mes_param and str(mes_param).isdigit() else today.month
+        if selected_month < 1 or selected_month > 12:
+            selected_month = today.month
+
+        selected_year = today.year
+        if ano_param:
+            try:
+                selected_year = int(str(ano_param).replace(",", "").replace(".", ""))
+            except ValueError:
+                selected_year = today.year
+
+        return selected_year, selected_month
+
+    def _resolve_period(self) -> dict[str, Any]:
+        raw_start = self._parse_date_param(self.request.GET.get("data_inicial"))
+        raw_end = self._parse_date_param(self.request.GET.get("data_final"))
+        today = timezone.localdate()
+
+        # Explicit date filters from the advanced modal take precedence.
+        if raw_start is not None or raw_end is not None:
+            start_date = raw_start
+            end_date = raw_end
+            if start_date and end_date:
+                month_start, month_end = month_bounds(year=start_date.year, month=start_date.month)
+                if start_date == month_start and end_date == month_end:
+                    return {
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "selected_year": start_date.year,
+                        "selected_month": start_date.month,
+                        "period_is_custom": False,
+                    }
+            anchor = start_date or end_date or today
+            return {
+                "start_date": start_date,
+                "end_date": end_date,
+                "selected_year": anchor.year,
+                "selected_month": anchor.month,
+                "period_is_custom": True,
+            }
+
+        if self.request.GET.get("mes") or self.request.GET.get("ano"):
+            selected_year, selected_month = self._parse_month_year()
+        else:
+            selected_year, selected_month = today.year, today.month
+
+        start_date, end_date = month_bounds(year=selected_year, month=selected_month)
         return {
-            "start_date": self._parse_date_param(self.request.GET.get("data_inicial")),
-            "end_date": self._parse_date_param(self.request.GET.get("data_final")),
+            "start_date": start_date,
+            "end_date": end_date,
+            "selected_year": selected_year,
+            "selected_month": selected_month,
+            "period_is_custom": False,
+        }
+
+    def _parse_sort(self) -> str:
+        sort = str(self.request.GET.get("sort") or _DEFAULT_SORT).strip()
+        sort_attr = sort.lstrip("-")
+        if sort_attr not in _SORTABLE_ATTRS:
+            return _DEFAULT_SORT
+        if sort not in {sort_attr, f"-{sort_attr}"}:
+            return _DEFAULT_SORT
+        return sort
+
+    def _get_filter_params(self) -> dict[str, Any]:
+        period = self._resolve_period()
+        return {
+            "start_date": period["start_date"],
+            "end_date": period["end_date"],
+            "selected_year": period["selected_year"],
+            "selected_month": period["selected_month"],
+            "period_is_custom": period["period_is_custom"],
             "agent": self.request.GET.get("agente", "").strip(),
             "payment_method_id": self.request.GET.get("forma_pagamento"),
             "budget_plan_id": self.request.GET.get("plano_orcamentario"),
             "movement_type": self.request.GET.get("tipo_movimentacao"),
             "bank_account_id": self.request.GET.get("conta_bancaria"),
             "search": self.request.GET.get("search", "").strip(),
+            "sort": self._parse_sort(),
         }
+
+    def _build_query_params(self, *, overrides: dict[str, str | None] | None = None, exclude: set[str] | None = None) -> dict[str, str]:
+        filter_params = self._get_filter_params()
+        params: dict[str, str] = {}
+
+        if filter_params["period_is_custom"]:
+            if filter_params["start_date"]:
+                params["data_inicial"] = filter_params["start_date"].isoformat()
+            if filter_params["end_date"]:
+                params["data_final"] = filter_params["end_date"].isoformat()
+        else:
+            params["mes"] = str(filter_params["selected_month"])
+            params["ano"] = str(filter_params["selected_year"])
+
+        if filter_params["agent"]:
+            params["agente"] = filter_params["agent"]
+        if filter_params["payment_method_id"]:
+            params["forma_pagamento"] = str(filter_params["payment_method_id"])
+        if filter_params["budget_plan_id"]:
+            params["plano_orcamentario"] = str(filter_params["budget_plan_id"])
+        if filter_params["movement_type"]:
+            params["tipo_movimentacao"] = str(filter_params["movement_type"])
+        if filter_params["bank_account_id"]:
+            params["conta_bancaria"] = str(filter_params["bank_account_id"])
+        if filter_params["search"]:
+            params["search"] = filter_params["search"]
+        if filter_params["sort"] and filter_params["sort"] != _DEFAULT_SORT:
+            params["sort"] = filter_params["sort"]
+
+        if overrides:
+            for key, value in overrides.items():
+                if value is None or value == "":
+                    params.pop(key, None)
+                else:
+                    params[key] = value
+
+        if exclude:
+            for key in exclude:
+                params.pop(key, None)
+
+        return params
+
+    def _build_url(self, *, overrides: dict[str, str | None] | None = None, exclude: set[str] | None = None) -> str:
+        params = self._build_query_params(overrides=overrides, exclude=exclude)
+        base = reverse("finance:cash_flow")
+        if not params:
+            return base
+        return f"{base}?{urlencode(params)}"
+
+    def _sort_toggle_url(self, *, attr: str) -> str:
+        current = self._parse_sort()
+        if current == f"-{attr}":
+            next_sort = attr
+        else:
+            next_sort = f"-{attr}"
+        return self._build_url(overrides={"sort": next_sort})
 
     @staticmethod
     def _resolve_workorder_description(workorder: WorkOrder) -> str:
@@ -112,17 +254,14 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         filter_params = self._get_filter_params()
 
-        # Date Filters
         if filter_params["start_date"]:
             queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=filter_params["start_date"])
         if filter_params["end_date"]:
             queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=filter_params["end_date"])
 
-        # Agent Filter
         if filter_params["agent"]:
             queryset = apply_text_search(queryset, search_value=filter_params["agent"], lookups=("source__name", "workorder__budget__customer__name"))
 
-        # Payment Method Filter
         if filter_params["payment_method_id"]:
             pm_filter = Q(payment_method_id=filter_params["payment_method_id"]) | Q(
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
@@ -131,22 +270,18 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             )
             queryset = queryset.filter(pm_filter).distinct()
 
-        # Budget Plan Filter
         if filter_params["budget_plan_id"]:
             queryset = queryset.filter(budget_plan_id=filter_params["budget_plan_id"])
 
-        # Movement Type Filter (Credit/Debit)
         if filter_params["movement_type"]:
             queryset = queryset.filter(direction=filter_params["movement_type"])
 
-        # Bank Account Filter
         if filter_params["bank_account_id"]:
             if filter_params["bank_account_id"] == "none":
                 queryset = queryset.filter(bank_account__isnull=True)
             else:
                 queryset = queryset.filter(bank_account_id=filter_params["bank_account_id"])
 
-        # Global Search
         if filter_params["search"]:
             queryset = apply_text_search(queryset, search_value=filter_params["search"], lookups=("description", "source__name", "nf_number", "workorder__budget__customer__name")).distinct()
 
@@ -213,7 +348,6 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None:
             return None
 
-        # Normal payments (Non-Workorder) or just simple ones
         if not movement.is_reconciled:
             return None
 
@@ -235,9 +369,16 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "details": [],
         }
 
+    def _sort_rows(self, rows: list[dict[str, object]], *, sort: str) -> list[dict[str, object]]:
+        sort_attr = sort.lstrip("-")
+        reverse = sort.startswith("-")
+        if sort_attr == "due_date":
+            rows.sort(key=lambda r: (r["due_date"] or date.min, str(r["component"])), reverse=reverse)
+        return rows
+
     def _get_financial_movement_report_rows(self) -> list[dict[str, object]]:
         filter_params = self._get_filter_params()
-        rows = []
+        rows: list[dict[str, object]] = []
         movements = list(self._get_financial_movements_queryset())
         workorder_ids = sorted({movement.workorder.pk for movement in movements if movement.workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT})
         reconciled_workorder_payment_movements = FinancialMovement.objects.none()
@@ -277,12 +418,25 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             if row is not None:
                 rows.append(row)
 
-        rows.sort(key=lambda r: (r["due_date"], r["component"]), reverse=True)
-        return rows
+        return self._sort_rows(rows, sort=filter_params["sort"])
+
+    def _has_active_advanced_filters(self, filter_params: dict[str, Any]) -> bool:
+        return bool(
+            filter_params["agent"]
+            or filter_params["payment_method_id"]
+            or filter_params["budget_plan_id"]
+            or filter_params["movement_type"]
+            or filter_params["search"]
+            or filter_params["period_is_custom"]
+            or filter_params["bank_account_id"]
+            or filter_params["sort"] != _DEFAULT_SORT
+            or (not filter_params["period_is_custom"] and (filter_params["selected_month"] != timezone.localdate().month or filter_params["selected_year"] != timezone.localdate().year))
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         filter_params = self._get_filter_params()
+        today = timezone.localdate()
 
         bank_account_id = filter_params.get("bank_account_id")
         selected_account_name = None
@@ -296,8 +450,6 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                 except (BankAccount.DoesNotExist, ValueError):
                     selected_account_name = None
 
-        # Saldo baseado nos filtros aplicados (ou geral se nenhum filtro)
-        # Se não houver data_inicial, mostramos o saldo acumulado até a data final (se houver) ou até hoje.
         general_overview = build_financial_overview(
             workshop=self.workshop,
             start_date=filter_params["start_date"],
@@ -312,6 +464,8 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             payment_method_id=filter_params["payment_method_id"],
         )
 
+        sort = filter_params["sort"]
+        sort_attr = sort.lstrip("-")
         context["saldo_atual"] = {
             "value": format_money(general_overview.confirmed_result),
             "tone": self._resolve_result_tone(general_overview.confirmed_result),
@@ -319,10 +473,20 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         }
         context["filter_start_date"] = filter_params["start_date"]
         context["filter_end_date"] = filter_params["end_date"]
+        context["period_is_custom"] = filter_params["period_is_custom"]
+        context["mes_selecionado"] = filter_params["selected_month"]
+        context["ano_selecionado"] = filter_params["selected_year"]
+        context["meses"] = [(index, name) for index, name in enumerate(MESES_PT) if index > 0]
+        context["anos"] = list(range(today.year - 5, today.year + 2))
         context["financial_movement_report_rows"] = self._get_financial_movement_report_rows()
         context["clear_filters_url"] = reverse("finance:cash_flow")
+        context["has_active_filters"] = self._has_active_advanced_filters(filter_params)
+        context["preserved_query_params"] = self._build_query_params()
+        context["sort"] = sort
+        context["sort_due_date_url"] = self._sort_toggle_url(attr="due_date")
+        context["sort_due_date_is_asc"] = sort_attr == "due_date" and not sort.startswith("-")
+        context["sort_due_date_is_desc"] = sort_attr == "due_date" and sort.startswith("-")
 
-        # Filter Choices
         context["bank_accounts"] = BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name")
         context["payment_methods"] = PaymentMethod.objects.filter(workshop=self.workshop).order_by("description")
         context["budget_plans"] = FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key")

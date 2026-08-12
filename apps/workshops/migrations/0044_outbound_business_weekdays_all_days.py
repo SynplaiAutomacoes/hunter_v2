@@ -16,6 +16,7 @@ def revert_default_weekdays(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
+        ("workshops", "0042_merge_synplaisign_and_cost_leaves"),
         ("workshops", "0041_alter_workshopcost_gross_revenue_target_and_more"),
         ("workshops", "0031_alter_workshopcost_total_monthly_costs_and_more"),
     ]

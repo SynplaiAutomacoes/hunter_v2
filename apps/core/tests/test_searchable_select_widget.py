@@ -43,3 +43,24 @@ class SearchableSelectInputTests(SimpleTestCase):
             "if (!this.value) {\n                this.label = '';\n                this.search = '';",
             html,
         )
+
+    def test_render_uses_x_model_instead_of_controlled_open_value_binding(self) -> None:
+        """Safari/WebKit breaks on :value=open?search:label controlled binding while typing."""
+        widget = SearchableSelectInput(choices=())
+
+        html = widget.render("entity", None, attrs={"id": "id_entity"})
+
+        self.assertIn('x-model="search"', html)
+        self.assertNotIn(':value="open ? search : label"', html)
+
+    def test_render_normalizes_name_as_label_fallback(self) -> None:
+        widget = SearchableSelectInput(choices=())
+
+        html = widget.render("entity", None, attrs={"id": "id_entity"})
+
+        self.assertIn("option.name", html)
+        self.assertIn("hasVisibleOptions", html)
+        self.assertIn("pointer-events-none", html)
+        self.assertIn("'ring-2 ring-primary': open", html)
+        self.assertNotIn("border-primary': open", html)
+        self.assertNotIn("style*='display: none'", html)
