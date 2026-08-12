@@ -333,7 +333,7 @@ class ServiceQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
 
 
 class KitServiceBulkPricingView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = Service
+    model = Kit
     workshop_permission_codename = "change_kit"
 
     def post(self, request, *args, **kwargs):

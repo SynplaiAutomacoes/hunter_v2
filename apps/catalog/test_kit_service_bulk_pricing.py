@@ -5,12 +5,15 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
 from apps.accounts.models import Account
+from apps.catalog.models.kits import Kit
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
 from apps.iam.models import WorkshopRole
@@ -115,3 +118,25 @@ class KitServiceBulkPricingViewTests(TestCase):
             cost, missing = get_current_workshop_cost(self.workshop)
         self.assertFalse(missing)
         self.assertEqual(cost, self.workshop_cost)
+
+    def test_non_director_with_change_kit_can_bulk_price(self) -> None:
+        staff_user = User.objects.create_user(username="kit-editor", password="secret", cpf="52998224725")
+        staff_user.account = self.account
+        staff_user.save(update_fields=["account"])
+
+        role = WorkshopRole.objects.create(account=self.account, name="Estoquista")
+        kit_ct = ContentType.objects.get_for_model(Kit)
+        change_kit = Permission.objects.get(content_type=kit_ct, codename="change_kit")
+        role.permissions.add(change_kit)
+        WorkshopMember.objects.create(user=staff_user, workshop=self.workshop, role=role, is_active=True)
+
+        self.client.force_login(staff_user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        response = self._post({"services": [{"id": self.service.pk, "duration": "00:30:00"}]})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["workshop_cost_missing"])
+        self.assertEqual(len(payload["services"]), 1)
