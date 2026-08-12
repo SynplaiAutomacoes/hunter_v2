@@ -12,13 +12,29 @@ from apps.messaging.application.services.typed_templates import get_active_templ
 from apps.messaging.models import MessageTemplate, SatisfactionReview, ScheduledOutboundMessage
 from apps.messaging.rendering import render_message_template
 from apps.workorder.models import WorkOrder
+from apps.workshops.models.workshops import Workshop
 
 logger = logging.getLogger(__name__)
+
+_WORKSHOP_SURVEY_CONFIG_FIELDS = (
+    "satisfaction_survey_enabled",
+    "satisfaction_survey_delay_days",
+    "satisfaction_survey_send_immediately",
+)
 
 
 def allows_immediate_satisfaction_survey() -> bool:
     environment = str(getattr(settings, "ENVIRONMENT", "") or "").strip().lower().strip('"').strip("'")
     return environment not in {"prod", "production"}
+
+
+def _get_workshop_survey_config(workshop_id: int) -> Workshop:
+    return Workshop.objects.only(*_WORKSHOP_SURVEY_CONFIG_FIELDS).get(pk=workshop_id)
+
+
+def _resolve_delay_days(workshop: Workshop) -> int:
+    raw_delay = getattr(workshop, "satisfaction_survey_delay_days", 1)
+    return 1 if raw_delay is None else int(raw_delay)
 
 
 def resolve_satisfaction_survey_run_at(
@@ -73,9 +89,52 @@ def build_satisfaction_survey_message(*, workorder: WorkOrder, public_token: str
     )
 
 
+def reschedule_pending_satisfaction_surveys(workshop: Workshop) -> int:
+    delay_days = _resolve_delay_days(workshop)
+    send_immediately = bool(getattr(workshop, "satisfaction_survey_send_immediately", False))
+
+    reviews = SatisfactionReview.objects.filter(
+        workshop=workshop,
+        status=SatisfactionReview.Status.PENDING,
+        scheduled_message__status=ScheduledOutboundMessage.Status.PENDING,
+    ).select_related("workorder", "scheduled_message")
+
+    updated = 0
+    for review in reviews:
+        scheduled = review.scheduled_message
+        if scheduled is None:
+            continue
+
+        workorder = review.workorder
+        delivered_at = workorder.delivered_at or review.criado_em
+        new_run_at = resolve_satisfaction_survey_run_at(
+            delay_days=delay_days,
+            delivered_at=delivered_at,
+            send_immediately=send_immediately,
+        )
+        if scheduled.run_at == new_run_at:
+            continue
+
+        scheduled.run_at = new_run_at
+        scheduled.save(update_fields=["run_at", "atualizado_em"])
+        updated += 1
+
+    if updated:
+        logger.info(
+            "satisfaction_survey_pending_rescheduled",
+            extra={
+                "workshop_id": workshop.pk,
+                "updated_count": updated,
+                "delay_days": delay_days,
+                "send_immediately": send_immediately,
+            },
+        )
+    return updated
+
+
 @transaction.atomic
 def schedule_satisfaction_survey_for_workorder(workorder: WorkOrder) -> SatisfactionReview | None:
-    workshop = workorder.workshop
+    workshop = _get_workshop_survey_config(workorder.workshop_id)
     if not getattr(workshop, "satisfaction_survey_enabled", False):
         return None
 
@@ -96,8 +155,7 @@ def schedule_satisfaction_survey_for_workorder(workorder: WorkOrder) -> Satisfac
         logger.info("satisfaction_survey_skipped_no_phone", extra={"workorder_id": workorder.pk, "customer_id": customer.pk})
         return None
 
-    raw_delay = getattr(workshop, "satisfaction_survey_delay_days", 1)
-    delay_days = 1 if raw_delay is None else int(raw_delay)
+    delay_days = _resolve_delay_days(workshop)
     send_immediately = bool(getattr(workshop, "satisfaction_survey_send_immediately", False))
     delivered_at = workorder.delivered_at or timezone.now()
     run_at = resolve_satisfaction_survey_run_at(
@@ -131,7 +189,12 @@ def schedule_satisfaction_survey_for_workorder(workorder: WorkOrder) -> Satisfac
     review.save(update_fields=["scheduled_message", "atualizado_em"])
     logger.info(
         "satisfaction_survey_scheduled",
-        extra={"workorder_id": workorder.pk, "review_id": review.pk, "run_at": run_at.isoformat()},
+        extra={
+            "workorder_id": workorder.pk,
+            "review_id": review.pk,
+            "run_at": run_at.isoformat(),
+            "delay_days": delay_days,
+        },
     )
     return review
 
