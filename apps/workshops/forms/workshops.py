@@ -660,7 +660,18 @@ class WorkshopAssistantVirtualSectionForm(CoreModelForm):
         return cleaned
 
     def save(self, commit: bool = True) -> Workshop:
-        from apps.messaging.application.services.satisfaction_survey import allows_immediate_satisfaction_survey
+        from apps.messaging.application.services.satisfaction_survey import (
+            allows_immediate_satisfaction_survey,
+            reschedule_pending_satisfaction_surveys,
+        )
+
+        previous_config = (
+            Workshop.objects.filter(pk=self.instance.pk)
+            .values("satisfaction_survey_delay_days", "satisfaction_survey_send_immediately")
+            .first()
+        )
+        previous_delay = previous_config["satisfaction_survey_delay_days"] if previous_config else None
+        previous_send_immediately = previous_config["satisfaction_survey_send_immediately"] if previous_config else None
 
         workshop = cast(Workshop, super().save(commit=False))
         weekdays = [str(day) for day in (self.cleaned_data.get("weekdays") or [])]
@@ -670,6 +681,10 @@ class WorkshopAssistantVirtualSectionForm(CoreModelForm):
             workshop.satisfaction_survey_send_immediately = False
         if commit:
             workshop.save()
+            delay_changed = previous_delay != workshop.satisfaction_survey_delay_days
+            immediate_changed = previous_send_immediately != workshop.satisfaction_survey_send_immediately
+            if delay_changed or immediate_changed:
+                reschedule_pending_satisfaction_surveys(workshop)
         return workshop
 
 
