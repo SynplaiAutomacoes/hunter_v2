@@ -1439,13 +1439,25 @@ class KitForm(CoreModelForm):
 
                                         const payload = await response.json().catch(() => ({{}}));
                                         if (!response.ok) {{
-                                            throw new Error(payload.error || 'Falha ao sincronizar serviços do kit.');
+                                            const errorCode = payload.error || `http_${{response.status}}`;
+                                            console.error('kit_services_sync_failed', {{
+                                                status: response.status,
+                                                error: payload.error || null,
+                                            }});
+                                            throw new Error(errorCode);
                                         }}
                                     }},
                                     showToast(message, type = 'warning') {{
                                         document.body.dispatchEvent(new CustomEvent('showToast', {{
                                             detail: {{ message, type }},
                                         }}));
+                                    }},
+                                    formatPricingError(error, fallback) {{
+                                        const detail = (error && error.message) ? String(error.message).trim() : '';
+                                        if (detail && detail !== fallback) {{
+                                            return `${{fallback}} (${{detail}})`;
+                                        }}
+                                        return fallback;
                                     }},
                                     applyUpdatedService(payload) {{
                                         if (!payload || payload.id === undefined || payload.id === null) return;
@@ -1519,7 +1531,10 @@ class KitForm(CoreModelForm):
                                                 this.serviceEditForm.sellByDuration = service.sell_by_duration;
                                             }} catch (error) {{
                                                 console.error('Error refreshing service pricing after local edit:', error);
-                                                this.showToast('Nao foi possivel recalcular custo e valor por duração.', 'error');
+                                                this.showToast(
+                                                    this.formatPricingError(error, 'Nao foi possivel recalcular custo e valor por duração.'),
+                                                    'error',
+                                                );
                                             }}
                                         }}
 
@@ -1556,12 +1571,24 @@ class KitForm(CoreModelForm):
 
                                         const payload = await response.json().catch(() => ({{}}));
                                         if (!response.ok) {{
-                                            throw new Error(payload.error || 'Falha ao recalcular valores de venda dos serviços.');
+                                            const errorCode = payload.error || `http_${{response.status}}`;
+                                            console.error('kit_service_bulk_pricing_failed', {{
+                                                status: response.status,
+                                                error: payload.error || null,
+                                                missing_ids: payload.missing_ids || [],
+                                            }});
+                                            throw new Error(errorCode);
                                         }}
 
                                         if (payload.workshop_cost_missing) {{
                                             this.showToast('Configure os custos da oficina para recalcular custo e valor por duração.', 'warning');
                                             return;
+                                        }}
+
+                                        if (Array.isArray(payload.missing_ids) && payload.missing_ids.length > 0) {{
+                                            console.warn('kit_service_bulk_pricing_missing_ids', {{
+                                                missing_ids: payload.missing_ids,
+                                            }});
                                         }}
 
                                         const pricingMap = new Map((payload.services || []).map((service) => [String(service.id), service]));
@@ -1890,10 +1917,22 @@ class KitForm(CoreModelForm):
 
                                         try {{
                                             await this.refreshServicePricingFromDurations();
-                                            await this.syncSelectedServicesState();
                                         }} catch (error) {{
                                             console.error('Error recalculating kit service pricing:', error);
-                                            this.showToast('Nao foi possivel recalcular custo e valor por duração.', 'error');
+                                            this.showToast(
+                                                this.formatPricingError(error, 'Nao foi possivel recalcular custo e valor por duração.'),
+                                                'error',
+                                            );
+                                        }}
+
+                                        try {{
+                                            await this.syncSelectedServicesState();
+                                        }} catch (error) {{
+                                            console.error('Error syncing kit services after time distribution:', error);
+                                            this.showToast(
+                                                this.formatPricingError(error, 'Nao foi possivel sincronizar os serviços do kit.'),
+                                                'error',
+                                            );
                                         }}
 
                                         this.refreshTotalDurationDisplay();
