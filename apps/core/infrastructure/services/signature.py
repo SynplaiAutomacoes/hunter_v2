@@ -77,6 +77,23 @@ def build_signature_signatory_and_observers(
     return signatory, []
 
 
+def build_signature_whatsapp_skip_note(*, workshop: object, phone: object) -> str:
+    """Return a user-facing suffix when WhatsApp delivery cannot be requested locally.
+
+    SynplaiSign still receives EMAIL-only when phone/instance are missing; this note
+    makes that explicit after a successful envelope send.
+    """
+    region = getattr(settings, "PHONENUMBER_DEFAULT_REGION", "BR")
+    has_phone = bool(normalize_signature_phone_number(phone, default_region=region))
+    has_instance = bool(str(getattr(workshop, "whatsapp_instance_name", "") or "").strip())
+    if has_phone and has_instance:
+        return ""
+    return (
+        " Documento enviado por e-mail. WhatsApp não foi solicitado "
+        "(cliente sem telefone válido ou oficina sem instância WhatsApp)."
+    )
+
+
 def build_signature_fields(*, document_ref_id: str, signatory_ref_id: str, page_number: int, position: dict[str, float] | None = None) -> list[dict[str, Any]]:
     return [
         {

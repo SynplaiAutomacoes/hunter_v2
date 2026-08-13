@@ -14,12 +14,36 @@ from apps.core.infrastructure.gateways.synplaisign import (
 )
 from apps.core.infrastructure.providers import set_signature_service
 from apps.core.infrastructure.services.signature_synplaisign import SynplaiSignSignatureService, _map_signatories
+from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.core.infrastructure.services.signature_webhook import (
     SignatureWebhookView,
     build_synplaisign_webhook_signature,
     process_signature_webhook_payload,
 )
 from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
+
+
+class SignatureWhatsAppSkipNoteTests(SimpleTestCase):
+    def test_empty_when_phone_and_instance_present(self) -> None:
+        note = build_signature_whatsapp_skip_note(
+            workshop=SimpleNamespace(whatsapp_instance_name="workshop_1"),
+            phone="+5511988887777",
+        )
+        self.assertEqual(note, "")
+
+    def test_note_when_phone_missing(self) -> None:
+        note = build_signature_whatsapp_skip_note(
+            workshop=SimpleNamespace(whatsapp_instance_name="workshop_1"),
+            phone="",
+        )
+        self.assertIn("WhatsApp não foi solicitado", note)
+
+    def test_note_when_instance_missing(self) -> None:
+        note = build_signature_whatsapp_skip_note(
+            workshop=SimpleNamespace(whatsapp_instance_name=""),
+            phone="+5511988887777",
+        )
+        self.assertIn("WhatsApp não foi solicitado", note)
 
 
 class SynplaiSignGatewayHelperTests(SimpleTestCase):

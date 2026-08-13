@@ -37,6 +37,7 @@ from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.budget.views.shared import reset_steps_after_step_4
 from ...core.domain.services.editing_lock_service import get_lock_info
 from ...core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.core.presentation.navigation import BUDGET_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
@@ -101,6 +102,8 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
         },
     )
     success_message = "Documento reenviado para assinatura do cliente." if is_resend else "Orçamento enviado para assinatura do cliente."
+    customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
+    success_message += build_signature_whatsapp_skip_note(workshop=budget.workshop, phone=customer_phone)
     return "success", success_message, reverse("budget:budget_list")
 
 
@@ -196,7 +199,7 @@ BUDGET_STATUS_BADGE_CLASSES = {
     BudgetStatus.WAITING_REVIEW: "badge-info min-w-sm",
     BudgetStatus.APPROVED: "badge-success min-w-sm",
     BudgetStatus.REJECTED: "badge-error min-w-sm",
-    BudgetStatus.CANCELLED: "badge-error min-w-sm",
+    BudgetStatus.CANCELLED: "badge-warning min-w-sm",
 }
 BUDGET_TYPE_BADGE_CLASSES = {
     BudgetType.SALE: "badge-success min-w-sm",
@@ -351,10 +354,10 @@ class BudgetStatusReportDataMixin:
 
     def _get_budget_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="id", search_by="id"),
+            TableColumn("Nº", attr="number", search_by="number"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
-            TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
+            TableColumn("Vinculado à", attr="reference_budget.number", search_by="reference_budget__number"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn(str(Budget.entry_date.field.verbose_name), attr=Budget.entry_date.field.name, search_by="entry_date"),
             TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
@@ -455,7 +458,7 @@ class BudgetStatusReportDataMixin:
         return {
             "workshop": self.workshop,
             "report_budgets": report_budgets,
-            "show_cancellation_reason_column": any(budget.cancellation_reason for budget in report_budgets),
+            "show_reason_column": any(budget.cancellation_reason or budget.rejection_reason for budget in report_budgets),
             "selection_report": selection_report,
             "selected_status_report": selection_report,
             "status_report_pdf_title": self.status_report_pdf_title,
@@ -1305,12 +1308,18 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if not cancellation_reason:
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 budget.cancellation_reason = cancellation_reason
+            elif status == "reject":
+                rejection_reason = request.POST.get("rejection_reason")
+                if not rejection_reason:
+                    return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
+                budget.rejection_reason = rejection_reason
             elif status == "reopen":
                 reopen_reason = str(request.POST.get("reopen_reason") or "").strip()
                 if not reopen_reason:
                     return JsonResponse({"success": False, "error": "A justificativa da reabertura é obrigatória."}, status=400)
 
                 budget.cancellation_reason = ""
+                budget.rejection_reason = ""
                 budget.regenerate_signature_token()
 
                 # Salvar o estado inicial completo no momento da reabertura
@@ -1463,6 +1472,7 @@ class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
         context = {
             "reference_budget_id": budget.pk,
+            "reference_budget_number": budget.number,
             "is_workorder": is_workorder,
         }
         return render(request, "budget/partials/auto_link_warning.html", context)
@@ -1541,7 +1551,8 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
-                filters |= Q(pk=int(query))
+                query_number = int(query)
+                filters |= Q(number=query_number) | Q(pk=query_number)
             queryset = queryset.filter(filters)
 
         paginator = Paginator(queryset, 20)
@@ -1565,7 +1576,8 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
-                filters |= Q(pk=int(query))
+                query_number = int(query)
+                filters |= Q(number=query_number) | Q(pk=query_number)
             queryset = queryset.filter(filters)
 
         paginator = Paginator(queryset, 20)

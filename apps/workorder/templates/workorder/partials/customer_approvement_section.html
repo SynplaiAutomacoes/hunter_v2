@@ -103,6 +103,8 @@
                         const hasKm = Boolean(el && el.value.trim());
                         const kmValid = hasKm && el.checkValidity();
                         const canToggleSignedPdf = {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %};
+                        const isSignatureResend = {% if workorder.signature_request_status == 'sent' and workorder.signature_external_id %}true{% else %}false{% endif %};
+                        const signatureButtonLabel = isSignatureResend ? 'Reenviar Documento' : 'Enviar para Assinatura';
                         const pdfViewUrl = '{% url 'workorder:visualizar_pdf' workorder.pk %}';
                         const signedPdfUrl = pdfViewUrl + '?variant=signed';
                         const basePdfUrl = pdfViewUrl + '?variant=base';
@@ -116,6 +118,8 @@
                                 url: initialPdfUrl,
                                 downloadUrl: initialDownloadUrl,
                                 showSignatureBtn: true,
+                                signatureButtonLabel: signatureButtonLabel,
+                                isSignatureResend: isSignatureResend,
                                 isStatusLocked: {% if workorder.is_status_locked %}true{% else %}false{% endif %},
                                 signatureBlocked: Boolean(gate.hasSignatureBlockers),
                                 signatureBlockedReason: gate.signatureBlockersDisplay || '',

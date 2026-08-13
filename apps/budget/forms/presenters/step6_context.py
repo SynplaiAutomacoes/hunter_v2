@@ -36,6 +36,7 @@ class Step6ReviewContext:
     base_pdf_download_url: str
     saved_observation_html: str
     cancellation_reason_html: str
+    rejection_reason_html: str
     reopen_history_html: str
     step6_action_button_state_class: str
     blocked_step6_action_attrs: str
@@ -151,6 +152,12 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         cancellation_reason_html = (
             '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo do Cancelamento</span><span class="text-gray-900 text-base">{reason}</span></div></div>'
         ).format(reason=budget.cancellation_reason)
+
+    rejection_reason_html = ""
+    if budget.rejection_reason:
+        rejection_reason_html = (
+            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo da Reprovação</span><span class="text-gray-900 text-base">{reason}</span></div></div>'
+        ).format(reason=budget.rejection_reason)
 
     history_entries = list(budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).select_related("user")[:10])
     history_entries.reverse()
@@ -381,6 +388,7 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         base_pdf_download_url=base_pdf_download_url,
         saved_observation_html=saved_observation_html,
         cancellation_reason_html=cancellation_reason_html,
+        rejection_reason_html=rejection_reason_html,
         reopen_history_html=reopen_history_html,
         step6_action_button_state_class=step6_action_button_state_class,
         blocked_step6_action_attrs=blocked_step6_action_attrs,

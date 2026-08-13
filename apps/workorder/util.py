@@ -21,6 +21,7 @@ from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
+from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType
 from apps.workorder.service import (
@@ -368,6 +369,9 @@ def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, 
 
 
 def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple[str, str]:
+    is_resend = False
+    previous_external_id: str | None = None
+
     if workorder.is_status_locked:
         logger.info("workorder_signature_status_locked", extra={"workorder_id": workorder.pk})
         return "error", "Reabra a O.S. antes de alterar o status."
@@ -387,22 +391,24 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
     with transaction.atomic():
         locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
 
-        if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENT and locked_workorder.signature_external_id:
-            logger.info("workorder_signature_already_sent", extra={"workorder_id": workorder.pk, "external_id": locked_workorder.signature_external_id})
-            return "info", "Ordem de serviço já enviada para assinatura do cliente."
-
         if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENDING:
             logger.info("workorder_signature_already_sending", extra={"workorder_id": workorder.pk})
             return "info", "O envio da ordem de serviço ainda está em processamento."
 
+        is_resend = locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENT and bool(locked_workorder.signature_external_id)
+        previous_external_id = locked_workorder.signature_external_id if is_resend else None
+
         locked_workorder.mark_signature_sending()
-        logger.info("workorder_signature_sending_status_set", extra={"workorder_id": workorder.pk})
+        logger.info(
+            "workorder_signature_sending_status_set",
+            extra={"workorder_id": workorder.pk, "is_resend": is_resend, "previous_external_id": previous_external_id},
+        )
 
     try:
         result = send_workorder_for_signature(workorder=workorder)
     except WorkOrderSignatureError:
         workorder.mark_signature_failed()
-        logger.exception("workorder_signature_send_failed", extra={"workorder_id": workorder.pk})
+        logger.exception("workorder_signature_send_failed", extra={"workorder_id": workorder.pk, "is_resend": is_resend})
         return "error", "Falha ao enviar ordem de serviço para assinatura. Tente novamente em instantes."
 
     workorder.mark_signature_sent(result.envelope_id, document_id=result.document_id)
@@ -412,9 +418,15 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
             "workorder_id": workorder.pk,
             "envelope_id": result.envelope_id,
             "document_id": result.document_id,
+            "is_resend": is_resend,
+            "previous_external_id": previous_external_id,
         },
     )
-    return "success", "Ordem de serviço enviada para assinatura do cliente."
+    success_message = "Documento reenviado para assinatura do cliente." if is_resend else "Ordem de serviço enviada para assinatura do cliente."
+    customer = getattr(workorder.budget, "customer", None)
+    customer_phone = getattr(customer, "phone", "") if customer else ""
+    success_message += build_signature_whatsapp_skip_note(workshop=workorder.workshop, phone=customer_phone)
+    return "success", success_message
 
 
 def _get_workorder_from_signature_token(token: str) -> WorkOrder:

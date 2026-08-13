@@ -8,7 +8,8 @@ from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
-from django.urls import reverse_lazy
+from django.core.exceptions import ValidationError
+from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -16,7 +17,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from apps.catalog.equivalent_products import get_equivalent_products_queryset, serialize_equivalent_product
 from apps.budget.models import BudgetItem, BudgetKitItemOverride
 from apps.workorder.models import WorkOrderItem, WorkOrderKitItemOverride
-from apps.catalog.forms.products import ProductForm
+from apps.catalog.forms.products import ProductForm, StockAdjustForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import KitProduct
 from apps.catalog.models.products import Product
@@ -30,7 +31,10 @@ from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.stock.models import StockMovement
+from apps.stock.services.adjust_stock import adjust_stock_quantity
 from apps.workshops.mixin import WorkshopScopedMixin
+
+_PRODUCT_ACTIVE_TABS = frozenset({"cadastro", "atribuicao_kit", "estoque", "historico", "movimentacao"})
 
 
 PRODUCT_LIST_BASE_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -202,7 +206,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.budget.criado_em,
                 "quantity": item.quantity,
                 "status": item.budget.get_status_display(),
-                "label": f"Orçamento #{item.budget.id}",
+                "label": f"Orçamento #{item.budget.number}",
                 "sub_label": "Orçamento",
                 "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget.id}),
             }
@@ -216,7 +220,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.budget_item.budget.criado_em,
                 "quantity": item.quantity,
                 "status": item.budget_item.budget.get_status_display(),
-                "label": f"Orçamento #{item.budget_item.budget.id}",
+                "label": f"Orçamento #{item.budget_item.budget.number}",
                 "sub_label": "Orçamento",
                 "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget_item.budget.id}),
             }
@@ -230,7 +234,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.workorder.criado_em,
                 "quantity": item.quantity,
                 "status": item.workorder.get_status_display(),
-                "label": f"OS #{item.workorder.budget.id}",
+                "label": f"OS #{item.workorder.budget.number}",
                 "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder.id)}),
             }
@@ -244,7 +248,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.workorder_item.workorder.criado_em,
                 "quantity": item.quantity,
                 "status": item.workorder_item.workorder.get_status_display(),
-                "label": f"OS #{item.workorder_item.workorder.budget.id}",
+                "label": f"OS #{item.workorder_item.workorder.budget.number}",
                 "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder_item.workorder.id)}),
             }
@@ -252,6 +256,9 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
         context["history_list"] = history_list
         context["back_url"] = self._get_next_url() or reverse_lazy("catalog:product_list")
+        requested_tab = str(self.request.GET.get("active_tab") or "").strip()
+        if requested_tab in _PRODUCT_ACTIVE_TABS:
+            context["active_tab"] = requested_tab
         context.update(
             build_product_kits_assignment_context(
                 workshop=self.workshop,
@@ -362,3 +369,70 @@ class StockFieldsUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             stock_obj.save()
 
         return HttpResponse("", status=200)
+
+
+class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockProduct
+    workshop_permission_codename = "change_stockproduct"
+    template_name = "products/partials/stock_adjust_modal.html"
+
+    def _get_stock_product(self, product_id: int) -> StockProduct:
+        product = get_object_or_404(Product, pk=product_id, workshop=self.workshop)
+        stock_obj, _created = StockProduct.objects.get_or_create(workshop=self.workshop, product=product)
+        return stock_obj
+
+    def get(self, request, *args, **kwargs):
+        stock_obj = self._get_stock_product(kwargs["product_id"])
+        form = StockAdjustForm(current_quantity=stock_obj.current_quantity)
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "product": stock_obj.product,
+                "stock_obj": stock_obj,
+            },
+        )
+
+    def post(self, request, *args, **kwargs):
+        stock_obj = self._get_stock_product(kwargs["product_id"])
+        form = StockAdjustForm(request.POST, current_quantity=stock_obj.current_quantity)
+        if not form.is_valid():
+            return render(
+                request,
+                self.template_name,
+                {
+                    "form": form,
+                    "product": stock_obj.product,
+                    "stock_obj": stock_obj,
+                },
+                status=400,
+            )
+
+        try:
+            adjust_stock_quantity(
+                stock_product=stock_obj,
+                new_quantity=form.cleaned_data["quantity"],
+                reason=form.cleaned_data["reason"],
+                user=request.user,
+            )
+        except ValidationError as exc:
+            form.add_error(None, exc.messages[0] if exc.messages else str(exc))
+            return render(
+                request,
+                self.template_name,
+                {
+                    "form": form,
+                    "product": stock_obj.product,
+                    "stock_obj": stock_obj,
+                },
+                status=400,
+            )
+
+        redirect_url = reverse("catalog:product_update", kwargs={"pk": stock_obj.product_id})
+        redirect_url = f"{redirect_url}?active_tab=movimentacao"
+        response = HttpResponse("")
+        response["HX-Redirect"] = redirect_url
+        messages.success(request, "Estoque ajustado com sucesso.")
+        return response
+

@@ -38,6 +38,9 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS = float(os.getenv("BUDGET_SSE_CHECK_INTERVAL_S
 
 # Logger config
 PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "true", "yes")
+
+# Temporary: keep dashboard live until monthly snapshots are re-enabled in production.
+DASHBOARD_USE_MONTHLY_SNAPSHOTS = os.getenv("DASHBOARD_USE_MONTHLY_SNAPSHOTS", "0").lower() in ("1", "true", "yes")
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
@@ -256,6 +259,9 @@ DATABASES = {
 # Seconds before a PROCESSING outbound row is reclaimed to PENDING by the poller.
 OUTBOUND_PROCESSING_RECLAIM_SECONDS = int(os.getenv("OUTBOUND_PROCESSING_RECLAIM_SECONDS", "600"))
 
+# Max delay after the first legal send moment for appointment alerts before they are cancelled.
+OUTBOUND_MAX_DELAY_MINUTES = int(os.getenv("OUTBOUND_MAX_DELAY_MINUTES", "15"))
+
 # Cache
 # https://docs.djangoproject.com/en/5.2/topics/cache/
 
@@ -322,6 +328,10 @@ TAILWIND_CLI_SRC_CSS = os.path.join(BASE_DIR, "static", "css", "main.css")
 TAILWIND_CLI_SRC_REPO = "dobicinaitis/tailwind-cli-extra"
 TAILWIND_CLI_USE_DAISY_UI = True
 TAILWIND_CLI_VERSION = "2.8.2"
+_TAILWIND_CLI_PATH = os.getenv("TAILWIND_CLI_PATH", "").strip()
+if _TAILWIND_CLI_PATH:
+    TAILWIND_CLI_PATH = _TAILWIND_CLI_PATH
+    TAILWIND_CLI_AUTOMATIC_DOWNLOAD = False
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

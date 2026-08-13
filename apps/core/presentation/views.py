@@ -21,10 +21,10 @@ from apps.core.observability import observe_dependency_call
 from apps.core.presentation.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.infrastructure.services.dashboard_query_service import (
     INDICATOR_LABELS,
-    DashboardQueryService,
     build_financial_indicator_report_data,
     get_financial_indicator_data,
 )
+from apps.core.infrastructure.services.dashboard_snapshot_service import get_dashboard_metrics
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.utils import clean_id
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -72,8 +72,11 @@ class DashboardView(HtmxTemplateResponseMixin, TemplateView):
             except ValueError:
                 pass
 
-        service = DashboardQueryService()
-        metrics = service.compute(workshop=workshop, selected_month=selected_month, selected_year=selected_year)
+        metrics = get_dashboard_metrics(
+            workshop,
+            selected_month=selected_month,
+            selected_year=selected_year,
+        )
         return metrics.as_context()
 
 
@@ -230,8 +233,12 @@ class DashboardFinancialReportView(View):
             valor_pago_esse_mes = result["total"] or Decimal("0.00")
             sinal_pago_mes_anterior = report_data.total_value - valor_pago_esse_mes
         elif indicador == "garantia_cortesia_mes":
-            warranty_count = sum(1 for item in items if item.budget_type == "warranty")
-            courtesy_count = sum(1 for item in items if item.budget_type == "courtesy")
+            warranty_count = sum(
+                1 for item in items if item.budget_type == "warranty" and (item.budget_id is None or item.budget.reference_budget_id is None)
+            )
+            courtesy_count = sum(
+                1 for item in items if item.budget_type == "courtesy" and (item.budget_id is None or item.budget.reference_budget_id is None)
+            )
 
         return {
             "indicator": indicador,

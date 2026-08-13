@@ -250,7 +250,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def get_id(self) -> int:
-        return self.budget.pk
+        return self.budget.public_number
 
     @property
     def total_labor_cost_value(self) -> Money:
@@ -324,7 +324,13 @@ class WorkOrder(TimeStampedModel):
     def product_issue_summary(self) -> ProductIssueSummary:
         cached_summary = getattr(self, "_product_issue_summary_cache", None)
         if cached_summary is None:
-            cached_summary = annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
+            # After delivery/cancel/reject, stock was already consumed or will not be used —
+            # comparing against current stock would show misleading shortage warnings.
+            cached_summary = annotate_product_issues(
+                workshop=self.workshop,
+                items=self.pricing_snapshot.product_lines,
+                check_stock=not self.is_status_locked,
+            )
             setattr(self, "_product_issue_summary_cache", cached_summary)
         return cached_summary
 
@@ -480,28 +486,56 @@ class WorkOrder(TimeStampedModel):
             raise WorkOrderError(f"Exclua os planos de pagamento antes de {action} a O.S.")
 
     def cancel(self, *, reason: str) -> None:
+        from apps.stock.services.workorder_stock import return_workorder_stock_to_inventory
+
         if self.is_status_locked:
             raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
 
         self._ensure_no_payments("cancelar")
+        with transaction.atomic():
+            locked_workorder = WorkOrder.objects.select_for_update().get(pk=self.pk)
+
+            locked_workorder.status = WorkOrderStatus.CANCELLED
+            locked_workorder.cancellation_reason = reason
+            locked_workorder.rejection_reason = ""
+
+            locked_workorder.save(update_fields=["status", "cancellation_reason", "rejection_reason"])
+
+            return_workorder_stock_to_inventory(
+                workorder=locked_workorder,
+                user=getattr(self, "_consumption_user", None),
+                reason="Estoque devolvido por cancelamento da O.S.",
+            )
 
         self.status = WorkOrderStatus.CANCELLED
         self.cancellation_reason = reason
         self.rejection_reason = ""
 
-        self.save(update_fields=["status", "cancellation_reason", "rejection_reason"])
-
     def reject(self, *, reason: str) -> None:
+        from apps.stock.services.workorder_stock import return_workorder_stock_to_inventory
+
         if self.is_status_locked:
             raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
 
         self._ensure_no_payments("reprovar")
+        with transaction.atomic():
+            locked_workorder = WorkOrder.objects.select_for_update().get(pk=self.pk)
+
+            locked_workorder.status = WorkOrderStatus.REJECTED
+            locked_workorder.rejection_reason = reason
+            locked_workorder.cancellation_reason = ""
+
+            locked_workorder.save(update_fields=["status", "rejection_reason", "cancellation_reason"])
+
+            return_workorder_stock_to_inventory(
+                workorder=locked_workorder,
+                user=getattr(self, "_consumption_user", None),
+                reason="Estoque devolvido por reprovação da O.S.",
+            )
 
         self.status = WorkOrderStatus.REJECTED
         self.rejection_reason = reason
         self.cancellation_reason = ""
-
-        self.save(update_fields=["status", "rejection_reason", "cancellation_reason"])
 
     def reopen(self, *, reason: str) -> None:
         if not self.can_reopen:
