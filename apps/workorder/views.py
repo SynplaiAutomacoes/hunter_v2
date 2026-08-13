@@ -65,7 +65,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -1392,10 +1392,15 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 context["reject_form"] = reason_form
             return render(request, "workorder/partials/customer_approvement_section.html", context)
 
-        if next_status == WorkOrderStatus.CANCELLED:
-            workorder.cancel(reason=reason_form.cleaned_data["status_reason"])
-        else:
-            workorder.reject(reason=reason_form.cleaned_data["status_reason"])
+        try:
+            if next_status == WorkOrderStatus.CANCELLED:
+                workorder.cancel(reason=reason_form.cleaned_data["status_reason"])
+            else:
+                workorder.reject(reason=reason_form.cleaned_data["status_reason"])
+        except WorkOrderError as exc:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
+            return response
 
         return HttpResponse(headers={"HX-Refresh": "true"})
 

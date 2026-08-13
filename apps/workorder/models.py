@@ -481,12 +481,17 @@ class WorkOrder(TimeStampedModel):
                 },
             )
 
+    def _ensure_no_payments(self, action: str) -> None:
+        if self.payments.exists():
+            raise WorkOrderError(f"Exclua os planos de pagamento antes de {action} a O.S.")
+
     def cancel(self, *, reason: str) -> None:
         from apps.stock.services.workorder_stock import return_workorder_stock_to_inventory
 
         if self.is_status_locked:
             raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
 
+        self._ensure_no_payments("cancelar")
         with transaction.atomic():
             locked_workorder = WorkOrder.objects.select_for_update().get(pk=self.pk)
 
@@ -512,6 +517,7 @@ class WorkOrder(TimeStampedModel):
         if self.is_status_locked:
             raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
 
+        self._ensure_no_payments("reprovar")
         with transaction.atomic():
             locked_workorder = WorkOrder.objects.select_for_update().get(pk=self.pk)
 

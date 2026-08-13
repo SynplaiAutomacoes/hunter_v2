@@ -353,6 +353,7 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "can_reopen_workorder": bool(request and can_reopen_workorder(request=request, workorder=workorder)),
         "can_view_workorder_emission": can_emit,
         "emission_ui": emission_ui,
+        "has_payments": workorder.payments.exists(),
         "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
         "attachments": workorder.attachments.order_by("-criado_em"),
     }
