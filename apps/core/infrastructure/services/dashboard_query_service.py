@@ -580,6 +580,14 @@ def _build_workorder_report(*, indicator: str, report_title: str, periodo_label:
 
     if indicator == "carros_mes":
         total_value = sum((resolve_decimal_amount(item.total_budget_value) for item in items), Decimal("0.00"))
+    elif indicator == "garantia_cortesia_mes":
+        # Vehicle count: linked/reference ("Filha") OSs don't represent a new vehicle,
+        # only root WOs (budget without reference_budget) do.
+        summary_count = sum(
+            1
+            for item in items
+            if item.budget_id is None or item.budget.reference_budget_id is None
+        )
 
     return FinancialIndicatorReportData(
         indicator=indicator,
@@ -1225,7 +1233,6 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
         "filters": {
             "budget_type__in": ["warranty", "courtesy"],
             "status": WorkOrderStatus.APPROVED,
-            "budget__reference_budget__isnull": True,
         },
         "date_field": "delivered_at",
         "value_field": None,

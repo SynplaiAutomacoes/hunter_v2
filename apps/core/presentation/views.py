@@ -233,8 +233,12 @@ class DashboardFinancialReportView(View):
             valor_pago_esse_mes = result["total"] or Decimal("0.00")
             sinal_pago_mes_anterior = report_data.total_value - valor_pago_esse_mes
         elif indicador == "garantia_cortesia_mes":
-            warranty_count = sum(1 for item in items if item.budget_type == "warranty")
-            courtesy_count = sum(1 for item in items if item.budget_type == "courtesy")
+            warranty_count = sum(
+                1 for item in items if item.budget_type == "warranty" and (item.budget_id is None or item.budget.reference_budget_id is None)
+            )
+            courtesy_count = sum(
+                1 for item in items if item.budget_type == "courtesy" and (item.budget_id is None or item.budget.reference_budget_id is None)
+            )
 
         return {
             "indicator": indicador,
