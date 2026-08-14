@@ -7,15 +7,15 @@ import re
 from typing import Any
 
 import requests
-from _decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
+from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
 from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
-from apps.finance.services.pricing import SliderAllocation, _to_decimal_money, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
+from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
 from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 
 class NfeEmissionError(Exception):
+    pass
+
+
+class NfeEmissionUncertainError(NfeEmissionError):
     pass
 
 
@@ -202,7 +206,7 @@ def _is_nfse_tax_class(payload: dict[str, Any]) -> bool:
     return bool(str(payload.get("tipo_emissao") or "").strip()) and bool(str(payload.get("codigo_servico") or "").strip())
 
 
-def _validate_nfe_tax_class(*, nfe_request: NfeRequest, headers: dict[str, str]) -> dict[str, Any]:
+def _validate_nfe_tax_class(*, nfe_request: Any, headers: dict[str, str]) -> dict[str, Any]:
     reference = str(nfe_request.tax_class or "").strip()
     if not reference:
         raise NfeEmissionError("Selecione uma classe de imposto para emitir a Nota Fiscal.")
@@ -458,6 +462,26 @@ def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe
     pedido_payload["informacoes_complementares"] = additional_information
 
 
+def _apply_transport_to_nfe_payload(*, payload: dict[str, Any], nfe_request: NfeRequest) -> None:
+    try:
+        freight_mode, transport_payload = build_webmania_transport_payload(
+            freight_mode=getattr(nfe_request, "freight_mode", 9),
+            snapshot=getattr(nfe_request, "transport_snapshot", {}),
+        )
+    except NfeTransportValidationError as exc:
+        raise NfeEmissionError(str(exc)) from exc
+
+    if freight_mode == 9:
+        return
+
+    pedido_payload = payload.get("pedido")
+    if not isinstance(pedido_payload, dict):
+        raise NfeEmissionError("Pedido inválido ao aplicar dados de transporte na Nota Fiscal.")
+    pedido_payload["modalidade_frete"] = freight_mode
+    if transport_payload:
+        payload["transporte"] = transport_payload
+
+
 def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation, Decimal]:
     workorder = nfe_request.workorder
     allocation = build_slider_allocation_for_workorder(
@@ -518,11 +542,178 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
     return products_payload, allocation.products_target, allocation, product_discount
 
 
-def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
-    products_payload, total_products_gross, allocation, product_discount = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
+def _build_product_payloads_from_lines(*, lines: list[ProductEmissionLine], tax_class: str, cfop: str = "") -> tuple[list[dict[str, Any]], Decimal]:
+    products: list[dict[str, Any]] = []
+    total = Decimal("0.00")
+    for line in lines:
+        allocated_total = _quantize_money(line.base_total)
+        if line.quantity <= 0 or allocated_total <= 0:
+            continue
+        unit_price = _build_unit_price_for_api(allocated_total=allocated_total, quantity=line.quantity)
+        product: dict[str, Any] = {
+            "nome": line.description,
+            "codigo": line.code,
+            "ncm": _normalize_ncm(line.ncm),
+            "quantidade": _format_quantity(line.quantity),
+            "unidade": _unit_for_api(line.unit),
+            "origem": line.origin,
+            "subtotal": _format_decimal(unit_price, places=2),
+            "total": _format_decimal(allocated_total, places=2),
+            "classe_imposto": str(tax_class or "").strip(),
+        }
+        if line.cest:
+            product["cest"] = re.sub(r"\D", "", line.cest)
+        if cfop:
+            product["codigo_cfop"] = str(cfop).strip()
+        products.append(product)
+        total += allocated_total
+    if not products:
+        raise NfeEmissionError("Não foi possível montar itens de produto para emissão da Nota de Transporte.")
+    return products, _quantize_money(total)
 
-    # O total liquido de produtos ja reflete os descontos embutidos em cada unit_price
-    total_products_net = _quantize_money(total_products_gross + product_discount)
+
+def build_supplier_nfe_payload(*, supplier: Any) -> dict[str, Any]:
+    if supplier is None:
+        raise NfeEmissionError("A Nota de Transporte não possui destinatário vinculado ao fornecedor da NF-e de entrada.")
+    document = _normalize_document(str(getattr(supplier, "cnpj", "") or ""))
+    if len(document) not in {11, 14}:
+        raise NfeEmissionError("O fornecedor da NF-e de entrada possui CPF/CNPJ inválido para emissão.")
+    payload: dict[str, Any] = {
+        "endereco": _require_customer_field(value=getattr(supplier, "logradouro", ""), field_name="endereço do fornecedor"),
+        "numero": _require_customer_field(value=getattr(supplier, "numero", ""), field_name="número do fornecedor"),
+        "bairro": _require_customer_field(value=getattr(supplier, "bairro", ""), field_name="bairro do fornecedor"),
+        "cidade": _require_customer_field(value=getattr(supplier, "cidade", ""), field_name="cidade do fornecedor"),
+        "uf": _require_customer_field(value=getattr(supplier, "estado", ""), field_name="UF do fornecedor"),
+        "cep": _require_customer_field(value=getattr(supplier, "cep", ""), field_name="CEP do fornecedor"),
+    }
+    complemento = str(getattr(supplier, "complemento", "") or "").strip()
+    if complemento:
+        payload["complemento"] = complemento
+    phone = str(getattr(supplier, "phone", "") or "").strip()
+    email = str(getattr(supplier, "email", "") or "").strip()
+    if phone:
+        payload["telefone"] = phone
+    if email:
+        payload["email"] = email
+    if len(document) == 11:
+        payload["cpf"] = document
+        payload["nome_completo"] = _require_customer_field(value=getattr(supplier, "name", ""), field_name="nome do fornecedor")
+    else:
+        payload["cnpj"] = document
+        payload["razao_social"] = _require_customer_field(value=getattr(supplier, "name", ""), field_name="razão social do fornecedor")
+        payload["ie"] = "ISENTO"
+    return payload
+
+
+def build_normal_nfe_payload_from_lines(
+    *,
+    workshop: Any,
+    request_id: int,
+    recipient: Any,
+    lines: list[ProductEmissionLine],
+    operation_nature: str,
+    cfop: str,
+    tax_class: str,
+    freight_mode: object,
+    transport_snapshot: object,
+    reference_access_key: str,
+    additional_information: str = "",
+    request: HttpRequest | None = None,
+) -> dict[str, Any]:
+    products, total = _build_product_payloads_from_lines(lines=lines, tax_class=tax_class, cfop=cfop)
+    payload: dict[str, Any] = {
+        "ID": f"transport-{request_id}",
+        "operacao": 1,
+        "natureza_operacao": str(operation_nature or "Remessa para transporte").strip(),
+        "modelo": 1,
+        "finalidade": 1,
+        "ambiente": int(getattr(settings, "WEBMANIA_AMBIENT", "2")),
+        "url_notificacao": build_webmania_webhook_url(request=request),
+        "nfe_referenciada": [str(reference_access_key or "").strip()],
+        "cliente": build_supplier_nfe_payload(supplier=recipient),
+        "produtos": products,
+        "pedido": {
+            "pagamento": 0,
+            "presenca": 2,
+            "modalidade_frete": 9,
+            "desconto": "0.00",
+            "total": _format_decimal(_quantize_money(total), places=2),
+        },
+    }
+    if len(payload["nfe_referenciada"][0]) != 44 or not payload["nfe_referenciada"][0].isdigit():
+        raise NfeEmissionError("A NF-e de entrada precisa possuir chave de acesso válida para ser referenciada.")
+    if additional_information:
+        payload["pedido"]["informacoes_complementares"] = str(additional_information).strip()
+    try:
+        normalized_freight_mode, transport_payload = build_webmania_transport_payload(freight_mode=freight_mode, snapshot=transport_snapshot)
+    except NfeTransportValidationError as exc:
+        raise NfeEmissionError(str(exc)) from exc
+    payload["pedido"]["modalidade_frete"] = normalized_freight_mode
+    if transport_payload:
+        payload["transporte"] = transport_payload
+    return payload
+
+
+def validate_normal_nfe_tax_class(*, workshop: Any, tax_class: str) -> None:
+    class TaxClassContext:
+        pass
+
+    context = TaxClassContext()
+    context.workshop = workshop
+    context.tax_class = tax_class
+    headers = _build_headers(workshop=workshop)
+    _validate_nfe_tax_class(nfe_request=context, headers=headers)
+
+
+def download_normal_nfe_preview_payload(*, workshop: Any, payload: dict[str, Any]) -> DownloadedWebmaniaDocument:
+    preview_payload = {**payload, "previa_danfe": True}
+    try:
+        response = requests.post(_build_emit_url(), json=preview_payload, headers=_build_headers(workshop=workshop), timeout=60)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao gerar prévia da Nota de Transporte", scope="nfe")
+        raise NfeEmissionError(message) from exc
+    content_type = str(response.headers.get("Content-Type") or "application/pdf")
+    if not _is_json_content_type(content_type):
+        return DownloadedWebmaniaDocument(content=response.content, content_type=content_type, content_disposition=str(response.headers.get("Content-Disposition") or ""))
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NfeEmissionError("Resposta inválida da API de prévia da Nota de Transporte.") from exc
+    if not isinstance(data, dict):
+        raise NfeEmissionError("Resposta inválida da API de prévia da Nota de Transporte.")
+    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
+    if error_message:
+        raise NfeEmissionError(error_message)
+    preview_url = _extract_nfe_preview_url(data)
+    if not preview_url:
+        raise NfeEmissionError("A API não retornou o PDF da prévia da Nota de Transporte.")
+    try:
+        return download_webmania_document(workshop=workshop, url=preview_url)
+    except WebmaniaDocumentDownloadError as exc:
+        raise NfeEmissionError(str(exc)) from exc
+
+
+def send_normal_nfe_payload(*, workshop: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        response = requests.post(_build_emit_url(), json=payload, headers=_build_headers(workshop=workshop), timeout=30)
+        response.raise_for_status()
+    except requests.Timeout as exc:
+        raise NfeEmissionUncertainError("Timeout ao emitir Nota de Transporte; estado remoto incerto.") from exc
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota de Transporte", scope="nfe")
+        raise NfeEmissionError(message) from exc
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NfeEmissionUncertainError("Resposta inválida ao emitir Nota de Transporte; estado remoto incerto.") from exc
+    if not isinstance(data, dict):
+        raise NfeEmissionUncertainError("Resposta inválida ao emitir Nota de Transporte; estado remoto incerto.")
+    return data
+
+
+def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
+    products_payload, _total_products_gross, allocation, product_discount = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
 
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
@@ -540,6 +731,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
     }
 
     _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
+    _apply_transport_to_nfe_payload(payload=payload, nfe_request=nfe_request)
 
     logger.info(
         "nfe_payload_built nfe_request_id=%s workshop_id=%s workorder_id=%s slider=%s products_target=%s services_target=%s product_discount=%s discount_type=%s",

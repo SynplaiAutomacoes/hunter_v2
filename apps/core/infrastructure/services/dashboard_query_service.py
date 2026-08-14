@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value
 from django.db.models.functions import Coalesce, Greatest
@@ -359,8 +359,29 @@ def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[Decimal, Decimal, Dec
     return total_pcost, total_third_party, total_mechanic, total_shipping
 
 
-def calculate_markup_progress(markup: Decimal) -> int:
-    return min(int((markup * Decimal("50")).quantize(Decimal("1"))), 100)
+MarkupGaugeTone = Literal["success", "warning", "error"]
+
+_MARKUP_GREEN_BELOW = Decimal("0.2")
+_MARKUP_YELLOW_BELOW = Decimal("0.6")
+
+
+def calculate_markup_progress(markup: Decimal, target: Decimal | None) -> int:
+    """Fill level of the markup gauge relative to the monthly MLR target (100% at target)."""
+    if target is None or target <= 0:
+        return 0
+    ratio = (markup / target) * Decimal("100")
+    return min(int(ratio.quantize(Decimal("1"))), 100)
+
+
+def resolve_markup_gauge_tone(markup: Decimal, target: Decimal | None) -> MarkupGaugeTone:
+    """Color bands by absolute distance below the monthly MLR target."""
+    if target is None or target <= 0:
+        return "error"
+    if markup >= target - _MARKUP_GREEN_BELOW:
+        return "success"
+    if markup >= target - _MARKUP_YELLOW_BELOW:
+        return "warning"
+    return "error"
 
 
 def count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> int:
@@ -772,7 +793,14 @@ class DashboardQueryService:
             today_sales=today_sales,
             accumulated_profitability=approved_budget_metrics.accumulated_profitability,
             accumulated_markup=approved_budget_metrics.accumulated_markup,
-            accumulated_markup_progress=calculate_markup_progress(approved_budget_metrics.accumulated_markup),
+            accumulated_markup_progress=calculate_markup_progress(
+                approved_budget_metrics.accumulated_markup,
+                workshop_cost.profitability_multiplier if workshop_cost is not None else None,
+            ),
+            accumulated_markup_tone=resolve_markup_gauge_tone(
+                approved_budget_metrics.accumulated_markup,
+                workshop_cost.profitability_multiplier if workshop_cost is not None else None,
+            ),
             warranty_return_rate=warranty_return_rate,
             approval_rate=approval_rate,
             total_pending_receivable=pending_receivable_metrics.total_general,
