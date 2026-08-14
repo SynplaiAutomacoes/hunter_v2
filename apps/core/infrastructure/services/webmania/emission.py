@@ -400,6 +400,10 @@ def compute_service_discount_for_nfse(
     return _quantize_money(total_discount * raw_services / raw_total)
 
 
+def normalize_codigo_nbs(value: object) -> str:
+    return "".join(char for char in str(value or "") if char.isdigit())
+
+
 def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
     allocation = build_slider_allocation_for_workorder(
         workorder=nfse_request.workorder,
@@ -438,6 +442,9 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
     additional_information = _additional_information(nfse_request)
     if additional_information:
         first_rps["servico"]["informacoes_complementares"] = additional_information
+    codigo_nbs = normalize_codigo_nbs(getattr(nfse_request, "codigo_nbs", ""))
+    if codigo_nbs:
+        first_rps["servico"]["codigo_nbs"] = codigo_nbs
     if nfse_request.reserved_rps_number is not None:
         first_rps["numero"] = int(nfse_request.reserved_rps_number)
     if str(nfse_request.reserved_rps_series or "").strip():

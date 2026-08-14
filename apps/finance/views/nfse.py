@@ -252,6 +252,7 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                     _build_field("Ordem de serviço", self.object.workorder),
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),
+                    _build_field("Código NBS", self.object.codigo_nbs),
                     _build_field("Número da Nota Fiscal de Serviço", self.object.reserved_rps_number),
                     _build_field("Série da Nota Fiscal de Serviço", self.object.reserved_rps_series),
                     _build_field("Discriminação", self.object.service_description),
@@ -404,7 +405,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     partial_template_name = "finance/partials/nfse_step_content.html"
     preview_template_name = "finance/partials/nfse_step3_preview.html"
     step3_form_class = NfseRequestStep3Form
-    preview_initial_fields = ("pricing_slider", "tax_class", "service_description", "additional_information")
+    preview_initial_fields = ("pricing_slider", "tax_class", "codigo_nbs", "service_description", "additional_information")
     tax_class_kind = "nfse"
     tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal de Serviço: {error}"
     success_redirect_name = "finance:nfse_list"
