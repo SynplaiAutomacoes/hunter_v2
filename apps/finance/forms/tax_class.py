@@ -98,10 +98,6 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     return f"{value.quantize(quantizer):f}"
 
 
-def _service_code_digits(value: object) -> str:
-    return "".join(char for char in str(value or "") if char.isdigit())
-
-
 class TaxClassFormBase(CoreForm):
     referencia = forms.CharField(
         label="Referência",
@@ -361,13 +357,6 @@ class NfseTaxClassForm(TaxClassFormBase):
             self.add_error("codigo_servico", NFSE_CODIGO_SERVICO_INVALID_FORMAT)
         elif codigo_servico:
             cleaned_data["codigo_servico"] = codigo_servico
-
-        codigo_tributacao = str(cleaned_data.get("codigo_tributacao_municipio") or "")
-        codigo_tributacao_digits = _service_code_digits(codigo_tributacao)
-        if codigo_tributacao_digits:
-            if len(codigo_tributacao_digits) != 3:
-                self.add_error("codigo_tributacao_municipio", "Informe o código de tributação com 3 dígitos.")
-            cleaned_data["codigo_tributacao_municipio"] = codigo_tributacao_digits
 
         if cleaned_data.get("tributacao_iss") == "2" and not cleaned_data.get("tipo_imunidade"):
             self.add_error("tipo_imunidade", "Informe o tipo de imunidade quando a tributação do ISS for Imunidade.")

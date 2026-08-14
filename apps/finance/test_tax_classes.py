@@ -108,6 +108,19 @@ class NfseTaxClassFormServiceCodeTests(SimpleTestCase):
         self.assertEqual(form.cleaned_data["referencia"], "REF-ORIGINAL")
         self.assertTrue(form.fields["referencia"].widget.attrs.get("readonly"))
 
+    def test_nfse_form_accepts_municipal_taxation_code_without_three_digit_constraint(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe municipal",
+                "codigo_servico": "01.05.01",
+                "codigo_tributacao_municipio": "1401",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["codigo_tributacao_municipio"], "1401")
+
 
 class TaxClassServiceTests(TestCase):
     def test_list_tax_classes_does_not_call_remote_without_manual_sync(self) -> None:
