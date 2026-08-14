@@ -1,20 +1,37 @@
-<tr>
-    {% for field in row_form.visible_fields %}
-        {% if field.name != 'DELETE' %}
-            <td class="min-w-32 align-top">
-                <div class="space-y-1.5">
+<div class="tax-class-scenario-card relative overflow-visible rounded-xl border {% if row_form.errors %}border-error{% else %}border-base-300{% endif %} bg-base-100 p-4{% if row_form.DELETE.value %} hidden{% endif %}">
+    <div class="mb-3 flex items-center justify-between gap-3">
+        <h4 class="font-semibold">
+            Cenário
+            <span data-scenario-index>{% if scenario_index %}{{ scenario_index }}{% endif %}</span>
+        </h4>
+        <button type="button" class="btn btn-ghost btn-sm text-error remove-scenario-row">
+            Remover
+        </button>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {% for field in row_form.visible_fields %}
+            {% if field.name != 'DELETE' %}
+                <div class="space-y-1.5 {% if field.name == 'nao_contribuinte' %}flex flex-col justify-end{% endif %}">
+                    <label class="label py-0" for="{{ field.id_for_label }}">
+                        <span class="label-text font-medium">{{ field.label }}</span>
+                        {% if field.name in required_fields %}
+                            <span class="text-error">*</span>
+                        {% endif %}
+                    </label>
                     {{ field }}
                     {% if show_field_errors %}
                         {{ field.errors }}
                     {% endif %}
                 </div>
-            </td>
-        {% endif %}
-    {% endfor %}
-    <td class="w-20 text-center align-top">
+            {% endif %}
+        {% endfor %}
+    </div>
+
+    <div class="hidden">
         {{ row_form.DELETE }}
         {% for hidden_field in row_form.hidden_fields %}
             {{ hidden_field }}
         {% endfor %}
-    </td>
-</tr>
+    </div>
+</div>

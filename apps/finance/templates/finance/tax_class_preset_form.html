@@ -57,7 +57,7 @@
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
                 <div>
                     <h2 class="text-xl font-bold">Dados da classe de Nota Fiscal de Produto</h2>
-                    <p class="text-sm text-base-content/70">Estes campos serao usados para preencher a classe quando o preset for aplicado.</p>
+                    <p class="text-sm text-base-content/70">Estes campos serão usados para preencher a classe quando o preset for aplicado.</p>
                 </div>
 
                 <div class="grid grid-cols-12 gap-4">
@@ -87,7 +87,7 @@
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
                 <div>
                     <h2 class="text-xl font-bold">Dados da classe de Nota Fiscal de Serviço</h2>
-                    <p class="text-sm text-base-content/70">Configure os mesmos campos que serao preenchidos ao aplicar este preset na criacao da classe.</p>
+                    <p class="text-sm text-base-content/70">Configure os mesmos campos que serão preenchidos ao aplicar este preset na criação da classe.</p>
                 </div>
 
                 <div class="grid grid-cols-12 gap-4">
@@ -177,7 +177,7 @@
             </section>
 
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
-                <h3 class="font-semibold">Aliquotas</h3>
+                <h3 class="font-semibold">Alíquotas</h3>
                 <div class="grid grid-cols-12 gap-4">
                     <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.iss.label_tag }}{{ nfse_form.iss }}{{ nfse_form.iss.errors }}</div>
                     <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.pis.label_tag }}{{ nfse_form.pis }}{{ nfse_form.pis.errors }}</div>
@@ -203,7 +203,7 @@
             </section>
 
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
-                <h3 class="font-semibold">Informacoes adicionais</h3>
+                <h3 class="font-semibold">Informações adicionais</h3>
                 <div class="grid grid-cols-12 gap-4">
                     <div class="col-span-12 lg:col-span-6">{{ nfse_form.informacoes_fisco.label_tag }}{{ nfse_form.informacoes_fisco }}{{ nfse_form.informacoes_fisco.errors }}</div>
                     <div class="col-span-12 lg:col-span-6">{{ nfse_form.informacoes_complementares.label_tag }}{{ nfse_form.informacoes_complementares }}{{ nfse_form.informacoes_complementares.errors }}</div>
@@ -217,30 +217,4 @@
         </div>
     </form>
 
-    <script>
-    document.addEventListener("click", function (event) {
-        const button = event.target.closest(".add-scenario-row");
-        if (!button) {
-            return;
-        }
-
-        const prefix = button.dataset.prefix;
-        const containerId = button.dataset.container;
-        const templateId = button.dataset.templateId;
-
-        const totalFormsInput = document.getElementById(`id_${prefix}-TOTAL_FORMS`);
-        const container = document.getElementById(containerId);
-        const template = document.getElementById(templateId);
-
-        if (!totalFormsInput || !container || !template) {
-            return;
-        }
-
-        const nextIndex = Number.parseInt(totalFormsInput.value, 10);
-        const rowHtml = template.innerHTML.replaceAll("__prefix__", String(nextIndex));
-
-        container.insertAdjacentHTML("beforeend", rowHtml);
-        totalFormsInput.value = String(nextIndex + 1);
-    });
-    </script>
 {% endblock %}

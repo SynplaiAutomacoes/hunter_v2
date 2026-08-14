@@ -757,13 +757,13 @@ def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[
     if isinstance(reference, str):
         normalized_reference = reference.strip()
         if not normalized_reference:
-            raise TaxClassServiceError("Informe a referencia da classe de imposto para excluir.")
+            raise TaxClassServiceError("Informe a referência da classe de imposto para excluir.")
         payload_reference: str | list[str] = normalized_reference
         references_to_delete = [normalized_reference]
     else:
         references = [item.strip() for item in reference if isinstance(item, str) and item.strip()]
         if not references:
-            raise TaxClassServiceError("Informe ao menos uma referencia valida para excluir.")
+            raise TaxClassServiceError("Informe ao menos uma referência válida para excluir.")
         payload_reference = references
         references_to_delete = references
 
@@ -791,7 +791,7 @@ def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[
             error_message = _extract_error_message(data.get("error") or data.get("message") or data.get("msg"))
             if error_message:
                 raise TaxClassServiceError(error_message)
-        raise TaxClassServiceError("Resposta invalida da API ao excluir classe de imposto.")
+        raise TaxClassServiceError("Resposta inválida da API ao excluir classe de imposto.")
 
     for item in data:
         if not isinstance(item, dict):
