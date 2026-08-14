@@ -25,7 +25,7 @@
     <div class="alert alert-info mb-6">
         <span>
             {% if tax_class_last_sync_at %}
-                Ultima sincronizacao em {{ tax_class_last_sync_at|date:'d/m/Y H:i' }}. Clique em Sincronizar para atualizar a lista.
+                Última sincronização em {{ tax_class_last_sync_at|date:'d/m/Y H:i' }}. Clique em Sincronizar para atualizar a lista.
             {% elif tax_class_has_synced_once %}
                 Nenhuma classe de imposto encontrada na base local. Use Sincronizar para consultar novamente.
             {% else %}
@@ -38,10 +38,10 @@
         <table class="table table-zebra w-full">
             <thead>
                 <tr>
-                    <th>Referencia</th>
-                    <th>Descricao</th>
+                    <th>Referência</th>
+                    <th>Descrição</th>
                     <th>Data</th>
-                    <th class="text-center">Acoes</th>
+                    <th class="text-center">Ações</th>
                 </tr>
             </thead>
             <tbody>
