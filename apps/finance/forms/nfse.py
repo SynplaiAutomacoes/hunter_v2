@@ -7,6 +7,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
+from apps.core.infrastructure.services.webmania.emission import normalize_codigo_nbs
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput
@@ -22,6 +23,13 @@ from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReview
 from apps.finance.models.finance import NfseRequest
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder
+
+
+def clean_required_codigo_nbs(value: object) -> str:
+    digits = normalize_codigo_nbs(value)
+    if len(digits) != 9:
+        raise forms.ValidationError("Informe o código NBS com 9 dígitos.")
+    return digits
 
 
 def _collect_service_rows(
@@ -76,9 +84,10 @@ class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
 class NfseRequestStep3Form(CoreModelForm):
     class Meta:
         model = NfseRequest
-        fields = ["pricing_slider", "tax_class", "service_description", "additional_information"]
+        fields = ["pricing_slider", "tax_class", "codigo_nbs", "service_description", "additional_information"]
         widgets = {
             "tax_class": TextInput(),
+            "codigo_nbs": TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}),
             "service_description": TextareaInput(rows=4),
             "additional_information": TextareaInput(rows=4),
         }
@@ -117,6 +126,10 @@ class NfseRequestStep3Form(CoreModelForm):
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
         tax_class_field.help_text = "Classe de imposto de servico (Nota Fiscal de Serviço)."
         self._valid_tax_class_refs = {value for value, _ in self.tax_class_choices if value}
+
+        codigo_nbs_field = self.fields["codigo_nbs"]
+        codigo_nbs_field.required = True
+        codigo_nbs_field.help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
         current_tax_class = str(current_tax_class_source or "").strip()
@@ -210,10 +223,11 @@ class NfseRequestStep3Form(CoreModelForm):
                 HTML("<p class='text-base-content/70 mb-6'>Revise os serviços e finalize a emissão da Nota Fiscal de Serviço.</p>"),
                 build_step5_pricing_panel_layout(prefix="nfse", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#nfse-form") if panel_data is not None else HTML(""),
                 Div(
-                    Field("tax_class", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("service_description", wrapper_class="col-span-12 lg:col-span-8"),
+                    Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                Field("service_description"),
                 Field("additional_information"),
                 HTML('<div id="nfse-warning-block">' + warning_html + "</div>"),
                 HTML('<div id="nfse-preview-block">' + preview_html + "</div>"),
@@ -226,6 +240,9 @@ class NfseRequestStep3Form(CoreModelForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_codigo_nbs(self) -> str:
+        return clean_required_codigo_nbs(self.cleaned_data.get("codigo_nbs"))
 
     def clean_service_description(self) -> str:
         value = str(self.cleaned_data.get("service_description") or "").strip()
