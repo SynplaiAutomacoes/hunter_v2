@@ -54,6 +54,10 @@ def _normalize_note_mode(value: object) -> str:
     return ""
 
 
+def _empty_nfse_config() -> dict[str, str]:
+    return {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": ""}
+
+
 class EmissionCreateRedirectBaseView(LoginRequiredMixin, WorkshopScopedMixin, RedirectView):
     permanent = False
     query_string = False
@@ -171,8 +175,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "pricing_slider": None,
             "discount_type_override": "",
             "note_mode": "",
-            "nfe_config": self._empty_nfe_config(),
-            "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
+            "nfe_config": {"tax_class": "", "additional_information": ""},
+            "nfse_config": _empty_nfse_config(),
             "nfe_request_id": None,
             "nfse_request_id": None,
             "nfe_done": False,
@@ -188,7 +192,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if not isinstance(state.get("nfe_config"), dict):
             state["nfe_config"] = self._empty_nfe_config()
         if not isinstance(state.get("nfse_config"), dict):
-            state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
+            state["nfse_config"] = _empty_nfse_config()
+        else:
+            state["nfse_config"] = {**_empty_nfse_config(), **state["nfse_config"]}
 
         state["note_mode"] = _normalize_note_mode(state.get("note_mode"))
         state["nfe_done"] = bool(state.get("nfe_done"))
@@ -702,6 +708,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request.tax_class = str((state.get("nfse_config") or {}).get("tax_class") or "")
         nfse_request.service_description = str((state.get("nfse_config") or {}).get("service_description") or "")
         nfse_request.additional_information = str((state.get("nfse_config") or {}).get("additional_information") or "")
+        nfse_request.codigo_nbs = str((state.get("nfse_config") or {}).get("codigo_nbs") or "")
         nfse_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfse_request.discount_type_override = str(state.get("discount_type_override") or "")
         nfse_request.save()
@@ -875,8 +882,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                         "pricing_slider": None,
                         "discount_type_override": "",
                         "note_mode": _normalize_note_mode(self.request.GET.get("tipo")),
-                        "nfe_config": self._empty_nfe_config(),
-                        "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
+                        "nfe_config": {"tax_class": "", "additional_information": ""},
+                        "nfse_config": _empty_nfse_config(),
                     }
                 )
                 self._clear_submission_progress(state)
@@ -930,7 +937,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             if selected_mode != previous_mode:
                 self._clear_submission_progress(state)
                 if selected_mode == "nfe":
-                    state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
+                    state["nfse_config"] = _empty_nfse_config()
                 elif selected_mode == "nfse":
                     state["nfe_config"] = self._empty_nfe_config()
             state["note_mode"] = selected_mode
@@ -960,6 +967,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 "tax_class": form.cleaned_data["tax_class"],
                 "service_description": form.cleaned_data["service_description"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
+                "codigo_nbs": form.cleaned_data.get("codigo_nbs", ""),
             }
             self._write_state(state)
             if self.request.POST.get("intent") == "preview":
@@ -1009,7 +1017,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 "discount_type_override": "",
                 "note_mode": _normalize_note_mode(self.request.GET.get("tipo") or self.request.GET.get("note_mode")),
                 "nfe_config": {"tax_class": "", "additional_information": ""},
-                "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
+                "nfse_config": _empty_nfse_config(),
             }
         )
         self._clear_submission_progress(state)

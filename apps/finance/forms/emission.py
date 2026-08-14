@@ -14,7 +14,7 @@ from djmoney.money import Money
 
 from apps.core.presentation.forms import CoreForm
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, TextareaInput, SearchableSelectInput
+from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, TextInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -26,6 +26,7 @@ from apps.finance.forms.emission_ui import (
 from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
+from apps.finance.forms.nfse import clean_required_codigo_nbs
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.finance.models.finance import NfeRequest, NfseRequest
 from apps.workorder.models import WorkOrder, WorkOrderStatus
@@ -930,6 +931,11 @@ class EmissionNfeConfigForm(CoreForm):
 
 class EmissionNfseConfigForm(CoreForm):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
+    codigo_nbs = forms.CharField(
+        label="Código NBS",
+        required=True,
+        widget=TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}),
+    )
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
 
@@ -952,6 +958,8 @@ class EmissionNfseConfigForm(CoreForm):
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs and not self.is_bound:
             self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
 
+        self.fields["codigo_nbs"].help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
+
         default_service_description = "Prestacao de servico"
         if workorder is not None:
             default_service_description = build_default_service_description_for_workorder(workorder=workorder)
@@ -973,10 +981,11 @@ class EmissionNfseConfigForm(CoreForm):
                 HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Serviço</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Confira os serviços que compõem a Nota Fiscal de Serviço, escolha a classe fiscal e revise a descrição.</p>"),
                 Div(
-                    Field("tax_class", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("service_description", wrapper_class="col-span-12 lg:col-span-8"),
+                    Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                Field("service_description"),
                 Field("additional_information"),
                 HTML(warning_html),
                 HTML(preview_html),
@@ -989,6 +998,9 @@ class EmissionNfseConfigForm(CoreForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_codigo_nbs(self) -> str:
+        return clean_required_codigo_nbs(self.cleaned_data.get("codigo_nbs"))
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}

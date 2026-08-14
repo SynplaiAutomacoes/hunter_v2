@@ -23,7 +23,7 @@ EXCLUDED_FIELD_NAME_PARTS = {
     "password", "key", "uuid", "external_id", "document_id",
     "content_type", "content_name", "file", "filename", "attachment",
     "xml", "pdf", "nf", "nfe", "nfse", "barcode", "ean", "sku", "code",
-    "ncm", "cest", "renavam", "chassi", "cep", "phone", "mobile",
+            "ncm", "nbs", "cest", "renavam", "chassi", "cep", "phone", "mobile",
     "whatsapp", "serie", "series", "number", "numero", "protocol",
     "receipt", "agency", "agencia", "account", "conta", "bank_digit",
     "digito",
