@@ -24,6 +24,7 @@ urlpatterns = [
     path("stock_update/<int:pk>/refresh-sefaz/", views.RefreshSefazListView.as_view(), name="refresh_sefaz"),
     path("stock_delete/<int:pk>", views.StockImportDeleteView.as_view(), name="stock_delete"),
     path("stock_xml_download/<int:pk>", views.StockImportXmlDownloadView.as_view(), name="xml_download"),
+    path("stock_xml_bulk_download/", views.StockImportXmlArchiveDownloadView.as_view(), name="xml_bulk_download"),
     # Payment
     path("remove_payment_session/<int:payment_id>/", views.RemovePaymentSessionView.as_view(), name="remove_payment_session"),
     path("add_payment_session/", views.AddPaymentSessionView.as_view(), name="add_payment_session"),
