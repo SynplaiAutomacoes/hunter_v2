@@ -11,6 +11,9 @@ OUTBOUND_POLLER_INTERVAL_SECONDS="${OUTBOUND_POLLER_INTERVAL_SECONDS:-60}"
 OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS="${OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS:-55}"
 OUTBOUND_POLLER_MAX_CONSECUTIVE_FAILURES="${OUTBOUND_POLLER_MAX_CONSECUTIVE_FAILURES:-5}"
 
+echo "Ensuring NF-e emission columns..."
+uv run python manage.py ensure_nferequest_emission_columns
+
 echo "Running migrations..."
 uv run python manage.py migrate --noinput
 

@@ -299,8 +299,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             })
 
     budget_proxy = WorkOrderPdfBudgetProxy(
-        id=workorder.budget.number,
-        number=workorder.budget.number,
+        id=workorder.get_id,
+        number=workorder.get_id,
         workshop=workorder.workshop,
         created=workorder.criado_em,
         criado_em=workorder.criado_em,

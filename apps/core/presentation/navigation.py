@@ -63,7 +63,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
         "label": "Financeiro",
         "items": (
-            {"label": "Emitir nota", "view_name": "finance:emission_create", "query": {"reset": 1}},
+            {"label": "Emitir nota", "view_name": "finance:emission_create"},
             {"label": "Central de Notas", "view_name": "finance:issued_documents_list"},
             {"label": "Movimentação Financeira", "view_name": "finance:reports_home"},
             {"label": "Folha de Pagamento", "view_name": "finance:payroll_list", "visible_if": _can_view_payroll},

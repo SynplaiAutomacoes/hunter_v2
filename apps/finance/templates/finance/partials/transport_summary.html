@@ -1,0 +1,21 @@
+<div class="mt-6 space-y-4">
+    <div class="rounded-xl border border-base-300 bg-base-200/30 p-5">
+        <h3 class="text-lg font-semibold">NF-e de entrada referenciada</h3>
+        <dl class="mt-3 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+            <div><dt class="text-base-content/60">Fornecedor / destinatário</dt><dd class="font-semibold">{{ source.supplier_name|default:'—' }}</dd></div>
+            <div><dt class="text-base-content/60">NF-e</dt><dd class="font-semibold">{{ document.number|default:source.nf_number_display }} / Série {{ document.series|default:'—' }}</dd></div>
+            <div class="md:col-span-2"><dt class="text-base-content/60">Chave referenciada</dt><dd class="break-all font-mono">{{ document.access_key }}</dd></div>
+        </dl>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-base-300">
+        <table class="table">
+            <thead><tr><th>Produto</th><th class="text-right">Quantidade</th><th class="text-right">Valor</th></tr></thead>
+            <tbody>
+                {% for selected in selected_items %}
+                    <tr><td>{{ selected.source_item.description }}</td><td class="text-right">{{ selected.quantity|floatformat:4 }} {{ selected.source_item.unit }}</td><td class="text-right">R$ {{ selected.total_value|floatformat:2 }}</td></tr>
+                {% empty %}<tr><td colspan="3" class="text-center text-base-content/60">Nenhum produto selecionado.</td></tr>{% endfor %}
+            </tbody>
+            <tfoot><tr><th>Total</th><th class="text-right">{{ total_quantity|floatformat:4 }}</th><th class="text-right">R$ {{ total_value|floatformat:2 }}</th></tr></tfoot>
+        </table>
+    </div>
+</div>
