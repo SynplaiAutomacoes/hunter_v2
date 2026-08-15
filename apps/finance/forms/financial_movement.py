@@ -67,263 +67,290 @@ class MovementStep1Form(FinancialMovementBaseForm):
         self.helper.layout = Layout(
             HTML("""
             <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    const personType = document.querySelector('[name="person_type"]');
-                    const entityField = document.querySelector('[name="entity"]');
-                    const directionField = document.querySelector('[name="direction"]');
-                    const supplierQuickBtn = document.getElementById('supplier-quick-btn');
-
-                    const step2 = document.getElementById('step-2');
-                    const step3 = document.getElementById('step-3');
-                    const step4 = document.getElementById('step-4');
-
-                    const personTitle = document.getElementById('person-title');
-                    const resumeContainer = document.getElementById('entity-details');
-
-                    function updateTitles() {
-                        const direction = directionField.value;
-
-                        if (direction === "DEBIT") {
-                            personTitle.innerText = "Escolha o credor";
-                        } else if (direction === "CREDIT") {
-                            personTitle.innerText = "Escolha o devedor";
+                (function initMovementStep1() {
+                    function getSearchableData(input) {
+                        if (!input || !window.Alpine) {
+                            return null;
+                        }
+                        const container = input.closest('[x-data]');
+                        if (!container) {
+                            return null;
+                        }
+                        try {
+                            return Alpine.$data(container);
+                        } catch (error) {
+                            return null;
                         }
                     }
 
-                    function syncSupplierQuickButton() {
-                        if (!supplierQuickBtn) return;
-
-                        if (personType.value === 'supplier') {
-                            supplierQuickBtn.classList.remove('hidden');
-                            const hasSupplier = Boolean(entityField.value);
-                            supplierQuickBtn.classList.toggle('btn-warning', hasSupplier);
-                            supplierQuickBtn.classList.toggle('btn-primary', !hasSupplier);
-                            supplierQuickBtn.title = hasSupplier ? 'Editar Fornecedor' : 'Cadastrar Fornecedor';
-                            const icon = supplierQuickBtn.querySelector('.material-icons');
-                            if (icon) {
-                                icon.textContent = hasSupplier ? 'edit' : 'note_add';
+                    function clearSearchable(input, { clearOptions = false } = {}) {
+                        const alpineData = getSearchableData(input);
+                        if (!alpineData) {
+                            if (input) {
+                                input.value = '';
                             }
-                        } else {
-                            supplierQuickBtn.classList.add('hidden');
+                            return;
+                        }
+                        if (typeof alpineData.clear === 'function') {
+                            alpineData.clear();
+                        }
+                        if (clearOptions && typeof alpineData.setOptions === 'function') {
+                            alpineData.setOptions([]);
                         }
                     }
 
-                    function handleDirection() {
-                        updateTitles();
-
-                        if (directionField.value) {
-                            step2.classList.remove('hidden');
-                        } else {
-                            step2.classList.add('hidden');
-                            step3.classList.add('hidden');
-                            step4.classList.add('hidden');
-
-                            personType.value = "";
-                            entityField.innerHTML = "";
-                            resumeContainer.innerHTML = "";
-                            syncSupplierQuickButton();
+                    function setSearchableOptions(input, options) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.setOptions === 'function') {
+                            alpineData.setOptions(options);
+                            return;
                         }
+                        const container = input && input.closest('[x-data]');
+                        if (!container) {
+                            return;
+                        }
+                        container.dispatchEvent(new CustomEvent('searchable-set-options', {
+                            detail: { options },
+                            bubbles: true,
+                        }));
                     }
 
-                    function selectEntityOption(entityId, entityName) {
-                        if (!entityId) return;
-
-                        const container = entityField.closest('[x-data]');
-                        if (!container || !window.Alpine) return;
-
-                        const alpineData = Alpine.$data(container);
-                        const optionsList = container.querySelector('[x-ref="options"]');
-                        if (!optionsList || !alpineData || typeof alpineData.select !== 'function') return;
-
-                        const selectedId = String(entityId);
-                        const selectedName = entityName || 'Fornecedor';
-                        let option = optionsList.querySelector(`li[data-value='${selectedId}']`);
-
-                        if (!option) {
-                            option = document.createElement('li');
-                            option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
-                            option.dataset.value = selectedId;
-                            option.dataset.label = selectedName;
-                            option.dataset.searchText = selectedName.toLowerCase();
-                            option.setAttribute('x-show', "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                            option.setAttribute('@click', 'select($el)');
-                            option.innerHTML = `<span class="block truncate" :class="{'font-bold': value == '${selectedId}'}">${selectedName}</span>`;
-                            optionsList.appendChild(option);
-                        }
-
-                        alpineData.select(option);
-                        syncSupplierQuickButton();
-                        loadDetails();
-                    }
-
-                    function loadEntities(selectedEntity) {
-                        const type = personType.value;
-                        const entityTitle = document.getElementById('entity-title');
-
-                        if (!type) {
-                            step3.classList.add('hidden');
-                            step4.classList.add('hidden');
-                    
-                            entityTitle.innerText = "Fornecedor/Colaborador";
-                            syncSupplierQuickButton();
-                            return Promise.resolve();
-                        }
-
-                        // Atualiza o título dinamicamente
-                        if (type === "supplier") {
-                            entityTitle.innerText = "Fornecedor";
-                        } else if (type === "collaborator") {
-                            entityTitle.innerText = "Colaborador";
-                        }
-                    
-                        step3.classList.remove('hidden');
-                        syncSupplierQuickButton();
-
-                        return fetch(`/finance/entities?type=${type}`, {
-                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                        })
-                        .then(r => r.json())
-                        .then(data => {
-                            // Encontra o container do SearchableSelectInput (tem x-data)
-                            const container = entityField.closest('[x-data]');
-                            if (!container) return;
-
-                            // Acessa os dados do Alpine se possível, ou apenas manipula o DOM
-                            const optionsList = container.querySelector('[x-ref="options"]');
-                            if (!optionsList) return;
-
-                            // Limpa o valor atual no componente Alpine
-                            if (window.Alpine) {
-                                const alpineData = Alpine.$data(container);
-                                if (alpineData && typeof alpineData.clear === 'function') {
-                                    alpineData.clear();
-                                }
-                            }
-
-                            optionsList.innerHTML = "";
-
-                            data.forEach(item => {
-                                const li = document.createElement("li");
-                                li.setAttribute("x-show", "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                                li.setAttribute("@click", "select($el)");
-                                li.dataset.value = item.id;
-                                li.dataset.label = item.name;
-                                li.dataset.searchText = item.name.toLowerCase();
-                                li.className = "relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group";
-                                
-                                const span = document.createElement("span");
-                                span.className = "block truncate";
-                                span.setAttribute(":class", `{'font-bold': value == '${item.id}'}`);
-                                span.textContent = item.name;
-                                
-                                li.appendChild(span);
-                                optionsList.appendChild(li);
+                    function setSearchableValue(input, value, label) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.setSelection === 'function') {
+                            alpineData.setSelection({
+                                options: alpineData.dynamicOptions || [],
+                                value,
+                                label: label || '',
                             });
+                            return;
+                        }
+                        if (alpineData && typeof alpineData.setValue === 'function') {
+                            alpineData.setValue(value);
+                            return;
+                        }
+                        if (input) {
+                            input.value = value === null || value === undefined ? '' : String(value);
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
 
-                            // Adiciona a mensagem de "Nenhum resultado"
-                            const noResults = document.createElement("li");
-                            noResults.setAttribute("x-show", "search && $refs.options.querySelectorAll('li[data-value]:not([style*=\\'display: none\\'])').length === 0");
-                            noResults.className = "py-2 pl-3 text-gray-500 italic";
-                            noResults.textContent = "Nenhum resultado encontrado...";
-                            optionsList.appendChild(noResults);
+                    function bindMovementStep1() {
+                        const personType = document.querySelector('[name="person_type"]');
+                        const entityField = document.querySelector('[name="entity"]');
+                        const directionField = document.querySelector('[name="direction"]');
+                        const supplierQuickBtn = document.getElementById('supplier-quick-btn');
 
-                            if (selectedEntity && selectedEntity.id) {
-                                selectEntityOption(selectedEntity.id, selectedEntity.name);
+                        const step2 = document.getElementById('step-2');
+                        const step3 = document.getElementById('step-3');
+                        const step4 = document.getElementById('step-4');
+
+                        const personTitle = document.getElementById('person-title');
+                        const resumeContainer = document.getElementById('entity-details');
+
+                        if (!personType || !entityField || !directionField || !step2 || !step3 || !step4) {
+                            return;
+                        }
+                        if (personType.dataset.movementStep1Bound === '1') {
+                            return;
+                        }
+                        personType.dataset.movementStep1Bound = '1';
+
+                        function updateTitles() {
+                            if (!personTitle) {
+                                return;
+                            }
+                            const direction = directionField.value;
+
+                            if (direction === "DEBIT") {
+                                personTitle.innerText = "Escolha o credor";
+                            } else if (direction === "CREDIT") {
+                                personTitle.innerText = "Escolha o devedor";
+                            }
+                        }
+
+                        function syncSupplierQuickButton() {
+                            if (!supplierQuickBtn) return;
+
+                            if (personType.value === 'supplier') {
+                                supplierQuickBtn.classList.remove('hidden');
+                                const hasSupplier = Boolean(entityField.value);
+                                supplierQuickBtn.classList.toggle('btn-warning', hasSupplier);
+                                supplierQuickBtn.classList.toggle('btn-primary', !hasSupplier);
+                                supplierQuickBtn.title = hasSupplier ? 'Editar Fornecedor' : 'Cadastrar Fornecedor';
+                                const icon = supplierQuickBtn.querySelector('.material-icons');
+                                if (icon) {
+                                    icon.textContent = hasSupplier ? 'edit' : 'note_add';
+                                }
                             } else {
+                                supplierQuickBtn.classList.add('hidden');
+                            }
+                        }
+
+                        function handleDirection() {
+                            updateTitles();
+
+                            if (directionField.value) {
+                                step2.classList.remove('hidden');
+                            } else {
+                                step2.classList.add('hidden');
+                                step3.classList.add('hidden');
+                                step4.classList.add('hidden');
+
+                                clearSearchable(personType, { clearOptions: false });
+                                clearSearchable(entityField, { clearOptions: true });
+                                if (resumeContainer) {
+                                    resumeContainer.innerHTML = "";
+                                }
                                 syncSupplierQuickButton();
                             }
-                        });
-                    }
-
-                    function loadDetails() {
-                        const id = entityField.value;
-                        const type = personType.value;
-
-                        if (!id) {
-                            step4.classList.add('hidden');
-                            syncSupplierQuickButton();
-                            return;
                         }
 
-                        step4.classList.remove('hidden');
-                        syncSupplierQuickButton();
-
-                        fetch(`/finance/entity_details?type=${type}&id=${id}`, {
-                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                        })
-                        .then(r => r.text())
-                        .then(html => {
-                            resumeContainer.innerHTML = html;
-                        });
-                    }
-
-                    function openSupplierQuickForm() {
-                        const supplierId = entityField.value;
-                        const url = supplierId
-                            ? `/stock/supplier/quick-update/${supplierId}/`
-                            : '/stock/supplier/quick-create/';
-                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
-                    }
-
-                    function selectPersonType(value) {
-                        const container = personType.closest('[x-data]');
-                        if (!container || !window.Alpine) {
-                            personType.value = value;
-                            personType.dispatchEvent(new Event('change', { bubbles: true }));
-                            return;
-                        }
-
-                        const alpineData = Alpine.$data(container);
-                        const optionsList = container.querySelector('[x-ref="options"]');
-                        const option = optionsList ? optionsList.querySelector(`li[data-value='${value}']`) : null;
-                        if (option && typeof alpineData.select === 'function') {
-                            alpineData.select(option);
-                        } else {
+                        function selectPersonType(value) {
+                            const alpineData = getSearchableData(personType);
+                            if (alpineData && typeof alpineData.setValue === 'function') {
+                                alpineData.setValue(value);
+                                return;
+                            }
                             personType.value = value;
                             personType.dispatchEvent(new Event('change', { bubbles: true }));
                         }
-                    }
 
-                    directionField.addEventListener('change', handleDirection);
-                    personType.addEventListener('change', function() {
-                        if (window.__financeSelectingSupplier) return;
-                        loadEntities();
-                        syncSupplierQuickButton();
-                    });
-                    entityField.addEventListener('change', loadDetails);
-                    if (supplierQuickBtn) {
-                        supplierQuickBtn.addEventListener('click', openSupplierQuickForm);
-                    }
+                        function loadEntities(selectedEntity) {
+                            const type = personType.value;
+                            const entityTitle = document.getElementById('entity-title');
 
-                    if (!window.__financeSupplierSavedBound) {
-                        window.__financeSupplierSavedBound = true;
-                        document.body.addEventListener('supplierSaved', function (evt) {
-                            const modalContainer = document.getElementById('modal-container');
-                            if (modalContainer) {
-                                modalContainer.innerHTML = '';
+                            if (!type) {
+                                step3.classList.add('hidden');
+                                step4.classList.add('hidden');
+                                clearSearchable(entityField, { clearOptions: true });
+                                if (entityTitle) {
+                                    entityTitle.innerText = "Fornecedor/Colaborador";
+                                }
+                                syncSupplierQuickButton();
+                                return Promise.resolve();
                             }
 
-                            const supplier = evt && evt.detail ? evt.detail : null;
-                            if (!supplier || !supplier.id) return;
-
-                            if (personType.value !== 'supplier') {
-                                window.__financeSelectingSupplier = true;
-                                try {
-                                    selectPersonType('supplier');
-                                } finally {
-                                    window.__financeSelectingSupplier = false;
+                            if (entityTitle) {
+                                if (type === "supplier") {
+                                    entityTitle.innerText = "Fornecedor";
+                                } else if (type === "collaborator") {
+                                    entityTitle.innerText = "Colaborador";
                                 }
                             }
-                            loadEntities(supplier);
+
+                            step3.classList.remove('hidden');
+                            syncSupplierQuickButton();
+
+                            return fetch(`/finance/entities?type=${type}`, {
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                            })
+                            .then(r => r.json())
+                            .then(data => {
+                                const options = (Array.isArray(data) ? data : []).map((item) => ({
+                                    value: item.id,
+                                    label: item.name,
+                                }));
+
+                                if (selectedEntity && selectedEntity.id) {
+                                    const alpineData = getSearchableData(entityField);
+                                    if (alpineData && typeof alpineData.setSelection === 'function') {
+                                        alpineData.setSelection({
+                                            options,
+                                            value: selectedEntity.id,
+                                            label: selectedEntity.name || 'Fornecedor',
+                                        });
+                                    } else {
+                                        clearSearchable(entityField);
+                                        setSearchableOptions(entityField, options);
+                                        setSearchableValue(entityField, selectedEntity.id, selectedEntity.name || 'Fornecedor');
+                                    }
+                                } else {
+                                    clearSearchable(entityField);
+                                    setSearchableOptions(entityField, options);
+                                }
+                                syncSupplierQuickButton();
+                            });
+                        }
+
+                        function loadDetails() {
+                            const id = entityField.value;
+                            const type = personType.value;
+
+                            if (!id) {
+                                step4.classList.add('hidden');
+                                syncSupplierQuickButton();
+                                return;
+                            }
+
+                            step4.classList.remove('hidden');
+                            syncSupplierQuickButton();
+
+                            fetch(`/finance/entity_details?type=${type}&id=${id}`, {
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                            })
+                            .then(r => r.text())
+                            .then(html => {
+                                if (resumeContainer) {
+                                    resumeContainer.innerHTML = html;
+                                }
+                            });
+                        }
+
+                        function openSupplierQuickForm() {
+                            const supplierId = entityField.value;
+                            const url = supplierId
+                                ? `/stock/supplier/quick-update/${supplierId}/`
+                                : '/stock/supplier/quick-create/';
+                            htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                        }
+
+                        directionField.addEventListener('change', handleDirection);
+                        personType.addEventListener('change', function() {
+                            if (window.__financeSelectingSupplier) return;
+                            loadEntities();
+                            syncSupplierQuickButton();
                         });
+                        entityField.addEventListener('change', loadDetails);
+                        if (supplierQuickBtn) {
+                            supplierQuickBtn.addEventListener('click', openSupplierQuickForm);
+                        }
+
+                        if (!window.__financeSupplierSavedBound) {
+                            window.__financeSupplierSavedBound = true;
+                            document.body.addEventListener('supplierSaved', function (evt) {
+                                const modalContainer = document.getElementById('modal-container');
+                                if (modalContainer) {
+                                    modalContainer.innerHTML = '';
+                                }
+
+                                const supplier = evt && evt.detail ? evt.detail : null;
+                                if (!supplier || !supplier.id) return;
+
+                                if (personType.value !== 'supplier') {
+                                    window.__financeSelectingSupplier = true;
+                                    try {
+                                        selectPersonType('supplier');
+                                    } finally {
+                                        window.__financeSelectingSupplier = false;
+                                    }
+                                }
+                                loadEntities(supplier);
+                            });
+                        }
+
+                        handleDirection();
+                        loadEntities();
+                        loadDetails();
+                        syncSupplierQuickButton();
                     }
 
-                    // Estado inicial
-                    handleDirection();
-                    loadEntities();
-                    loadDetails();
-                    syncSupplierQuickButton();
-                });
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', bindMovementStep1);
+                    } else {
+                        bindMovementStep1();
+                    }
+                })();
             </script>"""),
             Div(
                 Div(

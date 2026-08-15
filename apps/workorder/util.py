@@ -530,7 +530,7 @@ def _build_workorder_emission_form(*, request, workorder: WorkOrder):
         allowed_note_modes=allowed_note_modes,
         availability_message=availability_message,
         form_selector="#workorder-emission-form",
-        preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
+        preview_url=f"{reverse('finance:emission_normal')}?step=4&preview=1",
     )
 
 

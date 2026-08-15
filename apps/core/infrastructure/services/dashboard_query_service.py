@@ -295,6 +295,16 @@ def _prepare_budget_for_dashboard_pricing(
         setattr(budget, "_skip_mechanic_labor_cost", True)
 
 
+def prepare_budget_for_gestor_pdf_pricing(budget: Budget) -> Budget:
+    """Same pricing context the gestor PDF uses: current-month workshop cost, salary item without VT."""
+    today = timezone.localdate()
+    workshop = budget.workshop
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+    _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
+    return budget
+
+
 def _prepare_workorder_for_dashboard_pricing(
     workorder: WorkOrder,
     *,
@@ -1060,8 +1070,9 @@ class DashboardQueryService:
         created_count = (
             Budget.objects.filter(
                 workshop_id=workshop_id,
-                entry_date__month=selected_month,
-                entry_date__year=selected_year,
+                closed_at__isnull=False,
+                closed_at__month=selected_month,
+                closed_at__year=selected_year,
             )
             .exclude(budget_type__in=["warranty", "courtesy"])
             .exclude(status=BudgetStatus.CANCELLED)
@@ -1162,8 +1173,9 @@ class DashboardQueryService:
         result = Budget.objects.filter(
             workshop_id=workshop_id,
             status__in=REJECTED_BUDGET_STATUS_VALUES,
-            entry_date__month=selected_month,
-            entry_date__year=selected_year,
+            closed_at__isnull=False,
+            closed_at__month=selected_month,
+            closed_at__year=selected_year,
         ).aggregate(total=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=decimal_out))
         return result["total"] or Decimal("0.00")
 
@@ -1215,8 +1227,8 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     },
     "reprovados": {
         "model": "budget",
-        "filters": {"status__in": REJECTED_BUDGET_STATUS_VALUES},
-        "date_field": "entry_date",
+        "filters": {"status__in": REJECTED_BUDGET_STATUS_VALUES, "closed_at__isnull": False},
+        "date_field": "closed_at",
         "value_field": "display_total_budget_value",
         "exclude_month": False,
     },
