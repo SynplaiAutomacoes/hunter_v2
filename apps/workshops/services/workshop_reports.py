@@ -9,10 +9,11 @@ from django.db.models import Prefetch, QuerySet
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
+from apps.budget.pricing import PricingSnapshot
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, workorder_items_with_kit_prefetch
-from apps.core.infrastructure.services.dashboard_query_service import MONTH_LABELS_PT, resolve_decimal_amount
+from apps.core.infrastructure.services.dashboard_query_service import MONTH_LABELS_PT, prepare_budget_for_gestor_pdf_pricing, resolve_decimal_amount
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
@@ -50,7 +51,8 @@ class WarrantyReturnRow:
     vehicle_label: str
     delivered_at: date | None
     total_amount: Decimal
-    cost_amount: Decimal
+    product_cost_amount: Decimal
+    service_cost_amount: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +87,8 @@ class ProfitabilityReport:
 class WarrantyReturnReport:
     rows: list[WarrantyReturnRow]
     total_amount: Decimal
-    total_cost: Decimal
+    total_product_cost: Decimal
+    total_service_cost: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,31 +108,43 @@ def resolve_report_period(*, month: int | None, year: int | None) -> tuple[int, 
     return selected_month, selected_year, periodo_label
 
 
-def compute_workorder_operating_cost(workorder: WorkOrder) -> Decimal:
-    snapshot = workorder.build_cost_snapshot()
-    mechanic = Decimal("0.00")
+def compute_workorder_product_and_service_costs(workorder: WorkOrder) -> tuple[Decimal, Decimal]:
     budget = workorder.budget
     if budget is not None:
-        setattr(budget, "_read_only_pricing_context", True)
-        for line in snapshot.service_lines:
-            if line.third_party:
-                continue
-            fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
-            mechanic += resolve_decimal_amount(
-                calculate_mechanic_service_cost(
-                    budget=budget,
-                    duration=line.duration,
-                    quantity=1,
-                    fallback_cost=fallback_cost,
-                )
-            )
+        prepare_budget_for_gestor_pdf_pricing(budget)
+    snapshot = workorder.build_cost_snapshot()
     return (
-        resolve_decimal_amount(snapshot.total_costs_products_value)
-        + resolve_decimal_amount(snapshot.total_products_shipping)
-        + resolve_decimal_amount(snapshot.total_third_party_services_cost)
-        + resolve_decimal_amount(snapshot.total_services_shipping)
-        + mechanic
+        resolve_decimal_amount(snapshot.total_costs_products_value).quantize(TWO_DECIMAL_PLACES),
+        _service_mechanic_cost_from_snapshot(budget=budget, snapshot=snapshot),
     )
+
+
+def _service_mechanic_cost_from_snapshot(*, budget: Budget | None, snapshot: PricingSnapshot) -> Decimal:
+    """Soma da coluna Custo/Mecânico do PDF gestor: hora do mecânico × duração (terceiro usa o custo do item)."""
+    if budget is None:
+        return Decimal("0.00")
+    total = Decimal("0.00")
+    service_lines = getattr(snapshot, "service_lines", [])
+    for line in service_lines:
+        fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
+        if line.third_party:
+            total += resolve_decimal_amount(fallback_cost)
+            continue
+        total += resolve_decimal_amount(
+            calculate_mechanic_service_cost(
+                budget=budget,
+                duration=line.duration,
+                quantity=1,
+                fallback_cost=fallback_cost,
+            )
+        )
+    return total.quantize(TWO_DECIMAL_PLACES)
+
+
+def compute_workorder_operating_cost(workorder: WorkOrder) -> Decimal:
+    """Prejuízo da OS: soma dos custos de produtos e serviços (snapshot com garantia)."""
+    product_cost, service_cost = compute_workorder_product_and_service_costs(workorder)
+    return product_cost + service_cost
 
 
 def build_mechanic_rework_report(*, workshop: Workshop, month: int, year: int, sort_key: SortKey = "prejuizo") -> MechanicReworkReport:
@@ -223,13 +238,15 @@ def build_warranty_return_report(*, workshop: Workshop, month: int, year: int) -
     workorders = list(_warranty_queryset(workshop=workshop, month=month, year=year).order_by("delivered_at", "pk"))
     rows: list[WarrantyReturnRow] = []
     total_amount = Decimal("0.00")
-    total_cost = Decimal("0.00")
+    total_product_cost = Decimal("0.00")
+    total_service_cost = Decimal("0.00")
     for workorder in workorders:
         budget = workorder.budget
         amount = _workorder_total(workorder)
-        cost = compute_workorder_operating_cost(workorder)
+        product_cost, service_cost = compute_workorder_product_and_service_costs(workorder)
         total_amount += amount
-        total_cost += cost
+        total_product_cost += product_cost
+        total_service_cost += service_cost
         rows.append(
             WarrantyReturnRow(
                 workorder_id=workorder.pk,
@@ -239,10 +256,16 @@ def build_warranty_return_report(*, workshop: Workshop, month: int, year: int) -
                 vehicle_label=_vehicle_label(budget),
                 delivered_at=_as_date(workorder.delivered_at),
                 total_amount=amount,
-                cost_amount=cost.quantize(TWO_DECIMAL_PLACES),
+                product_cost_amount=product_cost,
+                service_cost_amount=service_cost,
             )
         )
-    return WarrantyReturnReport(rows=rows, total_amount=total_amount, total_cost=total_cost)
+    return WarrantyReturnReport(
+        rows=rows,
+        total_amount=total_amount,
+        total_product_cost=total_product_cost,
+        total_service_cost=total_service_cost,
+    )
 
 
 def build_approval_rate_report(*, workshop: Workshop, month: int, year: int, status: str | None = None) -> ApprovalRateReport:
@@ -331,7 +354,9 @@ def _warranty_queryset(*, workshop: Workshop, month: int, year: int) -> QuerySet
 
 
 def _saved_budget_rentability(budget: Budget) -> Decimal:
-    """Rentabilidade congelada do orçamento — a mesma base do PDF/passo de precificação, sem recálculo do dashboard."""
+    stored = getattr(budget, "stored_rentability", None)
+    if stored is not None:
+        return Decimal(str(stored)).quantize(TWO_DECIMAL_PLACES)
     return resolve_decimal_amount(budget.rentability).quantize(TWO_DECIMAL_PLACES)
 
 

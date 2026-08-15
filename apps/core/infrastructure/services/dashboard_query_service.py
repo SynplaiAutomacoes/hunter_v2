@@ -295,6 +295,16 @@ def _prepare_budget_for_dashboard_pricing(
         setattr(budget, "_skip_mechanic_labor_cost", True)
 
 
+def prepare_budget_for_gestor_pdf_pricing(budget: Budget) -> Budget:
+    """Same pricing context the gestor PDF uses: current-month workshop cost, salary item without VT."""
+    today = timezone.localdate()
+    workshop = budget.workshop
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+    _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
+    return budget
+
+
 def _prepare_workorder_for_dashboard_pricing(
     workorder: WorkOrder,
     *,

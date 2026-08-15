@@ -18,7 +18,7 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div class="stat bg-base-100 shadow rounded-box">
                 <div class="stat-title">OS de garantia</div>
                 <div class="stat-value text-lg">{{ report.rows|length }}</div>
@@ -28,8 +28,12 @@
                 <div class="stat-value text-lg">{{ report.total_amount|money_br }}</div>
             </div>
             <div class="stat bg-base-100 shadow rounded-box">
-                <div class="stat-title">Custo total</div>
-                <div class="stat-value text-error text-lg">{{ report.total_cost|money_br }}</div>
+                <div class="stat-title">Custo de produtos</div>
+                <div class="stat-value text-error text-lg">{{ report.total_product_cost|money_br }}</div>
+            </div>
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Custo de serviços</div>
+                <div class="stat-value text-error text-lg">{{ report.total_service_cost|money_br }}</div>
             </div>
         </div>
 
@@ -42,8 +46,9 @@
                         <th>Cliente</th>
                         <th>Veículo</th>
                         <th>Entrega</th>
-                        <th class="text-right">Valor total</th>
-                        <th class="text-right">Custo</th>
+                        <th class="text-right whitespace-nowrap">Valor total</th>
+                        <th class="text-right whitespace-nowrap">Custo de produtos</th>
+                        <th class="text-right whitespace-nowrap">Custo de serviços</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -56,12 +61,13 @@
                             <td>{{ row.customer_name }}</td>
                             <td>{{ row.vehicle_label }}</td>
                             <td>{{ row.delivered_at|date:"d/m/Y"|default:"-" }}</td>
-                            <td class="text-right font-semibold">{{ row.total_amount|money_br }}</td>
-                            <td class="text-right text-error">{{ row.cost_amount|money_br }}</td>
+                            <td class="text-right font-semibold whitespace-nowrap">{{ row.total_amount|money_br }}</td>
+                            <td class="text-right text-error whitespace-nowrap">{{ row.product_cost_amount|money_br }}</td>
+                            <td class="text-right text-error whitespace-nowrap">{{ row.service_cost_amount|money_br }}</td>
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="7" class="text-center text-base-content/60 py-10">Nenhuma OS de garantia no período.</td>
+                            <td colspan="8" class="text-center text-base-content/60 py-10">Nenhuma OS de garantia no período.</td>
                         </tr>
                     {% endfor %}
                 </tbody>

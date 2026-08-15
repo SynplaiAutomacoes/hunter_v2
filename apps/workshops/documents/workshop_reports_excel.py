@@ -137,7 +137,8 @@ def build_warranty_return_excel(*, workshop: Workshop, periodo_label: str, repor
         ExcelColumn(header="Veículo", width=28, kind="text"),
         ExcelColumn(header="Data de Entrega", width=16, kind="date"),
         ExcelColumn(header="Valor total da OS", width=20, kind="money_sale"),
-        ExcelColumn(header="Custo da OS", width=18, kind="money_cost"),
+        ExcelColumn(header="Custo de produtos", width=20, kind="money_cost"),
+        ExcelColumn(header="Custo de serviços", width=20, kind="money_cost"),
     ]
     rows = [
         [
@@ -147,7 +148,8 @@ def build_warranty_return_excel(*, workshop: Workshop, periodo_label: str, repor
             ExcelCell(value=row.vehicle_label),
             ExcelCell(value=row.delivered_at),
             ExcelCell(value=row.total_amount, kind="money_sale"),
-            ExcelCell(value=row.cost_amount, kind="money_cost"),
+            ExcelCell(value=row.product_cost_amount, kind="money_cost"),
+            ExcelCell(value=row.service_cost_amount, kind="money_cost"),
         ]
         for row in report.rows
     ]
@@ -158,7 +160,8 @@ def build_warranty_return_excel(*, workshop: Workshop, periodo_label: str, repor
         ExcelCell(),
         ExcelCell(),
         ExcelCell(value=report.total_amount, kind="money_sale"),
-        ExcelCell(value=report.total_cost, kind="money_cost"),
+        ExcelCell(value=report.total_product_cost, kind="money_cost"),
+        ExcelCell(value=report.total_service_cost, kind="money_cost"),
     ]
     return build_hunter_excel_document(
         title=f"RELATÓRIO DE RETORNO EM GARANTIA — {periodo_label.upper()}",
