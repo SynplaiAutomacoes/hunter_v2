@@ -182,8 +182,8 @@ def build_approval_rate_excel(*, workshop: Workshop, periodo_label: str, report:
         ExcelColumn(header="Veículo", width=30, kind="text"),
         ExcelColumn(header="Data de Entrada", width=16, kind="date"),
         ExcelColumn(header="Status", width=22, kind="badge"),
-        ExcelColumn(header="Valor", width=18, kind="money_sale"),
-        ExcelColumn(header="Motivo", width=32, kind="text"),
+        ExcelColumn(header="Valor", width=24, kind="money_sale"),
+        ExcelColumn(header="Motivo", width=22, kind="text"),
     ]
     rows = [
         [
