@@ -49,7 +49,7 @@
 
             {% crispy nfe_form %}
 
-            {% include 'finance/partials/tax_class_scenario_sections.html' with show_field_errors=0 %}
+            {% include 'finance/partials/tax_class_scenario_sections.html' with show_field_errors=1 %}
 
             <div class="flex flex-wrap justify-end gap-2">
                 <a href="{% url 'finance:tax_class_list' %}?tab={{ active_tab }}" class="btn btn-ghost">Cancelar</a>
@@ -107,31 +107,7 @@
 
             actionInput.value = presetButton.dataset.formAction || "apply_preset";
             form.submit();
-            return;
         }
-
-        const button = event.target.closest(".add-scenario-row");
-        if (!button) {
-            return;
-        }
-
-        const prefix = button.dataset.prefix;
-        const containerId = button.dataset.container;
-        const templateId = button.dataset.templateId;
-
-        const totalFormsInput = document.getElementById(`id_${prefix}-TOTAL_FORMS`);
-        const container = document.getElementById(containerId);
-        const template = document.getElementById(templateId);
-
-        if (!totalFormsInput || !container || !template) {
-            return;
-        }
-
-        const nextIndex = Number.parseInt(totalFormsInput.value, 10);
-        const rowHtml = template.innerHTML.replaceAll("__prefix__", String(nextIndex));
-
-        container.insertAdjacentHTML("beforeend", rowHtml);
-        totalFormsInput.value = String(nextIndex + 1);
     });
     </script>
 {% endblock %}

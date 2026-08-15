@@ -16,9 +16,9 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 
 
 def get_current_workshop_cost(workshop):
-    now = timezone.now()
+    today = timezone.localdate()
     try:
-        cost = WorkshopCost.objects.get(workshop=workshop, month=now.month, year=now.year)
+        cost = WorkshopCost.objects.get(workshop=workshop, month=today.month, year=today.year)
         return cost, False
     except WorkshopCost.DoesNotExist:
         return None, True

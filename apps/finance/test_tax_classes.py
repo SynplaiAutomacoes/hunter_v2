@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.backends.db import SessionStore
 from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.urls import reverse
 
-from apps.finance.forms.tax_class import NfseTaxClassForm
+from apps.finance.forms.tax_class import IcmsScenarioFormSet, NfseTaxClassForm
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfse, TaxClassSyncState
 from apps.finance.services.tax_classes import (
     NFSE_CODIGO_SERVICO_NATIONAL_LENGTH_ERROR,
@@ -104,6 +107,19 @@ class NfseTaxClassFormServiceCodeTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["referencia"], "REF-ORIGINAL")
         self.assertTrue(form.fields["referencia"].widget.attrs.get("readonly"))
+
+    def test_nfse_form_accepts_municipal_taxation_code_without_three_digit_constraint(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe municipal",
+                "codigo_servico": "01.05.01",
+                "codigo_tributacao_municipio": "1401",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["codigo_tributacao_municipio"], "1401")
 
 
 class TaxClassServiceTests(TestCase):
@@ -249,3 +265,171 @@ class TaxClassChoicesViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"tax-class-delete-modal", response.content)
         self.assertIn(b"REF-NFSE-DEL", response.content)
+
+
+def _nfe_formset_management(*, total_forms: int = 0) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    for prefix in ("icms", "ipi", "pis", "cofins"):
+        payload[f"{prefix}-TOTAL_FORMS"] = str(total_forms if prefix == "icms" else 0)
+        payload[f"{prefix}-INITIAL_FORMS"] = "0"
+        payload[f"{prefix}-MIN_NUM_FORMS"] = "0"
+        payload[f"{prefix}-MAX_NUM_FORMS"] = "1000"
+    return payload
+
+
+def _filled_icms_row(*, index: int = 0) -> dict[str, str]:
+    prefix = f"icms-{index}"
+    return {
+        f"{prefix}-tipo_tributacao": "simples_nacional",
+        f"{prefix}-cenario": "saida_dentro_estado",
+        f"{prefix}-tipo_pessoa": "juridica",
+        f"{prefix}-codigo_cfop": "5102",
+        f"{prefix}-situacao_tributaria": "102",
+    }
+
+
+class IcmsScenarioFormSetTests(SimpleTestCase):
+    def test_blank_extra_row_is_invalid(self) -> None:
+        data = {
+            "icms-TOTAL_FORMS": "2",
+            "icms-INITIAL_FORMS": "0",
+            "icms-MIN_NUM_FORMS": "0",
+            "icms-MAX_NUM_FORMS": "1000",
+            **_filled_icms_row(index=0),
+            "icms-1-tipo_tributacao": "",
+            "icms-1-cenario": "",
+            "icms-1-tipo_pessoa": "",
+            "icms-1-codigo_cfop": "",
+            "icms-1-situacao_tributaria": "",
+            "icms-1-aliquota_credito": "",
+            "icms-1-aliquota_importacao": "",
+        }
+
+        formset = IcmsScenarioFormSet(data, prefix="icms")
+
+        self.assertFalse(formset.is_valid())
+        self.assertIn("tipo_tributacao", formset.forms[1].errors)
+        self.assertIn("Campo obrigatório para este cenário.", formset.forms[1].errors["tipo_tributacao"])
+
+
+def _attach_request_extras(request, *, user) -> None:
+    request.user = user
+    request.session = SessionStore()
+    setattr(request, "_messages", FallbackStorage(request))
+
+
+class TaxClassCreateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.workshop = create_workshop(suffix=4)
+        self.user = get_user_model().objects.create_user(
+            username="tax-class-create-user",
+            password="pass12345",
+            cpf="39053344705",
+        )
+
+    def _make_view(self, request: object) -> TaxClassCreateView:
+        view = TaxClassCreateView()
+        view.request = request
+        view.workshop = self.workshop
+        view.args = ()
+        view.kwargs = {}
+        return view
+
+    def test_get_create_nfe_uses_scenario_cards_without_table_overflow(self) -> None:
+        request = self.factory.get("/finance/classe-imposto/create/?tab=nfe")
+        _attach_request_extras(request, user=self.user)
+        view = self._make_view(request)
+
+        response = view.get(request)
+        response.render()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"overflow-x-auto", response.content)
+        self.assertIn('Nenhum cenário. Clique em "Adicionar cenário".'.encode(), response.content)
+        self.assertIn(b"add-scenario-row", response.content)
+        self.assertIn(b"tax-class-scenario-empty", response.content)
+        self.assertIn(b'type="text/template"', response.content)
+        self.assertIn(b'id="icms-empty-row"', response.content)
+        self.assertNotIn(b'name="icms-0-cenario"', response.content)
+
+    def test_post_partial_nfe_scenario_does_not_persist_and_shows_field_error(self) -> None:
+        data = {
+            "tab": "nfe",
+            "form_action": "save",
+            "descricao": "Classe NF-e parcial",
+            **_nfe_formset_management(total_forms=1),
+            "icms-0-cenario": "saida_dentro_estado",
+        }
+        request = self.factory.post("/finance/classe-imposto/create/", data)
+        _attach_request_extras(request, user=self.user)
+        view = self._make_view(request)
+
+        with patch("apps.finance.views.tax_class.save_tax_class") as save_mock:
+            response = view.post(request)
+
+        response.render()
+        messages = [str(message) for message in get_messages(request)]
+
+        self.assertEqual(response.status_code, 200)
+        save_mock.assert_not_called()
+        self.assertFalse(TaxClassNfe.objects.filter(workshop=self.workshop).exists())
+        self.assertIn("Corrija os cenários de ICMS/IPI/PIS/COFINS.", messages)
+        self.assertContains(response, "Campo obrigatório para este cenário.")
+
+    def test_post_valid_nfe_without_scenarios_persists_local_tax_class(self) -> None:
+        data = {
+            "tab": "nfe",
+            "form_action": "save",
+            "descricao": "Classe NF-e valida",
+            **_nfe_formset_management(total_forms=0),
+        }
+        request = self.factory.post("/finance/classe-imposto/create/", data)
+        _attach_request_extras(request, user=self.user)
+        view = self._make_view(request)
+        remote_payload = {"referencia": "REF-NEW", "descricao": "Classe NF-e valida", "data": "2026-08-14 00:00:00"}
+
+        with (
+            patch("apps.finance.services.tax_classes._build_tax_class_headers", return_value={"Content-Type": "application/json"}),
+            patch("apps.finance.services.tax_classes.requests.post") as mock_post,
+        ):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status.return_value = None
+            mock_post.return_value.json.return_value = remote_payload
+            response = view.post(request)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"{reverse('finance:tax_class_list')}?tab=nfe")
+        self.assertTrue(TaxClassNfe.objects.filter(workshop=self.workshop, reference="REF-NEW").exists())
+        mock_post.assert_called_once()
+
+    def test_post_filled_icms_rejects_blank_extra_row(self) -> None:
+        data = {
+            "tab": "nfe",
+            "form_action": "save",
+            "descricao": "Classe NF-e com cenario extra vazio",
+            **_nfe_formset_management(total_forms=2),
+            **_filled_icms_row(index=0),
+            "icms-1-tipo_tributacao": "",
+            "icms-1-cenario": "",
+            "icms-1-tipo_pessoa": "",
+            "icms-1-codigo_cfop": "",
+            "icms-1-situacao_tributaria": "",
+            "icms-1-aliquota_credito": "",
+            "icms-1-aliquota_importacao": "",
+        }
+        request = self.factory.post("/finance/classe-imposto/create/", data)
+        _attach_request_extras(request, user=self.user)
+        view = self._make_view(request)
+
+        with patch("apps.finance.views.tax_class.save_tax_class") as save_mock:
+            response = view.post(request)
+
+        response.render()
+        messages = [str(message) for message in get_messages(request)]
+
+        self.assertEqual(response.status_code, 200)
+        save_mock.assert_not_called()
+        self.assertFalse(TaxClassNfe.objects.filter(workshop=self.workshop).exists())
+        self.assertIn("Corrija os cenários de ICMS/IPI/PIS/COFINS.", messages)
+        self.assertContains(response, "Campo obrigatório para este cenário.")

@@ -467,6 +467,13 @@ class NfseRequest(TimeStampedModel):
     )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
+    codigo_nbs = models.CharField(
+        verbose_name="Código NBS",
+        max_length=9,
+        blank=True,
+        default="",
+        help_text="Código NBS da NFS-e (Padrão Nacional: 9 dígitos).",
+    )
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
     reserved_rps_number = models.PositiveIntegerField(verbose_name="RPS reservado", null=True, blank=True)
     reserved_rps_series = models.CharField(verbose_name="Série RPS reservada", max_length=20, blank=True, default="")
