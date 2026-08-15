@@ -1,10 +1,12 @@
 import json
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views import View
 from apps.budget.models import Budget, BudgetItem
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch
+from apps.core.infrastructure.search import build_text_search_query
 from apps.workshops.mixin import WorkshopScopedMixin
 from .shared import _get_budget_for_workshop, _is_budget_edit_locked, LOCKED_BUDGET_EDIT_MESSAGE, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from apps.core.presentation.widgets import SearchableSelectInput
@@ -12,6 +14,15 @@ from django import forms
 from django.urls import reverse
 from apps.core.presentation.forms import CoreForm
 from ...core.utils import clean_id
+
+
+def _budget_display_label(budget) -> str:
+    label = f"Orçamento #{budget.number}"
+    if budget.customer:
+        label += f" - {budget.customer.name}"
+    if budget.vehicle:
+        label += f" - {budget.vehicle.plate}"
+    return label
 
 
 class ImportItemsSearchForm(CoreForm):
@@ -29,12 +40,7 @@ class ImportItemsSearchForm(CoreForm):
         super().__init__(*args, **kwargs)
         choices = [("", "Selecione um orçamento")]
         for b in available_budgets:
-            display_name = f"Orçamento #{b.number}"
-            if b.customer:
-                display_name += f" - {b.customer.name}"
-            if b.vehicle:
-                display_name += f" - {b.vehicle.plate}"
-            choices.append((str(b.id), display_name))
+            choices.append((str(b.id), _budget_display_label(b)))
         self.fields["reference_budget_id"].choices = choices
         self.fields["reference_budget_id"].widget.choices = choices
 
@@ -45,15 +51,39 @@ class BudgetImportItemsSearchModalView(LoginRequiredMixin, WorkshopScopedMixin, 
 
     def get(self, request, pk):
         budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
-        available_budgets = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle").order_by("-id")[:50]
+        available_budgets = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle").order_by("-id")[:100]
 
         form = ImportItemsSearchForm(available_budgets=available_budgets)
+        form.fields["reference_budget_id"].widget.attrs["data-source-url"] = reverse("budget:import_items_budget_search", kwargs={"pk": budget.pk})
 
         context = {
             "budget": budget,
             "form": form,
         }
         return render(request, "budget/partials/import_items_search_modal.html", context)
+
+
+class BudgetImportBudgetSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+
+        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle")
+
+        q = (request.GET.get("q") or "").strip()
+        if q:
+            search_query = build_text_search_query(
+                search_value=q,
+                lookups=("customer__name", "customer__cpf_or_cnpj", "vehicle__plate"),
+            )
+            if q.isdigit():
+                search_query |= Q(number=int(q))
+            queryset = queryset.filter(search_query)
+
+        budgets = queryset.order_by("-id")[:20]
+        return JsonResponse([{"value": b.pk, "label": _budget_display_label(b)} for b in budgets], safe=False)
 
 
 class BudgetImportItemsSelectModalView(LoginRequiredMixin, WorkshopScopedMixin, View):

@@ -6,10 +6,11 @@ from djmoney.money import Money
 from apps.finance.models.financial_movement import FinancialMovement
 
 BUDGET_PLAN_REQUIRED_FOR_RECONCILIATION = "Plano Orçamentário é obrigatório para conciliar. Preencha o campo no modal de edição."
+BANK_ACCOUNT_REQUIRED_FOR_RECONCILIATION = "Conta bancária é obrigatória para conciliar. Selecione a conta do lançamento."
 
 
 def apply_payment_reconciliation_rules(cleaned_data: dict[str, Any]) -> list[tuple[str, str]]:
-    """Enforce unpaid => awaiting reconciliation; reconciled requires budget_plan.
+    """Enforce unpaid => awaiting reconciliation; reconciled requires budget_plan and bank_account.
 
     Mutates ``cleaned_data`` in place. Returns ``(field_name, error_message)`` pairs.
     """
@@ -20,10 +21,16 @@ def apply_payment_reconciliation_rules(cleaned_data: dict[str, Any]) -> list[tup
         cleaned_data["is_reconciled"] = False
         return []
 
-    if cleaned_data.get("is_reconciled") and not cleaned_data.get("budget_plan"):
-        return [("budget_plan", BUDGET_PLAN_REQUIRED_FOR_RECONCILIATION)]
+    if not cleaned_data.get("is_reconciled"):
+        return []
 
-    return []
+    errors: list[tuple[str, str]] = []
+    if not cleaned_data.get("budget_plan"):
+        errors.append(("budget_plan", BUDGET_PLAN_REQUIRED_FOR_RECONCILIATION))
+    if not cleaned_data.get("bank_account"):
+        errors.append(("bank_account", BANK_ACCOUNT_REQUIRED_FOR_RECONCILIATION))
+
+    return errors
 
 
 def generate_card_fee_movement(instance: FinancialMovement):

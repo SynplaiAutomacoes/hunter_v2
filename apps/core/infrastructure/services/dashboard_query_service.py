@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value
 from django.db.models.functions import Coalesce, Greatest
@@ -80,6 +80,7 @@ INDICATOR_LABELS: dict[str, tuple[str, str]] = {
     "reprovados": ("Total Reprovados", "Orçamentos"),
     "carros_mes": ("Carros no Mês", "Ordens de Serviço"),
     "garantia_cortesia_mes": ("Garantia + Cortesia", "Ordens de Serviço"),
+    "venda_do_dia": ("Venda do Dia", "Ordens de Serviço"),
 }
 
 # ─── Prefetch descriptors (reused across all queries) ─────────────────────────
@@ -359,8 +360,29 @@ def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[Decimal, Decimal, Dec
     return total_pcost, total_third_party, total_mechanic, total_shipping
 
 
-def calculate_markup_progress(markup: Decimal) -> int:
-    return min(int((markup * Decimal("50")).quantize(Decimal("1"))), 100)
+MarkupGaugeTone = Literal["success", "warning", "error"]
+
+_MARKUP_GREEN_BELOW = Decimal("0.2")
+_MARKUP_YELLOW_BELOW = Decimal("0.6")
+
+
+def calculate_markup_progress(markup: Decimal, target: Decimal | None) -> int:
+    """Fill level of the markup gauge relative to the monthly MLR target (100% at target)."""
+    if target is None or target <= 0:
+        return 0
+    ratio = (markup / target) * Decimal("100")
+    return min(int(ratio.quantize(Decimal("1"))), 100)
+
+
+def resolve_markup_gauge_tone(markup: Decimal, target: Decimal | None) -> MarkupGaugeTone:
+    """Color bands by absolute distance below the monthly MLR target."""
+    if target is None or target <= 0:
+        return "error"
+    if markup >= target - _MARKUP_GREEN_BELOW:
+        return "success"
+    if markup >= target - _MARKUP_YELLOW_BELOW:
+        return "warning"
+    return "error"
 
 
 def count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> int:
@@ -772,7 +794,14 @@ class DashboardQueryService:
             today_sales=today_sales,
             accumulated_profitability=approved_budget_metrics.accumulated_profitability,
             accumulated_markup=approved_budget_metrics.accumulated_markup,
-            accumulated_markup_progress=calculate_markup_progress(approved_budget_metrics.accumulated_markup),
+            accumulated_markup_progress=calculate_markup_progress(
+                approved_budget_metrics.accumulated_markup,
+                workshop_cost.profitability_multiplier if workshop_cost is not None else None,
+            ),
+            accumulated_markup_tone=resolve_markup_gauge_tone(
+                approved_budget_metrics.accumulated_markup,
+                workshop_cost.profitability_multiplier if workshop_cost is not None else None,
+            ),
             warranty_return_rate=warranty_return_rate,
             approval_rate=approval_rate,
             total_pending_receivable=pending_receivable_metrics.total_general,
@@ -1211,12 +1240,46 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
 }
 
 
+def _get_today_sales_workorders(workshop: Workshop) -> tuple[list[Any], bool, str]:
+    """Return WorkOrders that have payment methods with due_date = today.
+
+    This is the detail query behind the 'Venda do Dia' dashboard card.
+    """
+    today = timezone.localdate()
+    workorder_ids = (
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop=workshop,
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__budget_type="sale",
+            due_date=today,
+        )
+        .values_list("workorder_id", flat=True)
+        .distinct()
+    )
+    items = list(
+        WorkOrder.objects.filter(pk__in=workorder_ids)
+        .select_related("budget__customer", "budget__vehicle")
+        .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
+        .order_by("criado_em")
+    )
+    total = sum(
+        (resolve_decimal_amount(getattr(item, "stored_total_amount", None) or item.total_budget_value) for item in items),
+        Decimal("0.00"),
+    )
+    return items, False, _format_brl(total)
+
+
 def get_financial_indicator_data(
     workshop: Workshop,
     indicator: str,
     month: int,
     year: int,
 ) -> tuple[list[Any], bool, str]:
+    # "venda_do_dia" uses WorkOrderPaymentMethod.due_date = today,
+    # which doesn't fit the standard month/year filter pattern.
+    if indicator == "venda_do_dia":
+        return _get_today_sales_workorders(workshop)
+
     query_config = _INDICATOR_QUERIES.get(indicator)
     if query_config is None:
         return [], False, "R$ 0,00"
