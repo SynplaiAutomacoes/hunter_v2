@@ -1,0 +1,71 @@
+{% extends 'crud/page.html' %}
+{% load format_tags %}
+
+{% block crud_content %}
+    <div class="flex flex-col gap-6">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+                <a href="{% url 'workshops:workshop_reports_home' %}?mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" class="text-sm text-primary hover:underline">Relatórios da Oficina</a>
+                <h1 class="text-3xl font-bold text-base-content mt-1">Retorno em garantia</h1>
+                <p class="text-base-content/70 mt-1">{{ workshop }} · {{ periodo_label }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                {% include "workshops/reports/partials/period_filter.html" %}
+                <a href="{{ excel_url }}" class="btn btn-success gap-2">
+                    <span class="material-icons text-sm">table_view</span>
+                    Exportar Excel
+                </a>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">OS de garantia</div>
+                <div class="stat-value text-lg">{{ report.rows|length }}</div>
+            </div>
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Valor total</div>
+                <div class="stat-value text-lg">{{ report.total_amount|money_br }}</div>
+            </div>
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Custo total</div>
+                <div class="stat-value text-error text-lg">{{ report.total_cost|money_br }}</div>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl overflow-x-auto">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>O.S.</th>
+                        <th>Mecânico</th>
+                        <th>Cliente</th>
+                        <th>Veículo</th>
+                        <th>Entrega</th>
+                        <th class="text-right">Valor total</th>
+                        <th class="text-right">Custo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report.rows %}
+                        <tr>
+                            <td class="font-semibold">
+                                <a href="{% url 'workorder:workorder_detail' pk=row.workorder_id %}" target="_blank" class="hover:text-primary">#{{ row.workorder_number }}</a>
+                            </td>
+                            <td>{{ row.mechanic_names }}</td>
+                            <td>{{ row.customer_name }}</td>
+                            <td>{{ row.vehicle_label }}</td>
+                            <td>{{ row.delivered_at|date:"d/m/Y"|default:"-" }}</td>
+                            <td class="text-right font-semibold">{{ row.total_amount|money_br }}</td>
+                            <td class="text-right text-error">{{ row.cost_amount|money_br }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center text-base-content/60 py-10">Nenhuma OS de garantia no período.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}

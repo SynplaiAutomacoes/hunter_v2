@@ -1,0 +1,83 @@
+{% extends 'crud/page.html' %}
+{% load format_tags %}
+
+{% block crud_content %}
+    <div class="flex flex-col gap-6">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+                <a href="{% url 'workshops:workshop_reports_home' %}?mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" class="text-sm text-primary hover:underline">Relatórios da Oficina</a>
+                <h1 class="text-3xl font-bold text-base-content mt-1">Taxa de aprovação</h1>
+                <p class="text-base-content/70 mt-1">{{ workshop }} · {{ periodo_label }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                {% include "workshops/reports/partials/period_filter.html" %}
+                <a href="{{ excel_url }}" class="btn btn-success gap-2">
+                    <span class="material-icons text-sm">table_view</span>
+                    Exportar Excel
+                </a>
+            </div>
+        </div>
+
+        <form method="get" class="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="mes" value="{{ mes_selecionado }}">
+            <input type="hidden" name="ano" value="{{ ano_selecionado }}">
+            <select name="status" class="select select-sm select-bordered" onchange="this.form.submit()">
+                {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if status_filtro == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </form>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Taxa</div>
+                <div class="stat-value text-lg">{{ report.approval_rate|floatformat:2 }}%</div>
+            </div>
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Aprovados</div>
+                <div class="stat-value text-success text-lg">{{ report.approved_count }}</div>
+            </div>
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Reprovados</div>
+                <div class="stat-value text-error text-lg">{{ report.rejected_count }}</div>
+            </div>
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Cancelados</div>
+                <div class="stat-value text-lg">{{ report.cancelled_count }}</div>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl overflow-x-auto">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Orçamento</th>
+                        <th>Cliente</th>
+                        <th>Veículo</th>
+                        <th>Entrada</th>
+                        <th>Status</th>
+                        <th class="text-right">Valor</th>
+                        <th>Motivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report.rows %}
+                        <tr>
+                            <td class="font-semibold">#{{ row.budget_number }}</td>
+                            <td>{{ row.customer_name }}</td>
+                            <td>{{ row.vehicle_label }}</td>
+                            <td>{{ row.entry_date|date:"d/m/Y"|default:"-" }}</td>
+                            <td>{{ row.status_label }}</td>
+                            <td class="text-right font-semibold">{{ row.total_amount|money_br }}</td>
+                            <td>{{ row.reason }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center text-base-content/60 py-10">Nenhum orçamento no período para os filtros selecionados.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}

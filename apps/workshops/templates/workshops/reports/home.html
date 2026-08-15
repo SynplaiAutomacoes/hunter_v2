@@ -1,0 +1,27 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+    <div class="flex flex-col gap-8">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Relatórios da Oficina</h1>
+                <p class="text-base-content/70 mt-1">Indicadores gerenciais da oficina ativa, com exportação para Excel.</p>
+            </div>
+            {% include "workshops/reports/partials/period_filter.html" %}
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {% for report in reports %}
+                <a href="{{ report.url }}" class="card bg-base-100 shadow-xl border border-base-200 hover:border-primary/40 transition-colors">
+                    <div class="card-body">
+                        <h2 class="card-title text-xl">{{ report.title }}</h2>
+                        <p class="text-base-content/70">{{ report.description }}</p>
+                        <div class="card-actions justify-end mt-2">
+                            <span class="btn btn-primary btn-sm">Abrir relatório</span>
+                        </div>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+{% endblock %}
