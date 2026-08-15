@@ -16,6 +16,7 @@ from django.forms import CheckboxInput, RadioSelect
 
 from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
+from apps.collaborators.services import work_assignable_collaborators
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
@@ -59,7 +60,8 @@ class WorkOrderCollaboratorForm(CoreModelForm):
         workshop = getattr(self.workorder, "workshop", None)
         queryset = WorkshopCollaborator.objects.none()
         if workshop is not None:
-            queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name")
+            include_ids = list(self.workorder.collaborators.values_list("id", flat=True)) if getattr(self.workorder, "pk", None) else []
+            queryset = work_assignable_collaborators(workshop=workshop, include_ids=include_ids)
         self.fields["collaborators"].queryset = queryset
         self.fields["collaborators"].help_text = "Selecione os colaboradores responsaveis por esta O.S. A comissao prevista sera calculada a partir desta vinculacao."
 

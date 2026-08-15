@@ -1,12 +1,328 @@
 {% extends 'crud/list_page.html' %}
 {% block crud_title %}Importações de Estoque{% endblock %}
 {% block crud_header_actions %}
-    {% url 'stock:import' as stock_import_url %}
-    {% include 'favorites/partials/favoritable_action_link.html' with action_url=stock_import_url action_label='Nova Importação' favorite_url=stock_import_url favorite_label='Nova Importação' %}
+    <div class="flex w-full flex-col gap-3">
+        <div class="flex flex-wrap gap-2 xl:justify-end">
+            {% url 'stock:import' as stock_import_url %}
+            {% include 'favorites/partials/favoritable_action_link.html' with action_url=stock_import_url action_label='Nova Importação' favorite_url=stock_import_url favorite_label='Nova Importação' %}
+
+            <button type="button" class="btn btn-outline btn-sm gap-2" onclick="document.getElementById('stock-filter-modal').showModal()">
+                <span class="material-icons text-sm">filter_alt</span>
+                Filtrar
+            </button>
+
+            {% if filter_state.has_selected_period %}
+                <a href="{% url 'stock:stock_list' %}" class="btn btn-ghost btn-sm">Limpar Filtros</a>
+            {% endif %}
+
+            <button
+                type="button"
+                id="stock-download-xml"
+                data-stock-download-xml="true"
+                data-download-url="{{ download_xml_url }}"
+                class="btn btn-primary btn-sm gap-2 shadow-sm"
+                disabled
+            >
+                <span class="material-icons text-sm">folder_zip</span>
+                Baixar XML
+            </button>
+        </div>
+    </div>
 {% endblock %}
 {% block crud_table_wrapper_id %}stock-table-wrapper{% endblock %}
 {% block crud_table_hx_get %}{% url 'stock:stock_list' %}{% endblock %}
 {% block crud_table_hx_trigger %}stock-table-refresh from:body{% endblock %}
 {% block crud_table %}
     {% include 'stock/partials/stock_table.html' %}
+{% endblock %}
+
+{% block crud_content %}
+    {{ block.super }}
+
+    <dialog id="stock-filter-modal" class="modal">
+        <div class="modal-box w-11/12 max-w-md">
+            <h3 class="font-bold text-lg mb-4">Filtrar Importações</h3>
+
+            <form method="get" action="{% url 'stock:stock_list' %}" class="flex flex-col gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label for="stock-filter-start-date" class="label pt-0 pb-1">
+                            <span class="label-text text-xs">Data inicial</span>
+                        </label>
+                        <input
+                            type="date"
+                            id="stock-filter-start-date"
+                            name="data_inicial"
+                            value="{{ filter_state.start_raw }}"
+                            class="input input-bordered input-sm w-full"
+                        />
+                    </div>
+
+                    <div>
+                        <label for="stock-filter-end-date" class="label pt-0 pb-1">
+                            <span class="label-text text-xs">Data final</span>
+                        </label>
+                        <input
+                            type="date"
+                            id="stock-filter-end-date"
+                            name="data_final"
+                            value="{{ filter_state.end_raw }}"
+                            class="input input-bordered input-sm w-full"
+                        />
+                    </div>
+                </div>
+
+                <div class="modal-action">
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('stock-filter-modal').close()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Aplicar Filtro</button>
+                </div>
+            </form>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button type="submit">close</button>
+        </form>
+    </dialog>
+
+    <dialog id="stock-download-modal" class="modal">
+        <div class="modal-box max-w-md border border-base-300 bg-base-100 shadow-2xl">
+            <div class="flex flex-col items-center text-center">
+                <div id="stock-download-loading" class="flex flex-col items-center gap-4 py-4">
+                    <span class="loading loading-spinner loading-lg text-primary"></span>
+                    <div class="space-y-1">
+                        <h3 class="text-lg font-semibold text-base-content">Preparando download</h3>
+                        <p id="stock-download-loading-text" class="text-sm text-base-content/70">Baixando os XMLs selecionados...</p>
+                    </div>
+                </div>
+
+                <div id="stock-download-success" class="hidden flex-col items-center gap-4 py-4">
+                    <span class="material-icons text-5xl text-success">check_circle</span>
+                    <div class="space-y-1">
+                        <h3 class="text-lg font-semibold text-base-content">Download concluído</h3>
+                        <p id="stock-download-success-text" class="text-sm text-base-content/70">O arquivo foi baixado com sucesso.</p>
+                    </div>
+                </div>
+
+                <div id="stock-download-error" class="hidden flex-col items-center gap-4 py-4">
+                    <span class="material-icons text-5xl text-error">error</span>
+                    <div class="space-y-1">
+                        <h3 class="text-lg font-semibold text-base-content">Falha no download</h3>
+                        <p id="stock-download-error-text" class="text-sm text-base-content/70">Não foi possível baixar os arquivos agora.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-action justify-center">
+                <button type="button" id="stock-download-close" class="btn btn-primary hidden">Fechar</button>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button type="submit">close</button>
+        </form>
+    </dialog>
+
+    <script>
+        (function () {
+            const modal = document.getElementById('stock-download-modal');
+            if (!modal || modal.dataset.bound === 'true') {
+                return;
+            }
+
+            modal.dataset.bound = 'true';
+
+            const loadingState = document.getElementById('stock-download-loading');
+            const successState = document.getElementById('stock-download-success');
+            const errorState = document.getElementById('stock-download-error');
+            const loadingText = document.getElementById('stock-download-loading-text');
+            const successText = document.getElementById('stock-download-success-text');
+            const errorText = document.getElementById('stock-download-error-text');
+            const closeButton = document.getElementById('stock-download-close');
+            const downloadButton = document.getElementById('stock-download-xml');
+            const csrfToken = '{{ csrf_token }}';
+            let currentState = 'loading';
+
+            function setState(state, message) {
+                currentState = state;
+                loadingState.classList.toggle('hidden', state !== 'loading');
+                loadingState.classList.toggle('flex', state === 'loading');
+                successState.classList.toggle('hidden', state !== 'success');
+                successState.classList.toggle('flex', state === 'success');
+                errorState.classList.toggle('hidden', state !== 'error');
+                errorState.classList.toggle('flex', state === 'error');
+                closeButton.classList.toggle('hidden', state === 'loading');
+
+                if (state === 'loading') {
+                    loadingText.textContent = message;
+                } else if (state === 'success') {
+                    successText.textContent = message;
+                } else if (state === 'error') {
+                    errorText.textContent = message;
+                }
+            }
+
+            function getXmlCapableRows() {
+                const table = document.getElementById('stock-table');
+                if (!table) {
+                    return [];
+                }
+
+                const rows = [];
+                table.querySelectorAll('a[aria-label="Baixar XML da NF-e"]').forEach((link) => {
+                    const row = link.closest('tr, .card');
+                    if (row && rows.indexOf(row) === -1) {
+                        rows.push(row);
+                    }
+                });
+                return rows;
+            }
+
+            function getCheckedXmlCheckboxes() {
+                return getXmlCapableRows()
+                    .map((row) => row.querySelector('input.row-checkbox'))
+                    .filter((checkbox) => checkbox && checkbox.checked);
+            }
+
+            function syncDownloadButton() {
+                if (!downloadButton) {
+                    return;
+                }
+                downloadButton.disabled = getCheckedXmlCheckboxes().length === 0;
+            }
+
+            function getDownloadFilename(response, fallbackUrl) {
+                const contentDisposition = response.headers.get('Content-Disposition') || '';
+                const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+                if (utf8Match && utf8Match[1]) {
+                    return decodeURIComponent(utf8Match[1]);
+                }
+
+                const basicMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+                if (basicMatch && basicMatch[1]) {
+                    return basicMatch[1];
+                }
+
+                const url = new URL(fallbackUrl, window.location.origin);
+                const segments = url.pathname.split('/').filter(Boolean);
+                return segments[segments.length - 1] || 'download.zip';
+            }
+
+            async function handleDownload() {
+                const downloadUrl = downloadButton.dataset.downloadUrl;
+                const checked = getCheckedXmlCheckboxes();
+
+                if (!downloadUrl || checked.length === 0) {
+                    setState('error', 'Selecione ao menos uma importação com XML disponível.');
+                    modal.showModal();
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('csrfmiddlewaretoken', csrfToken);
+                checked.forEach((checkbox) => formData.append('import_ids', checkbox.value));
+
+                setState('loading', 'Baixando os XMLs selecionados...');
+                modal.showModal();
+
+                try {
+                    const response = await fetch(downloadUrl, {
+                        method: 'POST',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRFToken': csrfToken,
+                        },
+                        credentials: 'same-origin',
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        const errorMessage = await response.text();
+                        throw new Error(errorMessage || 'Não foi possível concluir o download.');
+                    }
+
+                    const blob = await response.blob();
+                    const objectUrl = window.URL.createObjectURL(blob);
+                    const filename = getDownloadFilename(response, downloadUrl);
+                    const tempLink = document.createElement('a');
+
+                    tempLink.href = objectUrl;
+                    tempLink.download = filename;
+                    document.body.appendChild(tempLink);
+                    tempLink.click();
+                    tempLink.remove();
+                    window.URL.revokeObjectURL(objectUrl);
+
+                    setState('success', 'O download dos XMLs terminou com sucesso.');
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message: 'Download concluído com sucesso.',
+                            type: 'success'
+                        }
+                    }));
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : 'Não foi possível baixar os arquivos agora.';
+                    setState('error', message);
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message,
+                            type: 'error'
+                        }
+                    }));
+                }
+            }
+
+            closeButton.addEventListener('click', function () {
+                modal.close();
+            });
+
+            modal.addEventListener('cancel', function (event) {
+                if (currentState === 'loading') {
+                    event.preventDefault();
+                }
+            });
+
+            document.addEventListener('click', function (event) {
+                const button = event.target.closest('[data-stock-download-xml="true"]');
+                if (!button || button.disabled) {
+                    return;
+                }
+
+                event.preventDefault();
+                handleDownload();
+            });
+
+            document.addEventListener('change', function (event) {
+                const target = event.target;
+                if (target && target.closest && target.closest('#stock-table')) {
+                    syncDownloadButton();
+                }
+            });
+
+            document.body.addEventListener('htmx:afterSwap', function (event) {
+                const target = (event.detail && event.detail.elt) || event.target;
+                if (target && target.closest && target.closest('#stock-table-wrapper')) {
+                    syncDownloadButton();
+                }
+            });
+
+            document.body.addEventListener('htmx:configRequest', function (event) {
+                if (!event.detail || !event.detail.elt) {
+                    return;
+                }
+                if (event.detail.elt.id !== 'stock-table-controls-form') {
+                    return;
+                }
+
+                const searchParams = new URLSearchParams(window.location.search);
+                const start = searchParams.get('data_inicial');
+                const end = searchParams.get('data_final');
+                if (start) {
+                    event.detail.parameters.data_inicial = start;
+                }
+                if (end) {
+                    event.detail.parameters.data_final = end;
+                }
+            });
+
+            syncDownloadButton();
+        })();
+    </script>
 {% endblock %}

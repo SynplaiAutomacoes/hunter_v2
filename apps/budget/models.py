@@ -181,6 +181,14 @@ class Budget(TimeStampedModel):
     pricing_hourly_cost_value = MoneyField(verbose_name="Valor hora congelado", max_digits=14, decimal_places=2, null=True, blank=True)
     pricing_profitability_multiplier = models.DecimalField(verbose_name="Multiplicador congelado", max_digits=10, decimal_places=2, null=True, blank=True)
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=PricingMethod.choices, null=True, blank=True)
+    stored_rentability = models.DecimalField(
+        verbose_name="Rentabilidade armazenada",
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Rentabilidade do PDF do gestor, persistida no write path para não recalcular em listagens.",
+    )
     stored_total_amount = MoneyField(
         verbose_name="Total armazenado do orçamento",
         max_digits=14,
@@ -311,6 +319,55 @@ class Budget(TimeStampedModel):
         total = self.stored_total_source_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
+        self.refresh_stored_rentability()
+
+    def refresh_stored_rentability(self) -> None:
+        """Persist the gestor-PDF rentability so listings do not recompute it."""
+        if self.pk is None:
+            return
+        if getattr(self, "_skip_stored_total_refresh", False):
+            return
+        if getattr(self, "_refreshing_stored_rentability", False):
+            return
+        setattr(self, "_refreshing_stored_rentability", True)
+        try:
+            value = self.compute_gestor_pdf_rentability()
+            type(self).objects.filter(pk=self.pk).update(stored_rentability=value)
+            self.stored_rentability = value
+        finally:
+            setattr(self, "_refreshing_stored_rentability", False)
+
+    def compute_gestor_pdf_rentability(self) -> Decimal:
+        from apps.core.infrastructure.services.dashboard_query_service import prepare_budget_for_gestor_pdf_pricing
+
+        previous_injected = getattr(self, "_injected_pricing_context", None)
+        previous_skip = getattr(self, "_skip_mechanic_labor_cost", False)
+        previous_readonly = getattr(self, "_read_only_pricing_context", False)
+        had_snapshot = hasattr(self, "_pricing_snapshot_cache")
+        previous_snapshot = getattr(self, "_pricing_snapshot_cache", None)
+        try:
+            self.invalidate_pricing_snapshot_cache()
+            prepare_budget_for_gestor_pdf_pricing(self)
+            return self._compute_rentability()
+        finally:
+            if previous_injected is None:
+                if hasattr(self, "_injected_pricing_context"):
+                    delattr(self, "_injected_pricing_context")
+            else:
+                setattr(self, "_injected_pricing_context", previous_injected)
+            setattr(self, "_skip_mechanic_labor_cost", previous_skip)
+            setattr(self, "_read_only_pricing_context", previous_readonly)
+            if had_snapshot:
+                setattr(self, "_pricing_snapshot_cache", previous_snapshot)
+            else:
+                self.invalidate_pricing_snapshot_cache()
+
+    def _compute_rentability(self) -> Decimal:
+        data = self.calculate_pricing_methods(include_method_extras=False)
+        amount = data["rentabilidade"]
+        if isinstance(amount, Decimal):
+            return amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return Decimal(str(getattr(amount, "amount", amount) or 0)).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
     class Meta:
         verbose_name = "Orçamento"
@@ -430,8 +487,7 @@ class Budget(TimeStampedModel):
         for field_name, value in snapshot_data.items():
             setattr(self, field_name, value)
         self.invalidate_pricing_snapshot_cache()
-        # Avoid nested full pricing while resolving labor costs inside pricing_snapshot.
-        # Full Budget.save() / explicit callers refresh stored totals separately.
+        self.refresh_stored_rentability()
 
     def get_frozen_pricing_context(self):
         injected = getattr(self, "_injected_pricing_context", None)
@@ -722,9 +778,10 @@ class Budget(TimeStampedModel):
         return "Sistema"
 
     @property
-    def rentability(self) -> Money:
-        data = self.calculate_pricing_methods(include_method_extras=False)
-        return data["rentabilidade"]
+    def rentability(self) -> Decimal:
+        if self.stored_rentability is not None:
+            return self.stored_rentability
+        return self._compute_rentability()
 
     def _is_local_product_item(self, item: "BudgetItem") -> bool:
         if item.local_item_type == BudgetItemLocalType.PRODUCT:

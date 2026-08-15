@@ -1,0 +1,22 @@
+<form method="get" class="flex items-center gap-2 bg-base-100 p-2 rounded-xl shadow-sm border border-base-200">
+    <div class="flex items-center gap-2 px-2">
+        <i class="ph ph-calendar-blank text-primary text-xl"></i>
+        <select name="mes" class="select select-sm bg-base-100 focus:bg-base-100 font-medium" onchange="this.form.submit()">
+            {% for val, name in meses %}
+                <option value="{{ val }}" {% if val == mes_selecionado %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+        </select>
+        <div class="divider divider-horizontal mx-0"></div>
+        <select name="ano" class="select select-sm bg-base-100 focus:bg-base-100 font-medium" onchange="this.form.submit()">
+            {% for val in anos %}
+                <option value="{{ val }}" {% if val == ano_selecionado %}selected{% endif %}>{{ val|stringformat:"d" }}</option>
+            {% endfor %}
+        </select>
+        {% if sort_key %}
+            <input type="hidden" name="ordenar" value="{{ sort_key }}">
+        {% endif %}
+        {% if status_filtro %}
+            <input type="hidden" name="status" value="{{ status_filtro }}">
+        {% endif %}
+    </div>
+</form>

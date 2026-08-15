@@ -28,7 +28,7 @@ def _build_pdf_pages(produtos: list[dict[str, Any]], servicos: list[dict[str, An
 @dataclass(slots=True)
 class WorkOrderPdfBudgetProxy:
     id: int
-    number: int
+    number: int | None
     workshop: Workshop
     created: Any
     criado_em: Any
@@ -42,7 +42,7 @@ class WorkOrderPdfBudgetProxy:
     budget_status: str
     delivered_at: Any
     customer_agreed_departure_at: Any
-    current_km: int
+    current_km: int | None
 
 
 def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[str, Any]:
@@ -314,7 +314,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         budget_status=WorkOrderStatus(workorder.status).label,
         delivered_at=workorder.delivered_at,
         customer_agreed_departure_at=workorder.budget.customer_agreed_departure_at,
-        current_km=int(getattr(workorder.budget, "current_km", 0) or 0),
+        current_km=workorder.budget.current_km,
     )
 
     discount_type = workorder.discount_type or WorkOrderDiscountType.BOTH

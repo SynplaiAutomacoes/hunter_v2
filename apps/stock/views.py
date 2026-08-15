@@ -1,6 +1,11 @@
 import json
+import re
+import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 
 from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -45,7 +50,7 @@ from .forms import (
     TransferStepOperationForm,
     TransferStepReasonForm,
 )
-from .services.files import delete_import_xml_file, get_stock_import_file_service
+from .services.files import StockImportFileStorageError, delete_import_xml_file, read_import_xml_file
 from .financial_entries import calculate_import_totals, get_next_entry_id
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
@@ -516,8 +521,52 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
     htmx_template_name = "stock/partials/stock_table.html"
     workshop_permission_codename = "view_stockimport"
 
+    @staticmethod
+    def _parse_date_param(raw_value: str | None) -> date | None:
+        value = str(raw_value or "").strip()
+        if not value:
+            return None
+
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _get_filter_state(self) -> dict[str, Any]:
+        start_raw = str(self.request.GET.get("data_inicial") or "").strip()
+        end_raw = str(self.request.GET.get("data_final") or "").strip()
+        start_date = self._parse_date_param(start_raw)
+        end_date = self._parse_date_param(end_raw)
+        filter_error = ""
+
+        if start_raw or end_raw:
+            if not start_raw or not end_raw:
+                filter_error = "Selecione a data inicial e a data final para consultar as importações."
+            elif start_date is None or end_date is None:
+                filter_error = "Informe um período válido para consultar as importações."
+            elif start_date > end_date:
+                filter_error = "A data inicial não pode ser maior que a data final."
+
+        is_valid = not bool(filter_error)
+
+        return {
+            "start_raw": start_raw,
+            "end_raw": end_raw,
+            "start_date": start_date,
+            "end_date": end_date,
+            "has_selected_period": bool(start_raw and end_raw),
+            "is_valid": is_valid,
+            "filter_error": filter_error,
+        }
+
+    def _apply_date_filter(self, queryset):
+        state = self._get_filter_state()
+        if state["is_valid"] and state["start_date"] and state["end_date"]:
+            return queryset.filter(criado_em__date__range=(state["start_date"], state["end_date"]))
+        return queryset
+
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        return self._apply_date_filter(super().get_queryset()).order_by("-criado_em")
 
     def _build_history_rows(self) -> list[StockHistoryRow]:
         import_rows = self._build_import_history_rows()
@@ -527,6 +576,9 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         return combined
 
     def _build_import_history_rows(self) -> list[StockHistoryRow]:
+        if not self._get_filter_state()["is_valid"]:
+            return []
+
         imports = self.get_queryset().select_related("user")
         return [
             StockHistoryRow(
@@ -544,7 +596,13 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         ]
 
     def _build_transfer_history_rows(self) -> list[StockHistoryRow]:
+        state = self._get_filter_state()
+        if not state["is_valid"]:
+            return []
+
         transfers_queryset = StockTransfer.objects.filter(Q(source_workshop=self.workshop) | Q(destination_workshop=self.workshop)).select_related("user", "source_workshop", "destination_workshop").order_by("-criado_em")
+        if state["start_date"] and state["end_date"]:
+            transfers_queryset = transfers_queryset.filter(criado_em__date__range=(state["start_date"], state["end_date"]))
 
         transfers: list[StockHistoryRow] = []
         for transfer in transfers_queryset:
@@ -575,6 +633,8 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         context = super().get_context_data(**kwargs)
 
         context["stock"] = self._build_history_rows()
+        context["filter_state"] = self._get_filter_state()
+        context["download_xml_url"] = reverse("stock:xml_bulk_download")
         context["fields"] = [
             TableColumn("ID", attr="id"),
             TableColumn(StockImport.nf_number.field.verbose_name, attr="nf_number"),
@@ -880,11 +940,120 @@ class StockImportXmlDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
             raise Http404("XML não disponível para esta importação.")
 
         try:
-            presigned_url = get_stock_import_file_service().generate_presigned_url(file_id=stock_import.xml_file_key)
-            return redirect(presigned_url)
+            stored = read_import_xml_file(file_id=stock_import.xml_file_key)
         except Exception:
-            messages.error(request, "Erro ao gerar link para download do XML.")
+            messages.error(request, "Erro ao ler o XML da importação.")
             return redirect("stock:stock_list")
+
+        response = HttpResponse(stored.content, content_type=stored.content_type)
+        response["Content-Disposition"] = f'attachment; filename="{stored.filename}"'
+        return response
+
+
+class StockImportXmlArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "view_stockimport"
+    XML_ARCHIVE_MAX_WORKERS = 5
+
+    @staticmethod
+    def _parse_id_list(raw_values: list[str]) -> list[int]:
+        ids: list[int] = []
+        seen: set[int] = set()
+        for raw_value in raw_values:
+            value = str(raw_value or "").strip()
+            if not value.isdigit():
+                continue
+            parsed = int(value)
+            if parsed in seen:
+                continue
+            seen.add(parsed)
+            ids.append(parsed)
+        return ids
+
+    @staticmethod
+    def _sanitize_archive_fragment(value: object) -> str:
+        normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip())
+        normalized = normalized.strip("-._")
+        return normalized or "importacao"
+
+    @staticmethod
+    def _build_xml_archive_entry(stored: object) -> dict[str, object]:
+        filename = StockImportXmlArchiveDownloadView._sanitize_archive_fragment(getattr(stored, "filename", "")) or "importacao.xml"
+        if not filename.lower().endswith(".xml"):
+            filename = f"{filename}.xml"
+        return {"archive_name": filename, "content": stored.content}
+
+    @staticmethod
+    def _ensure_unique_archive_names(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+        seen_names: dict[str, int] = {}
+        unique_entries: list[dict[str, object]] = []
+
+        for entry in entries:
+            archive_name = entry["archive_name"]
+            seen_count = seen_names.get(archive_name, 0) + 1
+            seen_names[archive_name] = seen_count
+
+            if seen_count == 1:
+                unique_entries.append(entry)
+                continue
+
+            base_name, separator, suffix = archive_name.rpartition(".")
+            if not separator:
+                base_name = archive_name
+                suffix = ""
+
+            deduplicated_name = f"{base_name}-{seen_count}"
+            if suffix:
+                deduplicated_name = f"{deduplicated_name}.{suffix}"
+
+            unique_entries.append({**entry, "archive_name": deduplicated_name})
+
+        return unique_entries
+
+    def _read_xml_entries(self, *, stock_imports) -> list[dict[str, object]]:
+        if len(stock_imports) == 1:
+            stored = read_import_xml_file(file_id=stock_imports[0].xml_file_key)
+            return self._ensure_unique_archive_names([self._build_xml_archive_entry(stored)])
+
+        entries: list[dict[str, object]] = []
+        max_workers = min(self.XML_ARCHIVE_MAX_WORKERS, len(stock_imports))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {
+                executor.submit(read_import_xml_file, file_id=stock_import.xml_file_key): stock_import
+                for stock_import in stock_imports
+            }
+            for future in as_completed(future_map):
+                stored = future.result()
+                entries.append(self._build_xml_archive_entry(stored))
+
+        entries.sort(key=lambda item: item["archive_name"])
+        return self._ensure_unique_archive_names(entries)
+
+    def post(self, request, *args, **kwargs):
+        import_ids = self._parse_id_list(request.POST.getlist("import_ids"))
+        if not import_ids:
+            return HttpResponse("Selecione ao menos uma importação para baixar.", status=400, content_type="text/plain; charset=utf-8")
+
+        stock_imports = list(StockImport.objects.filter(workshop=self.workshop, pk__in=import_ids, xml_file_key__gt=""))
+        if not stock_imports:
+            return HttpResponse("Nenhum XML disponível para as importações selecionadas.", status=404, content_type="text/plain; charset=utf-8")
+
+        archive_buffer = BytesIO()
+        try:
+            entries = self._read_xml_entries(stock_imports=stock_imports)
+            with zipfile.ZipFile(archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive_file:
+                for entry in entries:
+                    archive_file.writestr(entry["archive_name"], entry["content"])
+        except StockImportFileStorageError as exc:
+            logger.exception(
+                "stock_import_xml_archive_download_failed",
+                extra={"workshop_id": self.workshop.pk, "import_ids": import_ids},
+            )
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(archive_buffer.getvalue(), content_type="application/zip")
+        response["Content-Disposition"] = 'attachment; filename="importacao-xml.zip"'
+        return response
 
 
 class StockHistoryEditRedirectView(LoginRequiredMixin, WorkshopScopedMixin, View):

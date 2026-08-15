@@ -73,6 +73,7 @@ urlpatterns = [
     path("<int:pk>/unlink-modal/", views.BudgetUnlinkModalView.as_view(), name="budget_unlink_modal"),
     path("<int:pk>/unlink/", views.BudgetUnlinkProcessView.as_view(), name="budget_unlink_process"),
     path("<int:pk>/import-items-search-modal/", views.BudgetImportItemsSearchModalView.as_view(), name="import_items_search_modal"),
+    path("<int:pk>/import-items/budget-search/", views.BudgetImportBudgetSearchView.as_view(), name="import_items_budget_search"),
     path("<int:pk>/import-items-select-modal/", views.BudgetImportItemsSelectModalView.as_view(), name="import_items_select_modal"),
     path("<int:pk>/import-items-process/", views.BudgetImportItemsProcessView.as_view(), name="import_items_process"),
 ]

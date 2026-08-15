@@ -80,6 +80,7 @@ INDICATOR_LABELS: dict[str, tuple[str, str]] = {
     "reprovados": ("Total Reprovados", "Orçamentos"),
     "carros_mes": ("Carros no Mês", "Ordens de Serviço"),
     "garantia_cortesia_mes": ("Garantia + Cortesia", "Ordens de Serviço"),
+    "venda_do_dia": ("Venda do Dia", "Ordens de Serviço"),
 }
 
 # ─── Prefetch descriptors (reused across all queries) ─────────────────────────
@@ -292,6 +293,16 @@ def _prepare_budget_for_dashboard_pricing(
     # Slider 0: labor cost does not change total_budget_value (see build_pricing_snapshot).
     if for_totals_only and int(getattr(budget, "slider", 0) or 0) == 0:
         setattr(budget, "_skip_mechanic_labor_cost", True)
+
+
+def prepare_budget_for_gestor_pdf_pricing(budget: Budget) -> Budget:
+    """Same pricing context the gestor PDF uses: current-month workshop cost, salary item without VT."""
+    today = timezone.localdate()
+    workshop = budget.workshop
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+    _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
+    return budget
 
 
 def _prepare_workorder_for_dashboard_pricing(
@@ -1239,12 +1250,46 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
 }
 
 
+def _get_today_sales_workorders(workshop: Workshop) -> tuple[list[Any], bool, str]:
+    """Return WorkOrders that have payment methods with due_date = today.
+
+    This is the detail query behind the 'Venda do Dia' dashboard card.
+    """
+    today = timezone.localdate()
+    workorder_ids = (
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop=workshop,
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__budget_type="sale",
+            due_date=today,
+        )
+        .values_list("workorder_id", flat=True)
+        .distinct()
+    )
+    items = list(
+        WorkOrder.objects.filter(pk__in=workorder_ids)
+        .select_related("budget__customer", "budget__vehicle")
+        .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
+        .order_by("criado_em")
+    )
+    total = sum(
+        (resolve_decimal_amount(getattr(item, "stored_total_amount", None) or item.total_budget_value) for item in items),
+        Decimal("0.00"),
+    )
+    return items, False, _format_brl(total)
+
+
 def get_financial_indicator_data(
     workshop: Workshop,
     indicator: str,
     month: int,
     year: int,
 ) -> tuple[list[Any], bool, str]:
+    # "venda_do_dia" uses WorkOrderPaymentMethod.due_date = today,
+    # which doesn't fit the standard month/year filter pattern.
+    if indicator == "venda_do_dia":
+        return _get_today_sales_workorders(workshop)
+
     query_config = _INDICATOR_QUERIES.get(indicator)
     if query_config is None:
         return [], False, "R$ 0,00"
