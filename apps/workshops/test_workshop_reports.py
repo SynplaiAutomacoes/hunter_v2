@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -15,11 +15,13 @@ from apps.accounts.models import Account
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
 from apps.core.infrastructure.excel_report_style import EXCEL_CONTENT_TYPE
 from apps.customer.models import Customer, Vehicle
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderStatus
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.workshop_reports import (
     build_approval_rate_report,
@@ -27,6 +29,7 @@ from apps.workshops.services.workshop_reports import (
     build_profitability_report,
     build_warranty_return_report,
 )
+from apps.workshops.util.monthly_costs import create_default_monthly_costs, get_mechanic_salary_monthly_cost
 
 User = get_user_model()
 
@@ -273,12 +276,79 @@ class WorkshopReportsTests(TestCase):
             stored_total=Decimal("90.00"),
             collaborators=[self.mechanic_a],
         )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Relatorio",
+            duration=timedelta(0),
+            suggested_cost=Money(25, "BRL"),
+            selling_price=Money(50, "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            service=service,
+            quantity=1,
+            service_cost_price=Money(25, "BRL"),
+            service_selling_price=Money(50, "BRL"),
+            item_benefit_type=WorkOrderItemBenefitType.WARRANTY,
+        )
         report = build_warranty_return_report(workshop=self.workshop, month=7, year=2026)
         self.assertEqual(len(report.rows), 1)
         self.assertEqual(report.rows[0].workorder_id, workorder.pk)
         self.assertEqual(report.rows[0].mechanic_names, "Ana Mecanica")
-        self.assertEqual(report.rows[0].total_amount, Decimal("120.00"))
-        self.assertGreater(report.rows[0].cost_amount, Decimal("0.00"))
+        self.assertEqual(report.rows[0].total_amount, Decimal("170.00"))
+        self.assertEqual(report.rows[0].product_cost_amount, Decimal("80.00"))
+        self.assertEqual(report.rows[0].service_cost_amount, Decimal("25.00"))
+        self.assertEqual(report.total_product_cost, Decimal("80.00"))
+        self.assertEqual(report.total_service_cost, Decimal("25.00"))
+
+    def test_warranty_service_cost_matches_gestor_pdf_mechanic_cost(self) -> None:
+        today = timezone.localdate()
+        create_default_monthly_costs(workshop=self.workshop)
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=today.month,
+            year=today.year,
+            mechanic_quantity=1,
+            work_days_per_month=22,
+            working_hours_per_month=Decimal("100.00"),
+        )
+        mechanic_monthly = get_mechanic_salary_monthly_cost(workshop=self.workshop)
+        assert mechanic_monthly is not None
+        WorkshopCostItem.objects.create(
+            workshop_cost=workshop_cost,
+            monthly_cost=mechanic_monthly,
+            amount=Money("14900.00", "BRL"),
+        )
+        workorder = self._create_workorder(
+            workshop=self.workshop,
+            customer=self.customer,
+            vehicle=self.vehicle,
+            budget_type="warranty",
+            delivered_at=self.july,
+            collaborators=[self.mechanic_a],
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Mecanico Relatorio",
+            duration=timedelta(hours=1),
+            suggested_cost=Money(25, "BRL"),
+            selling_price=Money(50, "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            service=service,
+            quantity=1,
+            duration=timedelta(hours=1),
+            service_cost_price=Money(25, "BRL"),
+            service_selling_price=Money(50, "BRL"),
+            item_benefit_type=WorkOrderItemBenefitType.WARRANTY,
+        )
+        report = build_warranty_return_report(workshop=self.workshop, month=7, year=2026)
+        self.assertEqual(len(report.rows), 1)
+        self.assertEqual(report.rows[0].product_cost_amount, Decimal("80.00"))
+        self.assertEqual(report.rows[0].service_cost_amount, Decimal("149.00"))
 
     def test_approval_rate_lists_sale_budgets_with_reasons(self) -> None:
         Budget.objects.create(
@@ -356,3 +426,15 @@ class WorkshopReportsTests(TestCase):
         workbook = load_workbook(BytesIO(excel.content))
         values = [value for row in workbook.active.iter_rows(values_only=True) for value in row]
         self.assertTrue(any(isinstance(value, str) and "ANA MECANICA" in value.upper() for value in values if value))
+
+        warranty = self.client.get(reverse("workshops:workshop_report_warranty"), {"mes": 7, "ano": 2026})
+        self.assertEqual(warranty.status_code, 200)
+        self.assertContains(warranty, "Custo de produtos")
+        self.assertContains(warranty, "Custo de serviços")
+
+        warranty_excel = self.client.get(reverse("workshops:workshop_report_warranty_excel"), {"mes": 7, "ano": 2026})
+        self.assertEqual(warranty_excel.status_code, 200)
+        warranty_workbook = load_workbook(BytesIO(warranty_excel.content))
+        warranty_values = [value for row in warranty_workbook.active.iter_rows(values_only=True) for value in row]
+        self.assertIn("Custo de produtos", warranty_values)
+        self.assertIn("Custo de serviços", warranty_values)
