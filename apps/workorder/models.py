@@ -40,6 +40,8 @@ class WorkOrderError(Exception):
 
 class WorkOrderStatus(models.TextChoices):
     DRAFT = "draft", "Aprovado"
+    WAITING_COLLABORATOR = "waiting_collaborator", "Aguardando Colaborador"
+    WAITING_DELIVERY = "waiting_delivery", "Aguardando Entrega"
     APPROVED = "approved", "Veículo entregue"
     REJECTED = "rejected", "Reprovado"
     CANCELLED = "cancelled", "Cancelado"
@@ -52,6 +54,14 @@ WORKORDER_REOPENABLE_STATUSES = frozenset(
         WorkOrderStatus.CANCELLED,
     }
 )
+WORKORDER_OPEN_STATUSES = frozenset(
+    {
+        WorkOrderStatus.DRAFT,
+        WorkOrderStatus.WAITING_COLLABORATOR,
+        WorkOrderStatus.WAITING_DELIVERY,
+    }
+)
+WORKORDER_REVENUE_STATUSES = WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED}
 
 
 class WorkOrderSignatureStatus(models.TextChoices):
@@ -95,7 +105,8 @@ class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento aprovado vinculado a esta O.S.")
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="workorders", blank=True)
-    status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
+    status = models.CharField(verbose_name="Status", max_length=32, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
+    current_step = models.PositiveSmallIntegerField(verbose_name="Etapa atual", default=1)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7, decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
     discount_type = models.CharField(verbose_name="Tipo de desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
@@ -192,6 +203,8 @@ class WorkOrder(TimeStampedModel):
     def workorder_status_badge(self):
         status_color = {
             WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
+            WorkOrderStatus.WAITING_COLLABORATOR: "badge-info min-w-sm",
+            WorkOrderStatus.WAITING_DELIVERY: "badge-warning min-w-sm",
             WorkOrderStatus.APPROVED: "badge-success min-w-sm",
             WorkOrderStatus.REJECTED: "badge-error min-w-sm",
             WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
@@ -427,6 +440,10 @@ class WorkOrder(TimeStampedModel):
         return self.status in WORKORDER_REOPENABLE_STATUSES
 
     @property
+    def can_change_delivery_status(self) -> bool:
+        return self.status == WorkOrderStatus.WAITING_DELIVERY
+
+    @property
     def signature_blockers_display(self) -> str:
         return " ".join(self.signature_blockers)
 
@@ -480,13 +497,14 @@ class WorkOrder(TimeStampedModel):
         if self.status == WorkOrderStatus.APPROVED:
             return
         self.status = WorkOrderStatus.APPROVED
+        self.current_step = max(int(self.current_step or 1), 4)
         if self.pk and not getattr(self, "_skip_stock_consumption_guard", False):
             self._ensure_stock_consumed_on_approve()
+        update_fields = ["status", "current_step"]
         if self.delivered_at is None:
             self.delivered_at = timezone.now()
-            self.save(update_fields=["status", "delivered_at"])
-        else:
-            self.save(update_fields=["status"])
+            update_fields.append("delivered_at")
+        self.save(update_fields=update_fields)
 
     def _ensure_stock_consumed_on_approve(self, user: object | None = None) -> None:
         from apps.stock.services.workorder_stock import has_unreversed_exit_movements
@@ -566,10 +584,11 @@ class WorkOrder(TimeStampedModel):
         if not self.can_reopen:
             raise WorkOrderError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
-        self.status = WorkOrderStatus.DRAFT
+        self.status = WorkOrderStatus.WAITING_DELIVERY
         self.reopen_reason = reason
+        self.current_step = 3
 
-        self.save(update_fields=["status", "delivered_at", "reopen_reason"])
+        self.save(update_fields=["status", "delivered_at", "reopen_reason", "current_step"])
 
     def apply_discount(self, value: Money, percentage: Decimal, discount_type: str | None = None) -> None:
         self.discount_value = value

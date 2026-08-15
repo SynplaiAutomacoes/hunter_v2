@@ -119,8 +119,10 @@
 
                             <div x-show="rule.rule_type === 'workorder_status'" class="flex items-center gap-1.5">
                                 <select x-model="rule.value" class="input-theme w-40">
-                                    <option value="draft">Em andamento</option>
-                                    <option value="approved">Veículo Entregue</option>
+                                    <option value="draft">Aprovado</option>
+                                    <option value="waiting_collaborator">Aguardando Colaborador</option>
+                                    <option value="waiting_delivery">Aguardando Entrega</option>
+                                    <option value="approved">Veículo entregue</option>
                                     <option value="rejected">Reprovado</option>
                                     <option value="cancelled">Cancelado</option>
                                 </select>
@@ -408,7 +410,7 @@
                         },
                         workorder_in_progress: {
                             logical_operator: 'all',
-                            rules: [{ rule_type: 'workorder_status', operator: 'in', value: 'draft', field: null }]
+                            rules: [{ rule_type: 'workorder_status', operator: 'in', value: ['draft', 'waiting_collaborator', 'waiting_delivery'], field: null }]
                         },
                     };
                     const preset = presets[presetName];

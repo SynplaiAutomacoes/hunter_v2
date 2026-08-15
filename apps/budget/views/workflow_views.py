@@ -47,7 +47,7 @@ from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateR
 from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
-from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus
+from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus, WORKORDER_OPEN_STATUSES
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
@@ -1471,7 +1471,7 @@ class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if budget is None:
             return HttpResponse("")
 
-        is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
+        is_workorder = budget.workorders.filter(status__in=WORKORDER_OPEN_STATUSES).exists()
         context = {
             "reference_budget_id": budget.pk,
             "reference_budget_number": budget.number,

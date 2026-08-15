@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
@@ -16,14 +17,14 @@ from djmoney.money import Money
 from apps.budget.fields import DurationField
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
-from apps.finance.services.workorder_emission import get_workorder_emission_ui_state
+from apps.finance.services.workorder_emission import WorkOrderEmissionUiState, get_workorder_emission_ui_state
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -36,6 +37,125 @@ from apps.workshops.util.workshops import has_workshop_perm
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 LOCKED_WORKORDER_EDIT_MESSAGE = "Reabra a O.S. antes de editar qualquer campo."
+WORKORDER_DETAIL_STEP_COUNT = 4
+WORKORDER_PAYMENTS_TAB = "pagamento"
+WORKORDER_HISTORY_TAB = "historico"
+WORKORDER_DETAIL_STEPS: list[dict[str, object]] = [
+    {"number": 1, "title": "Revisão", "key": "revisao"},
+    {"number": 2, "title": "Colaboradores e comissões", "key": "colaboradores"},
+    {"number": 3, "title": "Dados de entrega", "key": "entrega"},
+    {"number": 4, "title": "Notas fiscais", "key": "notas_fiscais"},
+]
+
+
+def _clamp_workorder_step(value: object, *, upper: int = WORKORDER_DETAIL_STEP_COUNT) -> int:
+    try:
+        step = int(value or 1)
+    except (TypeError, ValueError):
+        step = 1
+    return max(1, min(upper, step))
+
+
+def max_workorder_step_for_status(status: object) -> int:
+    normalized = str(status or WorkOrderStatus.DRAFT)
+    if normalized == WorkOrderStatus.APPROVED:
+        return 4
+    if normalized in {
+        WorkOrderStatus.WAITING_COLLABORATOR,
+        WorkOrderStatus.WAITING_DELIVERY,
+        WorkOrderStatus.REJECTED,
+        WorkOrderStatus.CANCELLED,
+    }:
+        return 3
+    return 1
+
+
+@dataclass(frozen=True)
+class WorkOrderDetailNavigation:
+    current_step: int
+    max_reached_step: int
+    payments_open: bool
+    history_open: bool
+    can_advance: bool
+    continue_label: str
+
+
+def _workorder_can_advance(*, status: str, current_step: int, max_reached_step: int) -> bool:
+    if current_step >= WORKORDER_DETAIL_STEP_COUNT:
+        return False
+    next_step = current_step + 1
+    if next_step <= max_reached_step:
+        return True
+    if current_step == 1 and status == WorkOrderStatus.DRAFT:
+        return True
+    if current_step == 2 and status == WorkOrderStatus.WAITING_COLLABORATOR:
+        return True
+    if current_step == 3 and status in {WorkOrderStatus.WAITING_COLLABORATOR, WorkOrderStatus.APPROVED}:
+        return True
+    return False
+
+
+def _advance_workorder_step(*, workorder, requested_step: int, max_reached_step: int) -> int:
+    status = str(getattr(workorder, "status", WorkOrderStatus.DRAFT) or WorkOrderStatus.DRAFT)
+    update_fields: list[str] = []
+
+    if status == WorkOrderStatus.DRAFT and max_reached_step == 1 and requested_step == 2:
+        workorder.status = WorkOrderStatus.WAITING_COLLABORATOR
+        workorder.current_step = 2
+        update_fields = ["status", "current_step"]
+    elif status == WorkOrderStatus.WAITING_COLLABORATOR and max_reached_step == 2 and requested_step == 3:
+        workorder.current_step = 3
+        update_fields = ["current_step"]
+    elif status == WorkOrderStatus.WAITING_COLLABORATOR and max_reached_step == 3 and requested_step == 4:
+        workorder.status = WorkOrderStatus.WAITING_DELIVERY
+        workorder.current_step = 3
+        update_fields = ["status", "current_step"]
+    elif status == WorkOrderStatus.APPROVED and max_reached_step == 3 and requested_step == 4:
+        workorder.current_step = 4
+        update_fields = ["current_step"]
+
+    if update_fields and getattr(workorder, "pk", None):
+        workorder.save(update_fields=update_fields)
+
+    if update_fields:
+        return _clamp_workorder_step(workorder.current_step)
+    return max_reached_step
+
+
+def resolve_workorder_detail_navigation(*, request, workorder=None) -> WorkOrderDetailNavigation:
+    status = WorkOrderStatus.DRAFT
+    max_reached_step = WORKORDER_DETAIL_STEP_COUNT
+    if workorder is not None:
+        status = str(getattr(workorder, "status", WorkOrderStatus.DRAFT) or WorkOrderStatus.DRAFT)
+        stored_step = _clamp_workorder_step(getattr(workorder, "current_step", 1))
+        max_reached_step = min(stored_step, max_workorder_step_for_status(status))
+
+    raw_step = str(getattr(request, "GET", {}).get("step") or "").strip()
+    if raw_step:
+        requested_step = _clamp_workorder_step(raw_step)
+    elif workorder is not None:
+        requested_step = max_reached_step
+    else:
+        requested_step = 1
+
+    if workorder is not None and requested_step == max_reached_step + 1:
+        max_reached_step = _advance_workorder_step(workorder=workorder, requested_step=requested_step, max_reached_step=max_reached_step)
+
+    current_step = min(requested_step, max_reached_step)
+    raw_tab = str(getattr(request, "GET", {}).get("tab") or "").strip().lower()
+    payments_open = raw_tab == WORKORDER_PAYMENTS_TAB
+    history_open = raw_tab == WORKORDER_HISTORY_TAB and not payments_open
+    can_advance = _workorder_can_advance(status=status if workorder is None else str(getattr(workorder, "status", status) or status), current_step=current_step, max_reached_step=max_reached_step)
+    if workorder is None:
+        can_advance = current_step < WORKORDER_DETAIL_STEP_COUNT
+    return WorkOrderDetailNavigation(
+        current_step=current_step,
+        max_reached_step=max_reached_step,
+        payments_open=payments_open,
+        history_open=history_open,
+        can_advance=can_advance,
+        continue_label="Iniciar" if current_step == 1 else "Salvar e Continuar",
+    )
 
 
 def _get_workorder_for_workshop(workshop, workorder_id: int) -> WorkOrder:
@@ -250,6 +370,12 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         if eid and eid not in benefit_map:
             benefit_map[eid] = _item.item_benefit_type
 
+    product_issue_map: dict[int, str] = {}
+    for line in summary_product_items:
+        entity_id = getattr(line, "entity_id", None)
+        if entity_id and getattr(line, "has_product_issues", False):
+            product_issue_map[int(entity_id)] = str(getattr(line, "product_issue_tooltip", "") or "")
+
     return {
         "workorder": workorder,
         "product_items": product_items,
@@ -258,10 +384,14 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         "summary_service_items": summary_service_items,
         "kit_items": kit_items,
         "benefit_map": benefit_map,
+        "product_issue_map": product_issue_map,
         "active_tab": _normalize_active_tab(active_tab),
         "discount_products": discount_products,
         "discount_services": discount_services,
         "discount_type": workorder.discount_type or "both",
+        "resume_total_shipping": workorder.total_products_shipping + workorder.total_services_shipping,
+        "warranty_items_count": sum(1 for item in items if item.item_benefit_type == "warranty"),
+        "courtesy_items_count": sum(1 for item in items if item.item_benefit_type == "courtesy"),
     }
 
 
@@ -341,8 +471,6 @@ def can_view_workorder_emission(*, request, workorder: WorkOrder) -> bool:
 
 def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOrderAttachment | None = None, request=None) -> dict[str, object]:
     latest_attachment = attachment if attachment is not None else workorder.attachments.last()
-    can_emit = bool(request and can_view_workorder_emission(request=request, workorder=workorder))
-    emission_ui = get_workorder_emission_ui_state(workorder=workorder) if can_emit else None
     return {
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
@@ -351,12 +479,59 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "reject_form": WorkOrderStatusReasonForm(workorder=workorder, action="reject"),
         "reopen_form": WorkOrderReopenForm(workorder=workorder),
         "can_reopen_workorder": bool(request and can_reopen_workorder(request=request, workorder=workorder)),
-        "can_view_workorder_emission": can_emit,
-        "emission_ui": emission_ui,
+        "can_finalize_delivery": workorder.status == WorkOrderStatus.WAITING_DELIVERY and not workorder.is_status_locked,
         "has_payments": workorder.payments.exists(),
         "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
         "attachments": workorder.attachments.order_by("-criado_em"),
     }
+
+
+def _build_workorder_emission_section_context(*, workorder: WorkOrder, request=None, build_form: bool = True) -> dict[str, object]:
+    can_emit = bool(request and can_view_workorder_emission(request=request, workorder=workorder))
+    emission_ui: WorkOrderEmissionUiState | None = get_workorder_emission_ui_state(workorder=workorder) if can_emit else None
+    emission_form = None
+    if build_form and can_emit and workorder.status == WorkOrderStatus.APPROVED and (emission_ui is None or emission_ui.mode in {"emit", "partial_choice"}):
+        emission_form = _build_workorder_emission_form(request=request, workorder=workorder)
+    return {
+        "can_view_workorder_emission": can_emit,
+        "emission_ui": emission_ui,
+        "emission_form": emission_form,
+    }
+
+
+def _build_workorder_emission_form(*, request, workorder: WorkOrder):
+    from django.urls import reverse
+
+    from apps.finance.forms import EMISSION_NOTE_MODE_CHOICES, EmissionStep4Form
+    from apps.finance.views.emission import bind_emission_request_view
+
+    emission_view = bind_emission_request_view(request=request, workshop=workorder.workshop)
+    state = emission_view.seed_state_at_summary(workorder=workorder)
+    selected_slider = emission_view._selected_slider(state=state, workorder=workorder)
+    allowed_note_modes, availability_message = emission_view._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
+    if not allowed_note_modes:
+        return None
+
+    preferred_mode = str(state.get("note_mode") or "")
+    if preferred_mode not in allowed_note_modes:
+        if "both" in allowed_note_modes:
+            preferred_mode = "both"
+        elif "nfe" in allowed_note_modes:
+            preferred_mode = "nfe"
+        elif "nfse" in allowed_note_modes:
+            preferred_mode = "nfse"
+        else:
+            preferred_mode = ""
+
+    return EmissionStep4Form(
+        workorder=workorder,
+        initial={"pricing_slider": selected_slider, "note_mode": preferred_mode or "nfe"},
+        note_mode_choices=EMISSION_NOTE_MODE_CHOICES,
+        allowed_note_modes=allowed_note_modes,
+        availability_message=availability_message,
+        form_selector="#workorder-emission-form",
+        preview_url=f"{reverse('finance:emission_normal')}?step=4&preview=1",
+    )
 
 
 def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, use_signed_name: bool, pdf_bytes: bytes) -> HttpResponse:

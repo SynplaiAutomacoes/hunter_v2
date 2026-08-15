@@ -1,6 +1,37 @@
 <div class="mb-9 w-[100%] mx-auto">
     <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 lg:gap-3">
 
+        {% if stepper_show_payments_tab %}
+        <div class="flex flex-row lg:flex-col items-center flex-1 w-full lg:w-auto gap-4 lg:gap-0 relative">
+            <div class="hidden lg:block text-base font-semibold lg:mt-2 lg:text-center">
+                Pagamentos
+            </div>
+
+            <div class="z-10 flex items-center justify-center shrink-0 w-10 h-10 lg:w-full lg:h-5 text-base font-bold transition-all rounded-full lg:rounded-sm
+                {% if payments_open %}
+                    bg-info text-info-content ring-2 ring-info/50
+                {% else %}
+                    bg-info text-info-content cursor-pointer
+                {% endif %}"
+                {% if not payments_open %}
+                    {% if stepper_navigation == "links" %}
+                    onclick="window.location.href='?step={{ current_step }}&tab=pagamento'"
+                    {% else %}
+                    hx-get="?step={{ current_step }}&tab=pagamento{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk }}{% endif %}"
+                    hx-target="{{ stepper_hx_target|default:'#step-container' }}"
+                    hx-push-url="true"
+                    {% endif %}
+                {% endif %}
+                {% if payments_open %}aria-current="page"{% endif %}>
+                <span class="material-icons text-base lg:text-[0.95rem] leading-none">payments</span>
+            </div>
+
+            <div class="text-base font-semibold lg:mt-2 lg:text-center text-left lg:hidden">
+                Pagamentos
+            </div>
+        </div>
+        {% endif %}
+
         {% for step in steps_config %}
         <div class="flex flex-row lg:flex-col items-center flex-1 w-full lg:w-auto gap-4 lg:gap-0 relative">
 
@@ -9,7 +40,11 @@
             </div>
 
             <div class="z-10 flex items-center justify-center shrink-0 w-10 h-10 lg:w-full lg:h-5 text-base font-bold transition-all rounded-full lg:rounded-sm
-                {% if step.number < current_step %}
+                {% if stepper_show_payments_tab and payments_open and step.number <= max_reached_step %}
+                    bg-success text-success-content cursor-pointer
+                {% elif stepper_show_history_tab and history_open and step.number <= max_reached_step %}
+                    bg-success text-success-content cursor-pointer
+                {% elif step.number < current_step %}
                     bg-success text-success-content cursor-pointer
                 {% elif step.number == current_step %}
                     bg-warning text-warning-content ring-2 ring-warning/50
@@ -21,10 +56,16 @@
 
                 {% if not forloop.last %} lg:rounded-none {% endif %}"
 
-                {% if step.number <= max_reached_step and step.number >= min_accessible_step|default:1 and step.number != current_step %}
-                    hx-get="?step={{ step.number }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
-                    hx-target="#step-container"
-                    hx-push-url="true"
+                {% if step.number <= max_reached_step and step.number >= min_accessible_step|default:1 %}
+                    {% if step.number != current_step or payments_open or history_open %}
+                        {% if stepper_navigation == "links" %}
+                        onclick="window.location.href='?step={{ step.number }}'"
+                        {% else %}
+                        hx-get="?step={{ step.number }}{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk }}{% endif %}"
+                        hx-target="{{ stepper_hx_target|default:'#step-container' }}"
+                        hx-push-url="true"
+                        {% endif %}
+                    {% endif %}
                 {% endif %}>
 
                 {{ step.number }}
@@ -40,5 +81,36 @@
 
         </div>
         {% endfor %}
+
+        {% if stepper_show_history_tab %}
+        <div class="flex flex-row lg:flex-col items-center flex-1 w-full lg:w-auto gap-4 lg:gap-0 relative">
+            <div class="hidden lg:block text-base font-semibold lg:mt-2 lg:text-center">
+                Histórico
+            </div>
+
+            <div class="z-10 flex items-center justify-center shrink-0 w-10 h-10 lg:w-full lg:h-5 text-base font-bold transition-all rounded-full lg:rounded-sm
+                {% if history_open %}
+                    bg-info text-info-content ring-2 ring-info/50
+                {% else %}
+                    bg-info text-info-content cursor-pointer
+                {% endif %}"
+                {% if not history_open %}
+                    {% if stepper_navigation == "links" %}
+                    onclick="window.location.href='?step={{ current_step }}&tab=historico'"
+                    {% else %}
+                    hx-get="?step={{ current_step }}&tab=historico{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk }}{% endif %}"
+                    hx-target="{{ stepper_hx_target|default:'#step-container' }}"
+                    hx-push-url="true"
+                    {% endif %}
+                {% endif %}
+                {% if history_open %}aria-current="page"{% endif %}>
+                <span class="material-icons text-base lg:text-[0.95rem] leading-none">history</span>
+            </div>
+
+            <div class="text-base font-semibold lg:mt-2 lg:text-center text-left lg:hidden">
+                Histórico
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
