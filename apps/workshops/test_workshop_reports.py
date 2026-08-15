@@ -332,6 +332,8 @@ class WorkshopReportsTests(TestCase):
         rework = self.client.get(reverse("workshops:workshop_report_rework"), {"mes": 7, "ano": 2026})
         self.assertEqual(rework.status_code, 200)
         self.assertContains(rework, "Ana Mecanica")
+        self.assertContains(rework, "Voltar")
+        self.assertContains(rework, reverse("workshops:workshop_reports_home"))
 
         excel = self.client.get(reverse("workshops:workshop_report_rework_excel"), {"mes": 7, "ano": 2026})
         self.assertEqual(excel.status_code, 200)
