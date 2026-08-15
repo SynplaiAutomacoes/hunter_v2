@@ -348,14 +348,14 @@ def _apply_cell(*, excel_cell: Any, spec: ExcelCell, column: ExcelColumn, zebra_
         excel_cell.value = as_excel_number(spec.value)
         excel_cell.number_format = CURRENCY_FORMAT
         excel_cell.font = FONT_SALE
-        excel_cell.alignment = Alignment(horizontal="right", vertical="center")
+        excel_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
         return
 
     if kind == "money_cost":
         excel_cell.value = as_excel_number(spec.value)
         excel_cell.number_format = CURRENCY_FORMAT
         excel_cell.font = FONT_COST
-        excel_cell.alignment = Alignment(horizontal="right", vertical="center")
+        excel_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
         return
 
     if kind == "money_profit":
@@ -363,7 +363,7 @@ def _apply_cell(*, excel_cell: Any, spec: ExcelCell, column: ExcelColumn, zebra_
         excel_cell.number_format = CURRENCY_FORMAT
         excel_cell.font = FONT_PROFIT
         excel_cell.fill = FILL_PROFIT
-        excel_cell.alignment = Alignment(horizontal="right", vertical="center")
+        excel_cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
         return
 
     if kind == "percent":

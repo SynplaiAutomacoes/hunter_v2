@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -12,14 +12,17 @@ from djmoney.money import Money
 from openpyxl import load_workbook
 
 from apps.accounts.models import Account
-from apps.budget.models import Budget, BudgetStatus, BudgetType
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
 from apps.core.infrastructure.excel_report_style import EXCEL_CONTENT_TYPE
+from apps.core.infrastructure.services.dashboard_query_service import resolve_decimal_amount
 from apps.customer.models import Customer, Vehicle
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderStatus
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.workshop_reports import (
     build_approval_rate_report,
@@ -247,6 +250,52 @@ class WorkshopReportsTests(TestCase):
         self.assertEqual(report.rows[0].customer_name, "Cliente Relatorio")
         self.assertFalse(callable(report.rows[0].workorder_number))
 
+    def test_profitability_uses_frozen_budget_rentability(self) -> None:
+        workorder = self._create_workorder(
+            workshop=self.workshop,
+            customer=self.customer,
+            vehicle=self.vehicle,
+            budget_type="sale",
+            delivered_at=self.july,
+        )
+        budget = workorder.budget
+        assert budget is not None
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Relatorio",
+            duration=timedelta(hours=2),
+            selling_price=Money(200, "BRL"),
+            suggested_cost=Money(0, "BRL"),
+        )
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, product=self.product, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, service=service, quantity=1)
+        budget.pricing_reference_month = 7
+        budget.pricing_reference_year = 2026
+        budget.pricing_working_hours_per_month = Decimal("160.00")
+        budget.pricing_hourly_cost_value = Money(50, "BRL")
+        budget.pricing_minimum_hourly_cost = Money(40, "BRL")
+        budget.pricing_profitability_multiplier = Decimal("3.40")
+        budget.pricing_productive_salary_total = Money(8000, "BRL")
+        budget.save()
+        budget.refresh_from_db()
+        expected = resolve_decimal_amount(budget.rentability).quantize(Decimal("0.01"))
+
+        WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=7,
+            year=2026,
+            mechanic_quantity=10,
+            work_days_per_month=22,
+            working_hours_per_month=Decimal("10.00"),
+            hourly_cost_value=Money(500, "BRL"),
+            profitability_multiplier=Decimal("9.00"),
+        )
+
+        report = build_profitability_report(workshop=self.workshop, month=7, year=2026)
+        self.assertEqual(len(report.rows), 1)
+        self.assertEqual(report.rows[0].profitability_percent, expected)
+        self.assertGreater(expected, Decimal("0.00"))
+
     def test_warranty_return_includes_mechanic_value_and_cost(self) -> None:
         workorder = self._create_workorder(
             workshop=self.workshop,
@@ -332,6 +381,8 @@ class WorkshopReportsTests(TestCase):
         rework = self.client.get(reverse("workshops:workshop_report_rework"), {"mes": 7, "ano": 2026})
         self.assertEqual(rework.status_code, 200)
         self.assertContains(rework, "Ana Mecanica")
+        self.assertContains(rework, "Voltar")
+        self.assertContains(rework, reverse("workshops:workshop_reports_home"))
 
         excel = self.client.get(reverse("workshops:workshop_report_rework_excel"), {"mes": 7, "ano": 2026})
         self.assertEqual(excel.status_code, 200)
