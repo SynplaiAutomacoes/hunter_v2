@@ -362,10 +362,37 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
     )
 
 
-def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData, slider_field_name: str, form_selector: str, body_html: str) -> Div:
+def build_note_mode_header_layout(*, field_name: str = "note_mode", availability_message: str = "") -> Any:
+    notice_html = f"<div class='alert alert-info mb-4'>{availability_message}</div>" if availability_message else ""
     return Div(
+        HTML(notice_html),
+        Div(
+            HTML(
+                """
+                <div class="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-sm font-bold text-base-content">Tipo de Nota Fiscal</p>
+                        <p class="text-xs text-base-content/60">Escolha se a emissão será de produtos, serviços ou ambas.</p>
+                    </div>
+                    <span class="material-icons text-base-content/40">receipt_long</span>
+                </div>
+                """
+            ),
+            Field(field_name, label=False, help_text=False, wrapper_class="mb-0"),
+            css_class="rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm",
+        ),
+        css_class="mb-8",
+    )
+
+
+def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData, slider_field_name: str, form_selector: str, body_html: str, header: Any = None) -> Div:
+    layout_children: list[Any] = [
         HTML(_build_step5_styles_html()),
         HTML(build_step5_slider_script_html(prefix=prefix, form_selector=form_selector, input_name=slider_field_name)),
+    ]
+    if header is not None:
+        layout_children.append(header)
+    layout_children.append(
         Div(
             Div(
                 Div(
@@ -526,6 +553,7 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
             css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start",
         ),
     )
+    return Div(*layout_children)
 
 
 def build_step5_preview_oob_html(*, prefix: str, panel_data: Step5PricingPanelData, warning_html: str, preview_html: str) -> str:

@@ -1,0 +1,24 @@
+{% include 'navbar/stepper.html' %}
+
+<div class="card bg-base-100 shadow-xl">
+    <div class="card-body p-6 md:p-8">
+        <div id="resume-section" class="{% if payments_open or current_step != 1 %}hidden{% endif %}">
+            {% include 'workorder/partials/resume_section.html' %}
+        </div>
+        <div id="collaborators-section" class="{% if payments_open or current_step != 2 %}hidden{% endif %}">
+            {% include 'workorder/partials/collaborators_section.html' %}
+        </div>
+        <div id="customer-approvement-section" class="{% if payments_open or current_step != 3 %}hidden{% endif %}">
+            {% include 'workorder/partials/customer_approvement_section.html' %}
+        </div>
+        <div id="nf-section" class="{% if payments_open or current_step != 4 %}hidden{% endif %}">
+            {% include 'workorder/partials/nf_section.html' %}
+        </div>
+        <div id="vehicle-history-section" class="{% if payments_open or current_step != 5 %}hidden{% endif %}">
+            {% include 'workorder/partials/vehicle_history_section.html' %}
+        </div>
+        <div id="payment-section" class="{% if not payments_open %}hidden{% endif %}">
+            {% include 'workorder/partials/payment_section.html' %}
+        </div>
+    </div>
+</div>

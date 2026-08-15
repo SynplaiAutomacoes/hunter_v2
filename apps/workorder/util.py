@@ -16,14 +16,14 @@ from djmoney.money import Money
 from apps.budget.fields import DurationField
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
-from apps.finance.services.workorder_emission import get_workorder_emission_ui_state
+from apps.finance.services.workorder_emission import WorkOrderEmissionUiState, get_workorder_emission_ui_state
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -36,6 +36,26 @@ from apps.workshops.util.workshops import has_workshop_perm
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 LOCKED_WORKORDER_EDIT_MESSAGE = "Reabra a O.S. antes de editar qualquer campo."
+WORKORDER_DETAIL_STEP_COUNT = 5
+WORKORDER_PAYMENTS_TAB = "pagamento"
+WORKORDER_DETAIL_STEPS: list[dict[str, object]] = [
+    {"number": 1, "title": "Informações", "key": "informacoes"},
+    {"number": 2, "title": "Colaboradores", "key": "colaboradores"},
+    {"number": 3, "title": "Saída", "key": "saida"},
+    {"number": 4, "title": "Nota fiscal", "key": "nota_fiscal"},
+    {"number": 5, "title": "Histórico", "key": "historico"},
+]
+
+
+def resolve_workorder_detail_navigation(*, request) -> tuple[int, bool]:
+    raw_step = str(getattr(request, "GET", {}).get("step") or "").strip()
+    try:
+        current_step = int(raw_step) if raw_step else 1
+    except (TypeError, ValueError):
+        current_step = 1
+    current_step = max(1, min(WORKORDER_DETAIL_STEP_COUNT, current_step))
+    payments_open = str(getattr(request, "GET", {}).get("tab") or "").strip().lower() == WORKORDER_PAYMENTS_TAB
+    return current_step, payments_open
 
 
 def _get_workorder_for_workshop(workshop, workorder_id: int) -> WorkOrder:
@@ -341,8 +361,6 @@ def can_view_workorder_emission(*, request, workorder: WorkOrder) -> bool:
 
 def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOrderAttachment | None = None, request=None) -> dict[str, object]:
     latest_attachment = attachment if attachment is not None else workorder.attachments.last()
-    can_emit = bool(request and can_view_workorder_emission(request=request, workorder=workorder))
-    emission_ui = get_workorder_emission_ui_state(workorder=workorder) if can_emit else None
     return {
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
@@ -351,12 +369,58 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "reject_form": WorkOrderStatusReasonForm(workorder=workorder, action="reject"),
         "reopen_form": WorkOrderReopenForm(workorder=workorder),
         "can_reopen_workorder": bool(request and can_reopen_workorder(request=request, workorder=workorder)),
-        "can_view_workorder_emission": can_emit,
-        "emission_ui": emission_ui,
         "has_payments": workorder.payments.exists(),
         "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
         "attachments": workorder.attachments.order_by("-criado_em"),
     }
+
+
+def _build_workorder_emission_section_context(*, workorder: WorkOrder, request=None, build_form: bool = True) -> dict[str, object]:
+    can_emit = bool(request and can_view_workorder_emission(request=request, workorder=workorder))
+    emission_ui: WorkOrderEmissionUiState | None = get_workorder_emission_ui_state(workorder=workorder) if can_emit else None
+    emission_form = None
+    if build_form and can_emit and workorder.status == WorkOrderStatus.APPROVED and (emission_ui is None or emission_ui.mode in {"emit", "partial_choice"}):
+        emission_form = _build_workorder_emission_form(request=request, workorder=workorder)
+    return {
+        "can_view_workorder_emission": can_emit,
+        "emission_ui": emission_ui,
+        "emission_form": emission_form,
+    }
+
+
+def _build_workorder_emission_form(*, request, workorder: WorkOrder):
+    from django.urls import reverse
+
+    from apps.finance.forms import EMISSION_NOTE_MODE_CHOICES, EmissionStep4Form
+    from apps.finance.views.emission import bind_emission_request_view
+
+    emission_view = bind_emission_request_view(request=request, workshop=workorder.workshop)
+    state = emission_view.seed_state_at_summary(workorder=workorder)
+    selected_slider = emission_view._selected_slider(state=state, workorder=workorder)
+    allowed_note_modes, availability_message = emission_view._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
+    if not allowed_note_modes:
+        return None
+
+    preferred_mode = str(state.get("note_mode") or "")
+    if preferred_mode not in allowed_note_modes:
+        if "both" in allowed_note_modes:
+            preferred_mode = "both"
+        elif "nfe" in allowed_note_modes:
+            preferred_mode = "nfe"
+        elif "nfse" in allowed_note_modes:
+            preferred_mode = "nfse"
+        else:
+            preferred_mode = ""
+
+    return EmissionStep4Form(
+        workorder=workorder,
+        initial={"pricing_slider": selected_slider, "note_mode": preferred_mode or "nfe"},
+        note_mode_choices=EMISSION_NOTE_MODE_CHOICES,
+        allowed_note_modes=allowed_note_modes,
+        availability_message=availability_message,
+        form_selector="#workorder-emission-form",
+        preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
+    )
 
 
 def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, use_signed_name: bool, pdf_bytes: bytes) -> HttpResponse:

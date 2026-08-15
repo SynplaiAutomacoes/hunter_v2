@@ -14,8 +14,9 @@ from djmoney.money import Money
 
 from apps.core.presentation.forms import CoreForm
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, TextInput, TextareaInput, SearchableSelectInput
+from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, RadioButtonGroupInput, TextInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
+    build_note_mode_header_layout,
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
     build_step5_preview_oob_html,
@@ -178,6 +179,18 @@ def _resolve_note_mode(value: object) -> str:
     if note_mode in {"nfe", "nfse", "both"}:
         return note_mode
     return "nfe"
+
+
+def _preferred_note_mode(*, selected_note_mode: str, allowed_note_modes: set[str]) -> str:
+    if selected_note_mode in allowed_note_modes:
+        return selected_note_mode
+    if "both" in allowed_note_modes:
+        return "both"
+    if "nfe" in allowed_note_modes:
+        return "nfe"
+    if "nfse" in allowed_note_modes:
+        return "nfse"
+    return ""
 
 
 def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -> str:
@@ -715,9 +728,15 @@ class EmissionStep3Form(CoreForm):
 
 class EmissionStep4Form(CoreForm):
     pricing_slider = forms.IntegerField(label="", min_value=-100, max_value=100)
+    note_mode = forms.ChoiceField(label="Tipo de notas fiscais", choices=EMISSION_NOTE_MODE_CHOICES, widget=RadioButtonGroupInput)
 
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
+        note_mode_choices = kwargs.pop("note_mode_choices", EMISSION_NOTE_MODE_CHOICES)
+        allowed_note_modes = set(kwargs.pop("allowed_note_modes", {"nfe", "nfse", "both"}))
+        availability_message = str(kwargs.pop("availability_message", "") or "").strip()
+        form_selector = str(kwargs.pop("form_selector", "#emission-form") or "#emission-form")
+        preview_url = str(kwargs.pop("preview_url", "") or f"{reverse('finance:emission_create')}?step=4&preview=1")
         super().__init__(*args, **kwargs)
 
         initial_slider = self.initial.get("pricing_slider", getattr(getattr(workorder, "budget", None), "slider", 0))
@@ -726,13 +745,25 @@ class EmissionStep4Form(CoreForm):
         slider_field = self.fields["pricing_slider"]
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
-                preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
-                include_selector="#emission-form",
+                preview_url=preview_url,
+                include_selector=form_selector,
                 target_selector="#emission-preview-block",
                 swap="none",
-                sync_selector="#emission-form:abort",
+                sync_selector=f"{form_selector}:abort",
             )
         )
+
+        visible_note_mode_choices = [(value, label) for value, label in note_mode_choices if value in allowed_note_modes] or list(note_mode_choices)
+        note_mode_field = self.fields["note_mode"]
+        note_mode_field.choices = visible_note_mode_choices
+        note_mode_field.widget = RadioButtonGroupInput(choices=visible_note_mode_choices)
+        note_mode_field.help_text = ""
+        selected_note_mode = _preferred_note_mode(
+            selected_note_mode=str((self.data.get("note_mode") if self.is_bound else self.initial.get("note_mode", "")) or "").strip(),
+            allowed_note_modes=allowed_note_modes,
+        )
+        if not self.is_bound:
+            self.initial["note_mode"] = selected_note_mode
 
         warning_html = ""
         preview_html = ""
@@ -747,6 +778,7 @@ class EmissionStep4Form(CoreForm):
         self.preview_panel_html = (
             build_step5_preview_oob_html(prefix="emission", panel_data=panel_data, warning_html=warning_html, preview_html=preview_html) if panel_data is not None else f'<div id="emission-warning-block" hx-swap-oob="true">{warning_html}</div><div id="emission-preview-block" hx-swap-oob="true">{preview_html}</div>'
         )
+        self._allowed_note_modes = allowed_note_modes
 
         body_html = f"""
             <div class="space-y-4">
@@ -757,17 +789,35 @@ class EmissionStep4Form(CoreForm):
 
         self.helper = FormHelper()
         self.helper.form_tag = False
+        summary_layout = (
+            build_step5_summary_layout(
+                prefix="emission",
+                panel_data=panel_data,
+                slider_field_name="pricing_slider",
+                form_selector=form_selector,
+                body_html=body_html,
+                header=build_note_mode_header_layout(availability_message=availability_message),
+            )
+            if panel_data is not None
+            else HTML("")
+        )
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Resumo</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Ajuste o slider e revise todos os produtos e servicos com os valores finais da emissão.</p>"),
-                build_step5_summary_layout(prefix="emission", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#emission-form", body_html=body_html) if panel_data is not None else HTML(""),
+                HTML("<p class='text-base-content/70 mb-6'>Selecione o tipo de nota, ajuste o slider e revise os produtos e serviços com os valores finais da emissão.</p>"),
+                summary_layout,
                 css_class="space-y-4",
             )
         )
 
     def clean_pricing_slider(self) -> int:
         return clamp_slider_value(self.cleaned_data.get("pricing_slider"), default=0)
+
+    def clean_note_mode(self) -> str:
+        note_mode = _resolve_note_mode(self.cleaned_data.get("note_mode"))
+        if note_mode not in self._allowed_note_modes:
+            raise forms.ValidationError("Selecione um tipo de nota fiscal disponível para a configuração atual.")
+        return note_mode
 
 
 class EmissionStep5Form(CoreForm):

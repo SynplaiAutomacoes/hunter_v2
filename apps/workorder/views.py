@@ -32,7 +32,7 @@ from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
 from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
-from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.collaborators.services import sync_workorder_collaborator_payrolls, workorder_commission_context
 from apps.core.domain.services.editing_lock_service import get_lock_info
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
@@ -71,6 +71,7 @@ from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 from apps.workorder.util import (
     _get_workorder_for_workshop,
     _build_edit_items_context,
+    _build_workorder_emission_section_context,
     _render_edit_items_modal,
     _active_tab_from_item,
     _get_workorder_item_for_workshop,
@@ -78,6 +79,8 @@ from apps.workorder.util import (
     _parse_duration_from_string,
     _calculate_service_prices,
     _get_workorder_workshop_cost,
+    resolve_workorder_detail_navigation,
+    WORKORDER_DETAIL_STEPS,
     _build_customer_approvement_context,
     _build_workorder_pdf_file_response,
     can_reopen_workorder,
@@ -598,12 +601,24 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        current_step, payments_open = resolve_workorder_detail_navigation(request=self.request)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
         context["payment_status_map"] = _build_workorder_payment_status_map(workorder=self.object)
         context["payment_rows"] = _get_workorder_payments_with_status(workorder=self.object)
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
+        context.update(workorder_commission_context(workorder=self.object))
         context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
+        context.update(_build_workorder_emission_section_context(workorder=self.object, request=self.request, build_form=current_step == 4))
+        context["steps_config"] = WORKORDER_DETAIL_STEPS
+        context["current_step"] = current_step
+        context["max_reached_step"] = 5
+        context["min_accessible_step"] = 1
+        context["payments_open"] = payments_open
+        context["stepper_show_payments_tab"] = True
+        context["stepper_include_pk"] = False
+        context["stepper_navigation"] = "links"
+        context["object"] = self.object
 
         lock_info = get_lock_info(self.object)
         context["concurrent_lock_info"] = lock_info
@@ -624,7 +639,6 @@ class WorkOrderResumeSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         context = _build_edit_items_context(workorder)
         context["workorder"] = workorder
         context["payment_rows"] = _get_workorder_payments_with_status(workorder=workorder)
-        context["collaborator_form"] = WorkOrderCollaboratorForm(instance=workorder, workorder=workorder)
         response = render(request, "workorder/partials/resume_section.html", context)
         response["Cache-Control"] = "no-store"
         return response
@@ -648,14 +662,57 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
 
-        context = _build_edit_items_context(workorder)
-        _build_workorder_payment_status_map(workorder=workorder)
-        context["workorder"] = workorder
-        context["payment_rows"] = _get_workorder_payments_with_status(workorder=workorder)
-        context["collaborator_form"] = form
-        response = render(request, "workorder/partials/resume_section.html", context)
+        context = {
+            "workorder": workorder,
+            "collaborator_form": form,
+        }
+        context.update(workorder_commission_context(workorder=workorder))
+        response = render(request, "workorder/partials/collaborators_section.html", context)
         response["Cache-Control"] = "no-store"
         return response
+
+
+class WorkOrderEmissionContinueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    def post(self, request, pk):
+        from apps.finance.forms import EMISSION_NOTE_MODE_CHOICES, EmissionStep4Form
+        from apps.finance.views.emission import bind_emission_request_view
+
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if workorder.status != WorkOrderStatus.APPROVED:
+            context = _build_workorder_emission_section_context(workorder=workorder, request=request)
+            context["workorder"] = workorder
+            response = render(request, "workorder/partials/nf_section.html", context)
+            response["Cache-Control"] = "no-store"
+            return response
+
+        emission_view = bind_emission_request_view(request=request, workshop=self.workshop)
+        state = emission_view.seed_state_at_summary(workorder=workorder)
+        selected_slider = emission_view._selected_slider(state=state, workorder=workorder)
+        allowed_note_modes, availability_message = emission_view._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
+        form = EmissionStep4Form(
+            request.POST,
+            workorder=workorder,
+            note_mode_choices=EMISSION_NOTE_MODE_CHOICES,
+            allowed_note_modes=allowed_note_modes,
+            availability_message=availability_message,
+            form_selector="#workorder-emission-form",
+            preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
+        )
+        if not form.is_valid():
+            context = _build_workorder_emission_section_context(workorder=workorder, request=request)
+            context["workorder"] = workorder
+            context["emission_form"] = form
+            response = render(request, "workorder/partials/nf_section.html", context)
+            response["Cache-Control"] = "no-store"
+            return response
+
+        continue_url = reverse("workorder:emission_continue", kwargs={"pk": workorder.pk})
+        return emission_view.apply_summary_and_note_mode(form=form, workorder=workorder, form_action=continue_url)
 
 
 class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):

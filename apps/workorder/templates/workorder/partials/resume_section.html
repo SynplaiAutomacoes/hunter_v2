@@ -56,37 +56,6 @@
             </div>
 
             <div class="p-4 border-b border-gray-200">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div class="lg:max-w-xl">
-                        <h4 class="font-bold mb-1">COLABORADORES DA O.S.</h4>
-                        <p class="text-sm text-base-content/70">Use esta vinculação para prever e consolidar a comissão futura do colaborador.</p>
-                        <div class="mt-3 flex flex-wrap gap-2">
-                            {% for collaborator in workorder.collaborators.all %}
-                                <span class="badge badge-primary badge-outline">{{ collaborator.name }}</span>
-                            {% empty %}
-                                <span class="text-sm text-base-content/60">Nenhum colaborador vinculado.</span>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <form
-                        method="post"
-                        hx-post="{% url 'workorder:update_collaborators' workorder.pk %}"
-                        hx-target="#resume-section"
-                        hx-swap="innerHTML"
-                        class="w-full lg:max-w-lg rounded-xl border border-base-300 bg-base-100 p-4"
-                    >
-                        {% csrf_token %}
-                        {% include "budget/partials/components/collaborator_field.html" with field=collaborator_form.collaborators initial_collaborators_json=collaborator_form.initial_collaborators_json form=collaborator_form object=workorder %}
-                        <p class="mt-2 text-xs text-base-content/60">{{ collaborator_form.collaborators.help_text }}</p>
-                        <div class="mt-4 flex justify-end">
-                            <button type="submit" class="btn btn-primary btn-sm">Salvar colaboradores</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
-            <div class="p-4 border-b border-gray-200">
                 <h4 class="font-bold mb-2">PRODUTOS</h4>
 
                 {% if workorder.has_stock_issues or workorder.has_invalid_ncm_items %}
