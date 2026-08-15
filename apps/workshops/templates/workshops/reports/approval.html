@@ -56,8 +56,8 @@
                         <th>Veículo</th>
                         <th>Entrada</th>
                         <th>Status</th>
-                        <th class="text-right">Valor</th>
-                        <th>Motivo</th>
+                        <th class="text-right whitespace-nowrap min-w-[9rem]">Valor</th>
+                        <th class="w-40">Motivo</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -68,8 +68,8 @@
                             <td>{{ row.vehicle_label }}</td>
                             <td>{{ row.entry_date|date:"d/m/Y"|default:"-" }}</td>
                             <td>{{ row.status_label }}</td>
-                            <td class="text-right font-semibold">{{ row.total_amount|money_br }}</td>
-                            <td>{{ row.reason }}</td>
+                            <td class="text-right font-semibold whitespace-nowrap">{{ row.total_amount|money_br }}</td>
+                            <td class="max-w-[12rem] whitespace-normal break-words">{{ row.reason }}</td>
                         </tr>
                     {% empty %}
                         <tr>

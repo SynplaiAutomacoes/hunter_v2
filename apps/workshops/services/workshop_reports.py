@@ -12,11 +12,7 @@ from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, workorder_items_with_kit_prefetch
-from apps.core.infrastructure.services.dashboard_query_service import (
-    MONTH_LABELS_PT,
-    _prepare_budget_for_dashboard_pricing,
-    resolve_decimal_amount,
-)
+from apps.core.infrastructure.services.dashboard_query_service import MONTH_LABELS_PT, resolve_decimal_amount
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
@@ -204,9 +200,7 @@ def build_profitability_report(*, workshop: Workshop, month: int, year: int) -> 
         budget = workorder.budget
         if budget is None:
             continue
-        _prepare_budget_for_dashboard_pricing(budget, for_totals_only=True)
-        rentability = budget.rentability
-        percent = resolve_decimal_amount(rentability)
+        percent = _saved_budget_rentability(budget)
         amount = _workorder_total(workorder)
         total_amount += amount
         profitabilities.append(percent)
@@ -334,6 +328,11 @@ def _warranty_queryset(*, workshop: Workshop, month: int, year: int) -> QuerySet
             workorder_items_with_kit_prefetch(),
         )
     )
+
+
+def _saved_budget_rentability(budget: Budget) -> Decimal:
+    """Rentabilidade congelada do orçamento — a mesma base do PDF/passo de precificação, sem recálculo do dashboard."""
+    return resolve_decimal_amount(budget.rentability).quantize(TWO_DECIMAL_PLACES)
 
 
 def _workorder_total(workorder: WorkOrder) -> Decimal:
