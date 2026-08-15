@@ -140,6 +140,8 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         allowed_values=frozenset(
             {
                 WorkOrderStatus.DRAFT,
+                WorkOrderStatus.WAITING_COLLABORATOR,
+                WorkOrderStatus.WAITING_DELIVERY,
                 WorkOrderStatus.APPROVED,
                 WorkOrderStatus.REJECTED,
                 WorkOrderStatus.CANCELLED,
@@ -175,6 +177,8 @@ WORKORDER_BUDGET_TYPE_CHOICES = tuple((budget_type.value, str(budget_type.label)
 WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "budget_type", "data_inicial", "data_final")
 WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
+    WorkOrderStatus.WAITING_COLLABORATOR: "badge-info min-w-sm",
+    WorkOrderStatus.WAITING_DELIVERY: "badge-warning min-w-sm",
     WorkOrderStatus.APPROVED: "badge-success min-w-sm",
     WorkOrderStatus.REJECTED: "badge-error min-w-sm",
     WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
@@ -601,7 +605,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        current_step, payments_open = resolve_workorder_detail_navigation(request=self.request)
+        navigation = resolve_workorder_detail_navigation(request=self.request, workorder=self.object)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
         context["payment_status_map"] = _build_workorder_payment_status_map(workorder=self.object)
         context["payment_rows"] = _get_workorder_payments_with_status(workorder=self.object)
@@ -609,13 +613,17 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context.update(workorder_commission_context(workorder=self.object))
         context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
-        context.update(_build_workorder_emission_section_context(workorder=self.object, request=self.request, build_form=current_step == 4))
+        context.update(_build_workorder_emission_section_context(workorder=self.object, request=self.request, build_form=navigation.current_step == 4))
         context["steps_config"] = WORKORDER_DETAIL_STEPS
-        context["current_step"] = current_step
-        context["max_reached_step"] = 5
+        context["current_step"] = navigation.current_step
+        context["max_reached_step"] = navigation.max_reached_step
         context["min_accessible_step"] = 1
-        context["payments_open"] = payments_open
+        context["payments_open"] = navigation.payments_open
+        context["history_open"] = navigation.history_open
+        context["can_advance_step"] = navigation.can_advance
+        context["continue_button_label"] = navigation.continue_label
         context["stepper_show_payments_tab"] = True
+        context["stepper_show_history_tab"] = True
         context["stepper_include_pk"] = False
         context["stepper_navigation"] = "links"
         context["object"] = self.object
@@ -1368,6 +1376,11 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if workorder.is_status_locked:
             response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Reabra a O.S. antes de alterar o status.", "type": "error"}})
+            return response
+
+        if workorder.status != WorkOrderStatus.WAITING_DELIVERY:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo.", "type": "error"}})
             return response
 
         if next_status == WorkOrderStatus.APPROVED:

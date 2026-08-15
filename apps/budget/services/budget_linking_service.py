@@ -1,5 +1,5 @@
 from apps.budget.models import Budget, BudgetStatus
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WORKORDER_OPEN_STATUSES
 
 TERMINAL_STATUSES = {
     BudgetStatus.APPROVED,
@@ -26,7 +26,7 @@ def find_oldest_open_budget_for_vehicle(
         WorkOrder.objects.filter(
             workshop_id=workshop_id,
             budget__vehicle_id=vehicle_id,
-            status=WorkOrderStatus.DRAFT,
+            status__in=WORKORDER_OPEN_STATUSES,
         )
         .values_list("budget_id", flat=True)
         .distinct()
