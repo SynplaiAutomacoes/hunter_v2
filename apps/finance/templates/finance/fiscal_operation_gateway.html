@@ -1,0 +1,57 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+    <div class="flex items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-base-content">Emitir Nota</h1>
+            <p class="mt-1 text-base-content/70">Escolha a operação fiscal que deseja realizar.</p>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div>
+                <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa inicial</p>
+                <h2 class="mt-1 text-2xl font-bold text-base-content">Tipo de operação</h2>
+                <p class="mt-2 text-base-content/70">Selecione uma opção para continuar com a emissão ou operação fiscal.</p>
+            </div>
+
+            <form method="post" class="mt-6 space-y-6">
+                {% csrf_token %}
+
+                {% if form.operation.errors %}
+                    <div class="alert alert-error">
+                        {% for error in form.operation.errors %}<span>{{ error }}</span>{% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    {% for card in operation_cards %}
+                        <label class="group flex cursor-pointer items-start gap-4 rounded-2xl border border-base-300 bg-base-100 p-5 transition hover:border-primary/60 hover:shadow-md has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+                            <input
+                                type="radio"
+                                name="{{ form.operation.html_name }}"
+                                value="{{ card.value }}"
+                                class="radio radio-primary mt-1 shrink-0"
+                                {% if form.operation.value == card.value %}checked{% endif %}
+                                required
+                            >
+                            <span class="material-icons rounded-xl bg-base-200 p-3 text-primary transition group-hover:bg-primary/10">{{ card.icon }}</span>
+                            <span>
+                                <span class="block text-lg font-semibold text-base-content">{{ card.label }}</span>
+                                <span class="mt-1 block text-sm leading-relaxed text-base-content/70">{{ card.description }}</span>
+                            </span>
+                        </label>
+                    {% endfor %}
+                </div>
+
+                <div class="flex justify-end border-t border-base-200 pt-5">
+                    <button type="submit" class="btn btn-primary gap-2">
+                        Continuar
+                        <span class="material-icons text-sm">arrow_forward</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}
