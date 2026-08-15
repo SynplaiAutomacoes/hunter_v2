@@ -331,7 +331,9 @@ def _warranty_queryset(*, workshop: Workshop, month: int, year: int) -> QuerySet
 
 
 def _saved_budget_rentability(budget: Budget) -> Decimal:
-    """Rentabilidade congelada do orçamento — a mesma base do PDF/passo de precificação, sem recálculo do dashboard."""
+    stored = getattr(budget, "stored_rentability", None)
+    if stored is not None:
+        return Decimal(str(stored)).quantize(TWO_DECIMAL_PLACES)
     return resolve_decimal_amount(budget.rentability).quantize(TWO_DECIMAL_PLACES)
 
 
