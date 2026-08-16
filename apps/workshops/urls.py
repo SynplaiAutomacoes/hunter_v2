@@ -46,6 +46,17 @@ from apps.workshops.views.workshop_costs import (
     WorkshopCostSelectionModalView,
     WorkshopCostSyncSalaryItemsView,
 )
+from apps.workshops.views.workshop_reports import (
+    ApprovalRateReportExcelView,
+    ApprovalRateReportView,
+    MechanicReworkReportExcelView,
+    MechanicReworkReportView,
+    ProfitabilityReportExcelView,
+    ProfitabilityReportView,
+    WarrantyReturnReportExcelView,
+    WarrantyReturnReportView,
+    WorkshopReportsHomeView,
+)
 
 app_name = "workshops"
 
@@ -83,6 +94,15 @@ urlpatterns = [
     #
     path("webmania/empresas/sync/", WorkshopWebmaniaSyncView.as_view(), name="webmania_company_sync"),
     path("historico-emissoes/", WorkshopEmissionHistoryView.as_view(), name="emission_history"),
+    path("relatorios/", WorkshopReportsHomeView.as_view(), name="workshop_reports_home"),
+    path("relatorios/retrabalho/", MechanicReworkReportView.as_view(), name="workshop_report_rework"),
+    path("relatorios/retrabalho/excel/", MechanicReworkReportExcelView.as_view(), name="workshop_report_rework_excel"),
+    path("relatorios/rentabilidade/", ProfitabilityReportView.as_view(), name="workshop_report_profitability"),
+    path("relatorios/rentabilidade/excel/", ProfitabilityReportExcelView.as_view(), name="workshop_report_profitability_excel"),
+    path("relatorios/retorno-garantia/", WarrantyReturnReportView.as_view(), name="workshop_report_warranty"),
+    path("relatorios/retorno-garantia/excel/", WarrantyReturnReportExcelView.as_view(), name="workshop_report_warranty_excel"),
+    path("relatorios/taxa-aprovacao/", ApprovalRateReportView.as_view(), name="workshop_report_approval"),
+    path("relatorios/taxa-aprovacao/excel/", ApprovalRateReportExcelView.as_view(), name="workshop_report_approval_excel"),
     # WhatsApp
     path("<int:pk>/whatsapp/connect/", WhatsAppConnectView.as_view(), name="whatsapp_connect"),
     path("<int:pk>/whatsapp/qrcode/", WhatsAppQrcodeRefreshView.as_view(), name="whatsapp_qrcode_refresh"),

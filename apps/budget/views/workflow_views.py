@@ -673,8 +673,9 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
         form_kwargs = self.get_form_kwargs()
-        form_kwargs.pop("data", None)
-        form_kwargs.pop("files", None)
+        if step != self.get_current_step():
+            form_kwargs.pop("data", None)
+            form_kwargs.pop("files", None)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object

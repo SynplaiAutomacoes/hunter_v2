@@ -42,7 +42,7 @@ class WorkOrderStatus(models.TextChoices):
     DRAFT = "draft", "Aprovado"
     WAITING_COLLABORATOR = "waiting_collaborator", "Aguardando Colaborador"
     WAITING_DELIVERY = "waiting_delivery", "Aguardando Entrega"
-    APPROVED = "approved", "Veículo Entregue"
+    APPROVED = "approved", "Veículo entregue"
     REJECTED = "rejected", "Reprovado"
     CANCELLED = "cancelled", "Cancelado"
 
@@ -65,17 +65,17 @@ WORKORDER_REVENUE_STATUSES = WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED
 
 
 class WorkOrderSignatureStatus(models.TextChoices):
-    NOT_SENT = "not_sent", "Não Enviado"
+    NOT_SENT = "not_sent", "Não enviado"
     SENDING = "sending", "Enviando"
     SENT = "sent", "Enviado"
-    FAILED = "failed", "Falha no Envio"
+    FAILED = "failed", "Falha no envio"
     APPROVED = "approved", "Aprovado"
 
 
 class WorkOrderDiscountType(models.TextChoices):
-    PRODUCTS = "products", "Apenas Produtos"
-    SERVICES = "services", "Apenas Serviços"
-    BOTH = "both", "Produtos e Serviços"
+    PRODUCTS = "products", "Apenas produtos"
+    SERVICES = "services", "Apenas serviços"
+    BOTH = "both", "Produtos e serviços"
 
 
 class WorkOrderWarrantyPlan(models.TextChoices):
@@ -103,21 +103,21 @@ WARRANTY_PLAN_DAYS: dict[str, int | None] = {
 
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
-    budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
+    budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento aprovado vinculado a esta O.S.")
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="workorders", blank=True)
     status = models.CharField(verbose_name="Status", max_length=32, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa atual", default=1)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7, decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
-    discount_type = models.CharField(verbose_name="Tipo de Desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
-    signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
-    signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
+    discount_type = models.CharField(verbose_name="Tipo de desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
+    signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da ordem de serviço", default=1)
+    signature_token_active = models.BooleanField(verbose_name="Token de assinatura ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
     signature_decline_pending = models.BooleanField(verbose_name="Recusa de assinatura pendente", default=False)
-    delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
+    delivered_at = models.DateTimeField(verbose_name="Data da entrega", blank=True, null=True)
     warranty_plan = models.CharField(
         verbose_name="Plano de garantia",
         max_length=20,
@@ -127,9 +127,9 @@ class WorkOrder(TimeStampedModel):
     )
     unsigned_delivery_reason = models.TextField(verbose_name="Justificativa da entrega sem assinatura", blank=True)
     cancellation_reason = models.TextField(verbose_name="Justificativa do cancelamento", blank=True)
-    rejection_reason = models.TextField(verbose_name="Justificativa da rejeicao", blank=True)
+    rejection_reason = models.TextField(verbose_name="Justificativa da rejeição", blank=True)
     reopen_reason = models.TextField(verbose_name="Justificativa da reabertura", blank=True)
-    km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
+    km_final = models.PositiveIntegerField(verbose_name="KM final", null=True, blank=True)
     last_oil_change_date = models.DateField(verbose_name="Data da última troca de óleo", null=True, blank=True)
     last_oil_change_km = models.PositiveIntegerField(verbose_name="KM da última troca de óleo", null=True, blank=True)
     review_plan = models.ForeignKey(
@@ -160,7 +160,7 @@ class WorkOrder(TimeStampedModel):
         blank=True,
     )
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
-    pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
+    pricing_method = models.CharField(verbose_name="Método de precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
     stored_total_amount = MoneyField(
         verbose_name="Total armazenado da O.S.",
         max_digits=14,
@@ -1153,10 +1153,10 @@ class WorkOrder(TimeStampedModel):
             sync_workorder_financial_movement(workorder=self)
 
     class Meta:
-        verbose_name = "Ordem de Serviço"
-        verbose_name_plural = "Ordens de Serviço"
+        verbose_name = "Ordem de serviço"
+        verbose_name_plural = "Ordens de serviço"
         permissions = [
-            ("reopen_workorder", "Can Reopen Ordem de Serviço"),
+            ("reopen_workorder", "Pode reabrir ordem de serviço"),
         ]
         indexes = [
             models.Index(fields=["workshop", "status", "delivered_at"], name="workorder_ws_status_deliv_idx"),
@@ -1169,16 +1169,16 @@ class WorkOrder(TimeStampedModel):
 
 class WorkOrderPaymentMethod(TimeStampedModel):
     workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="payments")
-    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, verbose_name="Forma de Pagamento", null=True, blank=True)
-    installments_count = PositiveIntegerField(verbose_name="Número de Parcelas", default=1)
-    first_installment_amount = MoneyField(verbose_name="Valor da Primeira Parcela", max_digits=14, decimal_places=2, default=0.00)
-    remaining_installments_amount = MoneyField(verbose_name="Valor das Parcelas Restantes", max_digits=14, decimal_places=2, default=0.00)
+    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, verbose_name="Forma de pagamento", null=True, blank=True)
+    installments_count = PositiveIntegerField(verbose_name="Número de parcelas", default=1)
+    first_installment_amount = MoneyField(verbose_name="Valor da primeira parcela", max_digits=14, decimal_places=2, default=0.00)
+    remaining_installments_amount = MoneyField(verbose_name="Valor das parcelas restantes", max_digits=14, decimal_places=2, default=0.00)
     due_date = models.DateField(verbose_name="Vencimento", default=timezone.localdate)
     movement_group = models.ForeignKey("finance.MovementGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="workorder_payments")
 
     class Meta:
-        verbose_name = "Plano de Pagamento"
-        verbose_name_plural = "Planos de Pagamento"
+        verbose_name = "Plano de pagamento"
+        verbose_name_plural = "Planos de pagamento"
         indexes = [
             models.Index(fields=["due_date", "workorder"], name="wo_payment_due_wo_idx"),
         ]
@@ -1210,8 +1210,8 @@ class WorkOrderAttachment(TimeStampedModel):
     content_type = models.CharField(max_length=100, null=True, blank=True)
 
     class Meta:
-        verbose_name = "Imagem da OS"
-        verbose_name_plural = "Imagens da OS"
+        verbose_name = "Imagem da O.S."
+        verbose_name_plural = "Imagens da O.S."
 
     def __str__(self):
         return f"Image #{self.id} from Work Order : {self.workorder}"
@@ -1246,15 +1246,15 @@ class WorkOrderItem(TimeStampedModel):
 
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
     product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
-    product_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
+    product_selling_price = MoneyField(verbose_name="Valor de venda", max_digits=14, decimal_places=2, default=0)
 
     service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
-    service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
-    service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
+    service_selling_price = MoneyField(verbose_name="Valor de venda", max_digits=14, decimal_places=2, default=0)
+    service_shipping = MoneyField(verbose_name="Frete do serviço", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
-    kit_snapshot_frozen = models.BooleanField(verbose_name="Kit snapshot frozen", default=False)
+    kit_snapshot_frozen = models.BooleanField(verbose_name="Snapshot do kit congelado", default=False)
     item_benefit_type = models.CharField(
-        verbose_name="Tipo de Benefício",
+        verbose_name="Tipo de benefício",
         max_length=20,
         choices=WorkOrderItemBenefitType.choices,
         default=WorkOrderItemBenefitType.NORMAL,
@@ -1608,17 +1608,17 @@ class WorkOrderKitItemOverride(TimeStampedModel):
 
     quantity = models.IntegerField(verbose_name="Quantidade", default=1, validators=[MinValueValidator(0)])
 
-    product_cost_price = MoneyField(verbose_name="Custo do Produto", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
-    product_selling_price = MoneyField(verbose_name="Preço de Venda do Produto", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
+    product_cost_price = MoneyField(verbose_name="Custo do produto", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
+    product_selling_price = MoneyField(verbose_name="Preço de venda do produto", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
 
-    service_cost_price = MoneyField(verbose_name="Custo do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
-    service_selling_price = MoneyField(verbose_name="Preço de Venda do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
+    service_cost_price = MoneyField(verbose_name="Custo do serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
+    service_selling_price = MoneyField(verbose_name="Preço de venda do serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
 
     class Meta:
-        verbose_name = "Override de Item do Kit da O.S."
-        verbose_name_plural = "Overrides de Itens do Kit da O.S."
+        verbose_name = "Substituição de item do kit da O.S."
+        verbose_name_plural = "Substituições de itens do kit da O.S."
         constraints = [
             models.UniqueConstraint(fields=["workorder_item", "product"], condition=models.Q(product__isnull=False), name="unique_workorder_kit_product"),
             models.UniqueConstraint(fields=["workorder_item", "service"], condition=models.Q(service__isnull=False), name="unique_workorder_kit_service"),

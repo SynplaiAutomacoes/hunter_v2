@@ -17,8 +17,8 @@ class MonthlyCost(TimeStampedModel):
     is_editable = models.BooleanField(verbose_name="Editável", default=True)
 
     class Meta:
-        verbose_name = "Custo Mensal"
-        verbose_name_plural = "Custos Mensais"
+        verbose_name = "Custo mensal"
+        verbose_name_plural = "Custos mensais"
         constraints = [
             models.UniqueConstraint(
                 fields=("workshop", "name"),
