@@ -15,7 +15,7 @@ from django.db.models import Count, DecimalField, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.decorators import method_decorator
 from django.utils.html import escape
 from django.utils import timezone
@@ -81,6 +81,7 @@ from apps.workorder.util import (
     _get_workorder_workshop_cost,
     resolve_workorder_detail_navigation,
     WORKORDER_DETAIL_STEPS,
+    build_workorder_collaborators_next_url,
     _build_customer_approvement_context,
     _build_workorder_pdf_file_response,
     can_reopen_workorder,
@@ -670,6 +671,15 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
 
+            next_url = build_workorder_collaborators_next_url(workorder_pk=workorder.pk, raw_next=str(request.POST.get("next") or ""))
+            if next_url:
+                if bool(getattr(request, "htmx", False)):
+                    response = HttpResponse(status=204)
+                    response["HX-Redirect"] = next_url
+                    response["Cache-Control"] = "no-store"
+                    return response
+                return redirect(next_url)
+
         context = {
             "workorder": workorder,
             "collaborator_form": form,
@@ -799,19 +809,22 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             workorder=workorder,
             require_unsigned_delivery_reason=False,
             require_warranty_plan=False,
+            require_km_final=False,
         )
 
         if not approval_form.is_valid():
-            km_final_errors = approval_form.errors.get("km_final", [])
-            return JsonResponse({"ok": False, "errors": list(km_final_errors)}, status=400)
+            field_errors = {field: list(messages) for field, messages in approval_form.errors.items()}
+            errors = [message for messages in field_errors.values() for message in messages]
+            return JsonResponse({"ok": False, "errors": errors, "field_errors": field_errors}, status=400)
 
-        km_final = approval_form.cleaned_data["km_final"]
-        workorder.set_km_final(km_final)
+        posted_fields = {name for name in request.POST if name in WorkOrderCustomerApprovalForm.DRAFT_FIELD_NAMES}
+        workorder.save_delivery_draft(cleaned_data=approval_form.cleaned_data, posted_fields=posted_fields)
+        workorder.refresh_from_db()
 
         return JsonResponse(
             {
                 "ok": True,
-                "km_final": km_final,
+                "km_final": workorder.km_final,
                 "has_completion_blockers": workorder.has_completion_blockers,
                 "completion_blockers_display": workorder.completion_blockers_display,
                 "has_signature_blockers": workorder.has_signature_blockers,
@@ -1397,6 +1410,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             try:
                 km_final = approval_form.cleaned_data["km_final"]
+                assert km_final is not None
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
                 workorder.complete_delivery(
                     km_final=km_final,

@@ -24,9 +24,11 @@
                         <span class="label-text text-xs text-gray-500">Colaborador Adicional</span>
                     </label>
                     
-                    <select :name="'collaborators_list'"
+                    <select name="collaborators_list"
+                            :name="'collaborators_list'"
                             class="select select-bordered w-full bg-base-200"
                             x-model="collab.id"
+                            @change="notifyAutosave()"
                             :disabled="isLocked"
                             {% if object and object.is_status_locked %}disabled{% elif form.instance.pk and form.instance.is_status_locked %}disabled{% endif %}
                             required>

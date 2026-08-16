@@ -383,16 +383,20 @@
             });
         };
 
-        if (form && kmInput && statusEl && kmInput.dataset.kmAutosaveInitialized !== 'true') {
-            kmInput.dataset.kmAutosaveInitialized = 'true';
+        if (form && kmInput && statusEl && form.dataset.deliveryAutosaveInitialized !== 'true') {
+            form.dataset.deliveryAutosaveInitialized = 'true';
 
         const autosaveUrl = form.dataset.kmAutosaveUrl;
         const signatureApproved = form.dataset.signatureApproved === 'true';
         const hasUnsignedReasonError = form.dataset.hasUnsignedReasonError === 'true';
         const csrfToken = form.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
-        let saveTimeout = null;
         let requestController = null;
-        let lastSavedValue = kmInput.value;
+        const formSnapshot = () => {
+            const data = new FormData(form);
+            data.delete('csrfmiddlewaretoken');
+            return new URLSearchParams(data).toString();
+        };
+        let lastSavedSnapshot = formSnapshot();
         const kmFinalUnlockTooltip = 'É necessário inserir o Km Final para desbloquear o botão';
 
         const setDeliveryButtonTooltip = (button, message) => {
@@ -524,12 +528,22 @@
             }
         };
 
-        const persistKmFinal = async () => {
-            const currentValue = kmInput.value.trim();
+        const isAutosaveField = (el) => {
+            if (!el || !form.contains(el)) {
+                return false;
+            }
+            if (el.name === 'csrfmiddlewaretoken' || el.readOnly || el.disabled) {
+                return false;
+            }
+            const tag = el.tagName;
+            return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+        };
 
-            if (!currentValue || currentValue === lastSavedValue) {
-                if (!currentValue) {
-                    setStatus('');
+        const persistDeliveryDraft = async () => {
+            const currentSnapshot = formSnapshot();
+            if (currentSnapshot === lastSavedSnapshot) {
+                setStatus('');
+                if (kmInput) {
                     kmInput.setCustomValidity('');
                     window.updateWorkorderDeliveryButtonState();
                 }
@@ -542,12 +556,15 @@
 
             requestController = new AbortController();
             setStatus('');
-            kmInput.setCustomValidity('');
-            window.updateWorkorderDeliveryButtonState();
+            if (kmInput) {
+                kmInput.setCustomValidity('');
+                window.updateWorkorderDeliveryButtonState();
+            }
 
-            const formData = new FormData();
-            formData.append('csrfmiddlewaretoken', csrfToken);
-            formData.append('km_final', currentValue);
+            const formData = new FormData(form);
+            if (csrfToken && !formData.get('csrfmiddlewaretoken')) {
+                formData.append('csrfmiddlewaretoken', csrfToken);
+            }
 
             try {
                 const response = await fetch(autosaveUrl, {
@@ -559,15 +576,20 @@
                 const payload = await response.json();
 
                 if (!response.ok || !payload.ok) {
-                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Nao foi possivel salvar o KM final.';
-                    kmInput.setCustomValidity(errorMessage);
+                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Não foi possível salvar os dados de entrega.';
+                    const kmError = payload.field_errors && payload.field_errors.km_final && payload.field_errors.km_final[0];
+                    if (kmInput && kmError) {
+                        kmInput.setCustomValidity(kmError);
+                    }
                     window.updateWorkorderDeliveryButtonState();
                     setStatus(errorMessage, 'error');
                     return;
                 }
 
-                lastSavedValue = currentValue;
-                kmInput.setCustomValidity('');
+                lastSavedSnapshot = currentSnapshot;
+                if (kmInput) {
+                    kmInput.setCustomValidity('');
+                }
                 window.updateWorkorderDeliveryButtonState({
                     hasCompletionBlockers: Boolean(payload.has_completion_blockers),
                     completionBlockersDisplay: payload.completion_blockers_display || '',
@@ -577,10 +599,12 @@
                     signatureBlockersDisplay: payload.signature_blockers_display || '',
                 });
                 setStatus('');
+                const hasKmFinal = Boolean(kmInput && kmInput.value.trim());
+                const kmFinalIsValid = Boolean(kmInput && hasKmFinal && kmInput.checkValidity());
                 window.dispatchEvent(new CustomEvent('update-pdf-modal-state', {
                     detail: {
-                        kmBlocked: !lastSavedValue || !kmInput.checkValidity(),
-                        kmBlockedReason: !lastSavedValue
+                        kmBlocked: !kmFinalIsValid,
+                        kmBlockedReason: !hasKmFinal
                             ? 'É necessário inserir o Km Final para desbloquear o botão'
                             : (!kmInput.checkValidity() ? kmInput.validationMessage || 'KM final inválido' : ''),
                         signatureBlocked: Boolean(payload.has_signature_blockers),
@@ -591,22 +615,25 @@
                 if (error.name === 'AbortError') {
                     return;
                 }
-                setStatus('Nao foi possivel salvar o KM final.', 'error');
+                setStatus('Não foi possível salvar os dados de entrega.', 'error');
             }
         };
 
-        const schedulePersist = () => {
-            clearTimeout(saveTimeout);
-            setStatus('');
-            saveTimeout = window.setTimeout(persistKmFinal, 500);
-        };
-
-        kmInput.addEventListener('input', schedulePersist);
-        kmInput.addEventListener('input', () => window.updateWorkorderDeliveryButtonState());
-        kmInput.addEventListener('blur', () => {
-            clearTimeout(saveTimeout);
-            void persistKmFinal();
+        form.addEventListener('focusout', (event) => {
+            if (!isAutosaveField(event.target)) {
+                return;
+            }
+            void persistDeliveryDraft();
         });
+        form.addEventListener('change', (event) => {
+            if (!isAutosaveField(event.target)) {
+                return;
+            }
+            void persistDeliveryDraft();
+        });
+        if (kmInput) {
+            kmInput.addEventListener('input', () => window.updateWorkorderDeliveryButtonState());
+        }
 
         window.updateWorkorderDeliveryButtonState();
 

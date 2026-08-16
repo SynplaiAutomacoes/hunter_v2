@@ -100,7 +100,15 @@
                                         {% endif %}
                                     </div>
                                 </td>
-                                <td class="text-center">{{ item.origin_badge|safe }}</td>
+                                <td class="text-center">
+                                    <a
+                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
+                                        class="inline-flex justify-center hover:opacity-80"
+                                        data-allow-locked="1"
+                                        title="Abrir orçamento">
+                                        {{ item.origin_badge|safe }}
+                                    </a>
+                                </td>
                                 <td class="budget-step4-application">
                                     <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
                                 </td>
@@ -168,7 +176,15 @@
                                         {% endif %}
                                     </div>
                                 </td>
-                                <td class="text-center">{{ item.origin_badge|safe }}</td>
+                                <td class="text-center">
+                                    <a
+                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
+                                        class="inline-flex justify-center hover:opacity-80"
+                                        data-allow-locked="1"
+                                        title="Abrir orçamento">
+                                        {{ item.origin_badge|safe }}
+                                    </a>
+                                </td>
                                 <td class="text-center">{{ item.quantity }}</td>
                                 <td class="text-right">{{ item.service_cost_price }}</td>
                                 <td class="text-right">{{ item.service_selling_price }}</td>

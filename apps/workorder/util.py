@@ -7,10 +7,12 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.db import transaction
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -55,6 +57,31 @@ WORKORDER_DETAIL_STEPS: list[dict[str, object]] = [
     {"number": 3, "title": "Dados de entrega", "key": "entrega"},
     {"number": 4, "title": "Notas fiscais", "key": "notas_fiscais"},
 ]
+
+
+def build_workorder_collaborators_next_url(*, workorder_pk: int, raw_next: str) -> str | None:
+    raw_next = str(raw_next or "").strip()
+    if not raw_next:
+        return None
+
+    parsed = urlparse(raw_next if "://" in raw_next or raw_next.startswith("/") else f"https://local.invalid/{raw_next}")
+    query = parsed.query
+    if raw_next.startswith("?"):
+        query = raw_next[1:]
+    if not query:
+        return None
+
+    params = parse_qs(query)
+    step_values = params.get("step") or []
+    if not step_values:
+        return None
+    step = _clamp_workorder_step(step_values[0])
+    query_items: list[tuple[str, str]] = [("step", str(step))]
+    tab = str((params.get("tab") or [""])[0])
+    if tab in {WORKORDER_PAYMENTS_TAB, WORKORDER_HISTORY_TAB}:
+        query_items.append(("tab", tab))
+
+    return f"{reverse('workorder:workorder_detail', kwargs={'pk': workorder_pk})}?{urlencode(query_items)}"
 
 
 def _clamp_workorder_step(value: object, *, upper: int = WORKORDER_DETAIL_STEP_COUNT) -> int:

@@ -39,6 +39,16 @@ document.addEventListener('alpine:init', () => {
             if (typeof form_modal !== 'undefined' && form_modal && form_modal.open) {
                 form_modal.close();
             }
+            this.notifyAutosave();
+        },
+        notifyAutosave() {
+            const form = this.$root && this.$root.closest ? this.$root.closest('form[data-collaborators-autosave]') : null;
+            if (!form) {
+                return;
+            }
+            this.$nextTick(() => {
+                form.dispatchEvent(new Event('collaborator-list-changed', { bubbles: true }));
+            });
         },
         init() {
             if (!this.isLocked) {
@@ -68,6 +78,7 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
             this.collabs.splice(index, 1);
+            this.notifyAutosave();
         },
         updateCollab(index, id) {
             if (this.isLocked) {
