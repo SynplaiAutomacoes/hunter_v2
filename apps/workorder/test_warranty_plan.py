@@ -126,6 +126,22 @@ class WorkOrderWarrantyPlanFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["warranty_plan"], WorkOrderWarrantyPlan.DAYS_180)
 
+    def test_courtesy_reason_fields_render_for_warranty_workorder(self) -> None:
+        workshop = _create_workshop(suffix=9)
+        workorder = _create_workorder(workshop=workshop, suffix=9)
+        workorder.budget.budget_type = "warranty"
+        workorder.budget.save(update_fields=["budget_type"])
+        workorder.budget_type = "warranty"
+        workorder.save(update_fields=["budget_type"])
+
+        form = WorkOrderCustomerApprovalForm(
+            workorder=workorder,
+            require_unsigned_delivery_reason=False,
+        )
+        self.assertTrue(form.is_courtesy_or_warranty)
+        self.assertFalse(form.fields["courtesy_reason_type"].disabled)
+        self.assertFalse(form.fields["previous_mechanic"].disabled)
+
     def test_km_final_update_skips_warranty_requirement(self) -> None:
         workshop = _create_workshop(suffix=7)
         workorder = _create_workorder(workshop=workshop, suffix=7)

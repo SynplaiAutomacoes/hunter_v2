@@ -8,11 +8,9 @@ from apps.budget.item_origin import (
     build_kit_component_product_item_from_exploded,
     build_kit_component_service_item,
     build_kit_component_service_item_from_exploded,
-    build_kit_origin_indexes,
     build_origin_badge,
     iter_kit_product_components,
     iter_kit_service_components,
-    numbered_kit_origin_label,
     origin_badge_for_item,
 )
 from apps.budget.review_display import build_budget_review_display
@@ -113,7 +111,6 @@ def _render_budget_items_rows(budget, step6=False):
     kit_product_ids = set()
     kit_service_ids = set()
     items = list(budget_for_render.items.all()) if budget_for_render and budget_for_render.pk else []
-    kit_indexes = build_kit_origin_indexes(items)
     if budget_for_render and budget_for_render.pk:
         for item in items:
             if not item.kit:
@@ -174,9 +171,7 @@ def _render_budget_items_rows(budget, step6=False):
 
             for line in review_display.kits:
                 kit_item = line.item
-                _label, kit_badge, _is_kit = origin_badge_for_item(item=kit_item, kit_indexes=kit_indexes)
-                kit_index = kit_indexes.get(int(kit_item.pk), 0)
-                component_badge = build_origin_badge(label=numbered_kit_origin_label(kit_index), is_kit=True)
+                _label, kit_badge, _is_kit = origin_badge_for_item(item=kit_item)
 
                 for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
                     component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
@@ -185,7 +180,7 @@ def _render_budget_items_rows(budget, step6=False):
                         item=component,
                         budget=budget_for_render,
                         step6=True,
-                        origin_badge=component_badge,
+                        origin_badge=kit_badge,
                         is_kit_component=True,
                         extra={
                             "slider_price": exploded.get("unit_price"),
@@ -200,7 +195,7 @@ def _render_budget_items_rows(budget, step6=False):
                         item=component,
                         budget=budget_for_render,
                         step6=True,
-                        origin_badge=component_badge,
+                        origin_badge=kit_badge,
                         is_kit_component=True,
                         extra={
                             "slider_price": exploded.get("unit_price"),
@@ -222,7 +217,7 @@ def _render_budget_items_rows(budget, step6=False):
 
             for item in items:
                 item_type = _budget_item_type(item)
-                _label, origin_badge, _is_kit = origin_badge_for_item(item=item, kit_indexes=kit_indexes)
+                _label, origin_badge, _is_kit = origin_badge_for_item(item=item)
                 extra = {
                     "show_kit_duplicate_warning": bool(((item.product_id and item.product_id in kit_product_ids) or (item.service_id and item.service_id in kit_service_ids)) and not item.is_local),
                 }
@@ -249,8 +244,6 @@ def _render_budget_items_rows(budget, step6=False):
                         extra=extra,
                     )
                 elif item_type == "kit":
-                    kit_index = kit_indexes.get(int(item.pk), 0)
-                    component_badge = build_origin_badge(label=numbered_kit_origin_label(kit_index), is_kit=True)
                     for override in iter_kit_product_components(item):
                         component = build_kit_component_product_item(kit_item=item, override=override)
                         if component is None:
@@ -260,7 +253,7 @@ def _render_budget_items_rows(budget, step6=False):
                             item=component,
                             budget=budget_for_render,
                             step6=False,
-                            origin_badge=component_badge,
+                            origin_badge=origin_badge,
                             is_kit_component=True,
                         )
                     for override in iter_kit_service_components(item):
@@ -272,7 +265,7 @@ def _render_budget_items_rows(budget, step6=False):
                             item=component,
                             budget=budget_for_render,
                             step6=False,
-                            origin_badge=component_badge,
+                            origin_badge=origin_badge,
                             is_kit_component=True,
                             extra={
                                 "service_mechanic_cost": calculate_mechanic_service_cost(

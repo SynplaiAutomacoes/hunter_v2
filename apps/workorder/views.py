@@ -1405,6 +1405,9 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
                     review_plan=approval_form.cleaned_data.get("review_plan"),
                     warranty_plan=approval_form.cleaned_data.get("warranty_plan"),
+                    previous_mechanic_id=getattr(approval_form.cleaned_data.get("previous_mechanic"), "pk", None),
+                    courtesy_reason_type=approval_form.cleaned_data.get("courtesy_reason_type"),
+                    courtesy_reason_description=approval_form.cleaned_data.get("courtesy_reason_description") or "",
                 )
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)

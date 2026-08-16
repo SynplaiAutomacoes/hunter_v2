@@ -2,43 +2,39 @@ from __future__ import annotations
 
 from datetime import timedelta
 from types import SimpleNamespace
-from typing import Any, Iterable
+from typing import Any
 
 from django.utils.html import escape
 
 from apps.budget.pricing import format_duration_display, money_div, zero_money
 
 AVULSO_ORIGIN_LABEL = "Avulso"
+KIT_ORIGIN_LABEL = "Kit"
 
 
-def numbered_kit_origin_label(kit_index: int) -> str:
-    return f"Kit {kit_index}"
+def kit_origin_name(item: Any) -> str:
+    kit = getattr(item, "kit", None)
+    if kit is None:
+        return ""
+    return str(getattr(kit, "name", "") or "").strip()
 
 
-def build_origin_badge(*, label: str, is_kit: bool = False) -> str:
+def build_origin_badge(*, label: str, is_kit: bool = False, tooltip: str = "") -> str:
     tone = "badge-info badge-outline" if is_kit else "badge-outline"
-    return f'<span class="badge {tone} whitespace-nowrap">{escape(label)}</span>'
+    badge = f'<span class="badge {tone} whitespace-nowrap">{escape(label)}</span>'
+    tip = str(tooltip or "").strip()
+    if not is_kit or not tip:
+        return badge
+    escaped_tip = escape(tip)
+    return (
+        f'<span class="tooltip tooltip-top z-30 cursor-help before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs" '
+        f'data-tip="{escaped_tip}" title="{escaped_tip}" tabindex="0">{badge}</span>'
+    )
 
 
-def build_kit_origin_indexes(items: Iterable[Any]) -> dict[int, int]:
-    indexes: dict[int, int] = {}
-    next_index = 1
-    for item in items:
-        if not getattr(item, "kit_id", None):
-            continue
-        item_pk = getattr(item, "pk", None)
-        if item_pk is None:
-            continue
-        indexes[int(item_pk)] = next_index
-        next_index += 1
-    return indexes
-
-
-def origin_badge_for_item(*, item: Any, kit_indexes: dict[int, int]) -> tuple[str, str, bool]:
-    item_pk = getattr(item, "pk", None)
-    if getattr(item, "kit_id", None) and item_pk is not None:
-        label = numbered_kit_origin_label(kit_indexes.get(int(item_pk), 0))
-        return label, build_origin_badge(label=label, is_kit=True), True
+def origin_badge_for_item(*, item: Any) -> tuple[str, str, bool]:
+    if getattr(item, "kit_id", None) or getattr(item, "kit", None):
+        return KIT_ORIGIN_LABEL, build_origin_badge(label=KIT_ORIGIN_LABEL, is_kit=True, tooltip=kit_origin_name(item)), True
     return AVULSO_ORIGIN_LABEL, build_origin_badge(label=AVULSO_ORIGIN_LABEL), False
 
 

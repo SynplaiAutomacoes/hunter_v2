@@ -86,6 +86,12 @@ class WorkOrderWarrantyPlan(models.TextChoices):
     NONE = "none", "Serviço sem garantia"
 
 
+class WorkOrderCourtesyReasonType(models.TextChoices):
+    PART_DEFECT = "part_defect", "Defeito de peça"
+    LABOR_FAILURE = "labor_failure", "Falha de mão de obra"
+    BOTH = "both", "Ambos"
+
+
 WARRANTY_PLAN_DAYS: dict[str, int | None] = {
     WorkOrderWarrantyPlan.DAYS_30: 30,
     WorkOrderWarrantyPlan.DAYS_90: 90,
@@ -132,6 +138,25 @@ class WorkOrder(TimeStampedModel):
         on_delete=models.SET_NULL,
         related_name="workorders",
         null=True,
+        blank=True,
+    )
+    previous_mechanic = models.ForeignKey(
+        "collaborators.WorkshopCollaborator",
+        verbose_name="Mecânico responsável pelo serviço anterior",
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+    )
+    courtesy_reason_type = models.CharField(
+        verbose_name="Motivo da cortesia/garantia",
+        max_length=20,
+        choices=WorkOrderCourtesyReasonType.choices,
+        null=True,
+        blank=True,
+    )
+    courtesy_reason_description = models.TextField(
+        verbose_name="Descrição do motivo da cortesia/garantia",
         blank=True,
     )
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
@@ -630,6 +655,9 @@ class WorkOrder(TimeStampedModel):
         last_oil_change_km: int | None = None,
         review_plan: "ReviewPlan | None" = None,
         warranty_plan: str | None = None,
+        previous_mechanic_id: int | None = None,
+        courtesy_reason_type: str | None = None,
+        courtesy_reason_description: str = "",
     ) -> None:
         self.km_final = km_final
         self.unsigned_delivery_reason = unsigned_delivery_reason
@@ -637,6 +665,15 @@ class WorkOrder(TimeStampedModel):
         if warranty_plan is not None:
             self.warranty_plan = warranty_plan
             update_fields.append("warranty_plan")
+        if previous_mechanic_id is not None:
+            self.previous_mechanic_id = previous_mechanic_id
+            update_fields.append("previous_mechanic_id")
+        if courtesy_reason_type is not None:
+            self.courtesy_reason_type = courtesy_reason_type or None
+            update_fields.append("courtesy_reason_type")
+        if courtesy_reason_description:
+            self.courtesy_reason_description = courtesy_reason_description
+            update_fields.append("courtesy_reason_description")
         if last_oil_change_date is not None:
             self.last_oil_change_date = last_oil_change_date
             update_fields.append("last_oil_change_date")

@@ -10,7 +10,7 @@ from djmoney.money import Money
 
 from apps.accounts.models import Account
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.item_origin import AVULSO_ORIGIN_LABEL, build_kit_origin_indexes, numbered_kit_origin_label
+from apps.budget.item_origin import AVULSO_ORIGIN_LABEL, KIT_ORIGIN_LABEL, kit_origin_name, origin_badge_for_item
 from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.catalog.models.groups import CatalogGroup
@@ -195,22 +195,30 @@ class BudgetKitOriginDisplayTests(TestCase):
             duration=timedelta(hours=1),
         )
 
-    def test_origin_indexes_number_kits_sequentially(self) -> None:
-        indexes = build_kit_origin_indexes([self.avulso_item, self.kit_item])
-        self.assertEqual(indexes[self.kit_item.pk], 1)
-        self.assertEqual(numbered_kit_origin_label(1), "Kit 1")
+    def test_origin_badge_uses_kit_name_in_tooltip(self) -> None:
+        _label, badge, is_kit = origin_badge_for_item(item=self.kit_item)
+        self.assertEqual(_label, KIT_ORIGIN_LABEL)
+        self.assertTrue(is_kit)
+        self.assertEqual(kit_origin_name(self.kit_item), "Kit revisão")
+        self.assertIn(KIT_ORIGIN_LABEL, badge)
+        self.assertIn('data-tip="Kit revisão"', badge)
+        self.assertNotIn("Kit 1", badge)
 
-    def test_budget_rows_include_avulso_and_numbered_kit_tags(self) -> None:
+    def test_budget_rows_include_avulso_and_kit_tags(self) -> None:
         rows = _render_budget_items_rows(self.budget, step6=False)
 
         self.assertIn(AVULSO_ORIGIN_LABEL, rows["product"])
-        self.assertIn("Kit 1", rows["product"])
+        self.assertIn(KIT_ORIGIN_LABEL, rows["product"])
+        self.assertIn('data-tip="Kit revisão"', rows["product"])
+        self.assertNotIn("Kit 1", rows["product"])
         self.assertIn("Filtro do kit", rows["product"])
         self.assertIn("Filtro avulso", rows["product"])
-        self.assertIn("Kit 1", rows["service"])
+        self.assertIn(KIT_ORIGIN_LABEL, rows["service"])
+        self.assertIn('data-tip="Kit revisão"', rows["service"])
         self.assertIn("Troca do kit", rows["service"])
         self.assertIn("Kit revisão", rows["kit"])
-        self.assertIn("Kit 1", rows["kit"])
+        self.assertIn(KIT_ORIGIN_LABEL, rows["kit"])
+        self.assertNotIn("Kit 1", rows["kit"])
 
     def test_pdf_context_has_no_kit_list_and_includes_components(self) -> None:
         context = build_budget_pdf_context(budget=self.budget, presentation="selected_items")
@@ -288,7 +296,10 @@ class WorkOrderKitOriginDisplayTests(TestCase):
         names = [item.description for item in display_products]
 
         self.assertIn(AVULSO_ORIGIN_LABEL, labels)
-        self.assertIn("Kit 1", labels)
+        self.assertIn(KIT_ORIGIN_LABEL, labels)
+        self.assertNotIn("Kit 1", labels)
+        kit_component = next(item for item in display_products if getattr(item, "origin_is_kit", False))
+        self.assertIn('data-tip="Kit freio"', kit_component.origin_badge)
         self.assertIn("Pastilha avulsa", names)
         self.assertIn("Pastilha do kit", names)
         self.assertEqual(len(context["kit_items"]), 1)

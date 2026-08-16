@@ -19,10 +19,10 @@ from apps.budget.item_origin import (
     AVULSO_ORIGIN_LABEL,
     build_kit_component_product_item,
     build_kit_component_service_item,
-    build_kit_origin_indexes,
+    build_origin_badge,
     iter_kit_product_components,
     iter_kit_service_components,
-    numbered_kit_origin_label,
+    origin_badge_for_item,
 )
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
@@ -275,29 +275,34 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     kit_items: list[WorkOrderItem] = []
     display_product_items: list[object] = []
     display_service_items: list[object] = []
-    kit_indexes = build_kit_origin_indexes(items)
+    avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
 
     for item in items:
         if item.product:
             item.origin_label = AVULSO_ORIGIN_LABEL
             item.origin_is_kit = False
+            item.origin_badge = avulso_badge
             product_items.append(item)
             display_product_items.append(item)
         elif item.service:
             item.origin_label = AVULSO_ORIGIN_LABEL
             item.origin_is_kit = False
+            item.origin_badge = avulso_badge
             service_items.append(item)
             display_service_items.append(item)
         elif item.kit:
             kit_items.append(item)
-            kit_index = kit_indexes.get(int(item.pk), 0)
-            origin_label = numbered_kit_origin_label(kit_index)
+            origin_label, origin_badge, _is_kit = origin_badge_for_item(item=item)
+            item.origin_label = origin_label
+            item.origin_is_kit = True
+            item.origin_badge = origin_badge
             for override in iter_kit_product_components(item):
                 component = build_kit_component_product_item(kit_item=item, override=override)
                 if component is None:
                     continue
                 component.origin_label = origin_label
                 component.origin_is_kit = True
+                component.origin_badge = origin_badge
                 display_product_items.append(component)
             for override in iter_kit_service_components(item):
                 component = build_kit_component_service_item(kit_item=item, override=override)
@@ -305,6 +310,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
                     continue
                 component.origin_label = origin_label
                 component.origin_is_kit = True
+                component.origin_badge = origin_badge
                 display_service_items.append(component)
 
     pricing_snapshot = workorder.pricing_snapshot
