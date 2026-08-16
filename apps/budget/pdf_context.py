@@ -418,9 +418,9 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     if presentation == "selected_items":
         review_display = build_budget_review_display(budget=budget)
 
-        produtos = []
-        servicos = []
-        kits = []
+        produtos: list[dict[str, Any]] = []
+        servicos: list[dict[str, Any]] = []
+        kits: list[dict[str, Any]] = []
 
         for line in review_display.direct_products:
             produto = {
@@ -482,21 +482,9 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
         for line in review_display.kits:
             kit_item = line.item
-            kit_quantity = kit_item.quantity
             produtos.extend(_explode_kit_product_rows(kit_line=line, kit_item=kit_item))
             servicos.extend(_explode_kit_service_rows(budget=budget, kit_line=line, kit_item=kit_item))
 
-            kits.append(
-                {
-                    "id": kit_item.kit_id,
-                    "description": kit_item.description,
-                    "quantity": kit_quantity,
-                    "product_count": kit_item.effective_kit_products_count,
-                    "service_count": kit_item.effective_kit_services_count,
-                    "products_summary": line.products_summary,
-                    "services_summary": line.services_summary,
-                }
-            )
         produtos, servicos = _merge_selected_pdf_rows(produtos=produtos, servicos=servicos)
     else:
         produtos = _build_snapshot_product_rows(snapshot=snapshot)

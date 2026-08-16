@@ -119,8 +119,9 @@ def configure_budget_step6_form(form):
                                 <table class="table table-zebra table-fixed w-full">
                                   <thead class="bg-primary text-primary-content">
                                     <tr>
-                                      <th class="w-[18%]">NOME</th>
-                                      <th class="w-[18%]">APLICAÇÃO</th>
+                                      <th class="w-[16%]">NOME</th>
+                                      <th class="w-[8%] text-center">ORIGEM</th>
+                                      <th class="w-[16%]">APLICAÇÃO</th>
                                       <th class="w-[18%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                       <th class="w-[6%] text-center">QTD.</th>
                                       <th class="w-[10%]">CUSTO</th>
@@ -146,8 +147,11 @@ def configure_budget_step6_form(form):
                                     <table class="table table-zebra table-fixed w-full">
                                         <thead class="bg-primary text-primary-content">
                                             <tr>
-                                                <th class="w-[32%] whitespace-nowrap text-left">
+                                                <th class="w-[26%] whitespace-nowrap text-left">
                                                     NOME
+                                                </th>
+                                                <th class="w-[10%] whitespace-nowrap text-center">
+                                                    ORIGEM
                                                 </th>
                                                 
                                                 <th class="w-[8%] whitespace-nowrap text-center">

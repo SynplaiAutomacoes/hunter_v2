@@ -3,7 +3,8 @@
       method="post"
       hx-post="{% url 'workorder:emission_continue' workorder.pk %}"
       hx-target="#nf-section"
-      hx-swap="innerHTML">
+      hx-swap="innerHTML"
+      data-allow-locked="1">
     {% csrf_token %}
     {% crispy emission_form %}
     <div class="flex justify-end mt-6">

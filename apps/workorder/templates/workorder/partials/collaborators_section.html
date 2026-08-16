@@ -5,18 +5,20 @@
 
     <div class="flex flex-col gap-6 lg:flex-row lg:items-start">
         <form
+            id="workorder-collaborators-form"
             method="post"
             hx-post="{% url 'workorder:update_collaborators' workorder.pk %}"
             hx-target="#collaborators-section"
             hx-swap="innerHTML"
+            hx-trigger="submit, collaborator-list-changed"
+            hx-include="this"
+            hx-sync="this:replace"
+            data-collaborators-autosave="1"
             class="w-full lg:max-w-lg rounded-xl border border-base-300 bg-base-100 p-4"
         >
             {% csrf_token %}
             {% include "budget/partials/components/collaborator_field.html" with field=collaborator_form.collaborators initial_collaborators_json=collaborator_form.initial_collaborators_json form=collaborator_form object=workorder %}
             <p class="mt-2 text-xs text-base-content/60">{{ collaborator_form.collaborators.help_text }}</p>
-            <div class="mt-4 flex justify-end">
-                <button type="submit" class="btn btn-primary btn-sm">Salvar colaboradores</button>
-            </div>
         </form>
 
         <div class="w-full rounded-xl border border-base-300 bg-base-100 p-4">
@@ -65,3 +67,47 @@
         </div>
     </div>
 </div>
+<script>
+    (function () {
+        if (window.__workorderCollaboratorsStepperGuard) {
+            return;
+        }
+        window.__workorderCollaboratorsStepperGuard = true;
+
+        const sectionIsVisible = () => {
+            const section = document.getElementById('collaborators-section');
+            return Boolean(section && !section.classList.contains('hidden'));
+        };
+
+        document.addEventListener('click', (event) => {
+            if (!sectionIsVisible()) {
+                return;
+            }
+            const form = document.getElementById('workorder-collaborators-form');
+            if (!form) {
+                return;
+            }
+            const stepperTarget = event.target.closest('[onclick*="window.location.href"]');
+            if (!stepperTarget) {
+                return;
+            }
+            const onclick = stepperTarget.getAttribute('onclick') || '';
+            const match = onclick.match(/window\.location\.href='([^']+)'/);
+            if (!match) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            let input = form.querySelector('input[name="next"][data-stepper-next="1"]');
+            if (!input) {
+                input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'next';
+                input.setAttribute('data-stepper-next', '1');
+                form.appendChild(input);
+            }
+            input.value = match[1];
+            form.dispatchEvent(new Event('collaborator-list-changed', { bubbles: true }));
+        }, true);
+    })();
+</script>

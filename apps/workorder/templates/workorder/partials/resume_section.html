@@ -75,7 +75,8 @@
                 <table class="table table-sm table-zebra w-full budget-step4-table">
                     <thead class="bg-primary text-primary-content">
                         <tr>
-                            <th class="w-[18%] text-left">DESCRIÇÃO</th>
+                            <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                            <th class="w-[10%] text-center">ORIGEM</th>
                             <th class="w-[14%] text-left">APLICAÇÃO</th>
                             <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                             <th class="w-[8%] text-center">QTD.</th>
@@ -86,7 +87,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for item in product_items %}
+                        {% for item in display_product_items %}
                             {% with issue_tooltip=product_issue_map|dict_lookup:item.product_id %}
                             <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' or item.is_customer_supplied %}opacity-[0.85]{% endif %}">
                                 <td class="budget-step4-description">
@@ -98,6 +99,15 @@
                                             <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
                                         {% endif %}
                                     </div>
+                                </td>
+                                <td class="text-center">
+                                    <a
+                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
+                                        class="inline-flex justify-center hover:opacity-80"
+                                        data-allow-locked="1"
+                                        title="Abrir orçamento">
+                                        {{ item.origin_badge|safe }}
+                                    </a>
                                 </td>
                                 <td class="budget-step4-application">
                                     <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
@@ -127,7 +137,7 @@
                             {% endwith %}
                         {% empty %}
                             <tr>
-                                <td class="text-center text-base-content/60 py-4" colspan="8">Nenhuma peça adicionada.</td>
+                                <td class="text-center text-base-content/60 py-4" colspan="9">Nenhuma peça adicionada.</td>
                             </tr>
                         {% endfor %}
                     </tbody>
@@ -143,7 +153,8 @@
                 <table class="table table-sm table-zebra w-full budget-step4-table">
                     <thead class="bg-primary text-primary-content">
                         <tr>
-                            <th class="w-[22%] text-left">DESCRIÇÃO</th>
+                            <th class="w-[20%] text-left">DESCRIÇÃO</th>
+                            <th class="w-[10%] text-center">ORIGEM</th>
                             <th class="w-[8%] text-center">QTD.</th>
                             <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
                             <th class="w-[14%] text-right">VALOR VENDA</th>
@@ -153,7 +164,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for item in service_items %}
+                        {% for item in display_service_items %}
                             <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' %}opacity-[0.85]{% endif %}">
                                 <td class="budget-step4-description">
                                     <div class="flex items-center gap-2 min-w-0">
@@ -165,6 +176,15 @@
                                         {% endif %}
                                     </div>
                                 </td>
+                                <td class="text-center">
+                                    <a
+                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
+                                        class="inline-flex justify-center hover:opacity-80"
+                                        data-allow-locked="1"
+                                        title="Abrir orçamento">
+                                        {{ item.origin_badge|safe }}
+                                    </a>
+                                </td>
                                 <td class="text-center">{{ item.quantity }}</td>
                                 <td class="text-right">{{ item.service_cost_price }}</td>
                                 <td class="text-right">{{ item.service_selling_price }}</td>
@@ -174,7 +194,7 @@
                             </tr>
                         {% empty %}
                             <tr>
-                                <td class="text-center text-base-content/60 py-4" colspan="7">Nenhum serviço adicionado.</td>
+                                <td class="text-center text-base-content/60 py-4" colspan="8">Nenhum serviço adicionado.</td>
                             </tr>
                         {% endfor %}
                     </tbody>
@@ -203,6 +223,7 @@
                             <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' %}opacity-[0.85]{% endif %}">
                                 <td class="budget-step4-description break-words whitespace-normal leading-snug">
                                     {{ item.kit.name }}
+                                    {{ item.origin_badge|safe }}
                                     {% if item.item_benefit_type == "warranty" %}
                                         <span class="badge badge-error badge-xs gap-1">Garantia</span>
                                     {% elif item.item_benefit_type == "courtesy" %}

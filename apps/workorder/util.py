@@ -7,14 +7,25 @@ from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.db import transaction
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
+from apps.budget.item_origin import (
+    AVULSO_ORIGIN_LABEL,
+    build_kit_component_product_item,
+    build_kit_component_service_item,
+    build_origin_badge,
+    iter_kit_product_components,
+    iter_kit_service_components,
+    origin_badge_for_item,
+)
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.services.workorder_emission import WorkOrderEmissionUiState, get_workorder_emission_ui_state
@@ -46,6 +57,31 @@ WORKORDER_DETAIL_STEPS: list[dict[str, object]] = [
     {"number": 3, "title": "Dados de entrega", "key": "entrega"},
     {"number": 4, "title": "Notas fiscais", "key": "notas_fiscais"},
 ]
+
+
+def build_workorder_collaborators_next_url(*, workorder_pk: int, raw_next: str) -> str | None:
+    raw_next = str(raw_next or "").strip()
+    if not raw_next:
+        return None
+
+    parsed = urlparse(raw_next if "://" in raw_next or raw_next.startswith("/") else f"https://local.invalid/{raw_next}")
+    query = parsed.query
+    if raw_next.startswith("?"):
+        query = raw_next[1:]
+    if not query:
+        return None
+
+    params = parse_qs(query)
+    step_values = params.get("step") or []
+    if not step_values:
+        return None
+    step = _clamp_workorder_step(step_values[0])
+    query_items: list[tuple[str, str]] = [("step", str(step))]
+    tab = str((params.get("tab") or [""])[0])
+    if tab in {WORKORDER_PAYMENTS_TAB, WORKORDER_HISTORY_TAB}:
+        query_items.append(("tab", tab))
+
+    return f"{reverse('workorder:workorder_detail', kwargs={'pk': workorder_pk})}?{urlencode(query_items)}"
 
 
 def _clamp_workorder_step(value: object, *, upper: int = WORKORDER_DETAIL_STEP_COUNT) -> int:
@@ -264,14 +300,45 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     product_items: list[WorkOrderItem] = []
     service_items: list[WorkOrderItem] = []
     kit_items: list[WorkOrderItem] = []
+    display_product_items: list[object] = []
+    display_service_items: list[object] = []
+    avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
 
     for item in items:
         if item.product:
+            item.origin_label = AVULSO_ORIGIN_LABEL
+            item.origin_is_kit = False
+            item.origin_badge = avulso_badge
             product_items.append(item)
+            display_product_items.append(item)
         elif item.service:
+            item.origin_label = AVULSO_ORIGIN_LABEL
+            item.origin_is_kit = False
+            item.origin_badge = avulso_badge
             service_items.append(item)
+            display_service_items.append(item)
         elif item.kit:
             kit_items.append(item)
+            origin_label, origin_badge, _is_kit = origin_badge_for_item(item=item)
+            item.origin_label = origin_label
+            item.origin_is_kit = True
+            item.origin_badge = origin_badge
+            for override in iter_kit_product_components(item):
+                component = build_kit_component_product_item(kit_item=item, override=override)
+                if component is None:
+                    continue
+                component.origin_label = origin_label
+                component.origin_is_kit = True
+                component.origin_badge = origin_badge
+                display_product_items.append(component)
+            for override in iter_kit_service_components(item):
+                component = build_kit_component_service_item(kit_item=item, override=override)
+                if component is None:
+                    continue
+                component.origin_label = origin_label
+                component.origin_is_kit = True
+                component.origin_badge = origin_badge
+                display_service_items.append(component)
 
     pricing_snapshot = workorder.pricing_snapshot
     _ = workorder.product_issue_summary
@@ -380,6 +447,8 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         "workorder": workorder,
         "product_items": product_items,
         "service_items": service_items,
+        "display_product_items": display_product_items,
+        "display_service_items": display_service_items,
         "summary_product_items": summary_product_items,
         "summary_service_items": summary_service_items,
         "kit_items": kit_items,

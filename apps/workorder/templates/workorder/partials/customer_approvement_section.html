@@ -1,8 +1,8 @@
 {% load crispy_forms_tags %}
 
-<div class="card-body">
+<div class="space-y-4">
     {% if workorder.signature_decline_pending and not workorder.is_status_locked %}
-    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
+    <div class="alert alert-warning shadow-sm bg-opacity-20 border-warning">
         <div class="flex flex-col gap-1 text-warning">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Documento Recusado</span>
             <span class="text-lg text-gray-900">O documento foi recusado na plataforma de assinatura. Exclua os planos de pagamento antes de reprovar a O.S. manualmente.</span>
@@ -10,14 +10,14 @@
     </div>
     {% endif %}
     {% if workorder.status == 'cancelled' and workorder.cancellation_reason %}
-    <div class="alert alert-error shadow-sm mb-6 bg-opacity-20 border-error">
+    <div class="alert alert-error shadow-sm bg-opacity-20 border-error">
         <div class="flex flex-col gap-1 text-error">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo do Cancelamento</span>
             <span class="text-lg text-gray-900">{{ workorder.cancellation_reason }}</span>
         </div>
     </div>
     {% elif workorder.status == 'rejected' and workorder.rejection_reason %}
-    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
+    <div class="alert alert-warning shadow-sm bg-opacity-20 border-warning">
         <div class="flex flex-col gap-1 text-warning">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo da Reprovação</span>
             <span class="text-lg text-gray-900 ">{{ workorder.rejection_reason }}</span>
@@ -25,10 +25,16 @@
     </div>
     {% endif %}
 
-    <h3 class="font-bold text-2xl pb-2 mb-4">Entrega do Veículo e Encerramento da O.S.</h3>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Status</h4>
+        <div class="flex items-center justify-between">
+            <span class="font-bold text-sm uppercase tracking-wider">Status da O.S.</span>
+            <span class="badge {{ workorder.workorder_status_badge.class }} font-bold p-3">{{ workorder.workorder_status_badge.text }}</span>
+        </div>
+    </div>
 
-    <div class="mt-2 pb-4">
-        <h4 class="font-bold text-xl mb-3">KM de entrega e plano de revisão</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Dados de entrega</h4>
         <form
             id="approval-km-form"
             method="post"
@@ -46,53 +52,8 @@
         </form>
     </div>
 
-    <div class="mt-6">
-        <h4 class="font-bold text-xl mb-2">Anexos</h4>
-
-        <form
-            id="workorder-attachment-form"
-            method="post"
-            enctype="multipart/form-data"
-            hx-post="{% url 'workorder:upload_attachment' workorder.pk %}"
-            hx-target="#customer-approvement-section"
-            hx-swap="innerHTML"
-            hx-encoding="multipart/form-data"
-            class="space-y-4"
-        >
-            {% csrf_token %}
-            <p class="text-sm text-base-content/70">Você pode adicionar múltiplos arquivos. Máximo 200MB por arquivo.</p>
-            {{ attachment_form.file_upload }}
-        </form>
-
-        <div class="space-y-2 mt-4">
-            {% for attachment in attachments %}
-                <div class="flex items-center justify-between gap-4 p-3 border border-base-300 rounded-lg">
-                    <div class="min-w-0 flex-1">
-                        <p class="font-semibold truncate" title="{{ attachment.content_name }}">{{ attachment.content_name }}</p>
-                        <p class="text-xs opacity-70">{{ attachment.criado_em|date:"d/m/Y H:i" }}</p>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                        <a href="{% url 'workorder:view_attachment' attachment.pk %}" target="_blank" class="btn btn-outline btn-sm">Abrir</a>
-                        <button
-                            type="button"
-                            hx-delete="{% url 'workorder:delete_attachment' attachment.pk %}"
-                            hx-target="#customer-approvement-section"
-                            hx-swap="innerHTML"
-                            data-confirm="Tem certeza que deseja remover este anexo?"
-                            class="btn btn-outline btn-sm text-red-600 hover:text-red-800"
-                        >
-                            Excluir
-                        </button>
-                    </div>
-                </div>
-            {% empty %}
-                <p class="text-sm opacity-70">Nenhum anexo enviado.</p>
-            {% endfor %}
-        </div>
-    </div>
-
-    <div class="mt-6 pt-4 border-t border-base-300">
-        <h4 class="font-bold text-xl mb-2 border-b">PDF</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">PDF</h4>
 
         <div class="flex flex-wrap gap-3">
             <div class="flex flex-wrap gap-3">
@@ -143,8 +104,8 @@
         </div>
     </div>
 
-    <div class="mt-6 pt-4 border-t border-base-300">
-        <h4 class="font-bold text-xl mb-2 border-b">Observações</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Observação</h4>
         <form id="workorder-observation-form" data-autosave-url="{% url 'workorder:update_observation' workorder.pk %}">
             {% csrf_token %}
             <textarea
@@ -157,18 +118,18 @@
         </form>
     </div>
 
-    <div class="mt-6 pt-4 border-t border-base-300">
-        <h4 class="font-bold text-xl mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>
 
-        <div class="flex flex-wrap gap-3">
+        <div class="grid grid-cols-12 gap-3">
             <span
-                class="inline-flex {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
+                class="inline-flex col-span-4 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
                 {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." data-blocked-toast="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de cancelar a O.S." title="Exclua os planos de pagamento antes de cancelar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de cancelar a O.S." tabindex="0"{% endif %}
                 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
             >
                 <button
                     type="button"
-                    class="btn btn-error {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
+                    class="btn btn-error w-full {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
                     {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}disabled{% endif %}
                     {% if can_finalize_delivery and not has_payments %}onclick="cancelWorkOrderModal.showModal()"{% endif %}
                 >Cancelar</button>
@@ -176,13 +137,13 @@
 
             <span
                 id="workorder-delivery-button-tooltip"
-                class="inline-flex {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}tooltip tooltip-top{% endif %}"
+                class="inline-flex col-span-4 {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}tooltip tooltip-top{% endif %}"
                 {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif workorder.km_final is None %}data-tip="É necessário inserir o Km Final para desbloquear o botão" title="É necessário inserir o Km Final para desbloquear o botão" tabindex="0"{% elif workorder.has_completion_blockers %}data-tip="{{ workorder.completion_blockers_display }}" title="{{ workorder.completion_blockers_display }}" tabindex="0"{% endif %}
             >
                 <button
                     type="button"
                     id="workorder-delivery-button"
-                    class="btn btn-success {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}btn-disabled cursor-not-allowed{% endif %}"
+                    class="btn btn-success w-full {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}btn-disabled cursor-not-allowed{% endif %}"
                     data-status-locked="{% if workorder.is_status_locked %}true{% else %}false{% endif %}"
                     data-can-finalize-delivery="{% if can_finalize_delivery %}true{% else %}false{% endif %}"
                     data-has-completion-blockers="{% if workorder.has_completion_blockers %}true{% else %}false{% endif %}"
@@ -195,20 +156,20 @@
             </span>
 
             <span
-                class="inline-flex {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
+                class="inline-flex col-span-4 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
                 {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." data-blocked-toast="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de reprovar a O.S." title="Exclua os planos de pagamento antes de reprovar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de reprovar a O.S." tabindex="0"{% endif %}
                 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
             >
                 <button
                     type="button"
-                    class="btn btn-warning {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
+                    class="btn btn-warning w-full {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
                     {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}disabled{% endif %}
                     {% if can_finalize_delivery and not has_payments %}onclick="rejectWorkOrderModal.showModal()"{% endif %}
                 >Reprovar</button>
             </span>
 
             {% if workorder.can_reopen %}
-            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
+            <button type="button" class="btn btn-outline col-span-12" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
             {% endif %}
         </div>
 
@@ -292,6 +253,51 @@
             </div>
         </form>
         {% endif %}
+    </div>
+
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Anexos</h4>
+
+        <form
+            id="workorder-attachment-form"
+            method="post"
+            enctype="multipart/form-data"
+            hx-post="{% url 'workorder:upload_attachment' workorder.pk %}"
+            hx-target="#customer-approvement-section"
+            hx-swap="innerHTML"
+            hx-encoding="multipart/form-data"
+            class="space-y-4"
+        >
+            {% csrf_token %}
+            <p class="text-sm text-base-content/70">Você pode adicionar múltiplos arquivos. Máximo 200MB por arquivo.</p>
+            {{ attachment_form.file_upload }}
+        </form>
+
+        <div class="space-y-2 mt-4">
+            {% for attachment in attachments %}
+                <div class="flex items-center justify-between gap-4 p-3 border border-base-300 rounded-lg">
+                    <div class="min-w-0 flex-1">
+                        <p class="font-semibold truncate" title="{{ attachment.content_name }}">{{ attachment.content_name }}</p>
+                        <p class="text-xs opacity-70">{{ attachment.criado_em|date:"d/m/Y H:i" }}</p>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <a href="{% url 'workorder:view_attachment' attachment.pk %}" target="_blank" class="btn btn-outline btn-sm">Abrir</a>
+                        <button
+                            type="button"
+                            hx-delete="{% url 'workorder:delete_attachment' attachment.pk %}"
+                            hx-target="#customer-approvement-section"
+                            hx-swap="innerHTML"
+                            data-confirm="Tem certeza que deseja remover este anexo?"
+                            class="btn btn-outline btn-sm text-red-600 hover:text-red-800"
+                        >
+                            Excluir
+                        </button>
+                    </div>
+                </div>
+            {% empty %}
+                <p class="text-sm opacity-70">Nenhum anexo enviado.</p>
+            {% endfor %}
+        </div>
     </div>
 </div>
 
@@ -377,16 +383,20 @@
             });
         };
 
-        if (form && kmInput && statusEl && kmInput.dataset.kmAutosaveInitialized !== 'true') {
-            kmInput.dataset.kmAutosaveInitialized = 'true';
+        if (form && kmInput && statusEl && form.dataset.deliveryAutosaveInitialized !== 'true') {
+            form.dataset.deliveryAutosaveInitialized = 'true';
 
         const autosaveUrl = form.dataset.kmAutosaveUrl;
         const signatureApproved = form.dataset.signatureApproved === 'true';
         const hasUnsignedReasonError = form.dataset.hasUnsignedReasonError === 'true';
         const csrfToken = form.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
-        let saveTimeout = null;
         let requestController = null;
-        let lastSavedValue = kmInput.value;
+        const formSnapshot = () => {
+            const data = new FormData(form);
+            data.delete('csrfmiddlewaretoken');
+            return new URLSearchParams(data).toString();
+        };
+        let lastSavedSnapshot = formSnapshot();
         const kmFinalUnlockTooltip = 'É necessário inserir o Km Final para desbloquear o botão';
 
         const setDeliveryButtonTooltip = (button, message) => {
@@ -518,12 +528,22 @@
             }
         };
 
-        const persistKmFinal = async () => {
-            const currentValue = kmInput.value.trim();
+        const isAutosaveField = (el) => {
+            if (!el || !form.contains(el)) {
+                return false;
+            }
+            if (el.name === 'csrfmiddlewaretoken' || el.readOnly || el.disabled) {
+                return false;
+            }
+            const tag = el.tagName;
+            return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+        };
 
-            if (!currentValue || currentValue === lastSavedValue) {
-                if (!currentValue) {
-                    setStatus('');
+        const persistDeliveryDraft = async () => {
+            const currentSnapshot = formSnapshot();
+            if (currentSnapshot === lastSavedSnapshot) {
+                setStatus('');
+                if (kmInput) {
                     kmInput.setCustomValidity('');
                     window.updateWorkorderDeliveryButtonState();
                 }
@@ -536,12 +556,15 @@
 
             requestController = new AbortController();
             setStatus('');
-            kmInput.setCustomValidity('');
-            window.updateWorkorderDeliveryButtonState();
+            if (kmInput) {
+                kmInput.setCustomValidity('');
+                window.updateWorkorderDeliveryButtonState();
+            }
 
-            const formData = new FormData();
-            formData.append('csrfmiddlewaretoken', csrfToken);
-            formData.append('km_final', currentValue);
+            const formData = new FormData(form);
+            if (csrfToken && !formData.get('csrfmiddlewaretoken')) {
+                formData.append('csrfmiddlewaretoken', csrfToken);
+            }
 
             try {
                 const response = await fetch(autosaveUrl, {
@@ -553,15 +576,20 @@
                 const payload = await response.json();
 
                 if (!response.ok || !payload.ok) {
-                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Nao foi possivel salvar o KM final.';
-                    kmInput.setCustomValidity(errorMessage);
+                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Não foi possível salvar os dados de entrega.';
+                    const kmError = payload.field_errors && payload.field_errors.km_final && payload.field_errors.km_final[0];
+                    if (kmInput && kmError) {
+                        kmInput.setCustomValidity(kmError);
+                    }
                     window.updateWorkorderDeliveryButtonState();
                     setStatus(errorMessage, 'error');
                     return;
                 }
 
-                lastSavedValue = currentValue;
-                kmInput.setCustomValidity('');
+                lastSavedSnapshot = currentSnapshot;
+                if (kmInput) {
+                    kmInput.setCustomValidity('');
+                }
                 window.updateWorkorderDeliveryButtonState({
                     hasCompletionBlockers: Boolean(payload.has_completion_blockers),
                     completionBlockersDisplay: payload.completion_blockers_display || '',
@@ -571,10 +599,12 @@
                     signatureBlockersDisplay: payload.signature_blockers_display || '',
                 });
                 setStatus('');
+                const hasKmFinal = Boolean(kmInput && kmInput.value.trim());
+                const kmFinalIsValid = Boolean(kmInput && hasKmFinal && kmInput.checkValidity());
                 window.dispatchEvent(new CustomEvent('update-pdf-modal-state', {
                     detail: {
-                        kmBlocked: !lastSavedValue || !kmInput.checkValidity(),
-                        kmBlockedReason: !lastSavedValue
+                        kmBlocked: !kmFinalIsValid,
+                        kmBlockedReason: !hasKmFinal
                             ? 'É necessário inserir o Km Final para desbloquear o botão'
                             : (!kmInput.checkValidity() ? kmInput.validationMessage || 'KM final inválido' : ''),
                         signatureBlocked: Boolean(payload.has_signature_blockers),
@@ -585,22 +615,25 @@
                 if (error.name === 'AbortError') {
                     return;
                 }
-                setStatus('Nao foi possivel salvar o KM final.', 'error');
+                setStatus('Não foi possível salvar os dados de entrega.', 'error');
             }
         };
 
-        const schedulePersist = () => {
-            clearTimeout(saveTimeout);
-            setStatus('');
-            saveTimeout = window.setTimeout(persistKmFinal, 500);
-        };
-
-        kmInput.addEventListener('input', schedulePersist);
-        kmInput.addEventListener('input', () => window.updateWorkorderDeliveryButtonState());
-        kmInput.addEventListener('blur', () => {
-            clearTimeout(saveTimeout);
-            void persistKmFinal();
+        form.addEventListener('focusout', (event) => {
+            if (!isAutosaveField(event.target)) {
+                return;
+            }
+            void persistDeliveryDraft();
         });
+        form.addEventListener('change', (event) => {
+            if (!isAutosaveField(event.target)) {
+                return;
+            }
+            void persistDeliveryDraft();
+        });
+        if (kmInput) {
+            kmInput.addEventListener('input', () => window.updateWorkorderDeliveryButtonState());
+        }
 
         window.updateWorkorderDeliveryButtonState();
 

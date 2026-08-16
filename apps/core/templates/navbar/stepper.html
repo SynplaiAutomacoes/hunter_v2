@@ -1,3 +1,4 @@
+{% load l10n %}
 <div class="mb-9 w-[100%] mx-auto">
     <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 lg:gap-3">
 
@@ -17,13 +18,12 @@
                     {% if stepper_navigation == "links" %}
                     onclick="window.location.href='?step={{ current_step }}&tab=pagamento'"
                     {% else %}
-                    hx-get="?step={{ current_step }}&tab=pagamento{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk }}{% endif %}"
+                    hx-get="?step={{ current_step }}&tab=pagamento{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
                     hx-target="{{ stepper_hx_target|default:'#step-container' }}"
                     hx-push-url="true"
                     {% endif %}
                 {% endif %}
                 {% if payments_open %}aria-current="page"{% endif %}>
-                <span class="material-icons text-base lg:text-[0.95rem] leading-none">payments</span>
             </div>
 
             <div class="text-base font-semibold lg:mt-2 lg:text-center text-left lg:hidden">
@@ -61,7 +61,7 @@
                         {% if stepper_navigation == "links" %}
                         onclick="window.location.href='?step={{ step.number }}'"
                         {% else %}
-                        hx-get="?step={{ step.number }}{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk }}{% endif %}"
+                        hx-get="?step={{ step.number }}{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
                         hx-target="{{ stepper_hx_target|default:'#step-container' }}"
                         hx-push-url="true"
                         {% endif %}
@@ -98,13 +98,12 @@
                     {% if stepper_navigation == "links" %}
                     onclick="window.location.href='?step={{ current_step }}&tab=historico'"
                     {% else %}
-                    hx-get="?step={{ current_step }}&tab=historico{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk }}{% endif %}"
+                    hx-get="?step={{ current_step }}&tab=historico{% if stepper_include_pk != False and object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
                     hx-target="{{ stepper_hx_target|default:'#step-container' }}"
                     hx-push-url="true"
                     {% endif %}
                 {% endif %}
                 {% if history_open %}aria-current="page"{% endif %}>
-                <span class="material-icons text-base lg:text-[0.95rem] leading-none">history</span>
             </div>
 
             <div class="text-base font-semibold lg:mt-2 lg:text-center text-left lg:hidden">

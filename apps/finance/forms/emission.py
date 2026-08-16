@@ -754,7 +754,7 @@ class EmissionStep4Form(CoreForm):
             )
         )
 
-        visible_note_mode_choices = [(value, label) for value, label in note_mode_choices if value in allowed_note_modes] or list(note_mode_choices)
+        visible_note_mode_choices = [(value, label) for value, label in note_mode_choices if value in allowed_note_modes]
         note_mode_field = self.fields["note_mode"]
         note_mode_field.choices = visible_note_mode_choices
         note_mode_field.widget = RadioButtonGroupInput(choices=visible_note_mode_choices)
