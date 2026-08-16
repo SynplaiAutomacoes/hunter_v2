@@ -157,7 +157,10 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
 
         self.assertNotIn("emission_ui", delivery)
         self.assertNotIn("Emitir Nota", delivery)
-        self.assertNotIn("emission_create", delivery)
+        self.assertIn("p-4 bg-base-200/50 rounded-lg", delivery)
+        self.assertIn("Dados de entrega", delivery)
+        self.assertIn("Aprovação", delivery)
+        self.assertIn("grid grid-cols-12 gap-3", delivery)
 
     def test_step_content_has_back_and_continue_buttons(self) -> None:
         content = (TEMPLATES_DIR / "workorder_step_content.html").read_text(encoding="utf-8")
@@ -171,6 +174,8 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
         self.assertGreater(stepper.find("Histórico"), stepper.rfind("{% endfor %}"))
         self.assertIn("tab=pagamento", stepper)
         self.assertIn("tab=historico", stepper)
+        self.assertNotIn(">payments<", stepper)
+        self.assertNotIn(">history<", stepper)
 
 
 class WorkOrderCommissionPreviewTests(TestCase):

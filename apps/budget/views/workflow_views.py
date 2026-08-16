@@ -644,7 +644,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
+        pk = clean_id(self.kwargs.get("pk") or self.request.GET.get("pk"))
         if pk:
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return None
@@ -673,6 +673,8 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
         form_kwargs = self.get_form_kwargs()
+        form_kwargs.pop("data", None)
+        form_kwargs.pop("files", None)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object
@@ -858,7 +860,7 @@ class BudgetUpdateView(BudgetCreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk")
+        pk = clean_id(self.kwargs.get("pk"))
         if pk:
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return super().get_object()

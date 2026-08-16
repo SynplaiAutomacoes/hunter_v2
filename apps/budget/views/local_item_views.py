@@ -182,7 +182,9 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     item.save()
 
                     # Retornar a linha atualizada com OOB swap
-                    context = {"item": item, "budget": item.budget, "is_full_render": False}
+                    from apps.budget.item_origin import AVULSO_ORIGIN_LABEL, build_origin_badge
+
+                    context = {"item": item, "budget": item.budget, "is_full_render": False, "origin_badge": build_origin_badge(label=AVULSO_ORIGIN_LABEL), "is_kit_component": False}
                     row_html = render_to_string("budget/partials/items/item_product_row.html", context)
 
                     response = HtmxResponseHelper.success("Produto cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)
@@ -207,7 +209,9 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     item.save()
 
                     # Retornar a linha atualizada
-                    context = {"item": item, "budget": item.budget, "is_full_render": False}
+                    from apps.budget.item_origin import AVULSO_ORIGIN_LABEL, build_origin_badge
+
+                    context = {"item": item, "budget": item.budget, "is_full_render": False, "origin_badge": build_origin_badge(label=AVULSO_ORIGIN_LABEL), "is_kit_component": False}
                     row_html = render_to_string("budget/partials/items/item_service_row.html", context)
 
                     response = HtmxResponseHelper.success("Serviço cadastrado com sucesso!", close_modal=True, update_summary=True, content=row_html)

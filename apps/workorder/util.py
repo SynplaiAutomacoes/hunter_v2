@@ -15,6 +15,15 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
+from apps.budget.item_origin import (
+    AVULSO_ORIGIN_LABEL,
+    build_kit_component_product_item,
+    build_kit_component_service_item,
+    build_kit_origin_indexes,
+    iter_kit_product_components,
+    iter_kit_service_components,
+    numbered_kit_origin_label,
+)
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.services.workorder_emission import WorkOrderEmissionUiState, get_workorder_emission_ui_state
@@ -264,14 +273,39 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     product_items: list[WorkOrderItem] = []
     service_items: list[WorkOrderItem] = []
     kit_items: list[WorkOrderItem] = []
+    display_product_items: list[object] = []
+    display_service_items: list[object] = []
+    kit_indexes = build_kit_origin_indexes(items)
 
     for item in items:
         if item.product:
+            item.origin_label = AVULSO_ORIGIN_LABEL
+            item.origin_is_kit = False
             product_items.append(item)
+            display_product_items.append(item)
         elif item.service:
+            item.origin_label = AVULSO_ORIGIN_LABEL
+            item.origin_is_kit = False
             service_items.append(item)
+            display_service_items.append(item)
         elif item.kit:
             kit_items.append(item)
+            kit_index = kit_indexes.get(int(item.pk), 0)
+            origin_label = numbered_kit_origin_label(kit_index)
+            for override in iter_kit_product_components(item):
+                component = build_kit_component_product_item(kit_item=item, override=override)
+                if component is None:
+                    continue
+                component.origin_label = origin_label
+                component.origin_is_kit = True
+                display_product_items.append(component)
+            for override in iter_kit_service_components(item):
+                component = build_kit_component_service_item(kit_item=item, override=override)
+                if component is None:
+                    continue
+                component.origin_label = origin_label
+                component.origin_is_kit = True
+                display_service_items.append(component)
 
     pricing_snapshot = workorder.pricing_snapshot
     _ = workorder.product_issue_summary
@@ -380,6 +414,8 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         "workorder": workorder,
         "product_items": product_items,
         "service_items": service_items,
+        "display_product_items": display_product_items,
+        "display_service_items": display_service_items,
         "summary_product_items": summary_product_items,
         "summary_service_items": summary_service_items,
         "kit_items": kit_items,

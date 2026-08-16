@@ -229,7 +229,7 @@ def configure_budget_step5_form(form):
                                             <span class="material-icons text-base-content/40">filter_alt</span>
                                         </div>
                                     """),
-                            Field("discount_type", wrapper_class="mb-0"),
+                            Field("discount_type", label=False, help_text=False, wrapper_class="mb-0"),
                             HTML("</div>"),
                             css_class="h-full",
                         ),

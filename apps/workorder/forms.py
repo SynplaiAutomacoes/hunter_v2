@@ -248,7 +248,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             </div>
                         """
                     ),
-                    Field("discount_type", wrapper_class="mb-0"),
+                    Field("discount_type", label=False, help_text=False, wrapper_class="mb-0"),
                     HTML("</div>"),
                     css_class="h-full",
                 ),
