@@ -11,7 +11,7 @@
     {% if workorder.is_status_locked %}
     <div class="alert alert-warning">
         <span class="material-icons">lock</span>
-        <span>Esta O.S. está com status final. Reabra a O.S. para editar campos.</span>
+        <span>Esta O.S. está com status final. A emissão de notas fiscais continua disponível. Reabra a O.S. para editar os demais campos.</span>
     </div>
     {% endif %}
 
@@ -182,7 +182,6 @@
                 '#collaborators-section',
                 '#payment-section',
                 '#customer-approvement-section',
-                '#nf-section',
                 '#modal-container',
                 '#item-modal-container',
                 '#item-confirm-modal-container'
@@ -194,9 +193,16 @@
                     return;
                 }
 
+                const isLockExempt = (element) => (
+                    element.id === 'toggle-reopen-workorder-form'
+                    || element.closest('#reopen-workorder-form')
+                    || element.closest('[data-allow-locked="1"]')
+                    || element.getAttribute('data-allow-locked') === '1'
+                );
+
                 const fields = scope.querySelectorAll('input:not([type="hidden"]):not([type="radio"]), select, textarea');
                 fields.forEach((field) => {
-                    if (field.id === 'toggle-reopen-workorder-form' || field.closest('#reopen-workorder-form')) {
+                    if (isLockExempt(field)) {
                         return;
                     }
                     field.setAttribute('disabled', 'disabled');
@@ -206,10 +212,7 @@
 
                 const actionButtons = scope.querySelectorAll('button, [hx-post], [hx-put], [hx-delete]');
                 actionButtons.forEach((button) => {
-                    if (button.getAttribute('data-allow-locked') === '1') {
-                        return;
-                    }
-                    if (button.id === 'toggle-reopen-workorder-form' || button.closest('#reopen-workorder-form')) {
+                    if (isLockExempt(button)) {
                         return;
                     }
                     button.setAttribute('disabled', 'disabled');

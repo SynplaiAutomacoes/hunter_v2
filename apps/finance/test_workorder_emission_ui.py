@@ -266,6 +266,56 @@ class CustomerApprovementEmissionContextTests(TestCase):
 
     @patch("apps.finance.views.emission.build_slider_allocation_for_workorder", return_value=_allocation(products="100.00", services="50.00"))
     @patch("apps.finance.services.workorder_emission.build_slider_allocation_for_workorder", return_value=_allocation(products="100.00", services="50.00"))
+    def test_os_form_excludes_already_emitted_note_type(self, _ui_allocation_mock, _view_allocation_mock) -> None:
+        from django.contrib.sessions.backends.db import SessionStore
+
+        NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder)
+        request = SimpleNamespace(user=SimpleNamespace(pk=1, is_authenticated=True), session=SessionStore(), GET={})
+
+        with patch("apps.workorder.util.can_view_workorder_emission", return_value=True):
+            context = _build_workorder_emission_section_context(workorder=self.workorder, request=request)
+
+        emission_form = context["emission_form"]
+        self.assertIsNotNone(emission_form)
+        choice_values = {value for value, _label in emission_form.fields["note_mode"].choices}
+        self.assertEqual(choice_values, {"nfse"})
+        self.assertEqual(emission_form.initial.get("note_mode"), "nfse")
+        self.assertEqual(context["emission_ui"].mode, "partial_choice")
+
+    @patch("apps.finance.views.emission.build_slider_allocation_for_workorder", return_value=_allocation(products="100.00", services="50.00"))
+    @patch("apps.finance.services.workorder_emission.build_slider_allocation_for_workorder", return_value=_allocation(products="100.00", services="50.00"))
+    def test_os_continue_blocks_already_emitted_note_type(self, _ui_allocation_mock, _view_allocation_mock) -> None:
+        from django.http import HttpResponse
+
+        from apps.workorder.views import WorkOrderEmissionContinueView
+
+        NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder)
+        NfseRequest.objects.create(workshop=self.workshop, workorder=self.workorder)
+        factory = RequestFactory()
+        request = factory.post(
+            f"/workorder/{self.workorder.pk}/emission/continue/",
+            {"pricing_slider": "0", "note_mode": "nfe"},
+        )
+        request.user = SimpleNamespace(pk=1, is_authenticated=True)
+        request.session = SessionStore()
+        setattr(request, "_messages", FallbackStorage(request))
+        view = WorkOrderEmissionContinueView()
+        view.request = request
+        view.workshop = self.workshop
+
+        with (
+            patch("apps.workorder.util.can_view_workorder_emission", return_value=True),
+            patch("apps.workorder.views.render", return_value=HttpResponse("blocked-existing-notes")) as render_mock,
+        ):
+            response = view.post(request, pk=self.workorder.pk)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"blocked-existing-notes")
+        render_mock.assert_called_once()
+        self.assertEqual(render_mock.call_args.args[1], "workorder/partials/nf_section.html")
+
+    @patch("apps.finance.views.emission.build_slider_allocation_for_workorder", return_value=_allocation(products="100.00", services="50.00"))
+    @patch("apps.finance.services.workorder_emission.build_slider_allocation_for_workorder", return_value=_allocation(products="100.00", services="50.00"))
     def test_os_continue_redirects_to_note_config(self, _ui_allocation_mock, _view_allocation_mock) -> None:
         from apps.workorder.views import WorkOrderEmissionContinueView
 

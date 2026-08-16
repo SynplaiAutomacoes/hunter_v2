@@ -193,6 +193,18 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
         self.assertNotIn("from:select", collaborators)
         self.assertNotIn("Salvar colaboradores", collaborators)
 
+    def test_delivered_os_keeps_invoice_step_editable(self) -> None:
+        detail = (Path(__file__).resolve().parent / "templates" / "workorder" / "workorder_detail.html").read_text(encoding="utf-8")
+        step_content = (TEMPLATES_DIR / "workorder_step_content.html").read_text(encoding="utf-8")
+        emission_form = (TEMPLATES_DIR / "nf_emission_form.html").read_text(encoding="utf-8")
+
+        self.assertNotIn("'#nf-section'", detail)
+        self.assertIn("A emissão de notas fiscais continua disponível", detail)
+        self.assertIn('closest(\'[data-allow-locked="1"]\')', detail)
+        self.assertIn('id="nf-section"', step_content)
+        self.assertIn('data-allow-locked="1"', step_content)
+        self.assertIn('data-allow-locked="1"', emission_form)
+
     def test_collaborator_field_dispatches_autosave_only_on_os_form(self) -> None:
         script = (Path(__file__).resolve().parent.parent.parent / "static" / "js" / "collaborator_field.js").read_text(encoding="utf-8")
         field = (Path(__file__).resolve().parent.parent / "budget" / "templates" / "budget" / "partials" / "components" / "collaborator_field.html").read_text(encoding="utf-8")

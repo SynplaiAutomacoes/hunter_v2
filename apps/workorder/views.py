@@ -712,6 +712,12 @@ class WorkOrderEmissionContinueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         state = emission_view.seed_state_at_summary(workorder=workorder)
         selected_slider = emission_view._selected_slider(state=state, workorder=workorder)
         allowed_note_modes, availability_message = emission_view._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
+        if not allowed_note_modes:
+            context = _build_workorder_emission_section_context(workorder=workorder, request=request)
+            context["workorder"] = workorder
+            response = render(request, "workorder/partials/nf_section.html", context)
+            response["Cache-Control"] = "no-store"
+            return response
         form = EmissionStep4Form(
             request.POST,
             workorder=workorder,

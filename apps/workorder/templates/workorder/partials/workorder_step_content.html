@@ -41,7 +41,7 @@
         <div id="customer-approvement-section" class="{% if payments_open or history_open or current_step != 3 %}hidden{% endif %}">
             {% include 'workorder/partials/customer_approvement_section.html' %}
         </div>
-        <div id="nf-section" class="{% if payments_open or history_open or current_step != 4 %}hidden{% endif %}">
+        <div id="nf-section" class="{% if payments_open or history_open or current_step != 4 %}hidden{% endif %}" data-allow-locked="1">
             {% include 'workorder/partials/nf_section.html' %}
         </div>
         <div id="vehicle-history-section" class="{% if not history_open %}hidden{% endif %}">
