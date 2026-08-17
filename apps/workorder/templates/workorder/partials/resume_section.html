@@ -18,6 +18,17 @@
     .budget-step4-table thead th {
         font-size: 0.80rem;
     }
+
+    .budget-step4-table .origin-cell {
+        overflow: visible;
+        position: relative;
+        z-index: 1;
+    }
+
+    .budget-step4-table .origin-cell:hover,
+    .budget-step4-table .origin-cell:focus-within {
+        z-index: 30;
+    }
 </style>
 
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
@@ -100,12 +111,12 @@
                                         {% endif %}
                                     </div>
                                 </td>
-                                <td class="text-center">
+                                <td class="text-center origin-cell">
                                     <a
                                         href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
                                         class="inline-flex justify-center hover:opacity-80"
                                         data-allow-locked="1"
-                                        title="Abrir orçamento">
+                                        aria-label="Abrir orçamento">
                                         {{ item.origin_badge|safe }}
                                     </a>
                                 </td>
@@ -176,12 +187,12 @@
                                         {% endif %}
                                     </div>
                                 </td>
-                                <td class="text-center">
+                                <td class="text-center origin-cell">
                                     <a
                                         href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
                                         class="inline-flex justify-center hover:opacity-80"
                                         data-allow-locked="1"
-                                        title="Abrir orçamento">
+                                        aria-label="Abrir orçamento">
                                         {{ item.origin_badge|safe }}
                                     </a>
                                 </td>
@@ -223,7 +234,6 @@
                             <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' %}opacity-[0.85]{% endif %}">
                                 <td class="budget-step4-description break-words whitespace-normal leading-snug">
                                     {{ item.kit.name }}
-                                    {{ item.origin_badge|safe }}
                                     {% if item.item_benefit_type == "warranty" %}
                                         <span class="badge badge-error badge-xs gap-1">Garantia</span>
                                     {% elif item.item_benefit_type == "courtesy" %}

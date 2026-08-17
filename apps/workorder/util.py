@@ -320,9 +320,6 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         elif item.kit:
             kit_items.append(item)
             origin_label, origin_badge, _is_kit = origin_badge_for_item(item=item)
-            item.origin_label = origin_label
-            item.origin_is_kit = True
-            item.origin_badge = origin_badge
             for override in iter_kit_product_components(item):
                 component = build_kit_component_product_item(kit_item=item, override=override)
                 if component is None:

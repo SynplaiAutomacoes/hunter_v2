@@ -180,10 +180,15 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
         resume = (TEMPLATES_DIR / "resume_section.html").read_text(encoding="utf-8")
 
         self.assertIn("budget:budget_update", resume)
-        self.assertIn('title="Abrir orçamento"', resume)
+        self.assertIn('aria-label="Abrir orçamento"', resume)
         self.assertIn('data-allow-locked="1"', resume)
         self.assertGreaterEqual(resume.count("?step=6"), 2)
         self.assertEqual(resume.count("reopen=1"), 1)
+        kits_idx = resume.find(">Kits</h3>")
+        self.assertGreater(kits_idx, -1)
+        kits_section = resume[kits_idx:]
+        self.assertNotIn("origin_badge", kits_section)
+        self.assertEqual(resume.count("item.origin_badge|safe"), 2)
 
     def test_collaborators_autosave_without_submit_button(self) -> None:
         collaborators = (TEMPLATES_DIR / "collaborators_section.html").read_text(encoding="utf-8")
