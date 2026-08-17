@@ -34,7 +34,11 @@
                             required>
                         <option value="" disabled>Selecione um colaborador...</option>
                         {% for choice_id, choice_label in field.field.choices %}
-                            <option value="{{ choice_id|unlocalize }}">{{ choice_label }}</option>
+                            {% if choice_id %}
+                            <option value="{{ choice_id|unlocalize }}"
+                                    :hidden="isSelectedByOther(index, '{{ choice_id|unlocalize }}')"
+                                    :disabled="isSelectedByOther(index, '{{ choice_id|unlocalize }}')">{{ choice_label }}</option>
+                            {% endif %}
                         {% endfor %}
                     </select>
                 </div>

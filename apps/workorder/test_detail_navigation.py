@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
@@ -15,8 +16,9 @@ from apps.collaborators.models import WorkshopMember
 from apps.collaborators.services import preview_workorder_collaborator_commissions, workorder_commission_context
 from apps.collaborators.test_commissions import create_collaborator, create_workshop, create_workorder
 from apps.iam.models import WorkshopRole
-from apps.workorder.models import WorkOrderStatus
-from apps.workorder.util import WORKORDER_DETAIL_STEPS, build_workorder_collaborators_next_url, resolve_workorder_detail_navigation
+from apps.workorder.forms import WorkOrderCollaboratorForm
+from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.util import LOCKED_WORKORDER_EDIT_MESSAGE, WORKORDER_DETAIL_STEPS, build_workorder_collaborators_next_url, resolve_workorder_detail_navigation
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "workorder" / "partials"
 STEPPER_TEMPLATE = Path(__file__).resolve().parent.parent / "core" / "templates" / "navbar" / "stepper.html"
@@ -190,6 +192,8 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
         self.assertIn('data-collaborators-autosave="1"', collaborators)
         self.assertIn("collaborator-list-changed", collaborators)
         self.assertIn("submit, collaborator-list-changed", collaborators)
+        self.assertIn('data-status-locked="', collaborators)
+        self.assertIn("window.location.href = match[1]", collaborators)
         self.assertNotIn("from:select", collaborators)
         self.assertNotIn("Salvar colaboradores", collaborators)
 
@@ -212,8 +216,10 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
         self.assertIn("notifyAutosave", script)
         self.assertIn("form[data-collaborators-autosave]", script)
         self.assertIn("collaborator-list-changed", script)
+        self.assertIn("isSelectedByOther", script)
         self.assertIn('@change="notifyAutosave()"', field)
         self.assertIn('name="collaborators_list"', field)
+        self.assertIn("isSelectedByOther(index", field)
 
     def test_step_content_saves_collaborators_before_leaving_step(self) -> None:
         content = (TEMPLATES_DIR / "workorder_step_content.html").read_text(encoding="utf-8")
@@ -221,6 +227,13 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
         self.assertIn('form="workorder-collaborators-form"', content)
         self.assertIn('name="next"', content)
         self.assertIn("current_step == 2", content)
+        self.assertIn("not workorder.is_status_locked", content)
+
+    def test_locked_step_two_back_uses_plain_link(self) -> None:
+        content = (TEMPLATES_DIR / "workorder_step_content.html").read_text(encoding="utf-8")
+
+        self.assertIn("current_step == 2 and not workorder.is_status_locked", content)
+        self.assertIn('href="?step={{ current_step|add:-1 }}"', content)
 
     def test_step_content_has_back_and_continue_buttons(self) -> None:
         content = (TEMPLATES_DIR / "workorder_step_content.html").read_text(encoding="utf-8")
@@ -313,4 +326,81 @@ class WorkOrderCollaboratorsStepSaveTests(TestCase):
         self.assertEqual(response.status_code, 204)
         expected = f"{reverse('workorder:workorder_detail', kwargs={'pk': self.workorder.pk})}?step=3"
         self.assertEqual(response["HX-Redirect"], expected)
+        self.assertEqual(list(self.workorder.collaborators.values_list("pk", flat=True)), [self.collaborator.pk])
+
+    def test_locked_os_with_next_redirects_without_saving(self) -> None:
+        self.workorder.status = WorkOrderStatus.APPROVED
+        self.workorder.save(update_fields=["status"])
+        url = reverse("workorder:update_collaborators", kwargs={"pk": self.workorder.pk})
+
+        response = self.client.post(
+            url,
+            data={"collaborators_list": str(self.collaborator.pk), "next": "?step=1"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        expected = f"{reverse('workorder:workorder_detail', kwargs={'pk': self.workorder.pk})}?step=1"
+        self.assertEqual(response["HX-Redirect"], expected)
+        self.assertEqual(list(self.workorder.collaborators.values_list("pk", flat=True)), [])
+
+    def test_locked_os_without_next_returns_conflict(self) -> None:
+        self.workorder.status = WorkOrderStatus.APPROVED
+        self.workorder.save(update_fields=["status"])
+        url = reverse("workorder:update_collaborators", kwargs={"pk": self.workorder.pk})
+
+        response = self.client.post(
+            url,
+            data={"collaborators_list": str(self.collaborator.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], LOCKED_WORKORDER_EDIT_MESSAGE)
+        self.assertEqual(list(self.workorder.collaborators.values_list("pk", flat=True)), [])
+
+
+class WorkOrderCollaboratorsInitialTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = create_workshop(suffix=93)
+        self.workorder = create_workorder(workshop=self.workshop, budget_type=BudgetType.SALE, status=WorkOrderStatus.DRAFT)
+        self.collaborator = create_collaborator(workshop=self.workshop, suffix=3)
+
+    def test_form_json_is_empty_without_collaborators(self) -> None:
+        form = WorkOrderCollaboratorForm(workorder=self.workorder)
+
+        self.assertEqual(json.loads(form.initial_collaborators_json), [])
+
+    def test_form_json_includes_linked_collaborators(self) -> None:
+        self.workorder.collaborators.add(self.collaborator)
+        form = WorkOrderCollaboratorForm(workorder=self.workorder)
+
+        payload = json.loads(form.initial_collaborators_json)
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["id"], str(self.collaborator.pk))
+
+    def test_sync_from_budget_does_not_copy_collaborators(self) -> None:
+        self.workorder.budget.collaborators.add(self.collaborator)
+
+        with (
+            patch("apps.finance.services.workorder_financial_movements.sync_workorder_financial_movement"),
+            patch.object(WorkOrder, "refresh_stored_amounts"),
+            patch.object(WorkOrder, "invalidate_pricing_snapshot_cache"),
+        ):
+            self.workorder.sync_from_budget()
+
+        self.assertEqual(list(self.workorder.collaborators.values_list("pk", flat=True)), [])
+
+    def test_sync_from_budget_keeps_existing_workorder_collaborators(self) -> None:
+        budget_collaborator = create_collaborator(workshop=self.workshop, suffix=4)
+        self.workorder.collaborators.add(self.collaborator)
+        self.workorder.budget.collaborators.add(budget_collaborator)
+
+        with (
+            patch("apps.finance.services.workorder_financial_movements.sync_workorder_financial_movement"),
+            patch.object(WorkOrder, "refresh_stored_amounts"),
+            patch.object(WorkOrder, "invalidate_pricing_snapshot_cache"),
+        ):
+            self.workorder.sync_from_budget()
+
         self.assertEqual(list(self.workorder.collaborators.values_list("pk", flat=True)), [self.collaborator.pk])

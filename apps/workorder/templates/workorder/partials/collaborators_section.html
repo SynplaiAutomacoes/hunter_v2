@@ -14,6 +14,7 @@
             hx-include="this"
             hx-sync="this:replace"
             data-collaborators-autosave="1"
+            data-status-locked="{% if workorder.is_status_locked %}1{% else %}0{% endif %}"
             class="w-full lg:max-w-lg rounded-xl border border-base-300 bg-base-100 p-4"
         >
             {% csrf_token %}
@@ -98,6 +99,10 @@
             }
             event.preventDefault();
             event.stopPropagation();
+            if (form.getAttribute('data-status-locked') === '1') {
+                window.location.href = match[1];
+                return;
+            }
             let input = form.querySelector('input[name="next"][data-stepper-next="1"]');
             if (!input) {
                 input = document.createElement('input');

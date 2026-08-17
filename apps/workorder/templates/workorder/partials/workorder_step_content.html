@@ -3,7 +3,7 @@
 {% if not payments_open and not history_open %}
 <div class="flex items-center justify-between mb-6">
     {% if current_step > 1 %}
-        {% if current_step == 2 %}
+        {% if current_step == 2 and not workorder.is_status_locked %}
             <button type="submit" form="workorder-collaborators-form" name="next" value="?step={{ current_step|add:-1 }}" class="btn btn-outline">
                 <span class="material-icons">arrow_back</span> Voltar
             </button>

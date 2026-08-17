@@ -70,8 +70,6 @@ class WorkOrderCollaboratorForm(CoreModelForm):
         initial_collaborators = []
         if self.workorder and self.workorder.pk:
             initial_collaborators = [{"id": str(collaborator.id), "name": collaborator.name, "is_new": False} for collaborator in self.workorder.collaborators.all()]
-        if not initial_collaborators:
-            initial_collaborators = [{"id": "", "is_new": True}]
         return json.dumps(initial_collaborators)
 
 
