@@ -4,6 +4,37 @@
         <span>{{ filter_state.filter_error }}</span>
     </div>
 {% else %}
+    {% if fiscal_operation %}
+        <div class="mb-6 rounded-2xl border p-5 {% if selected_fiscal_nfe %}border-success/50 bg-success/10{% else %}border-primary/30 bg-primary/5{% endif %}">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{{ fiscal_operation_label }}</p>
+                    {% if selected_fiscal_nfe %}
+                        <h2 class="mt-1 text-lg font-bold text-success">✓ NF-e {{ selected_fiscal_nfe.number }} selecionada com sucesso</h2>
+                        <p class="mt-1 text-sm text-base-content/70">
+                            A NF-e {{ selected_fiscal_nfe.number }} foi selecionada. Clique em continuar para prosseguir com {{ fiscal_operation_continuation_label }}.
+                        </p>
+                        <p class="mt-1 text-xs text-base-content/60">
+                            {{ selected_fiscal_nfe.customer_name }} · {{ selected_fiscal_nfe.created_at|date:'d/m/Y H:i' }}
+                        </p>
+                    {% else %}
+                        <h2 class="mt-1 text-lg font-bold text-base-content">1. Selecione a NF-e de referência</h2>
+                        <p class="mt-1 text-sm text-base-content/70">Use a busca ou os filtros e escolha uma nota para continuar a operação.</p>
+                    {% endif %}
+                </div>
+                {% if selected_fiscal_nfe %}
+                    <div class="flex flex-wrap items-center gap-2">
+                        <a href="{{ fiscal_selection_reset_url }}" class="btn btn-ghost btn-sm">Trocar NF-e</a>
+                        <a href="{{ selected_fiscal_nfe.detail_url }}" class="btn btn-primary gap-2">
+                            Continuar com NF-e {{ selected_fiscal_nfe.number }}
+                            <span class="material-icons text-sm">arrow_forward</span>
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+
     <div class="mb-6 grid gap-3 md:grid-cols-2">
         <div class="rounded-xl border border-base-300 bg-base-200/40 p-4">
             <p class="text-xs uppercase tracking-[0.14em] text-base-content/60">Filtro</p>
@@ -30,14 +61,16 @@
             <table class="table table-zebra w-full">
                 <thead>
                     <tr>
-                        <th class="w-10">
-                            <input
-                                type="checkbox"
-                                id="select-all-issued-documents"
-                                class="checkbox checkbox-primary checkbox-sm"
-                                aria-label="Selecionar todas as notas"
-                            />
-                        </th>
+                        {% if not fiscal_operation %}
+                            <th class="w-10">
+                                <input
+                                    type="checkbox"
+                                    id="select-all-issued-documents"
+                                    class="checkbox checkbox-primary checkbox-sm"
+                                    aria-label="Selecionar todas as notas"
+                                />
+                            </th>
+                        {% endif %}
                         <th class="min-w-[200px]">Tipo</th>
                         <th>Nº da Nota</th>
                         <th>Referência</th>
@@ -45,27 +78,29 @@
                         <th>Cliente</th>
                         <th>Emitida em</th>
                         <th>Status</th>
-                        <th>Documentos</th>
-                        <th class="text-right">Ações</th>
+                        {% if not fiscal_operation %}<th>Documentos</th>{% endif %}
+                        <th class="text-right">{% if fiscal_operation %}Selecionar{% else %}Ações{% endif %}</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in issued_note_rows %}
-                        <tr>
-                            <td>
-                                <input
-                                    type="checkbox"
-                                    class="checkbox checkbox-primary checkbox-sm issued-document-checkbox"
-                                    name="note_selection"
-                                    value="{{ row.selection_key }}"
-                                    data-note-type="{{ row.note_type }}"
-                                    data-request-id="{{ row.request_id|unlocalize }}"
-                                    data-has-xml="{{ row.has_xml|yesno:'true,false' }}"
-                                    data-has-pdf="{{ row.has_pdf|yesno:'true,false' }}"
-                                    {% if not row.is_selectable %}disabled{% endif %}
-                                    aria-label="Selecionar nota {{ row.number }}"
-                                />
-                            </td>
+                        <tr{% if selected_fiscal_nfe and selected_fiscal_nfe.request_id == row.request_id %} class="!bg-success/10" aria-selected="true"{% endif %}>
+                            {% if not fiscal_operation %}
+                                <td>
+                                    <input
+                                        type="checkbox"
+                                        class="checkbox checkbox-primary checkbox-sm issued-document-checkbox"
+                                        name="note_selection"
+                                        value="{{ row.selection_key }}"
+                                        data-note-type="{{ row.note_type }}"
+                                        data-request-id="{{ row.request_id|unlocalize }}"
+                                        data-has-xml="{{ row.has_xml|yesno:'true,false' }}"
+                                        data-has-pdf="{{ row.has_pdf|yesno:'true,false' }}"
+                                        {% if not row.is_selectable %}disabled{% endif %}
+                                        aria-label="Selecionar nota {{ row.number }}"
+                                    />
+                                </td>
+                            {% endif %}
                             <td class="w-32">
                                 <span class="badge {{ row.note_type_badge_class }}">{{ row.note_type_label }}</span>
                             </td>
@@ -77,19 +112,33 @@
                             <td>
                                 <span class="badge {{ row.status_badge.class }} whitespace-nowrap">{{ row.status_badge.text }}</span>
                             </td>
-                            <td>
-                                <div class="flex flex-wrap gap-1">
-                                    {% for document_label in row.available_documents %}
-                                        <span class="badge badge-ghost badge-sm">{{ document_label }}</span>
-                                    {% empty %}
-                                        <span class="text-sm text-base-content/60">Nenhum documento</span>
-                                    {% endfor %}
-                                </div>
-                            </td>
+                            {% if not fiscal_operation %}
+                                <td>
+                                    <div class="flex flex-wrap gap-1">
+                                        {% for document_label in row.available_documents %}
+                                            <span class="badge badge-ghost badge-sm">{{ document_label }}</span>
+                                        {% empty %}
+                                            <span class="text-sm text-base-content/60">Nenhum documento</span>
+                                        {% endfor %}
+                                    </div>
+                                </td>
+                            {% endif %}
                             <td class="text-right">
-                                <a href="{{ row.detail_url }}" class="btn-table-view" title="Visualizar nota" aria-label="Visualizar nota">
-                                    <span class="material-icons text-base">visibility</span>
-                                </a>
+                                {% if fiscal_operation %}
+                                    {% if selected_fiscal_nfe and selected_fiscal_nfe.request_id == row.request_id %}
+                                        <span class="btn btn-success btn-sm whitespace-nowrap" aria-current="true" aria-label="NF-e {{ row.number }} selecionada para {{ fiscal_operation_label }}">
+                                            ✓ NF-e selecionada
+                                        </span>
+                                    {% else %}
+                                        <a href="{{ row.selection_url }}" class="btn btn-primary btn-sm whitespace-nowrap" aria-label="Selecionar NF-e {{ row.number }} para {{ fiscal_operation_label }}">
+                                            {{ row.action_label }}
+                                        </a>
+                                    {% endif %}
+                                {% else %}
+                                    <a href="{{ row.detail_url }}" class="btn-table-view" title="Visualizar nota" aria-label="Visualizar nota">
+                                        <span class="material-icons text-base">visibility</span>
+                                    </a>
+                                {% endif %}
                             </td>
                         </tr>
                     {% endfor %}

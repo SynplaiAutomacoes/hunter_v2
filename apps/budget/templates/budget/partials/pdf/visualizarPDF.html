@@ -300,9 +300,9 @@
                     <p class="field-row"><span class="field-label">Motor:</span> <span class="field-value">{{ budget.vehicle.engine|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Combustível:</span> <span class="field-value">{{ budget.vehicle.fuel|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-label">KM de Entrada:</span> <span class="field-value">{{ budget.current_km|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">Km Entrada:</span> <span class="field-value">{{ budget.current_km|default:"-" }}</span></p>
                     {% if workorder and workorder.km_final is not None %}
-                    <p class="field-row"><span class="field-label">KM de Saída:</span> <span class="field-value">{{ workorder.km_final }}</span></p>
+                    <p class="field-row"><span class="field-label">Km Saída:</span> <span class="field-value">{{ workorder.km_final }}</span></p>
                     {% endif %}
                 </div>
             </div>
