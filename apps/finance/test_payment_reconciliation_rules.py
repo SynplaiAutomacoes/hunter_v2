@@ -71,7 +71,7 @@ class PaymentReconciliationFormTests(TestCase):
             is_active=True,
         )
 
-    def _create_bank_account(self, *, workshop: Workshop, suffix: int) -> BankAccount:
+    def _create_bank_account(self, *, workshop: Workshop, suffix: int, is_active: bool = True) -> BankAccount:
         return BankAccount.objects.create(
             workshop=workshop,
             bank_code="341",
@@ -79,6 +79,7 @@ class PaymentReconciliationFormTests(TestCase):
             account_type=BankAccount.AccountType.CORRENTE,
             agency="0001",
             account_number=f"12345-{suffix}",
+            is_active=is_active,
         )
 
     def _create_supplier(self, *, workshop: Workshop, suffix: int) -> Supplier:
@@ -294,3 +295,29 @@ class PaymentReconciliationFormTests(TestCase):
         self.assertFalse(step3_form.cleaned_data["is_reconciled"])
         self.assertTrue(payroll_form.is_valid(), payroll_form.errors)
         self.assertFalse(payroll_form.cleaned_data["is_reconciled"])
+
+    def test_inactive_bank_accounts_excluded_from_movement_forms(self) -> None:
+        workshop = create_workshop(suffix=6)
+        active_account = self._create_bank_account(workshop=workshop, suffix=10, is_active=True)
+        inactive_account = self._create_bank_account(workshop=workshop, suffix=11, is_active=False)
+        payment_method = self._create_payment_method(workshop=workshop)
+
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Despesa teste",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 5),
+            payment_method=payment_method,
+        )
+
+        edit_form = ReportMovementEditForm(instance=movement, workshop=workshop)
+        edit_bank_account_pks = [pk for pk, _ in edit_form.fields["bank_account"].widget.choices]
+        self.assertIn(active_account.pk, edit_bank_account_pks)
+        self.assertNotIn(inactive_account.pk, edit_bank_account_pks)
+
+        step3_form = MovementStep3Form(instance=movement, workshop=workshop)
+        step3_bank_account_pks = [pk for pk, _ in step3_form.fields["bank_account"].widget.choices]
+        self.assertIn(active_account.pk, step3_bank_account_pks)
+        self.assertNotIn(inactive_account.pk, step3_bank_account_pks)
+

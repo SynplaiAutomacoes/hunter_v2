@@ -1054,7 +1054,7 @@ class BatchConciliateModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, *args, **kwargs):
         movement_ids = [str(value) for value in request.GET.getlist("movement_ids") if str(value).strip()]
-        bank_accounts = BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
+        bank_accounts = BankAccount.objects.filter(workshop=self.workshop, is_active=True).order_by("bank_name", "account_number", "id")
         return render(
             request,
             "finance/reports/partials/batch_conciliate_modal.html",

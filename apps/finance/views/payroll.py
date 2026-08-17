@@ -101,7 +101,12 @@ class PayrollPaymentForm(forms.ModelForm):
             self.fields["amount"].initial = self.instance.amount or payroll.total_amount
         if workshop is not None:
             groups = FinancialGroup.objects.filter(workshop=workshop).order_by("name")
-            accounts = BankAccount.objects.filter(workshop=workshop).order_by("bank_name", "account_number", "id")
+            accounts = BankAccount.objects.filter(workshop=workshop, is_active=True)
+            if self.instance.pk and self.instance.bank_account_id:
+                accounts = BankAccount.objects.filter(workshop=workshop).filter(
+                    Q(is_active=True) | Q(pk=self.instance.bank_account_id)
+                )
+            accounts = accounts.order_by("bank_name", "account_number", "id").distinct()
             methods = PaymentMethod.objects.filter(workshop=workshop, is_active=True).order_by("description")
             self.fields["budget_plan"].queryset = groups
             self.fields["bank_account"].queryset = accounts
