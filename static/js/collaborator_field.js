@@ -41,6 +41,13 @@ document.addEventListener('alpine:init', () => {
             }
             this.notifyAutosave();
         },
+        isSelectedByOther(index, id) {
+            const value = String(id || '');
+            if (!value) {
+                return false;
+            }
+            return this.collabs.some((collab, collabIndex) => collabIndex !== index && String(collab.id || '') === value);
+        },
         notifyAutosave() {
             const form = this.$root && this.$root.closest ? this.$root.closest('form[data-collaborators-autosave]') : null;
             if (!form) {

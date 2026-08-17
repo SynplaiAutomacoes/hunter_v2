@@ -661,7 +661,16 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
         workorder = _get_workorder_for_workshop(self.workshop, pk)
         if not _check_concurrent_edit_lock(request, workorder):
             return _build_concurrent_lock_response(request, workorder)
+
+        next_url = build_workorder_collaborators_next_url(workorder_pk=workorder.pk, raw_next=str(request.POST.get("next") or ""))
         if _is_workorder_edit_locked(workorder):
+            if next_url:
+                if bool(getattr(request, "htmx", False)):
+                    response = HttpResponse(status=204)
+                    response["HX-Redirect"] = next_url
+                    response["Cache-Control"] = "no-store"
+                    return response
+                return redirect(next_url)
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
@@ -671,7 +680,6 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
 
-            next_url = build_workorder_collaborators_next_url(workorder_pk=workorder.pk, raw_next=str(request.POST.get("next") or ""))
             if next_url:
                 if bool(getattr(request, "htmx", False)):
                     response = HttpResponse(status=204)
