@@ -92,3 +92,12 @@ class CollaboratorModalUpdateSyncFlagTests(TestCase):
         self.collaborator.refresh_from_db()
         self.assertEqual(self.collaborator.salary, Money("2500.00", "BRL"))
         self.assertEqual(self._mechanic_item_amount(), Money("2500.00", "BRL"))
+
+    def test_update_page_renders_commission_rules_formset(self) -> None:
+        self.collaborator.receives_commission = True
+        self.collaborator.save(update_fields=["receives_commission"])
+        url = reverse("collaborators:collaborator_update", kwargs={"pk": self.collaborator.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id_commission_rules-TOTAL_FORMS')
+        self.assertContains(response, "Regras de comissão")

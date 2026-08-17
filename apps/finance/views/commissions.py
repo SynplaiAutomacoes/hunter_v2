@@ -181,10 +181,15 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             return "-"
         return str(budget.problem_description or budget.notes or "-")
 
-    @staticmethod
-    def _sum_distinct_workorder_service_totals(*, queryset) -> Decimal:
-        """Sum service-only commission bases once per work order (sale OS only)."""
-        per_workorder_totals = queryset.order_by().values("workorder_id").annotate(service_total=Max("base_amount"))
+    @classmethod
+    def _sum_distinct_workorder_service_totals(cls, *, queryset) -> Decimal:
+        """Soma as bases de comissão de serviço uma única vez por O.S. (somente origens de serviço)."""
+        service_origins = {
+            CollaboratorCommissionEntry.CommissionOrigin.WORKORDER_RATE,
+            CollaboratorCommissionEntry.CommissionOrigin.SERVICE_RULE,
+        }
+        service_queryset = queryset.filter(commission_origin__in=service_origins)
+        per_workorder_totals = service_queryset.order_by().values("workorder_id").annotate(service_total=Max("base_amount"))
         total = Decimal("0.00")
         for row in per_workorder_totals:
             service_total = row.get("service_total")
@@ -244,7 +249,14 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "description": self._resolve_workorder_description(entry),
                     "reference": f"{entry.reference_month:02d}/{entry.reference_year}",
                     "applied_at": entry.criado_em.date() if entry.criado_em else None,
-                    "percentage": f"{(entry.percentage * Decimal('100')).quantize(Decimal('0.01'))}%",
+                    "origin": entry.commission_origin,
+                    "origin_label": entry.get_commission_origin_display(),
+                    "is_fixed_amount": entry.is_fixed_amount,
+                    "percentage": (
+                        format_money(entry.commission_amount)
+                        if entry.is_fixed_amount
+                        else f"{(entry.percentage * Decimal('100')).quantize(Decimal('0.01'))}%"
+                    ),
                     "base_amount": entry.base_amount,
                     "commission_amount": entry.commission_amount,
                     "status": entry.status,
@@ -382,6 +394,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 collaborators_map[collab_id] = {
                     "name": entry.collaborator.name,
                     "percentage": (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
+                    "all_fixed": entry.is_fixed_amount,
                     "entries": [],
                     "total_commission": Money(0, "BRL"),
                 }
@@ -398,9 +411,13 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "base_amount": entry.base_amount,
                     "percentage": (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
                     "commission_amount": entry.commission_amount,
+                    "is_fixed_amount": entry.is_fixed_amount,
+                    "origin_label": entry.get_commission_origin_display(),
                 }
             )
             collaborators_map[collab_id]["total_commission"] += entry.commission_amount
+            if not entry.is_fixed_amount:
+                collaborators_map[collab_id]["all_fixed"] = False
 
         return list(collaborators_map.values())
 

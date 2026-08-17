@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.urls import reverse
 
-from apps.collaborators.models import CollaboratorBenefit, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionRule, WorkshopCollaborator, WorkshopMember
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import (
     CalendarDateInput,
@@ -467,6 +467,50 @@ CollaboratorBenefitFormSet = inlineformset_factory(
     form=CollaboratorBenefitInlineForm,
     formset=CollaboratorBenefitInlineFormSet,
     fields=["name", "description", "monthly_amount", "budget_plan", "is_active"],
+    extra=0,
+    can_delete=True,
+)
+
+
+class CollaboratorCommissionRuleInlineForm(CoreModelForm):
+    class Meta:
+        model = CollaboratorCommissionRule
+        fields = ["scope", "modality", "apply_scope", "base", "percentage", "fixed_amount", "is_active"]
+        widgets = {
+            "percentage": TextInput(attrs={"placeholder": "Ex: 0.05 = 5%"}),
+            "fixed_amount": MoneyInput(),
+            "is_active": CheckboxInput(),
+        }
+
+
+class CollaboratorCommissionRuleInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        active_scopes: set[str] = set()
+        for form in self.forms:
+            if not hasattr(form, "cleaned_data") or form.cleaned_data.get("DELETE"):
+                continue
+            if not form.cleaned_data.get("is_active", True):
+                continue
+            scope = str(form.cleaned_data.get("scope") or "").strip()
+            if not scope:
+                continue
+            existing = self.instance.commission_rules.filter(is_active=True).exclude(pk=form.instance.pk if form.instance.pk else -1)
+            if existing.filter(scope=scope).exists():
+                form.add_error("scope", "Já existe outra regra ativa para este escopo neste colaborador.")
+                continue
+            if scope in active_scopes:
+                form.add_error("scope", "Não é permitido ter mais de uma regra ativa para o mesmo escopo.")
+                continue
+            active_scopes.add(scope)
+
+
+CollaboratorCommissionRuleFormSet = inlineformset_factory(
+    parent_model=WorkshopCollaborator,
+    model=CollaboratorCommissionRule,
+    form=CollaboratorCommissionRuleInlineForm,
+    formset=CollaboratorCommissionRuleInlineFormSet,
+    fields=["scope", "modality", "apply_scope", "base", "percentage", "fixed_amount", "is_active"],
     extra=0,
     can_delete=True,
 )

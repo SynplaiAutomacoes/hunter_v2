@@ -263,6 +263,7 @@
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'certificado' }" @click="activeTab = 'certificado'">Certificados</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'opcionais' }" @click="activeTab = 'opcionais'">Opcionais</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'pdf_observation' }" @click="activeTab = 'pdf_observation'">Observacoes PDF</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'comissao' }" @click="activeTab = 'comissao'">Comissao</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'credenciais' }" @click="activeTab = 'credenciais'">Credenciais</button>
             </div>
 
@@ -759,6 +760,38 @@
                 <div class="flex items-center justify-end gap-2">
                     {% if can_change_workshop %}
                         <button type="submit" class="btn-form-save">Salvar observacao</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <form method="post" enctype="multipart/form-data" x-show="activeTab === 'comissao'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="comissao">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                {% if commission_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in commission_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="alert alert-info mb-4 text-sm">
+                    <span>Valor percentual da comissao por OS aplicado aos colaboradores participantes. Colaboradores com regra manual configurada possuem prioridade sobre este percentual.</span>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-4">{{ commission_form.workorder_commission_enabled|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ commission_form.workorder_commission_percentage|as_crispy_field }}</div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_workshop %}
+                        <button type="submit" class="btn-form-save">Salvar comissao por OS</button>
                     {% else %}
                         <span class="text-sm text-warning">Voce nao possui permissao para alterar dados desta oficina.</span>
                     {% endif %}

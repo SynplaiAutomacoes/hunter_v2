@@ -40,6 +40,7 @@ from apps.finance.forms.webmania import (
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.models.workshop_commission import WorkshopCommissionSettings
 
 User = get_user_model()
 
@@ -728,3 +729,40 @@ class WorkshopCertificateSectionForm(CoreForm):
 
     def has_new_upload(self) -> bool:
         return self.cleaned_data.get("pfx_certificate") is not None
+
+
+class WorkshopCommissionSectionForm(CoreModelForm):
+    """Configurações de comissão por OS da oficina (aba Comissão da Gestão de Oficina)."""
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        self.workshop = workshop
+        if workshop is not None and kwargs.get("instance") is None:
+            instance = getattr(workshop, "commission_settings", None)
+            if instance is not None:
+                kwargs["instance"] = instance
+        super().__init__(*args, **kwargs)
+        percentage_field = self.fields.get("workorder_commission_percentage")
+        if percentage_field is not None:
+            percentage_field.help_text = "Ex.: 0.05 equivale a 5% da comissao por OS."
+
+    class Meta:
+        model = WorkshopCommissionSettings
+        fields = ["workorder_commission_enabled", "workorder_commission_percentage"]
+        widgets = {
+            "workorder_commission_enabled": CheckboxInput(),
+            "workorder_commission_percentage": NumberInput(
+                attrs={"step": "0.000001", "min": "0", "max": "1", "placeholder": "Ex.: 0.05"}
+            ),
+        }
+
+    def save(self, commit: bool = True) -> WorkshopCommissionSettings:
+        if self.workshop is not None and (self.instance is None or self.instance.pk is None):
+            settings, _ = WorkshopCommissionSettings.objects.get_or_create(
+                workshop=self.workshop,
+                defaults={"workorder_commission_enabled": False, "workorder_commission_percentage": None},
+            )
+            self.instance = settings
+        for field_name in self.fields:
+            if field_name in self.cleaned_data:
+                setattr(self.instance, field_name, self.cleaned_data[field_name])
+        return super().save(commit=commit)

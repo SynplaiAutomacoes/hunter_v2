@@ -16,7 +16,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
-from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
+from apps.collaborators.forms import CollaboratorBenefitFormSet, CollaboratorCommissionRuleFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import (
     apply_collaborator_work_days_for_reference,
@@ -235,6 +235,9 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         benefit_formset = kwargs.get("benefit_formset")
         if benefit_formset is None:
             benefit_formset = CollaboratorBenefitFormSet(instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
+        commission_rule_formset = kwargs.get("commission_rule_formset")
+        if commission_rule_formset is None:
+            commission_rule_formset = CollaboratorCommissionRuleFormSet(instance=self.object, prefix="commission_rules")
         reference_date = self.request.GET.get("reference_date")
         history_month = str(self.request.GET.get("history_month") or "").strip()
         history_year = str(self.request.GET.get("history_year") or "").strip()
@@ -255,6 +258,8 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         pending_financial_movements = list(FinancialMovement.objects.filter(workshop=self.workshop, collaborator=self.object, is_paid=False).select_related("payment_method").order_by("due_date", "id"))
         context["benefit_formset"] = benefit_formset
         context["benefit_empty_form"] = benefit_formset.empty_form
+        context["commission_rule_formset"] = commission_rule_formset
+        context["commission_rule_empty_form"] = commission_rule_formset.empty_form
         context["payroll_history"] = payroll_history[:24]
         context["current_work_days"] = get_reference_work_days(collaborator=self.object)
         context["workshop_default_work_days"] = get_workshop_work_days(workshop=self.workshop)
@@ -274,11 +279,12 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         self.object = self.get_object()
         form = self.get_form()
         benefit_formset = CollaboratorBenefitFormSet(request.POST, instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
-        if form.is_valid() and benefit_formset.is_valid():
-            return self.forms_valid(form, benefit_formset)
-        return self.forms_invalid(form, benefit_formset)
+        commission_rule_formset = CollaboratorCommissionRuleFormSet(request.POST, instance=self.object, prefix="commission_rules")
+        if form.is_valid() and benefit_formset.is_valid() and commission_rule_formset.is_valid():
+            return self.forms_valid(form, benefit_formset, commission_rule_formset)
+        return self.forms_invalid(form, benefit_formset, commission_rule_formset)
 
-    def forms_valid(self, form, benefit_formset: BaseInlineFormSet):
+    def forms_valid(self, form, benefit_formset: BaseInlineFormSet, commission_rule_formset: BaseInlineFormSet):
         previous_termination_date = WorkshopCollaborator.objects.filter(pk=self.object.pk).values_list("termination_date", flat=True).first()
         with transaction.atomic():
             if form.instance.salary is None:
@@ -292,6 +298,9 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
             benefit_formset.instance = collaborator
             benefit_formset.save()
+
+            commission_rule_formset.instance = collaborator
+            commission_rule_formset.save()
 
             raw_work_days = str(self.request.POST.get("work_days") or "").strip()
             if raw_work_days == "":
@@ -361,12 +370,13 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 return HttpResponseRedirect(self.get_success_url())
             return response
 
-    def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):
-        return self.render_to_response(self.get_context_data(form=form, benefit_formset=benefit_formset))
+    def forms_invalid(self, form, benefit_formset: BaseInlineFormSet, commission_rule_formset: BaseInlineFormSet):
+        return self.render_to_response(self.get_context_data(form=form, benefit_formset=benefit_formset, commission_rule_formset=commission_rule_formset))
 
     def form_valid(self, form):
         benefit_formset = CollaboratorBenefitFormSet(self.request.POST or None, instance=form.instance, prefix="benefits", form_kwargs={"workshop": self.workshop})
-        return self.forms_valid(form, benefit_formset)
+        commission_rule_formset = CollaboratorCommissionRuleFormSet(self.request.POST or None, instance=form.instance, prefix="commission_rules")
+        return self.forms_valid(form, benefit_formset, commission_rule_formset)
 
 
 class WorkshopCollaboratorGenerateMovementsView(LoginRequiredMixin, WorkshopScopedMixin, View):
