@@ -24,6 +24,7 @@ from apps.core.presentation.widgets import (
     EmailInput,
     ImageInput,
     NumberInput,
+    PercentageInput,
     PhoneInput,
     SearchableSelectInput,
     TextInput,
@@ -743,16 +744,14 @@ class WorkshopCommissionSectionForm(CoreModelForm):
         super().__init__(*args, **kwargs)
         percentage_field = self.fields.get("workorder_commission_percentage")
         if percentage_field is not None:
-            percentage_field.help_text = "Ex.: 0.05 equivale a 5% da comissao por OS."
+            percentage_field.help_text = "Ex.: 5% de comissão por OS."
 
     class Meta:
         model = WorkshopCommissionSettings
         fields = ["workorder_commission_enabled", "workorder_commission_percentage"]
         widgets = {
             "workorder_commission_enabled": CheckboxInput(),
-            "workorder_commission_percentage": NumberInput(
-                attrs={"step": "0.000001", "min": "0", "max": "1", "placeholder": "Ex.: 0.05"}
-            ),
+            "workorder_commission_percentage": PercentageInput(decimal_places=2),
         }
 
     def save(self, commit: bool = True) -> WorkshopCommissionSettings:

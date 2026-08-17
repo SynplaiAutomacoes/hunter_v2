@@ -347,80 +347,50 @@
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                 <div class="col-span-12 lg:col-span-3">{{ form.receives_commission|as_crispy_field }}</div>
-                <div class="col-span-12 lg:col-span-3" x-show="receives_commission" x-cloak>{{ form.commission_percentage|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-3">{{ form.system_access|as_crispy_field }}</div>
             </div>
 
-            <div class="rounded-xl border border-base-300 p-4 space-y-4" x-data="collaboratorCommissionRulesManager()" x-show="receives_commission" x-cloak>
-                <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <h3 class="text-base font-semibold">Regras de comissão</h3>
-                        <p class="text-sm text-base-content/70">Configure regras manuais de comissão por escopo (serviço ou produto). A regra manual tem prioridade sobre a comissão por OS configurada na oficina.</p>
-                    </div>
-                    <button type="button" class="btn btn-outline btn-sm" @click="addCommissionRule()">Adicionar regra</button>
+            <div class="rounded-xl border border-base-300 p-4 space-y-6" x-show="receives_commission" x-cloak>
+                <div>
+                    <h3 class="text-base font-semibold">Regras de comissão</h3>
+                    <p class="text-sm text-base-content/70">Configure as comissões manuais por escopo (serviço ou produto). Preencha o percentual ou o valor fixo — nunca ambos. A regra manual tem prioridade sobre a comissão por OS configurada na oficina.</p>
                 </div>
 
-                {{ commission_rule_formset.management_form }}
+                {% for card in commission_scope_cards %}
+                {% with scope_form=card.form %}
+                <div
+                    class="rounded-xl border border-base-300 p-4 space-y-4"
+                    x-data="{ enabled: {{ scope_form.is_active.value|yesno:'true,false,false' }} }"
+                    data-rule-exclusive
+                    data-percentage-display-id="{{ scope_form.percentage.id_for_label }}"
+                    data-percentage-name="{{ scope_form.percentage.html_name }}"
+                    data-fixed-name="{{ scope_form.fixed_amount.html_name }}"
+                >
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        {{ scope_form.is_active }}
+                        <span>
+                            <span class="font-medium">{{ card.toggle_label }}</span>
+                            <span class="block text-xs text-base-content/60">{{ card.toggle_hint }}</span>
+                        </span>
+                    </label>
+                    {% if scope_form.is_active.errors %}
+                        <div class="text-error text-sm">{{ scope_form.is_active.errors }}</div>
+                    {% endif %}
+                    {% if scope_form.non_field_errors %}
+                        <div class="alert alert-error text-sm">{{ scope_form.non_field_errors }}</div>
+                    {% endif %}
 
-                {% for rule_form in commission_rule_formset.non_form_errors %}
-                    <div class="alert alert-error text-sm">{{ rule_form }}</div>
+                    <div x-show="enabled" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start pt-4 border-t border-base-300/60">
+                        <div class="col-span-12 lg:col-span-4">{{ scope_form.percentage|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ scope_form.fixed_amount|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ scope_form.base|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-6">{{ scope_form.apply_scope|as_crispy_field }}</div>
+                    </div>
+                </div>
+                {% endwith %}
                 {% endfor %}
 
-                <div id="commission-rule-form-list" class="space-y-4">
-                    {% for rule_form in commission_rule_formset %}
-                        <div class="rounded-xl border border-base-300 p-4 commission-rule-form-item">
-                            {% for hidden in rule_form.hidden_fields %}
-                                {% if hidden.name == 'DELETE' %}
-                                    <div class="hidden">{{ hidden }}</div>
-                                {% else %}
-                                    {{ hidden }}
-                                {% endif %}
-                            {% endfor %}
-                            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                                <div class="col-span-12 lg:col-span-3">{{ rule_form.scope|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-3">{{ rule_form.modality|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-3">{{ rule_form.apply_scope|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-3">{{ rule_form.base|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ rule_form.percentage|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ rule_form.fixed_amount|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-2">{{ rule_form.is_active|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-2 flex items-center justify-end lg:min-h-full">
-                                    <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeUnsavedCommissionRule($event)">Remover</button>
-                                </div>
-                            </div>
-                        </div>
-                    {% empty %}
-                        <div class="rounded-xl border border-dashed border-base-300 p-4 text-sm text-base-content/70 commission-rule-empty-state">
-                            Nenhuma regra de comissão cadastrada. O percentual abaixo é usado como regra de serviço padrão.
-                        </div>
-                    {% endfor %}
-                </div>
-
-                <p class="text-xs text-base-content/60">Use o botão acima para adicionar uma nova regra. Só pode existir uma regra ativa por escopo.</p>
-
-                <template id="commission-rule-empty-form-template">
-                    <div class="rounded-xl border border-base-300 p-4 commission-rule-form-item">
-                        {% for hidden in commission_rule_empty_form.hidden_fields %}
-                            {% if hidden.name == 'DELETE' %}
-                                <div class="hidden">{{ hidden }}</div>
-                            {% else %}
-                                {{ hidden }}
-                            {% endif %}
-                        {% endfor %}
-                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                            <div class="col-span-12 lg:col-span-3">{{ commission_rule_empty_form.scope|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-3">{{ commission_rule_empty_form.modality|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-3">{{ commission_rule_empty_form.apply_scope|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-3">{{ commission_rule_empty_form.base|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-4">{{ commission_rule_empty_form.percentage|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-4">{{ commission_rule_empty_form.fixed_amount|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-2">{{ commission_rule_empty_form.is_active|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-2 flex items-center justify-end lg:min-h-full">
-                                <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeUnsavedCommissionRule($event)">Remover</button>
-                            </div>
-                        </div>
-                    </div>
-                </template>
+                <p class="text-xs text-base-content/60">Ao habilitar um escopo, escolha a base de cálculo e como a comissão deve ser aplicada. O percentual e o valor fixo são mutuamente exclusivos.</p>
             </div>
 
             <div x-show="system_access" x-cloak class="rounded-xl border border-base-300 p-4">
@@ -618,63 +588,38 @@
         };
     }
 
-    function collaboratorCommissionRulesManager() {
-        return {
-            reindexCommissionRules() {
-                const totalFormsInput = document.getElementById('id_commission_rules-TOTAL_FORMS');
-                const formList = document.getElementById('commission-rule-form-list');
-                if (!totalFormsInput || !formList) {
-                    return;
-                }
+    function initCommissionScopeExclusivity(root) {
+        root.querySelectorAll('[data-rule-exclusive]').forEach((panel) => {
+            const percDisplay = document.getElementById(panel.dataset.percentageDisplayId);
+            const percHidden = panel.querySelector(`input[name="${panel.dataset.percentageName}"]`);
+            const fixedDisplay = document.getElementById(`id_${panel.dataset.fixedName}_0_display`);
+            const fixedHidden = panel.querySelector(`input[name="${panel.dataset.fixedName}_0"]`);
+            if (!percDisplay || !percHidden || !fixedDisplay || !fixedHidden) {
+                return;
+            }
 
-                const items = Array.from(formList.querySelectorAll('.commission-rule-form-item'));
-                items.forEach((item, index) => {
-                    item.querySelectorAll('[name], [id], [for], [aria-describedby]').forEach((element) => {
-                        ['name', 'id', 'for', 'aria-describedby'].forEach((attributeName) => {
-                            const attributeValue = element.getAttribute(attributeName);
-                            if (!attributeValue) {
-                                return;
-                            }
-                            element.setAttribute(attributeName, attributeValue.replace(/commission_rules-(\d+)-/g, `commission_rules-${index}-`).replace(/id_commission_rules-(\d+)-/g, `id_commission_rules-${index}-`));
-                        });
-                    });
-                });
+            const hasValue = (input) => Boolean(input) && input.value !== '' && input.value !== '0' && input.value !== '0.00' && input.value !== '0,00';
 
-                totalFormsInput.value = String(items.length);
-                const emptyState = formList.querySelector('.commission-rule-empty-state');
-                if (emptyState) {
-                    emptyState.classList.toggle('hidden', items.length > 0);
+            percDisplay.addEventListener('input', () => {
+                if (hasValue(percHidden)) {
+                    fixedDisplay.value = '';
+                    fixedHidden.value = '';
                 }
-            },
-            addCommissionRule() {
-                const totalFormsInput = document.getElementById('id_commission_rules-TOTAL_FORMS');
-                const formList = document.getElementById('commission-rule-form-list');
-                const template = document.getElementById('commission-rule-empty-form-template');
-                if (!totalFormsInput || !formList || !template) {
-                    return;
+            });
+            fixedDisplay.addEventListener('input', () => {
+                if (hasValue(fixedHidden)) {
+                    percDisplay.value = '';
+                    percHidden.value = '';
                 }
-
-                const formIndex = Number.parseInt(totalFormsInput.value || '0', 10);
-                const html = template.innerHTML.replace(/__prefix__/g, String(formIndex));
-                formList.insertAdjacentHTML('beforeend', html);
-                totalFormsInput.value = String(formIndex + 1);
-                this.reindexCommissionRules();
-            },
-            removeUnsavedCommissionRule(event) {
-                const item = event.target.closest('.commission-rule-form-item');
-                if (!item) {
-                    return;
-                }
-
-                const deleteInput = item.querySelector('input[name$="-DELETE"]');
-                if (deleteInput) {
-                    deleteInput.checked = true;
-                }
-                item.remove();
-                this.reindexCommissionRules();
-            },
-        };
+            });
+        });
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('[data-rule-exclusive]').forEach((panel) => {
+            initCommissionScopeExclusivity(panel);
+        });
+    });
 </script>
 {% endblock %}
 
