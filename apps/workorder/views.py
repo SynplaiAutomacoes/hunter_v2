@@ -81,6 +81,7 @@ from apps.workorder.util import (
     _get_workorder_workshop_cost,
     resolve_workorder_detail_navigation,
     WORKORDER_DETAIL_STEPS,
+    apply_workorder_collaborators_continue,
     build_workorder_collaborators_next_url,
     _build_customer_approvement_context,
     _build_workorder_pdf_file_response,
@@ -679,6 +680,7 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
             workorder.refresh_from_db()
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
+            apply_workorder_collaborators_continue(workorder=workorder, next_url=next_url)
 
             if next_url:
                 if bool(getattr(request, "htmx", False)):

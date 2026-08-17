@@ -84,6 +84,17 @@ def build_workorder_collaborators_next_url(*, workorder_pk: int, raw_next: str) 
     return f"{reverse('workorder:workorder_detail', kwargs={'pk': workorder_pk})}?{urlencode(query_items)}"
 
 
+def apply_workorder_collaborators_continue(*, workorder, next_url: str | None) -> None:
+    if not next_url:
+        return
+    parsed = urlparse(next_url)
+    requested_step = _clamp_workorder_step((parse_qs(parsed.query).get("step") or ["1"])[0])
+    stored_step = _clamp_workorder_step(getattr(workorder, "current_step", 1))
+    if requested_step <= stored_step:
+        return
+    _advance_workorder_step(workorder=workorder, requested_step=requested_step, max_reached_step=stored_step)
+
+
 def _clamp_workorder_step(value: object, *, upper: int = WORKORDER_DETAIL_STEP_COUNT) -> int:
     try:
         step = int(value or 1)
@@ -126,9 +137,19 @@ def _workorder_can_advance(*, status: str, current_step: int, max_reached_step: 
         return True
     if current_step == 2 and status == WorkOrderStatus.WAITING_COLLABORATOR:
         return True
-    if current_step == 3 and status in {WorkOrderStatus.WAITING_COLLABORATOR, WorkOrderStatus.APPROVED}:
+    if current_step == 3 and status == WorkOrderStatus.APPROVED:
         return True
     return False
+
+
+def _promote_waiting_delivery_if_collaborators_done(*, workorder) -> None:
+    if str(getattr(workorder, "status", "") or "") != WorkOrderStatus.WAITING_COLLABORATOR:
+        return
+    if _clamp_workorder_step(getattr(workorder, "current_step", 1)) < 3:
+        return
+    workorder.status = WorkOrderStatus.WAITING_DELIVERY
+    if getattr(workorder, "pk", None):
+        workorder.save(update_fields=["status"])
 
 
 def _advance_workorder_step(*, workorder, requested_step: int, max_reached_step: int) -> int:
@@ -139,9 +160,10 @@ def _advance_workorder_step(*, workorder, requested_step: int, max_reached_step:
         workorder.status = WorkOrderStatus.WAITING_COLLABORATOR
         workorder.current_step = 2
         update_fields = ["status", "current_step"]
-    elif status == WorkOrderStatus.WAITING_COLLABORATOR and max_reached_step == 2 and requested_step == 3:
+    elif status == WorkOrderStatus.WAITING_COLLABORATOR and requested_step == 3:
+        workorder.status = WorkOrderStatus.WAITING_DELIVERY
         workorder.current_step = 3
-        update_fields = ["current_step"]
+        update_fields = ["status", "current_step"]
     elif status == WorkOrderStatus.WAITING_COLLABORATOR and max_reached_step == 3 and requested_step == 4:
         workorder.status = WorkOrderStatus.WAITING_DELIVERY
         workorder.current_step = 3
@@ -162,6 +184,7 @@ def resolve_workorder_detail_navigation(*, request, workorder=None) -> WorkOrder
     status = WorkOrderStatus.DRAFT
     max_reached_step = WORKORDER_DETAIL_STEP_COUNT
     if workorder is not None:
+        _promote_waiting_delivery_if_collaborators_done(workorder=workorder)
         status = str(getattr(workorder, "status", WorkOrderStatus.DRAFT) or WorkOrderStatus.DRAFT)
         stored_step = _clamp_workorder_step(getattr(workorder, "current_step", 1))
         max_reached_step = min(stored_step, max_workorder_step_for_status(status))
