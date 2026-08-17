@@ -123,6 +123,7 @@ class WorkOrderCommissionOrchestrator:
                         workshop=collaborator.workshop,
                         budget_type="sale",
                         status=WorkOrderStatus.APPROVED,
+                        created_em__gte=rule.criado_em,
                     ).values_list("id", flat=True)
                 )
 

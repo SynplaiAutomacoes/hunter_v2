@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+from datetime import date
+
 from apps.collaborators.models import CollaboratorCommissionRule, WorkshopCollaborator
 from apps.workorder.models import WorkOrder
 
 
 class CollaboratorEligibilityChecker:
-    """Decide qual configuração de comissão se aplica a um collaborator numa OS."""
+    """Decide qual configuração de comissão se aplica a um colaborador numa OS."""
+
+    def _is_workorder_after_rule_creation(self, *, workorder: WorkOrder, rule: CollaboratorCommissionRule) -> bool:
+        """Verifica se a OS foi criada após a regra de comissão."""
+        rule_created = rule.criado_em.date() if rule.criado_em else None
+        if not rule_created:
+            return True
+        workorder_created = workorder.criado_em.date() if workorder.criado_em else None
+        if not workorder_created:
+            return False
+        return workorder_created >= rule_created
 
     def get_effective_rules(self, *, collaborator: WorkshopCollaborator) -> list[CollaboratorCommissionRule]:
         """Regras manuais ativas do collaborator.
@@ -35,9 +47,9 @@ class CollaboratorEligibilityChecker:
         return []
 
     def is_rule_eligible_for_workorder(self, *, rule: CollaboratorCommissionRule, collaborator: WorkshopCollaborator, workorder: WorkOrder) -> bool:
-        """RN-07 (por participação) e RN-08 (global exige is_active)."""
+        """RN-07 (por participação) e RN-08 (global exige is_active) e OS após criação da regra."""
         if rule.apply_scope == CollaboratorCommissionRule.ApplyScope.GLOBAL:
-            return collaborator.is_active
+            return collaborator.is_active and self._is_workorder_after_rule_creation(workorder=workorder, rule=rule)
         return workorder.collaborators.filter(pk=collaborator.pk).exists()
 
     def get_eligible_rules_for_workorder(self, *, collaborator: WorkshopCollaborator, workorder: WorkOrder) -> list[CollaboratorCommissionRule]:
