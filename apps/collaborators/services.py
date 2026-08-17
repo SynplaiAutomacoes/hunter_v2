@@ -1461,10 +1461,12 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         movement.payroll_component = component
         movement.payroll_benefit = payroll_benefit if isinstance(payroll_benefit, CollaboratorBenefit) else None
         movement.direction = FinancialMovement.MovementDirection.DEBIT
-        movement.description = str(spec["description"])
-        movement.amount = spec["amount"]
-        movement.due_date = payroll.due_date
-        movement.budget_plan = budget_plan
+        # Skip overwriting financial data on movements that are already paid.
+        if not (movement.pk and movement.is_paid):
+            movement.description = str(spec["description"])
+            movement.amount = spec["amount"]
+            movement.due_date = payroll.due_date
+            movement.budget_plan = budget_plan
         if is_new_movement:
             movement.is_paid = inherited_paid
             movement.is_reconciled = inherited_reconciled
