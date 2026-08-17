@@ -1349,33 +1349,6 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             old_stock_product = None
 
                         if old_stock_product is not None:
-                            new_qty = old_stock_product.current_quantity - quantity
-                            if new_qty < 0:
-                                exit_movements = StockMovement.objects.filter(
-                                    stock_product=old_stock_product,
-                                    type=StockMovement.MovementType.EXIT,
-                                    status=StockMovement.MovementStatus.APPROVED,
-                                    workorder__isnull=False,
-                                ).select_related("workorder__budget").order_by("-criado_em")
-
-                                os_refs = []
-                                for mov in exit_movements[:5]:
-                                    ref = mov.workorder_reference
-                                    if ref and ref not in os_refs:
-                                        os_refs.append(ref)
-
-                                if os_refs:
-                                    os_list = ", ".join(os_refs)
-                                    error_msg = f"Item usado na {os_list}. Retire o item da OS para desvincular."
-                                else:
-                                    error_msg = "Estoque insuficiente para re-vincular. O item já foi consumido."
-
-                                response = HttpResponse(status=204)
-                                response["HX-Trigger"] = json.dumps({
-                                    "showToast": {"message": error_msg, "type": "error"},
-                                })
-                                return response
-
                             StockMovement.objects.create(
                                 workshop=self.workshop,
                                 stock_product=old_stock_product,
@@ -1386,7 +1359,7 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
                                 reason=f"Re-vinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
                                 status=StockMovement.MovementStatus.APPROVED,
                             )
-                            old_stock_product.current_quantity = new_qty
+                            old_stock_product.current_quantity = max(0, old_stock_product.current_quantity - quantity)
                             old_stock_product.save(update_fields=["current_quantity"])
 
                     # Registrar entrada no novo produto se importação finalizada
@@ -1559,35 +1532,7 @@ class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         stock_product = None
 
                     if stock_product is not None:
-                        new_qty = stock_product.current_quantity - quantity
-                        if new_qty < 0:
-                            # Buscar as OSs que usaram este produto.
-                            exit_movements = StockMovement.objects.filter(
-                                stock_product=stock_product,
-                                type=StockMovement.MovementType.EXIT,
-                                status=StockMovement.MovementStatus.APPROVED,
-                                workorder__isnull=False,
-                            ).select_related("workorder__budget").order_by("-criado_em")
-
-                            os_refs = []
-                            for mov in exit_movements[:5]:
-                                ref = mov.workorder_reference
-                                if ref and ref not in os_refs:
-                                    os_refs.append(ref)
-
-                            if os_refs:
-                                os_list = ", ".join(os_refs)
-                                error_msg = f"Item usado na {os_list}. Retire o item da OS para desvincular."
-                            else:
-                                error_msg = "Estoque insuficiente para desvincular. O item já foi consumido."
-
-                            response = HttpResponse(status=204)
-                            response["HX-Trigger"] = json.dumps({
-                                "showToast": {"message": error_msg, "type": "error"},
-                            })
-                            return response
-
-                        # Registrar saída e decrementar estoque.
+                        # Registrar saída e decrementar estoque (mínimo 0).
                         supplier = None
                         if obj.supplier_cnpj:
                             supplier = Supplier.objects.filter(
@@ -1604,7 +1549,7 @@ class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             reason=f"Desvinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
                             status=StockMovement.MovementStatus.APPROVED,
                         )
-                        stock_product.current_quantity = new_qty
+                        stock_product.current_quantity = max(0, stock_product.current_quantity - quantity)
                         stock_product.save(update_fields=["current_quantity"])
 
                 if obj.method == StockImport.ImportMethods.MANUAL:
