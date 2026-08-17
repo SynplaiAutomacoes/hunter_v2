@@ -1292,6 +1292,15 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
         product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
         import_items = list(obj.items_data)
 
+        is_completed = obj.status == StockImport.ImportStatus.COMPLETED
+
+        # Resolve o fornecedor da importação uma única vez.
+        supplier = None
+        if is_completed and obj.supplier_cnpj:
+            supplier = Supplier.objects.filter(
+                cnpj=obj.supplier_cnpj, workshop=self.workshop,
+            ).first()
+
         if is_manual:
             new_item = {
                 "ref": product.code,
@@ -1302,10 +1311,104 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "linked_product_id": str(product_id),
             }
             import_items.append(new_item)
+            quantity = 1
+
+            # Registrar entrada no novo produto se a importação já foi finalizada.
+            if is_completed:
+                stock_product, _created = StockProduct.objects.get_or_create(
+                    workshop=self.workshop, product=product,
+                    defaults={"supplier": supplier},
+                )
+                StockMovement.objects.create(
+                    workshop=self.workshop,
+                    stock_product=stock_product,
+                    type=StockMovement.MovementType.ENTRY,
+                    supplier=supplier,
+                    transcation_by=request.user,
+                    quantity=quantity,
+                    reason=f"Vinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
+                    status=StockMovement.MovementStatus.APPROVED,
+                )
+                stock_product.current_quantity += quantity
+                stock_product.save(update_fields=["current_quantity"])
         else:
             try:
                 item_idx = int(raw_item_idx)
                 if 0 <= item_idx < len(import_items):
+                    item = import_items[item_idx]
+                    old_product_id = clean_id(item.get("linked_product_id"))
+                    quantity = int(Decimal(str(item.get("qtd", 0))))
+
+                    # Re-vinculação em importação finalizada: saída do antigo + entrada do novo.
+                    if is_completed and old_product_id and str(old_product_id) != str(product_id):
+                        try:
+                            old_stock_product = StockProduct.objects.select_for_update().get(
+                                workshop=self.workshop, product_id=old_product_id,
+                            )
+                        except StockProduct.DoesNotExist:
+                            old_stock_product = None
+
+                        if old_stock_product is not None:
+                            new_qty = old_stock_product.current_quantity - quantity
+                            if new_qty < 0:
+                                exit_movements = StockMovement.objects.filter(
+                                    stock_product=old_stock_product,
+                                    type=StockMovement.MovementType.EXIT,
+                                    status=StockMovement.MovementStatus.APPROVED,
+                                    workorder__isnull=False,
+                                ).select_related("workorder__budget").order_by("-criado_em")
+
+                                os_refs = []
+                                for mov in exit_movements[:5]:
+                                    ref = mov.workorder_reference
+                                    if ref and ref not in os_refs:
+                                        os_refs.append(ref)
+
+                                if os_refs:
+                                    os_list = ", ".join(os_refs)
+                                    error_msg = f"Item usado na {os_list}. Retire o item da OS para desvincular."
+                                else:
+                                    error_msg = "Estoque insuficiente para re-vincular. O item já foi consumido."
+
+                                response = HttpResponse(status=204)
+                                response["HX-Trigger"] = json.dumps({
+                                    "showToast": {"message": error_msg, "type": "error"},
+                                })
+                                return response
+
+                            StockMovement.objects.create(
+                                workshop=self.workshop,
+                                stock_product=old_stock_product,
+                                type=StockMovement.MovementType.EXIT,
+                                supplier=supplier,
+                                transcation_by=request.user,
+                                quantity=quantity,
+                                reason=f"Re-vinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
+                                status=StockMovement.MovementStatus.APPROVED,
+                            )
+                            old_stock_product.current_quantity = new_qty
+                            old_stock_product.save(update_fields=["current_quantity"])
+
+                    # Registrar entrada no novo produto se importação finalizada
+                    # (nova vinculação ou re-vinculação).
+                    if is_completed and str(old_product_id or "") != str(product_id):
+                        new_stock_product, _created = StockProduct.objects.get_or_create(
+                            workshop=self.workshop, product=product,
+                            defaults={"supplier": supplier},
+                        )
+                        StockMovement.objects.create(
+                            workshop=self.workshop,
+                            stock_product=new_stock_product,
+                            type=StockMovement.MovementType.ENTRY,
+                            supplier=supplier,
+                            transcation_by=request.user,
+                            quantity=quantity,
+                            reason=f"Vinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
+                            status=StockMovement.MovementStatus.APPROVED,
+                        )
+                        new_stock_product.current_quantity += quantity
+                        new_stock_product.save(update_fields=["current_quantity"])
+
                     import_items[item_idx]["linked_product_id"] = product_id
                     if import_items[item_idx].get("selling_price") in (None, ""):
                         import_items[item_idx]["selling_price"] = str(product.selling_price.amount)
@@ -1441,6 +1544,69 @@ class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             idx = int(item_idx)
             if 0 <= idx < len(import_items):
+                item = import_items[idx]
+                old_product_id = clean_id(item.get("linked_product_id"))
+                quantity = int(Decimal(str(item.get("qtd", 0))))
+
+                # Se a importação já foi finalizada e havia produto vinculado,
+                # precisa registrar a saída e ajustar o estoque.
+                if obj.status == StockImport.ImportStatus.COMPLETED and old_product_id:
+                    try:
+                        stock_product = StockProduct.objects.select_for_update().get(
+                            workshop=self.workshop, product_id=old_product_id,
+                        )
+                    except StockProduct.DoesNotExist:
+                        stock_product = None
+
+                    if stock_product is not None:
+                        new_qty = stock_product.current_quantity - quantity
+                        if new_qty < 0:
+                            # Buscar as OSs que usaram este produto.
+                            exit_movements = StockMovement.objects.filter(
+                                stock_product=stock_product,
+                                type=StockMovement.MovementType.EXIT,
+                                status=StockMovement.MovementStatus.APPROVED,
+                                workorder__isnull=False,
+                            ).select_related("workorder__budget").order_by("-criado_em")
+
+                            os_refs = []
+                            for mov in exit_movements[:5]:
+                                ref = mov.workorder_reference
+                                if ref and ref not in os_refs:
+                                    os_refs.append(ref)
+
+                            if os_refs:
+                                os_list = ", ".join(os_refs)
+                                error_msg = f"Item usado na {os_list}. Retire o item da OS para desvincular."
+                            else:
+                                error_msg = "Estoque insuficiente para desvincular. O item já foi consumido."
+
+                            response = HttpResponse(status=204)
+                            response["HX-Trigger"] = json.dumps({
+                                "showToast": {"message": error_msg, "type": "error"},
+                            })
+                            return response
+
+                        # Registrar saída e decrementar estoque.
+                        supplier = None
+                        if obj.supplier_cnpj:
+                            supplier = Supplier.objects.filter(
+                                cnpj=obj.supplier_cnpj, workshop=self.workshop,
+                            ).first()
+
+                        StockMovement.objects.create(
+                            workshop=self.workshop,
+                            stock_product=stock_product,
+                            type=StockMovement.MovementType.EXIT,
+                            supplier=supplier,
+                            transcation_by=request.user,
+                            quantity=quantity,
+                            reason=f"Desvinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
+                            status=StockMovement.MovementStatus.APPROVED,
+                        )
+                        stock_product.current_quantity = new_qty
+                        stock_product.save(update_fields=["current_quantity"])
+
                 if obj.method == StockImport.ImportMethods.MANUAL:
                     import_items.pop(idx)
                 else:
