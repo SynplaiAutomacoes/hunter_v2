@@ -1480,14 +1480,74 @@ class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not form.is_valid():
             return self._render_modal(request, stock_import=stock_import, product=product, form=form, item_idx=item_idx)
 
+        is_completed = stock_import.status == StockImport.ImportStatus.COMPLETED
+
+        # Capturar o produto antigo ANTES de build_item_data sobrescrever.
+        old_product_id = clean_id((item_data or {}).get("linked_product_id")) if item_idx is not None else None
+        old_quantity = int(Decimal(str((item_data or {}).get("qtd", 0)))) if item_data else 0
+
         success_message = form.success_message
         items = list(stock_import.items_data or [])
+        new_item_data = form.build_item_data(existing_item=items[item_idx]) if item_idx is not None else form.build_item_data()
+        new_product_id = clean_id(new_item_data.get("linked_product_id"))
+        new_quantity = int(Decimal(str(new_item_data.get("qtd", 0))))
+
         if item_idx is not None:
-            items[item_idx] = form.build_item_data(existing_item=items[item_idx])
+            items[item_idx] = new_item_data
         else:
-            items.append(form.build_item_data())
+            items.append(new_item_data)
         stock_import.items_data = items
         stock_import.save(update_fields=["items_data"])
+
+        # Ajustar estoque se a importação já foi finalizada.
+        if is_completed and new_product_id:
+            supplier = None
+            if stock_import.supplier_cnpj:
+                supplier = Supplier.objects.filter(
+                    cnpj=stock_import.supplier_cnpj, workshop=self.workshop,
+                ).first()
+
+            nf_ref = stock_import.nf_number or stock_import.nf_key or stock_import.pk
+
+            # Se re-vinculação: saída do produto antigo.
+            if old_product_id and str(old_product_id) != str(new_product_id):
+                try:
+                    old_stock_product = StockProduct.objects.select_for_update().get(
+                        workshop=self.workshop, product_id=old_product_id,
+                    )
+                    StockMovement.objects.create(
+                        workshop=self.workshop,
+                        stock_product=old_stock_product,
+                        type=StockMovement.MovementType.EXIT,
+                        supplier=supplier,
+                        transcation_by=request.user,
+                        quantity=old_quantity,
+                        reason=f"Re-vinculação de item na importação NF {nf_ref}",
+                        status=StockMovement.MovementStatus.APPROVED,
+                    )
+                    old_stock_product.current_quantity = max(0, old_stock_product.current_quantity - old_quantity)
+                    old_stock_product.save(update_fields=["current_quantity"])
+                except StockProduct.DoesNotExist:
+                    pass
+
+            # Entrada no novo produto (nova vinculação ou re-vinculação).
+            if str(old_product_id or "") != str(new_product_id):
+                new_stock_product, _created = StockProduct.objects.get_or_create(
+                    workshop=self.workshop, product=product,
+                    defaults={"supplier": supplier},
+                )
+                StockMovement.objects.create(
+                    workshop=self.workshop,
+                    stock_product=new_stock_product,
+                    type=StockMovement.MovementType.ENTRY,
+                    supplier=supplier,
+                    transcation_by=request.user,
+                    quantity=new_quantity,
+                    reason=f"Vinculação de item na importação NF {nf_ref}",
+                    status=StockMovement.MovementStatus.APPROVED,
+                )
+                new_stock_product.current_quantity += new_quantity
+                new_stock_product.save(update_fields=["current_quantity"])
 
         response = HttpResponse("")
         response["HX-Trigger"] = json.dumps(
