@@ -195,3 +195,88 @@ class CommissionReportVisibilityTests(TestCase):
         self.assertEqual(cards[0]["title"], "Total de serviços")
         self.assertEqual(cards[0]["value"], "R$ 1.500,00")
         self.assertEqual(cards[0]["support"], "somente serviços de O.S. de venda")
+
+    def test_row_shows_fixed_value_and_origin_label_for_fixed_rate_entry(self) -> None:
+        workshop = create_workshop(suffix=40)
+        collaborator = create_collaborator(workshop=workshop, suffix=40)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.000000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(50, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_RULE,
+            is_fixed_amount=True,
+        )
+
+        request = RequestFactory().get(reverse("finance:commission_report"), {"mes": 8, "ano": 2026})
+        view = CommissionReportView()
+        view.request = request
+        view.workshop = workshop
+
+        rows = view._build_rows(entries=list(view._get_queryset()))
+
+        self.assertEqual(rows[0]["origin"], CollaboratorCommissionEntry.CommissionOrigin.SERVICE_RULE)
+        self.assertTrue(rows[0]["is_fixed_amount"])
+        self.assertEqual(rows[0]["percentage"], "R$ 50,00")
+        self.assertEqual(rows[0]["origin_label"], "Regra de Serviço (Manual)")
+
+    def test_service_total_ignores_product_only_origins(self) -> None:
+        workshop = create_workshop(suffix=41)
+        collaborator = create_collaborator(workshop=workshop, suffix=41)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(900, "BRL"),
+            commission_amount=Money(90, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.PRODUCT_RULE,
+        )
+
+        request = RequestFactory().get(reverse("finance:commission_report"), {"mes": 8, "ano": 2026})
+        view = CommissionReportView()
+        view.request = request
+        view.workshop = workshop
+
+        cards = view._build_summary_cards(queryset=view._get_queryset())
+
+        self.assertEqual(cards[0]["value"], "R$ 0,00")
+
+    def test_pdf_collaborators_data_marks_all_fixed(self) -> None:
+        workshop = create_workshop(suffix=42)
+        collaborator = create_collaborator(workshop=workshop, suffix=42)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.000000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(50, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_RULE,
+            is_fixed_amount=True,
+        )
+
+        request = RequestFactory().get(reverse("finance:commission_report_pdf"), {"mes": 8, "ano": 2026})
+        view = CommissionReportPdfView()
+        view.request = request
+        view.workshop = workshop
+
+        collaborators_data = view._build_collaborators_data([entry])
+
+        self.assertTrue(collaborators_data[0]["all_fixed"])
+        self.assertTrue(collaborators_data[0]["entries"][0]["is_fixed_amount"])
+        self.assertEqual(collaborators_data[0]["entries"][0]["origin_label"], "Regra de Serviço (Manual)")

@@ -16,8 +16,8 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
-from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
-from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.forms import CollaboratorBenefitFormSet, CollaboratorCommissionScopeForm, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionRule, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import (
     apply_collaborator_work_days_for_reference,
     calculate_transport_allowance_total,
@@ -180,6 +180,17 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
     template_name = "collaborators/collaborator_update.html"
     success_url = reverse_lazy("collaborators:collaborator_list")
 
+    service_rule_prefix = "commission_service"
+    product_rule_prefix = "commission_product"
+
+    def _get_commission_scope_form(self, *, scope: str, prefix: str, data=None) -> CollaboratorCommissionScopeForm:
+        rule = self.object.commission_rules.filter(scope=scope).order_by("id").first()
+        if rule is None:
+            rule = CollaboratorCommissionRule(collaborator=self.object, scope=scope, is_active=False)
+        form = CollaboratorCommissionScopeForm(data=data, instance=rule, prefix=prefix)
+        form.fields["is_active"].widget.attrs["x-model"] = "enabled"
+        return form
+
     @staticmethod
     def _parse_selected_movement_ids(raw_values: list[str]) -> list[int]:
         movement_ids: list[int] = []
@@ -235,6 +246,12 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         benefit_formset = kwargs.get("benefit_formset")
         if benefit_formset is None:
             benefit_formset = CollaboratorBenefitFormSet(instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
+        service_rule_form = kwargs.get("service_rule_form")
+        if service_rule_form is None:
+            service_rule_form = self._get_commission_scope_form(scope=CollaboratorCommissionRule.Scope.SERVICE, prefix=self.service_rule_prefix)
+        product_rule_form = kwargs.get("product_rule_form")
+        if product_rule_form is None:
+            product_rule_form = self._get_commission_scope_form(scope=CollaboratorCommissionRule.Scope.PRODUCT, prefix=self.product_rule_prefix)
         reference_date = self.request.GET.get("reference_date")
         history_month = str(self.request.GET.get("history_month") or "").strip()
         history_year = str(self.request.GET.get("history_year") or "").strip()
@@ -255,6 +272,24 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         pending_financial_movements = list(FinancialMovement.objects.filter(workshop=self.workshop, collaborator=self.object, is_paid=False).select_related("payment_method").order_by("due_date", "id"))
         context["benefit_formset"] = benefit_formset
         context["benefit_empty_form"] = benefit_formset.empty_form
+        context["service_rule_form"] = service_rule_form
+        context["product_rule_form"] = product_rule_form
+        context["commission_scope_cards"] = [
+            {
+                "form": service_rule_form,
+                "scope": CollaboratorCommissionRule.Scope.SERVICE,
+                "prefix": self.service_rule_prefix,
+                "toggle_label": "Habilitar comissão sobre serviços",
+                "toggle_hint": "Aplica-se a serviços executados na oficina.",
+            },
+            {
+                "form": product_rule_form,
+                "scope": CollaboratorCommissionRule.Scope.PRODUCT,
+                "prefix": self.product_rule_prefix,
+                "toggle_label": "Habilitar comissão sobre produtos",
+                "toggle_hint": "Aplica-se a produtos vendidos na oficina.",
+            },
+        ]
         context["payroll_history"] = payroll_history[:24]
         context["current_work_days"] = get_reference_work_days(collaborator=self.object)
         context["workshop_default_work_days"] = get_workshop_work_days(workshop=self.workshop)
@@ -270,15 +305,29 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["open_pending_delete"] = str(self.request.GET.get("open_pending_delete") or "").strip() == "1"
         return context
 
+    def _build_commission_forms(self, *, data=None) -> tuple[CollaboratorCommissionScopeForm, CollaboratorCommissionScopeForm]:
+        service_rule_form = self._get_commission_scope_form(
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            prefix=self.service_rule_prefix,
+            data=data,
+        )
+        product_rule_form = self._get_commission_scope_form(
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            prefix=self.product_rule_prefix,
+            data=data,
+        )
+        return service_rule_form, product_rule_form
+
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         form = self.get_form()
         benefit_formset = CollaboratorBenefitFormSet(request.POST, instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
-        if form.is_valid() and benefit_formset.is_valid():
-            return self.forms_valid(form, benefit_formset)
-        return self.forms_invalid(form, benefit_formset)
+        service_rule_form, product_rule_form = self._build_commission_forms(data=request.POST)
+        if form.is_valid() and benefit_formset.is_valid() and service_rule_form.is_valid() and product_rule_form.is_valid():
+            return self.forms_valid(form, benefit_formset, service_rule_form, product_rule_form)
+        return self.forms_invalid(form, benefit_formset, service_rule_form, product_rule_form)
 
-    def forms_valid(self, form, benefit_formset: BaseInlineFormSet):
+    def forms_valid(self, form, benefit_formset: BaseInlineFormSet, service_rule_form: CollaboratorCommissionScopeForm, product_rule_form: CollaboratorCommissionScopeForm):
         previous_termination_date = WorkshopCollaborator.objects.filter(pk=self.object.pk).values_list("termination_date", flat=True).first()
         with transaction.atomic():
             if form.instance.salary is None:
@@ -292,6 +341,10 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
             benefit_formset.instance = collaborator
             benefit_formset.save()
+
+            for scope_form in (service_rule_form, product_rule_form):
+                scope_form.instance.collaborator = collaborator
+                scope_form.save()
 
             raw_work_days = str(self.request.POST.get("work_days") or "").strip()
             if raw_work_days == "":
@@ -361,12 +414,13 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 return HttpResponseRedirect(self.get_success_url())
             return response
 
-    def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):
-        return self.render_to_response(self.get_context_data(form=form, benefit_formset=benefit_formset))
+    def forms_invalid(self, form, benefit_formset: BaseInlineFormSet, service_rule_form: CollaboratorCommissionScopeForm, product_rule_form: CollaboratorCommissionScopeForm):
+        return self.render_to_response(self.get_context_data(form=form, benefit_formset=benefit_formset, service_rule_form=service_rule_form, product_rule_form=product_rule_form))
 
     def form_valid(self, form):
         benefit_formset = CollaboratorBenefitFormSet(self.request.POST or None, instance=form.instance, prefix="benefits", form_kwargs={"workshop": self.workshop})
-        return self.forms_valid(form, benefit_formset)
+        service_rule_form, product_rule_form = self._build_commission_forms(data=self.request.POST or None)
+        return self.forms_valid(form, benefit_formset, service_rule_form, product_rule_form)
 
 
 class WorkshopCollaboratorGenerateMovementsView(LoginRequiredMixin, WorkshopScopedMixin, View):
