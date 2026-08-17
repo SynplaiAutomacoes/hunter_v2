@@ -202,6 +202,8 @@ class BudgetKitOriginDisplayTests(TestCase):
         self.assertEqual(kit_origin_name(self.kit_item), "Kit revisão")
         self.assertIn(KIT_ORIGIN_LABEL, badge)
         self.assertIn('data-tip="Kit revisão"', badge)
+        self.assertIn("tooltip-bottom", badge)
+        self.assertNotIn("title=", badge)
         self.assertNotIn("Kit 1", badge)
 
     def test_budget_rows_include_avulso_and_kit_tags(self) -> None:
@@ -217,7 +219,8 @@ class BudgetKitOriginDisplayTests(TestCase):
         self.assertIn('data-tip="Kit revisão"', rows["service"])
         self.assertIn("Troca do kit", rows["service"])
         self.assertIn("Kit revisão", rows["kit"])
-        self.assertIn(KIT_ORIGIN_LABEL, rows["kit"])
+        self.assertNotIn("data-tip=", rows["kit"])
+        self.assertNotIn("badge-info", rows["kit"])
         self.assertNotIn("Kit 1", rows["kit"])
 
     def test_pdf_context_has_no_kit_list_and_includes_components(self) -> None:
@@ -304,3 +307,4 @@ class WorkOrderKitOriginDisplayTests(TestCase):
         self.assertIn("Pastilha do kit", names)
         self.assertEqual(len(context["kit_items"]), 1)
         self.assertEqual(len(context["product_items"]), 1)
+        self.assertFalse(any(getattr(item, "origin_badge", "") for item in context["kit_items"]))

@@ -27,8 +27,8 @@ def build_origin_badge(*, label: str, is_kit: bool = False, tooltip: str = "") -
         return badge
     escaped_tip = escape(tip)
     return (
-        f'<span class="tooltip tooltip-top z-30 cursor-help before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs" '
-        f'data-tip="{escaped_tip}" title="{escaped_tip}" tabindex="0">{badge}</span>'
+        f'<span class="tooltip tooltip-bottom z-20 inline-flex cursor-help before:z-50 before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs" '
+        f'data-tip="{escaped_tip}" tabindex="0">{badge}</span>'
     )
 
 

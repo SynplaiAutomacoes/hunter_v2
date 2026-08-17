@@ -205,10 +205,7 @@ def _render_budget_items_rows(budget, step6=False):
                         },
                     )
 
-                rows["kit"] += render_to_string(
-                    "budget/partials/items/item_kit_row.html",
-                    {"item": kit_item, "budget": budget_for_render, "is_full_render": True, "step6": True, "origin_badge": kit_badge},
-                )
+                rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", {"item": kit_item, "budget": budget_for_render, "is_full_render": True, "step6": True})
         else:
             annotate_product_issues(
                 workshop=budget_for_render.workshop,
@@ -277,7 +274,7 @@ def _render_budget_items_rows(budget, step6=False):
                         )
                     rows["kit"] += render_to_string(
                         "budget/partials/items/item_kit_row.html",
-                        {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": False, "origin_badge": origin_badge},
+                        {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": False},
                     )
 
     placeholders = _empty_rows(step6=step6)
