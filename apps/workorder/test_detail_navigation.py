@@ -67,7 +67,8 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
 
         self.assertEqual(navigation.current_step, 3)
         self.assertEqual(navigation.max_reached_step, 3)
-        self.assertEqual(workorder.status, WorkOrderStatus.WAITING_COLLABORATOR)
+        self.assertEqual(workorder.status, WorkOrderStatus.WAITING_DELIVERY)
+        self.assertFalse(navigation.can_advance)
 
     def test_finishing_delivery_step_sets_waiting_delivery(self) -> None:
         workorder = SimpleNamespace(current_step=3, status=WorkOrderStatus.WAITING_COLLABORATOR, pk=None)
@@ -130,6 +131,7 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
         self.assertEqual(navigation.current_step, 1)
         self.assertEqual(navigation.max_reached_step, 3)
         self.assertEqual(workorder.current_step, 3)
+        self.assertEqual(workorder.status, WorkOrderStatus.WAITING_DELIVERY)
         self.assertEqual(navigation.continue_label, "Iniciar")
 
     def test_step_titles_match_os_flow(self) -> None:
@@ -314,6 +316,8 @@ class WorkOrderCollaboratorsStepSaveTests(TestCase):
         role = WorkshopRole.objects.create(account=account, name="Diretor")
         WorkshopMember.objects.create(user=self.user, workshop=self.workshop, role=role, is_active=True)
         self.workorder = create_workorder(workshop=self.workshop, budget_type=BudgetType.SALE, status=WorkOrderStatus.WAITING_COLLABORATOR)
+        self.workorder.current_step = 2
+        self.workorder.save(update_fields=["current_step"])
         self.collaborator = create_collaborator(workshop=self.workshop, suffix=7)
         self.client.force_login(self.user)
         session = self.client.session
@@ -331,7 +335,10 @@ class WorkOrderCollaboratorsStepSaveTests(TestCase):
         self.assertEqual(response.status_code, 204)
         expected = f"{reverse('workorder:workorder_detail', kwargs={'pk': self.workorder.pk})}?step=3"
         self.assertEqual(response["HX-Redirect"], expected)
+        self.workorder.refresh_from_db()
         self.assertEqual(list(self.workorder.collaborators.values_list("pk", flat=True)), [self.collaborator.pk])
+        self.assertEqual(self.workorder.status, WorkOrderStatus.WAITING_DELIVERY)
+        self.assertEqual(self.workorder.current_step, 3)
 
     def test_locked_os_with_next_redirects_without_saving(self) -> None:
         self.workorder.status = WorkOrderStatus.APPROVED
