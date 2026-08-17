@@ -172,7 +172,7 @@
                                             </div>
                                             <div class="collapse-content">
                                                 <input type="hidden" name="tab_{{ tab.key }}_movement_id_{{ item.movement_id|unlocalize }}" value="{{ item.movement_id|unlocalize }}">
-                                                <div class="grid grid-cols-12 gap-4 pt-2">
+                                                <div class="grid grid-cols-12 gap-4 pt-2{% if item.form.is_locked %} payroll-locked-fields{% endif %}">
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.due_date|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.amount|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_paid|as_crispy_field }}</div>
@@ -210,7 +210,7 @@
                                 </div>
                             {% elif tab.form %}
                                 <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id|unlocalize }}">
-                                <div class="grid grid-cols-12 gap-4">
+                                <div class="grid grid-cols-12 gap-4{% if tab.form.is_locked %} payroll-locked-fields{% endif %}">
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_paid|as_crispy_field }}</div>
@@ -251,3 +251,66 @@
         </form>
     </div>
 </dialog>
+
+{# -- Modal de aviso para campos bloqueados (pagamento já pago) -- #}
+<dialog id="payroll-paid-lock-modal" class="modal">
+    <div class="modal-box max-w-md border border-warning/40 bg-base-100 shadow-2xl">
+        <div class="flex items-start gap-3">
+            <span class="material-icons text-3xl text-warning">warning</span>
+            <div>
+                <h3 class="text-lg font-bold text-base-content">Pagamento já realizado</h3>
+                <p class="mt-2 text-sm text-base-content/80">O pagamento já foi pago, para editar altere o status Pago para Não.</p>
+            </div>
+        </div>
+        <div class="modal-action">
+            <form method="dialog">
+                <button class="btn btn-primary">Entendi</button>
+            </form>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script>
+(function() {
+    // Intercept clicks on disabled fields inside locked payment forms.
+    document.querySelectorAll('.payroll-locked-fields').forEach(function(container) {
+        container.addEventListener('click', function(e) {
+            var target = e.target;
+            // Walk up to find if the click is on or inside a disabled input/select/textarea
+            while (target && target !== container) {
+                if (target.disabled || target.hasAttribute('disabled') ||
+                    (target.classList && target.classList.contains('cursor-not-allowed'))) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var modal = document.getElementById('payroll-paid-lock-modal');
+                    if (modal) modal.showModal();
+                    return;
+                }
+                target = target.parentElement;
+            }
+        }, true);
+
+        // Also add a visual overlay to disabled form groups so click targets are easier to hit
+        container.querySelectorAll('input[disabled], select[disabled], textarea[disabled]').forEach(function(el) {
+            el.style.cursor = 'not-allowed';
+            el.style.opacity = '0.6';
+            // Add click listener directly on the parent div (the crispy field wrapper)
+            var wrapper = el.closest('[class*="col-span"]');
+            if (wrapper && !wrapper.dataset.lockListenerAdded) {
+                wrapper.dataset.lockListenerAdded = 'true';
+                wrapper.style.cursor = 'not-allowed';
+                wrapper.addEventListener('click', function(ev) {
+                    // Don't trigger on is_paid / is_reconciled fields
+                    var inputInWrapper = wrapper.querySelector('input, select, textarea');
+                    if (inputInWrapper && !inputInWrapper.disabled) return;
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    var modal = document.getElementById('payroll-paid-lock-modal');
+                    if (modal) modal.showModal();
+                }, true);
+            }
+        });
+    });
+})();
+</script>

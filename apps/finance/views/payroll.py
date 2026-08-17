@@ -88,6 +88,9 @@ class PayrollPaymentForm(forms.ModelForm):
             "financial_observation": TextareaInput(rows=3),
         }
 
+    # Fields that remain editable even when the movement is marked as paid.
+    PAID_EDITABLE_FIELDS = {"is_paid", "is_reconciled"}
+
     def __init__(self, *args: Any, workshop=None, **kwargs: Any) -> None:
         payroll: CollaboratorPayroll | None = kwargs.pop("payroll", None)
         super().__init__(*args, **kwargs)
@@ -114,6 +117,18 @@ class PayrollPaymentForm(forms.ModelForm):
             self.fields["budget_plan"].widget.choices = [(item.pk, str(item)) for item in groups]
             self.fields["bank_account"].widget.choices = [(item.pk, str(item)) for item in accounts]
             self.fields["payment_method"].widget.choices = [(item.pk, str(item)) for item in methods]
+
+        # Lock non-exempt fields when the movement is already paid.
+        self._instance_is_paid = bool(self.instance.pk and self.instance.is_paid)
+        if self._instance_is_paid:
+            for field_name, field in self.fields.items():
+                if field_name not in self.PAID_EDITABLE_FIELDS:
+                    field.disabled = True
+
+    @property
+    def is_locked(self) -> bool:
+        """Return True when the movement is paid and most fields are disabled."""
+        return self._instance_is_paid
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
