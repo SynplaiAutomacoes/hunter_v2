@@ -314,6 +314,53 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
     return fallback_payload
 
 
+_NFSE_TAKER_FIELD_MAX_LENGTH = 40
+_NFSE_TAKER_IM_MAX_LENGTH = 15
+
+
+def _truncate_taker_field(value: object, *, max_length: int = _NFSE_TAKER_FIELD_MAX_LENGTH) -> str:
+    return str(value or "").strip()[:max_length]
+
+
+def _build_taker_address_payload(customer: Any) -> dict[str, str]:
+    endereco = _truncate_taker_field(getattr(customer, "logradouro", ""))
+    numero = _truncate_taker_field(getattr(customer, "numero", ""))
+    bairro = _truncate_taker_field(getattr(customer, "bairro", ""))
+    cidade = _truncate_taker_field(getattr(customer, "cidade", ""))
+    uf = _truncate_taker_field(getattr(customer, "estado", ""))
+    cep = re.sub(r"\D", "", str(getattr(customer, "cep", "") or ""))
+
+    if not all((endereco, numero, bairro, cidade, uf, cep)):
+        return {}
+
+    payload = {
+        "endereco": endereco,
+        "numero": numero,
+        "bairro": bairro,
+        "cidade": cidade,
+        "uf": uf,
+        "cep": _truncate_taker_field(cep),
+    }
+    complemento = _truncate_taker_field(getattr(customer, "complemento", ""))
+    if complemento:
+        payload["complemento"] = complemento
+    return payload
+
+
+def _build_taker_contact_payload(customer: Any) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    email = _truncate_taker_field(getattr(customer, "email", ""))
+    if email:
+        payload["email"] = email
+    phone = _truncate_taker_field(getattr(customer, "phone", ""))
+    if phone:
+        payload["telefone"] = phone
+    municipal_registration = _truncate_taker_field(getattr(customer, "municipal_registration", ""), max_length=_NFSE_TAKER_IM_MAX_LENGTH)
+    if municipal_registration:
+        payload["im"] = municipal_registration
+    return payload
+
+
 def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:
     customer = nfse_request.workorder.budget.customer
     if not customer:
@@ -321,21 +368,25 @@ def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:
 
     document = re.sub(r"\D", "", customer.cpf_or_cnpj or "")
     if len(document) == 11:
-        return {
+        payload = {
             "cpf": customer.cpf_or_cnpj,
             "nome_completo": customer.name,
         }
-    if len(document) == 14:
+    elif len(document) == 14:
         razao_social = (customer.name or "").strip()
         if not razao_social:
             raise NfseEmissionError("Razão social do cliente é obrigatória para emissão da Nota Fiscal de Serviço com CNPJ.")
 
-        return {
+        payload = {
             "cnpj": customer.cpf_or_cnpj,
             "razao_social": razao_social,
         }
+    else:
+        raise NfseEmissionError("Documento do cliente inválido para emissão da Nota Fiscal de Serviço.")
 
-    raise NfseEmissionError("Documento do cliente inválido para emissão da Nota Fiscal de Serviço.")
+    payload.update(_build_taker_address_payload(customer))
+    payload.update(_build_taker_contact_payload(customer))
+    return payload
 
 
 def _default_service_description(nfse_request: NfseRequest) -> str:
