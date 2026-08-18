@@ -25,7 +25,7 @@ from djmoney.money import Money
 
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
-from apps.catalog.price_tracking import build_product_price_warning, record_product_last_purchase_price, record_product_last_used_price
+from apps.catalog.price_tracking import apply_product_import_prices, build_product_price_warning
 from apps.core.presentation.forms import address_layout, AddressFormMixin, CoreForm, CoreModelForm
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
@@ -923,8 +923,7 @@ class ImportStepSummaryForm(CoreModelForm):
                 update_fields.append("supplier")
             stock_product.save(update_fields=update_fields)
 
-            record_product_last_purchase_price(product=product, price=purchase_price)
-            record_product_last_used_price(product=product, price=selling_price)
+            apply_product_import_prices(product=product, purchase_price=purchase_price, selling_price=selling_price)
 
         payments_data = list(instance.payments_data or [])
         for pay in payments_data:
