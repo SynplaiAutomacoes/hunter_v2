@@ -1285,6 +1285,10 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             error_message = "Não é possível reprovar um orçamento após a abertura da O.S. Cancele a ordem de serviço primeiro ou siga com o cancelamento do orçamento."
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
+        if status == "reopen" and budget.workorders.filter(status=WorkOrderStatus.APPROVED).exists():
+            error_message = "Não é possível reabrir este orçamento pois a O.S. vinculada já foi finalizada. Reabra a O.S. para continuar."
+            return JsonResponse({"success": False, "error": error_message}, status=400)
+
         if budget.is_status_locked and status != "reopen":
             return JsonResponse({"success": False, "error": "Reabra o orçamento antes de alterar o status."}, status=409)
 
