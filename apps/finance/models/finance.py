@@ -339,6 +339,9 @@ class WebmaniaCompany(TimeStampedModel):
     nfse_lote_rps_numero = models.PositiveIntegerField(verbose_name="Próximo lote RPS", null=True, blank=True)
     nfse_rps_numero_dev = models.PositiveIntegerField(verbose_name="Próximo RPS homologação", null=True, blank=True)
 
+    nfe_enviar_email = models.BooleanField(verbose_name="Enviar NF-e por e-mail ao cliente", default=False)
+    nfse_enviar_email = models.BooleanField(verbose_name="Enviar NFS-e por e-mail ao cliente", default=False)
+
     certificado = models.TextField(verbose_name="Certificado A1 em Base64", blank=True, default="")
     certificado_senha = models.CharField(verbose_name="Senha certificado A1", max_length=255, blank=True, default="")
 

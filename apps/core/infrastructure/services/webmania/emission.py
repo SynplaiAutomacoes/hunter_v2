@@ -347,11 +347,12 @@ def _build_taker_address_payload(customer: Any) -> dict[str, str]:
     return payload
 
 
-def _build_taker_contact_payload(customer: Any) -> dict[str, str]:
+def _build_taker_contact_payload(customer: Any, *, enviar_email: bool = True) -> dict[str, str]:
     payload: dict[str, str] = {}
-    email = _truncate_taker_field(getattr(customer, "email", ""))
-    if email:
-        payload["email"] = email
+    if enviar_email:
+        email = _truncate_taker_field(getattr(customer, "email", ""))
+        if email:
+            payload["email"] = email
     phone = _truncate_taker_field(getattr(customer, "phone", ""))
     if phone:
         payload["telefone"] = phone
@@ -385,7 +386,12 @@ def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:
         raise NfseEmissionError("Documento do cliente inválido para emissão da Nota Fiscal de Serviço.")
 
     payload.update(_build_taker_address_payload(customer))
-    payload.update(_build_taker_contact_payload(customer))
+    enviar_email = getattr(
+        getattr(nfse_request.workorder.workshop, "webmania_company", None),
+        "nfse_enviar_email",
+        False,
+    )
+    payload.update(_build_taker_contact_payload(customer, enviar_email=enviar_email))
     return payload
 
 

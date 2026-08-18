@@ -383,6 +383,8 @@ class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
             "regime_apuracao_sn",
             "regime_especial_nacional",
             "regime_especial_municipal",
+            "nfe_enviar_email",
+            "nfse_enviar_email",
         ]
         widgets = {
             "informacoes_fisco": TextareaInput(rows=3),

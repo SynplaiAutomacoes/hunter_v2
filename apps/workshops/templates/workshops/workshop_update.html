@@ -572,7 +572,7 @@
                 {% endif %}
 
                 <div class="app-tabs tabs tabs-boxed mb-4 w-fit">
-                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfe' }" @click="nfTab = 'nfe'">Nota Fiscal</button>
+                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfe' }" @click="nfTab = 'nfe'">Nota Fiscal de Produto</button>
                     <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfce' }" @click="nfTab = 'nfce'">NFC-e</button>
                     <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfse' }" @click="nfTab = 'nfse'">Nota Fiscal de Serviço</button>
                 </div>
@@ -584,6 +584,12 @@
                         <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfe_numero_dev|as_crispy_field }}</div>
                     {% endif %}
                     <div class="col-span-12">{{ fiscal_form.informacoes_fisco|as_crispy_field }}</div>
+                    <div class="col-span-12">
+                        <label class="label cursor-pointer justify-start gap-3">
+                            <input type="checkbox" name="nfe_enviar_email" class="toggle toggle-primary" {% if fiscal_form.instance.nfe_enviar_email %}checked{% endif %}>
+                            <span class="label-text font-medium">Enviar nota por e-mail ao cliente</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div x-show="nfTab === 'nfce'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -618,6 +624,12 @@
                     <div class="col-span-12 lg:col-span-4">{{ fiscal_form.regime_especial_municipal|as_crispy_field }}</div>
 
                     <div class="col-span-12">{{ fiscal_form.informacoes_fisco|as_crispy_field }}</div>
+                    <div class="col-span-12">
+                        <label class="label cursor-pointer justify-start gap-3">
+                            <input type="checkbox" name="nfse_enviar_email" class="toggle toggle-primary" {% if fiscal_form.instance.nfse_enviar_email %}checked{% endif %}>
+                            <span class="label-text font-medium">Enviar nota por e-mail ao cliente</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="divider"></div>

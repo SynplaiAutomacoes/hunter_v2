@@ -269,7 +269,13 @@ def _build_customer_payload(nfe_request: NfeRequest) -> dict[str, Any]:
     if customer.phone:
         payload["telefone"] = str(customer.phone)
     if customer.email:
-        payload["email"] = str(customer.email).strip()
+        enviar_email = getattr(
+            getattr(nfe_request.workorder.workshop, "webmania_company", None),
+            "nfe_enviar_email",
+            False,
+        )
+        if enviar_email:
+            payload["email"] = str(customer.email).strip()
 
     if len(document) == 11:
         payload["cpf"] = customer.cpf_or_cnpj
