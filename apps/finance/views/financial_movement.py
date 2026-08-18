@@ -535,6 +535,12 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
 
     filter_params = _parse_report_filter_params(request)
 
+    # Sem filtros de data explícitos, alinha ao padrão da listagem de relatórios: somente contas do dia atual.
+    if filter_params["start_date"] is None and filter_params["end_date"] is None:
+        today = timezone.localdate()
+        filter_params["start_date"] = today
+        filter_params["end_date"] = today
+
     queryset = FinancialMovement.objects.filter(workshop=workshop).filter(due_date__isnull=False).filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)).exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
 
     queryset = _apply_report_filters_to_queryset(queryset, params=filter_params)
