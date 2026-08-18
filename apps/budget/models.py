@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any, Iterable
 
 from django.db import models, transaction
+from django.db.models import F, Sum
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.conf import settings
 from djmoney.money import Money
@@ -497,6 +498,38 @@ class Budget(TimeStampedModel):
             workshop_cache[cache_key] = cached
         return cached
 
+    def _aggregate_benefit_costs(self):
+        """Aggregate product costs and shipping for warranty/courtesy items excluded from the pricing snapshot."""
+        cached = getattr(self, "_benefit_costs_cache", None)
+        if cached is not None:
+            return cached
+
+        zero = Money(0, "BRL")
+        product_agg = (
+            self.items.filter(
+                item_benefit_type__in=("warranty", "courtesy"),
+                product_cost_price__gt=0,
+            ).aggregate(
+                total_cost=Sum(F("product_cost_price") * F("quantity")),
+                total_shipping=Sum("shipping"),
+            )
+        )
+        tp_agg = (
+            self.items.filter(
+                item_benefit_type__in=("warranty", "courtesy"),
+                service__is_third_party=True,
+            ).aggregate(
+                total=Sum(F("service_cost_price") * F("quantity"))
+            )
+        )
+        result = {
+            "product_cost": Money(product_agg["total_cost"], "BRL") if product_agg.get("total_cost") else zero,
+            "product_shipping": Money(product_agg["total_shipping"], "BRL") if product_agg.get("total_shipping") else zero,
+            "third_party_cost": Money(tp_agg["total"], "BRL") if tp_agg.get("total") else zero,
+        }
+        self._benefit_costs_cache = result
+        return result
+
     @property
     def get_mlr(self):
         frozen_profitability_multiplier = self.get_frozen_pricing_context().profitability_multiplier
@@ -520,13 +553,14 @@ class Budget(TimeStampedModel):
 
         duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
 
-        # Custos
-        custo_pecas = self.total_costs_products_value
-        custo_servico_terceiro = self.total_third_party_services_cost
+        # Custos (incluindo itens de garantia/cortesia)
+        benefit = self._aggregate_benefit_costs()
+        custo_pecas = self.total_costs_products_value + benefit["product_cost"]
+        custo_servico_terceiro = self.total_third_party_services_cost + benefit["third_party_cost"]
         custo_frete_servico = self.total_services_shipping
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
-        custo_frete_pecas = self.total_products_shipping
+        custo_frete_pecas = self.total_products_shipping + benefit["product_shipping"]
 
         # Venda
         venda_servico_terceiro = self.total_third_party_services_selling
@@ -552,10 +586,11 @@ class Budget(TimeStampedModel):
         if not horas_uteis_mes or horas_uteis_mes == 0:
             return fallback_data
 
-        # Custos
-        custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
-        custo_servico_terceiro = self.total_third_party_services_cost
+        # Custos (incluindo itens de garantia/cortesia)
+        benefit = self._aggregate_benefit_costs()
+        custo_pecas = self.total_costs_products_value + benefit["product_cost"]
+        custo_frete_pecas = self.total_products_shipping + benefit["product_shipping"]
+        custo_servico_terceiro = self.total_third_party_services_cost + benefit["third_party_cost"]
         custo_frete_servicos = self.total_services_shipping
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
@@ -629,9 +664,10 @@ class Budget(TimeStampedModel):
         return data_hun
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
-        custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
-        custo_servico_terceiro = self.total_third_party_services_cost
+        benefit = self._aggregate_benefit_costs()
+        custo_pecas = self.total_costs_products_value + benefit["product_cost"]
+        custo_frete_pecas = self.total_products_shipping + benefit["product_shipping"]
+        custo_servico_terceiro = self.total_third_party_services_cost + benefit["third_party_cost"]
         custo_frete_servicos = self.total_services_shipping
         custo_hora_mecanico = Money(0, "BRL")
         custo_total_mao_obra = Money(0, "BRL")
@@ -825,6 +861,8 @@ class Budget(TimeStampedModel):
             delattr(self, "_product_issue_summary_cache")
         if hasattr(self, "_pricing_items_list_cache"):
             delattr(self, "_pricing_items_list_cache")
+        if hasattr(self, "_benefit_costs_cache"):
+            delattr(self, "_benefit_costs_cache")
 
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()

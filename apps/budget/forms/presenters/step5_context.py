@@ -59,6 +59,22 @@ def build_step5_context(budget) -> Step5PricingContext:
     if benefit_tp_agg:
         custo_servico_terceiros += Money(benefit_tp_agg, "BRL")
 
+    # Somar custo de peças e frete de itens garantia/cortesia (ignorados pelo pricing snapshot)
+    benefit_product_agg = (
+        BudgetItem.objects.filter(
+            budget=budget,
+            item_benefit_type__in=("warranty", "courtesy"),
+            product_cost_price__gt=0,
+        ).aggregate(
+            total_cost=Sum(F("product_cost_price") * F("quantity")),
+            total_shipping=Sum("shipping"),
+        )
+    )
+    if benefit_product_agg.get("total_cost"):
+        custo_pecas += Money(benefit_product_agg["total_cost"], "BRL")
+    if benefit_product_agg.get("total_shipping"):
+        custo_frete_pecas += Money(benefit_product_agg["total_shipping"], "BRL")
+
     custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
     snapshot_total_td = budget.total_duration or timedelta()
