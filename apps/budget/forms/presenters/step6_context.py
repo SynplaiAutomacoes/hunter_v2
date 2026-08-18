@@ -47,6 +47,10 @@ class Step6ReviewContext:
     cancel_button_class: str
     reject_button_attrs: str
     reject_button_class: str
+    has_finalized_workorder: bool
+    reopen_workorder_block_message: str
+    reopen_workorder_blocked_reason_json: str
+    blocked_reopen: bool
     products_html: str
     services_html: str
     kits_html: str
@@ -134,6 +138,10 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         reject_button_class = ""
     signature_blocked_json = "true" if signature_blockers else "false"
     signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
+    has_finalized_workorder = budget.workorders.filter(status=WorkOrderStatus.APPROVED).exists()
+    reopen_workorder_block_message = "Não é possível reabrir este orçamento pois a O.S. vinculada já foi finalizada. Reabra a O.S. para continuar."
+    reopen_workorder_blocked_reason_json = escape(json.dumps(reopen_workorder_block_message))
+    blocked_reopen = has_finalized_workorder
     can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
     pdf_urls = resolve_budget_pdf_modal_urls(budget_id=budget.pk, can_toggle_signed_pdf=can_toggle_signed_pdf)
     initial_pdf_variant = pdf_urls.initial_pdf_variant
@@ -399,6 +407,10 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         cancel_button_class=cancel_button_class,
         reject_button_attrs=reject_button_attrs,
         reject_button_class=reject_button_class,
+        has_finalized_workorder=has_finalized_workorder,
+        reopen_workorder_block_message=reopen_workorder_block_message,
+        reopen_workorder_blocked_reason_json=reopen_workorder_blocked_reason_json,
+        blocked_reopen=blocked_reopen,
         products_html=products_html,
         services_html=services_html,
         kits_html=kits_html,
