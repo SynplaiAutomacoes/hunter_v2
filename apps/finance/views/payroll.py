@@ -41,9 +41,7 @@ from apps.collaborators.services import (
     mark_payrolls_as_unpaid,
     payroll_has_financial_movements,
     recalculate_payroll_from_linked_movements,
-    refresh_unpaid_payroll_due_dates,
     sync_collaborator_payroll,
-    sync_collaborator_payrolls_batch,
     unmark_payroll_commissions_as_paid,
     update_payroll_work_days,
 )
@@ -193,15 +191,6 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
             return collaborators.none()
 
         return collaborators
-
-    def _get_collaborators_to_sync(self, *, filters: dict[str, Any]):
-        """Active collaborators eligible for create/refresh of the month's payroll."""
-        return self._get_active_collaborators_queryset(filters=filters)
-
-    def _sync_monthly_payrolls(self, *, filters: dict[str, Any]) -> None:
-        reference_date = date(filters["year"], filters["month"], 1)
-        collaborators_to_sync = list(self._get_collaborators_to_sync(filters=filters).order_by("name", "id"))
-        sync_collaborator_payrolls_batch(collaborators=collaborators_to_sync, reference_date=reference_date, lock_reference=True)
 
     def _get_pending_collaborator_rows(self, *, filters: dict[str, Any], existing_collaborator_ids: set[int]) -> list[dict[str, Any]]:
         if filters["has_modal_date_filter"]:
@@ -399,66 +388,11 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
         context["month_choices"] = MONTH_CHOICES
         context["year_choices"] = range(timezone.localdate().year - 4, timezone.localdate().year + 2)
         context["has_modal_date_filter"] = filters["has_modal_date_filter"]
-        context["can_refresh_payroll"] = not filters["has_modal_date_filter"]
         context["clear_filters_url"] = reverse("finance:payroll_list")
         context["has_active_filters"] = bool(filters["start_date"] or filters["end_date"] or filters["collaborator_id"] is not None or filters["status"] or self.request.GET.get("search") or self.request.GET.get("mes") or self.request.GET.get("ano"))
         context["page_obj"] = page_obj
         context["is_paginated"] = paginator.num_pages > 1
         return context
-
-
-class PayrollRefreshView(PayrollListView, View):
-    workshop_permission_codename = "change_financialmovement"
-
-    def _get_filter_params_from_post(self, request: Any) -> dict[str, Any]:
-        today = timezone.localdate()
-        start_date = self._parse_date_param(request.POST.get("data_inicial"))
-        end_date = self._parse_date_param(request.POST.get("data_final"))
-        selected_status = str(request.POST.get("status") or "").strip()
-        if selected_status not in {CollaboratorPayroll.Status.FORECAST, CollaboratorPayroll.Status.PAID}:
-            selected_status = ""
-        collaborator_id = _parse_int_param(request.POST.get("collaborator"), default=None, minimum=1, maximum=999999999)
-        return {
-            "start_date": start_date,
-            "end_date": end_date,
-            "collaborator_id": collaborator_id,
-            "status": selected_status,
-            "month": _parse_int_param(request.POST.get("mes"), default=today.month, minimum=1, maximum=12),
-            "year": _parse_int_param(request.POST.get("ano"), default=today.year, minimum=2000, maximum=9999),
-            "has_modal_date_filter": bool(start_date or end_date),
-        }
-
-    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
-        filters = self._get_filter_params_from_post(request)
-        collaborators_to_sync = list(self._get_collaborators_to_sync(filters=filters).order_by("name", "id"))
-
-        if request.headers.get("HX-Request") and request.POST.get("confirm_create") != "true":
-            return render(
-                request,
-                "finance/payroll/partials/refresh_confirm_modal.html",
-                {
-                    "collaborators": collaborators_to_sync,
-                    "filters": filters,
-                },
-            )
-
-        if request.POST.get("confirm_create") == "true":
-            self._sync_monthly_payrolls(filters=filters)
-            refresh_unpaid_payroll_due_dates(workshop=self.workshop, reference_year=filters["year"], reference_month=filters["month"])
-            if request.headers.get("HX-Request"):
-                return _build_hx_toast_response(message="Folhas criadas/atualizadas com sucesso.", toast_type="success", refresh=True)
-
-        params = QueryDict("", mutable=True)
-        for key in ["search", "mes", "ano", "data_inicial", "data_final", "collaborator", "status", "page"]:
-            value = request.POST.get(key)
-            if value not in (None, ""):
-                params[key] = value
-
-        redirect_url = reverse("finance:payroll_list")
-        querystring = params.urlencode()
-        if querystring:
-            redirect_url = f"{redirect_url}?{querystring}"
-        return HttpResponseRedirect(redirect_url)
 
 
 def _get_payroll_reference_date(*, payroll: CollaboratorPayroll) -> date:
@@ -715,9 +649,9 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             )
         return benefit_items
 
-    def _open_edit_modal(self, *, request: Any, payroll: CollaboratorPayroll) -> HttpResponse:
+    def _open_edit_modal(self, *, request: Any, payroll: CollaboratorPayroll, selected_tab: str | None = None) -> HttpResponse:
         component_tabs = self._build_component_tabs(payroll=payroll)
-        selected_tab = self._get_requested_tab()
+        selected_tab = selected_tab or self._get_requested_tab()
         fallback_tab = self._get_first_available_financial_tab(component_tabs)
 
         if selected_tab not in {"collaborator", "commissions_history", "summary"}:
@@ -755,7 +689,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
 
         return render(
             request,
-            self.template_name,
+            "finance/payroll/partials/edit_modal.html",
             {
                 "payroll": payroll,
                 "selected_tab": selected_tab,
@@ -956,6 +890,72 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             return response
 
         return self._open_edit_modal(request=request, payroll=payroll)
+
+
+class PayrollSyncComponentView(PayrollEditModalView):
+    """Sync a single payroll tab (component) for one collaborator.
+
+    GET renders a confirmation dialog scoped to the active tab; POST (``confirm=true``)
+    recalculates only that component and re-renders the payroll edit modal.
+    """
+
+    template_name = "finance/payroll/partials/sync_component_confirm_modal.html"
+    ALLOWED_COMPONENTS = {
+        FinancialMovement.PayrollComponent.SALARY,
+        FinancialMovement.PayrollComponent.TRANSPORT,
+        FinancialMovement.PayrollComponent.BENEFIT,
+        FinancialMovement.PayrollComponent.COMMISSION,
+    }
+
+    def _get_component(self) -> str:
+        return str(self.kwargs["component"])
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        payroll = self._get_payroll()
+        collaborator = payroll.collaborator
+        component = self._get_component()
+        return render(
+            request,
+            self.template_name,
+            {
+                "payroll": payroll,
+                "collaborator": collaborator,
+                "component": component,
+                "component_label": PAYROLL_COMPONENT_LABELS.get(component, component),
+                "post_url": request.path,
+                "sync_url": reverse("finance:payroll_sync_component", kwargs={"pk": payroll.pk, "component": component}),
+            },
+        )
+
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        payroll = self._get_payroll()
+        component = self._get_component()
+        component_label = PAYROLL_COMPONENT_LABELS.get(component, component)
+
+        if component not in self.ALLOWED_COMPONENTS:
+            return _build_hx_toast_response(message="Componente invalido para sincronizacao.", toast_type="warning", status=400)
+
+        if payroll.status == CollaboratorPayroll.Status.PAID:
+            return _build_hx_toast_response(message="A folha paga nao pode ser sincronizada.", toast_type="warning", status=400)
+
+        component_tabs = {str(tab["key"]): tab for tab in self._build_component_tabs(payroll=payroll)}
+        active_tab = component_tabs.get(component)
+        if active_tab is None or not active_tab["movements"]:
+            return _build_hx_toast_response(
+                message="Esta aba nao possui movimentacoes para sincronizar.",
+                toast_type="warning",
+                status=400,
+            )
+
+        payroll = ensure_payroll_component_movements_confirmed(payroll=payroll, component=component)
+        response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=component)
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {"message": f"{component_label} sincronizado com sucesso.", "type": "success"},
+                "payrollListRefresh": True,
+            }
+        )
+        return response
 
 
 class PayrollBulkPayView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, View):
