@@ -991,7 +991,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 self.add_error("supplier", self.ENTITY_REQUIRED_ERROR)
                 self.add_error("collaborator", self.ENTITY_REQUIRED_ERROR)
 
-        if self.instance.description != "Pagamento da taxa da maquininha" and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
+        if getattr(self.instance, "movement_kind", None) != FinancialMovement.MovementKind.WORKORDER_CARD_FEE and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
 
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
