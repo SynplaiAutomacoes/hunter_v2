@@ -29,6 +29,7 @@ from apps.collaborators.services import (
     build_payroll_projection,
     ensure_payroll_component_movements_confirmed,
     ensure_payroll_movements_confirmed,
+    ensure_payroll_single_benefit_synced,
     get_payroll_due_date_for_reference,
     get_payroll_movement_diagnosis,
     get_payroll_movement_diagnoses,
@@ -910,10 +911,36 @@ class PayrollSyncComponentView(PayrollEditModalView):
     def _get_component(self) -> str:
         return str(self.kwargs["component"])
 
+    def _get_movement_id(self) -> int | None:
+        raw = self.request.GET.get("movement_id") or self.request.POST.get("movement_id")
+        if raw is not None:
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                pass
+        return None
+
+    def _resolve_benefit_label(self, *, payroll: CollaboratorPayroll, movement_id: int | None) -> str:
+        if movement_id is None:
+            return PAYROLL_COMPONENT_LABELS.get(FinancialMovement.PayrollComponent.BENEFIT, "Benefícios")
+        movement = payroll.financial_movements.filter(pk=movement_id, payroll_component=FinancialMovement.PayrollComponent.BENEFIT).first()
+        if movement is not None:
+            return self._benefit_display_name(movement=movement)
+        return PAYROLL_COMPONENT_LABELS.get(FinancialMovement.PayrollComponent.BENEFIT, "Benefícios")
+
     def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         payroll = self._get_payroll()
         collaborator = payroll.collaborator
         component = self._get_component()
+        movement_id = self._get_movement_id()
+
+        if component == FinancialMovement.PayrollComponent.BENEFIT and movement_id is not None:
+            component_label = self._resolve_benefit_label(payroll=payroll, movement_id=movement_id)
+        else:
+            component_label = PAYROLL_COMPONENT_LABELS.get(component, component)
+
+        post_url = request.get_full_path()
+
         return render(
             request,
             self.template_name,
@@ -921,8 +948,8 @@ class PayrollSyncComponentView(PayrollEditModalView):
                 "payroll": payroll,
                 "collaborator": collaborator,
                 "component": component,
-                "component_label": PAYROLL_COMPONENT_LABELS.get(component, component),
-                "post_url": request.path,
+                "component_label": component_label,
+                "post_url": post_url,
                 "sync_url": reverse("finance:payroll_sync_component", kwargs={"pk": payroll.pk, "component": component}),
             },
         )
@@ -930,7 +957,12 @@ class PayrollSyncComponentView(PayrollEditModalView):
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         payroll = self._get_payroll()
         component = self._get_component()
-        component_label = PAYROLL_COMPONENT_LABELS.get(component, component)
+        movement_id = self._get_movement_id()
+
+        if component == FinancialMovement.PayrollComponent.BENEFIT and movement_id is not None:
+            component_label = self._resolve_benefit_label(payroll=payroll, movement_id=movement_id)
+        else:
+            component_label = PAYROLL_COMPONENT_LABELS.get(component, component)
 
         if component not in self.ALLOWED_COMPONENTS:
             return _build_hx_toast_response(message="Componente invalido para sincronizacao.", toast_type="warning", status=400)
@@ -947,7 +979,10 @@ class PayrollSyncComponentView(PayrollEditModalView):
                 status=400,
             )
 
-        payroll = ensure_payroll_component_movements_confirmed(payroll=payroll, component=component)
+        if component == FinancialMovement.PayrollComponent.BENEFIT and movement_id is not None:
+            payroll = ensure_payroll_single_benefit_synced(payroll=payroll, movement_id=movement_id)
+        else:
+            payroll = ensure_payroll_component_movements_confirmed(payroll=payroll, component=component)
         response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=component)
         response["HX-Trigger"] = json.dumps(
             {

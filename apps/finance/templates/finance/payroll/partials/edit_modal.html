@@ -158,6 +158,18 @@
                                                     <span class="shrink-0 text-sm font-bold text-primary">{{ item.amount }}</span>
                                                     <button
                                                         type="button"
+                                                        class="btn btn-ghost btn-xs btn-square relative z-20 shrink-0 text-primary hover:bg-primary/10"
+                                                        title="Sincronizar {{ item.benefit_name }}"
+                                                        aria-label="Sincronizar {{ item.benefit_name }}"
+                                                        hx-get="{% url 'finance:payroll_sync_component' payroll.pk 'BENEFIT' %}?movement_id={{ item.movement_id|unlocalize }}"
+                                                        hx-target="body"
+                                                        hx-swap="beforeend"
+                                                        onclick="event.stopPropagation()"
+                                                    >
+                                                        <span class="material-icons pointer-events-none text-sm">sync</span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
                                                         class="btn btn-ghost btn-xs btn-square relative z-20 shrink-0 text-error hover:bg-error/10"
                                                         title="Excluir {{ item.benefit_name }}"
                                                         aria-label="Excluir {{ item.benefit_name }}"
@@ -244,9 +256,9 @@
                 <div x-show="(activeTab !== 'BENEFIT' && tabMovementIds[activeTab]) || (componentKeys.includes(activeTab) && tabMovementIds[activeTab] && payrollStatus !== 'PAID')" x-cloak>
                     <span class="text-sm text-base-content/70">Ações para <span class="font-semibold" x-text="tabLabels[activeTab] || ''"></span>:</span>
                     <button type="button" class="btn btn-primary btn-outline btn-sm ml-2"
-                            x-show="componentKeys.includes(activeTab) && payrollStatus !== 'PAID'"
+                            x-show="componentKeys.includes(activeTab) && activeTab !== 'BENEFIT' && payrollStatus !== 'PAID'"
                             hx-target="body" hx-swap="beforeend"
-                            x-bind:hx-get="syncUrlForTab(activeTab)">
+                            @click="htmx.ajax('GET', syncUrlForTab(activeTab), {target: document.body, swap: 'beforeend'})">
                         <span class="material-icons text-sm">sync</span>
                         Sincronizar dados
                     </button>
