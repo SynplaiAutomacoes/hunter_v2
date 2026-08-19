@@ -5,6 +5,8 @@ from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -310,10 +312,96 @@ class CollaboratorPayrollItem(TimeStampedModel):
         return f"{self.payroll} - {self.title}"
 
 
+class CollaboratorCommissionRule(TimeStampedModel):
+    """Configuração manual de comissão de um collaborator.
+
+    Uma regra por (collaborator, scope) ativa. Separa a *configuração* (regra)
+    da *apuração* (``CollaboratorCommissionEntry``).
+    """
+
+    class Scope(models.TextChoices):
+        SERVICE = "service", "Serviço"
+        PRODUCT = "product", "Produto"
+
+    class Modality(models.TextChoices):
+        PERCENTAGE = "percentage", "Percentual (%)"
+        FIXED = "fixed", "Valor Fixo (R$)"
+
+    class Base(models.TextChoices):
+        GROSS_SALE = "gross_sale", "Valor de Venda Bruta"
+        PROFITABILITY = "profitability", "Lucratividade / Líquido"
+
+    class ApplyScope(models.TextChoices):
+        PARTICIPATION = "participation", "Por Participação"
+        GLOBAL = "global", "Global"
+
+    collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.CASCADE, related_name="commission_rules")
+    scope = models.CharField(verbose_name="Escopo", max_length=10, choices=Scope.choices)
+    modality = models.CharField(verbose_name="Modalidade", max_length=12, choices=Modality.choices)
+    apply_scope = models.CharField(verbose_name="Aplicação", max_length=14, choices=ApplyScope.choices, default=ApplyScope.PARTICIPATION)
+    base = models.CharField(verbose_name="Base de cálculo", max_length=16, choices=Base.choices)
+    percentage = models.DecimalField(
+        verbose_name="Percentual de Comissão",
+        max_digits=7,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+    )
+    fixed_amount = MoneyField(verbose_name="Valor Fixo", max_digits=14, decimal_places=2, null=True, blank=True)
+    is_active = models.BooleanField(verbose_name="Ativa", default=True)
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Regra de Comissão do Colaborador"
+        verbose_name_plural = "Regras de Comissão do Colaborador"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["collaborator", "scope"],
+                condition=Q(is_active=True),
+                name="unique_active_commission_rule_per_collaborator_scope",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.collaborator.name} - {self.get_scope_display()}"
+
+    @property
+    def is_fixed_amount(self) -> bool:
+        return self.modality == self.Modality.FIXED
+
+    @property
+    def resolved_percentage(self) -> Decimal:
+        return self.percentage or Decimal("0")
+
+    @property
+    def resolved_fixed_amount(self) -> Decimal:
+        return Decimal(str(getattr(self.fixed_amount, "amount", 0) or 0))
+
+    def clean(self) -> None:
+        super().clean()
+        if not self.is_active:
+            return
+        if self.modality == self.Modality.PERCENTAGE and self.percentage is None:
+            raise ValidationError({"percentage": "Informe o percentual para a modalidade percentual."})
+        if self.modality == self.Modality.FIXED and self.resolved_fixed_amount <= Decimal("0"):
+            raise ValidationError({"fixed_amount": "Informe o valor fixo para a modalidade valor fixo."})
+        if self.modality == self.Modality.FIXED:
+            self.percentage = Decimal("0")
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        self.full_clean(exclude=["collaborator", "scope", "is_active"])
+        super().save(*args, **kwargs)
+
+
 class CollaboratorCommissionEntry(TimeStampedModel):
     class Status(models.TextChoices):
         FORECAST = "FORECAST", "Previsto"
         PAID = "PAID", "Pago"
+
+    class CommissionOrigin(models.TextChoices):
+        WORKORDER_RATE = "workorder_rate", "Comissão por OS (Oficina)"
+        SERVICE_RULE = "service_rule", "Regra de Serviço (Manual)"
+        PRODUCT_RULE = "product_rule", "Regra de Produto (Manual)"
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="collaborator_commission_entries")
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.CASCADE, related_name="commission_entries")
@@ -326,13 +414,16 @@ class CollaboratorCommissionEntry(TimeStampedModel):
     commission_amount = MoneyField(verbose_name="Valor da comissão", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     status = models.CharField(verbose_name="Status", max_length=16, choices=Status.choices, default=Status.FORECAST)
     paid_at = models.DateField(verbose_name="Pago em", null=True, blank=True)
+    commission_origin = models.CharField(verbose_name="Origem", max_length=16, choices=CommissionOrigin.choices, default=CommissionOrigin.WORKORDER_RATE)
+    commission_rule = models.ForeignKey("collaborators.CollaboratorCommissionRule", on_delete=models.SET_NULL, null=True, blank=True, related_name="commission_entries")
+    is_fixed_amount = models.BooleanField(verbose_name="Valor Fixo", default=False)
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Lançamento de Comissão do Colaborador"
         verbose_name_plural = "Lançamentos de Comissão do Colaborador"
         ordering = ["-reference_year", "-reference_month", "-id"]
         constraints = [
-            models.UniqueConstraint(fields=("collaborator", "workorder"), name="unique_collaborator_commission_workorder"),
+            models.UniqueConstraint(fields=("collaborator", "workorder", "commission_origin"), name="unique_collaborator_commission_per_origin"),
         ]
         indexes = [
             models.Index(fields=["collaborator", "reference_year", "reference_month"], name="collab_comm_ref_idx"),
@@ -340,9 +431,11 @@ class CollaboratorCommissionEntry(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"Comissão {self.collaborator.name} - OS #{self.workorder.pk}"
+        return f"Comissão {self.collaborator.name} - OS #{self.workorder.pk} ({self.get_commission_origin_display()})"
 
     @property
     def percentage_display(self) -> str:
+        if self.is_fixed_amount:
+            return f"R$ {self.commission_amount}"
         percentage_value = (Decimal(str(self.percentage or 0)) * Decimal("100")).quantize(Decimal("0.01"))
         return f"{str(percentage_value).replace('.', ',')}%"

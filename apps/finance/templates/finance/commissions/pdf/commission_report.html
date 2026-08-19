@@ -41,7 +41,7 @@
         <div class="mt-4 overflow-hidden rounded-lg border border-gray-200">
             <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
                 <h2 class="text-[13px] font-bold uppercase">{{ collaborator_data.name }}</h2>
-                <p class="mt-1 text-[10px] text-gray-500">Comissão: {{ collaborator_data.percentage|floatformat:2 }}% | {{ collaborator_data.entries|length }} O.S.(s) de venda</p>
+                <p class="mt-1 text-[10px] text-gray-500">Comissão: {% if collaborator_data.all_fixed %}Valor fixo{% else %}{{ collaborator_data.percentage|floatformat:2 }}%{% endif %} | {{ collaborator_data.entries|length }} O.S.(s) de venda</p>
             </div>
 
             {% if collaborator_data.entries %}
@@ -65,7 +65,7 @@
                         <td class="px-2 py-2 text-gray-600 nowrap">{{ entry.delivered_at|date:"d/m/Y"|default:"-" }}</td>
                         <td class="px-2 py-2">{{ entry.vehicle|default:"-" }}</td>
                         <td class="px-2 py-2 text-right nowrap">{{ entry.base_amount }}</td>
-                        <td class="px-2 py-2 text-right nowrap">{{ entry.percentage|floatformat:2 }}%</td>
+                        <td class="px-2 py-2 text-right nowrap">{% if entry.is_fixed_amount %}Fixo{% else %}{{ entry.percentage|floatformat:2 }}%{% endif %}</td>
                         <td class="px-2 py-2 text-right font-semibold nowrap">{{ entry.commission_amount }}</td>
                     </tr>
                     {% endfor %}

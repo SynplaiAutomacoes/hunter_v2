@@ -1,0 +1,45 @@
+{% load l10n %}
+
+<dialog
+    id="payroll-sync-component-confirm-modal"
+    class="modal"
+    x-data="{}"
+    x-ref="payrollSyncComponentConfirmModal"
+    x-init="$nextTick(() => $el.showModal())"
+    @click="if ($event.target === $el) $el.close()"
+    @close="$el.remove()"
+>
+    <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+        <div class="flex items-start gap-3">
+            <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
+                <span class="material-icons">sync</span>
+            </div>
+            <div>
+                <h3 class="text-lg font-semibold text-base-content">Confirmar sincronização</h3>
+                <p class="mt-2 text-sm leading-6 text-base-content/70">
+                    Os dados de <span class="font-semibold">{{ component_label }}</span> desta folha serão recalculados para
+                    <span class="font-semibold">{{ collaborator.name }}</span> ·
+                    {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}.
+                </p>
+            </div>
+        </div>
+
+        <div class="mt-5 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning-content">
+            <span class="material-icons mr-1 align-middle text-base">warning</span>
+            As alterações manuais feitas nesta aba serão sobrescritas pelos valores recalculados.
+        </div>
+
+        <form method="post" class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4"
+              hx-post="{{ post_url }}" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"
+              @htmx:after-request="if ($event.detail.successful) $refs.payrollSyncComponentConfirmModal.close()">
+            {% csrf_token %}
+            <input type="hidden" name="confirm" value="true">
+            <button type="button" class="btn-form-cancel" @click="$refs.payrollSyncComponentConfirmModal.close()">Cancelar</button>
+            <button type="submit" class="btn btn-primary">
+                <span class="material-icons text-sm">sync</span>
+                Sim, sincronizar
+            </button>
+        </form>
+    </div>
+    <button type="button" class="modal-backdrop" @click="$refs.payrollSyncComponentConfirmModal.close()">close</button>
+</dialog>

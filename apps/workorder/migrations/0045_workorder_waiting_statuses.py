@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                     ("draft", "Aprovado"),
                     ("waiting_collaborator", "Aguardando Colaborador"),
                     ("waiting_delivery", "Aguardando Entrega"),
-                    ("approved", "Veículo Entregue"),
+                    ("approved", "Veículo entregue"),
                     ("rejected", "Reprovado"),
                     ("cancelled", "Cancelado"),
                 ],

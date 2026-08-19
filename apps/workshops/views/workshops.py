@@ -35,6 +35,7 @@ from apps.workshops.forms.workshops import (
     WorkshopAddressSectionForm,
     WorkshopAssistantVirtualSectionForm,
     WorkshopCertificateSectionForm,
+    WorkshopCommissionSectionForm,
     WorkshopCompanySectionForm,
     WorkshopFiscalSectionForm,
     WorkshopForm,
@@ -204,6 +205,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     TAB_CREDENCIAIS = "credenciais"
     TAB_PDF_OBSERVATION = "pdf_observation"
     TAB_LOGO_AUTOUPLOAD = "logo_autoupload"
+    TAB_COMISSAO = "comissao"
     TABS = {
         TAB_EMPRESA,
         TAB_ASSISTENTE_VIRTUAL,
@@ -213,6 +215,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         TAB_OPCIONAIS,
         TAB_CREDENCIAIS,
         TAB_PDF_OBSERVATION,
+        TAB_COMISSAO,
     }
 
     NF_SUBTAB_NFE = "nfe"
@@ -278,6 +281,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             self.TAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
             self.TAB_OPCIONAIS: WorkshopOptionalsSectionForm(instance=self.company, workshop=self.object),
             self.TAB_PDF_OBSERVATION: WorkshopPdfObservationSectionForm(instance=self.object),
+            self.TAB_COMISSAO: WorkshopCommissionSectionForm(workshop=self.object),
         }
 
         if data is None and files is None:
@@ -297,6 +301,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             form_map[self.TAB_OPCIONAIS] = WorkshopOptionalsSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
         elif active_tab == self.TAB_PDF_OBSERVATION:
             form_map[self.TAB_PDF_OBSERVATION] = WorkshopPdfObservationSectionForm(data=data, files=files, instance=self.object)
+        elif active_tab == self.TAB_COMISSAO:
+            form_map[self.TAB_COMISSAO] = WorkshopCommissionSectionForm(data=data, files=files, workshop=self.object)
 
         return form_map
 
@@ -384,6 +390,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "certificate_form": forms_map[self.TAB_CERTIFICADO],
             "optionals_form": forms_map[self.TAB_OPCIONAIS],
             "pdf_observation_form": forms_map[self.TAB_PDF_OBSERVATION],
+            "commission_form": forms_map[self.TAB_COMISSAO],
             "credential_preview_fields": self._credential_preview_fields(),
             "certificate_status": self._certificate_status(),
             "has_certificate_file": self.object.has_certificate_file,
@@ -606,6 +613,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         restricted_workshop_tabs = {
             self.TAB_PDF_OBSERVATION,
             self.TAB_ASSISTENTE_VIRTUAL,
+            self.TAB_COMISSAO,
         }
 
         if active_tab in restricted_webmania_tabs and not self._can_change_webmania_company():
@@ -658,6 +666,15 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                     tab=active_tab,
                     nf_subtab=active_nf_subtab,
                     success_message="Observacao do PDF atualizada com sucesso.",
+                )
+        elif active_tab == self.TAB_COMISSAO:
+            commission_form = cast(WorkshopCommissionSectionForm, forms_map[self.TAB_COMISSAO])
+            if commission_form.is_valid():
+                return self._save_workshop_tab_form(
+                    form=commission_form,
+                    tab=active_tab,
+                    nf_subtab=active_nf_subtab,
+                    success_message="Configuracoes de comissao por OS atualizadas com sucesso.",
                 )
         elif active_tab == self.TAB_CREDENCIAIS:
             messages.info(request, "As credenciais dessa aba sao apenas para visualizacao.")

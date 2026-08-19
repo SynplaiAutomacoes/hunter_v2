@@ -141,8 +141,9 @@ class Budget(TimeStampedModel):
     # Datas e Prazos
     expiration_date = models.DateField(verbose_name="Data de Validade", null=True, blank=True)
     entry_date = models.DateField(verbose_name="Data de Entrada")
+    closed_at = models.DateTimeField(verbose_name="Data de fechamento", null=True, blank=True)
     first_approved_at = models.DateTimeField(verbose_name="Data da primeira aprovação", null=True, blank=True)
-    customer_agreed_departure_at = models.DateTimeField(verbose_name="Data de saída combinada com o Cliente", null=True, blank=True)
+    customer_agreed_departure_at = models.DateTimeField(verbose_name="Data de saída combinada com o cliente", null=True, blank=True)
     service_expected_completion_at = models.DateTimeField(verbose_name="Data prevista de término do serviço", null=True, blank=True)
     is_warranty_budget = models.BooleanField(verbose_name="Orçamento de Garantia", default=False)
     budget_type = models.CharField(verbose_name="Tipo de Orçamento", max_length=50, choices=BudgetType.choices, default=BudgetType.SALE)
@@ -159,19 +160,19 @@ class Budget(TimeStampedModel):
     # Financeiro
     discount_value = MoneyField(verbose_name="Aplicar Desconto (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Aplicar Desconto (%)", max_digits=7, decimal_places=6, default=0.00, validators=[MinValueValidator(0), MaxValueValidator(1)])
-    discount_type = models.CharField(verbose_name="Tipo de Desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
+    discount_type = models.CharField(verbose_name="Tipo de desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
 
     # Margens e Ajustes
     profit_margin_parts = models.DecimalField(verbose_name="Percentual Lucro de Peças", max_digits=5, decimal_places=2, default=0.00)
     profit_margin_labor = models.DecimalField(verbose_name="Percentual Lucro de Mão de Obra", max_digits=5, decimal_places=2, default=0.00)
-    slider = models.SmallIntegerField(verbose_name="Slider", default=0, validators=[MinValueValidator(-100), MaxValueValidator(100)], help_text="Negativo: Peça | Positivo: Mão de Obra")
+    slider = models.SmallIntegerField(verbose_name="Controle de margem", default=0, validators=[MinValueValidator(-100), MaxValueValidator(100)], help_text="Negativo: Peça | Positivo: Mão de Obra")
 
     # Status e Controle
     status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
     rejection_reason = models.CharField(verbose_name="Motivo da Reprovação", max_length=255, blank=True, null=True)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
-    step5_calculation_viewed = models.BooleanField(verbose_name="Calculo da etapa 5 visualizado", default=False)
+    step5_calculation_viewed = models.BooleanField(verbose_name="Cálculo da etapa 5 visualizado", default=False)
 
     pricing_reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência da precificação", null=True, blank=True)
     pricing_reference_year = models.PositiveIntegerField(verbose_name="Ano de referência da precificação", null=True, blank=True)
@@ -181,6 +182,14 @@ class Budget(TimeStampedModel):
     pricing_hourly_cost_value = MoneyField(verbose_name="Valor hora congelado", max_digits=14, decimal_places=2, null=True, blank=True)
     pricing_profitability_multiplier = models.DecimalField(verbose_name="Multiplicador congelado", max_digits=10, decimal_places=2, null=True, blank=True)
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=PricingMethod.choices, null=True, blank=True)
+    stored_rentability = models.DecimalField(
+        verbose_name="Rentabilidade armazenada",
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Rentabilidade do PDF do gestor, persistida no write path para não recalcular em listagens.",
+    )
     stored_total_amount = MoneyField(
         verbose_name="Total armazenado do orçamento",
         max_digits=14,
@@ -214,6 +223,7 @@ class Budget(TimeStampedModel):
             "customer_agreed_departure_at",
             "service_expected_completion_at",
             "entry_date",
+            "closed_at",
             "first_approved_at",
             "expiration_date",
             "observations",
@@ -251,10 +261,14 @@ class Budget(TimeStampedModel):
         if not is_new:
             old_status, old_budget_type = Budget.objects.filter(pk=self.pk).values_list("status", "budget_type").first() or (None, None)
 
+        closed_at_changed = self._sync_closed_at(old_status=old_status, is_new=is_new)
         first_approved_at_changed = self._sync_first_approved_at(old_status=old_status, is_new=is_new)
-        if first_approved_at_changed and kwargs.get("update_fields") is not None:
+        if (closed_at_changed or first_approved_at_changed) and kwargs.get("update_fields") is not None:
             update_fields_set = set(kwargs["update_fields"])
-            update_fields_set.add("first_approved_at")
+            if closed_at_changed:
+                update_fields_set.add("closed_at")
+            if first_approved_at_changed:
+                update_fields_set.add("first_approved_at")
             kwargs["update_fields"] = list(update_fields_set)
 
         with transaction.atomic():
@@ -287,6 +301,29 @@ class Budget(TimeStampedModel):
             if not skip_stored_refresh:
                 self.refresh_stored_total_amount()
 
+    _CLOSED_STATUSES = frozenset({BudgetStatus.APPROVED, BudgetStatus.REJECTED, BudgetStatus.CANCELLED})
+
+    def _sync_closed_at(self, *, old_status: str | None, is_new: bool) -> bool:
+        """Keep closed_at aligned with terminal status transitions. Returns True if value changed."""
+        previous_closed_at = self.closed_at
+        new_is_closed = self.status in self._CLOSED_STATUSES
+        old_is_closed = old_status in self._CLOSED_STATUSES if old_status is not None else False
+
+        if is_new:
+            if new_is_closed:
+                if self.closed_at is None:
+                    self.closed_at = timezone.now()
+            else:
+                self.closed_at = None
+        elif not old_is_closed and new_is_closed:
+            self.closed_at = timezone.now()
+        elif old_is_closed and not new_is_closed:
+            self.closed_at = None
+        elif old_is_closed and new_is_closed and old_status != self.status:
+            self.closed_at = timezone.now()
+
+        return previous_closed_at != self.closed_at
+
     def _sync_first_approved_at(self, *, old_status: str | None, is_new: bool) -> bool:
         """Set first_approved_at once on first transition to approved. Never clears or overwrites."""
         if self.first_approved_at is not None:
@@ -311,15 +348,65 @@ class Budget(TimeStampedModel):
         total = self.stored_total_source_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
+        self.refresh_stored_rentability()
+
+    def refresh_stored_rentability(self) -> None:
+        """Persist the gestor-PDF rentability so listings do not recompute it."""
+        if self.pk is None:
+            return
+        if getattr(self, "_skip_stored_total_refresh", False):
+            return
+        if getattr(self, "_refreshing_stored_rentability", False):
+            return
+        setattr(self, "_refreshing_stored_rentability", True)
+        try:
+            value = self.compute_gestor_pdf_rentability()
+            type(self).objects.filter(pk=self.pk).update(stored_rentability=value)
+            self.stored_rentability = value
+        finally:
+            setattr(self, "_refreshing_stored_rentability", False)
+
+    def compute_gestor_pdf_rentability(self) -> Decimal:
+        from apps.core.infrastructure.services.dashboard_query_service import prepare_budget_for_gestor_pdf_pricing
+
+        previous_injected = getattr(self, "_injected_pricing_context", None)
+        previous_skip = getattr(self, "_skip_mechanic_labor_cost", False)
+        previous_readonly = getattr(self, "_read_only_pricing_context", False)
+        had_snapshot = hasattr(self, "_pricing_snapshot_cache")
+        previous_snapshot = getattr(self, "_pricing_snapshot_cache", None)
+        try:
+            self.invalidate_pricing_snapshot_cache()
+            prepare_budget_for_gestor_pdf_pricing(self)
+            return self._compute_rentability()
+        finally:
+            if previous_injected is None:
+                if hasattr(self, "_injected_pricing_context"):
+                    delattr(self, "_injected_pricing_context")
+            else:
+                setattr(self, "_injected_pricing_context", previous_injected)
+            setattr(self, "_skip_mechanic_labor_cost", previous_skip)
+            setattr(self, "_read_only_pricing_context", previous_readonly)
+            if had_snapshot:
+                setattr(self, "_pricing_snapshot_cache", previous_snapshot)
+            else:
+                self.invalidate_pricing_snapshot_cache()
+
+    def _compute_rentability(self) -> Decimal:
+        data = self.calculate_pricing_methods(include_method_extras=False)
+        amount = data["rentabilidade"]
+        if isinstance(amount, Decimal):
+            return amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return Decimal(str(getattr(amount, "amount", amount) or 0)).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
     class Meta:
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
         indexes = [
             models.Index(fields=["workshop", "status", "entry_date"], name="budget_ws_status_entry_idx"),
-            models.Index(fields=["workshop", "status", "first_approved_at"], name="budget_ws_status_1st_appr_idx"),
             models.Index(fields=["workshop", "entry_date"], name="budget_ws_entry_idx"),
             models.Index(fields=["customer", "criado_em"], name="budget_customer_criado_idx"),
+            models.Index(fields=["workshop", "status", "closed_at"], name="budget_ws_status_closed_idx"),
+            models.Index(fields=["workshop", "status", "first_approved_at"], name="budget_ws_status_1st_appr_idx"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["workshop", "number"], name="unique_budget_number_per_workshop"),
@@ -430,8 +517,7 @@ class Budget(TimeStampedModel):
         for field_name, value in snapshot_data.items():
             setattr(self, field_name, value)
         self.invalidate_pricing_snapshot_cache()
-        # Avoid nested full pricing while resolving labor costs inside pricing_snapshot.
-        # Full Budget.save() / explicit callers refresh stored totals separately.
+        self.refresh_stored_rentability()
 
     def get_frozen_pricing_context(self):
         injected = getattr(self, "_injected_pricing_context", None)
@@ -722,9 +808,10 @@ class Budget(TimeStampedModel):
         return "Sistema"
 
     @property
-    def rentability(self) -> Money:
-        data = self.calculate_pricing_methods(include_method_extras=False)
-        return data["rentabilidade"]
+    def rentability(self) -> Decimal:
+        if self.stored_rentability is not None:
+            return self.stored_rentability
+        return self._compute_rentability()
 
     def _is_local_product_item(self, item: "BudgetItem") -> bool:
         if item.local_item_type == BudgetItemLocalType.PRODUCT:

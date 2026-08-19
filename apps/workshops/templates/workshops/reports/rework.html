@@ -1,0 +1,68 @@
+{% extends 'crud/page.html' %}
+{% load format_tags %}
+
+{% block crud_content %}
+    <div class="flex flex-col gap-6">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Mecânicos que geram mais retrabalho</h1>
+                <p class="text-base-content/70 mt-1">{{ workshop }} · {{ periodo_label }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                {% include "workshops/reports/partials/period_filter.html" %}
+                <a href="{{ excel_url }}" class="btn btn-success gap-2">
+                    <span class="material-icons text-sm">table_view</span>
+                    Exportar Excel
+                </a>
+                {% include "workshops/reports/partials/back_button.html" %}
+            </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+            <a href="?mes={{ mes_selecionado }}&ano={{ ano_selecionado }}&ordenar=prejuizo" class="btn btn-sm {% if sort_key == 'prejuizo' %}btn-primary{% else %}btn-ghost border border-base-300{% endif %}">Ordenar por prejuízo</a>
+            <a href="?mes={{ mes_selecionado }}&ano={{ ano_selecionado }}&ordenar=veiculos" class="btn btn-sm {% if sort_key == 'veiculos' %}btn-primary{% else %}btn-ghost border border-base-300{% endif %}">Ordenar por veículos</a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Mecânicos</div>
+                <div class="stat-value text-lg">{{ report.rows|length }}</div>
+            </div>
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Veículos (soma do ranking)</div>
+                <div class="stat-value text-lg">{{ report.total_vehicles }}</div>
+            </div>
+            <div class="stat bg-base-100 shadow rounded-box">
+                <div class="stat-title">Prejuízo acumulado</div>
+                <div class="stat-value text-error text-lg">{{ report.total_loss|money_br }}</div>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl overflow-x-auto">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Mecânico</th>
+                        <th class="text-right">Qtd. veículos</th>
+                        <th class="text-right">Qtd. OS garantia</th>
+                        <th class="text-right">Prejuízo acumulado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report.rows %}
+                        <tr>
+                            <td class="font-semibold">{{ row.mechanic_name }}</td>
+                            <td class="text-right">{{ row.vehicle_count }}</td>
+                            <td class="text-right">{{ row.workorder_count }}</td>
+                            <td class="text-right font-semibold text-error">{{ row.accumulated_loss|money_br }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center text-base-content/60 py-10">Nenhuma OS de garantia vinculada a mecânico no período.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}

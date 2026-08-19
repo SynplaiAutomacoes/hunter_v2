@@ -10,8 +10,8 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from apps.accounts.models import Account
-from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm
-from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.forms import CollaboratorBenefitFormSet, CollaboratorCommissionScopeForm, WorkshopCollaboratorCreateForm
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionRule, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import (
     delete_collaborator_benefit_and_sync_payrolls,
     delete_payroll_linked_financial_movement,
@@ -90,6 +90,99 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         self.assertIn(WorkshopCollaborator.CollaboratorType.PRODUCTIVE, collaborator_type_choices)
         self.assertIn(WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE, collaborator_type_choices)
         self.assertIn(WorkshopCollaborator.CollaboratorType.PRO_LABORE, collaborator_type_choices)
+
+    def test_commission_scope_form_exposes_config_fields(self) -> None:
+        account = create_account(suffix=22)
+        workshop = create_workshop(account=account, suffix=22)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678922",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+
+        rule = CollaboratorCommissionRule(collaborator=collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE, is_active=False)
+        form = CollaboratorCommissionScopeForm(instance=rule, prefix="commission_service")
+
+        for field_name in ["apply_scope", "base", "percentage", "fixed_amount", "is_active"]:
+            self.assertIn(field_name, form.fields)
+        self.assertNotIn("scope", form.fields)
+        self.assertNotIn("modality", form.fields)
+
+    def test_commission_scope_form_blocks_both_value_types(self) -> None:
+        account = create_account(suffix=23)
+        workshop = create_workshop(account=account, suffix=23)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678923",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+
+        rule = CollaboratorCommissionRule(collaborator=collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
+        form = CollaboratorCommissionScopeForm(
+            data={
+                "commission_service-is_active": "on",
+                "commission_service-apply_scope": "participation",
+                "commission_service-base": "gross_sale",
+                "commission_service-percentage": "0.100000",
+                "commission_service-fixed_amount_0": "50.00",
+                "commission_service-fixed_amount_1": "BRL",
+            },
+            instance=rule,
+            prefix="commission_service",
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("fixed_amount", form.errors)
+
+    def test_commission_scope_form_validates_active_rule_values(self) -> None:
+        account = create_account(suffix=24)
+        workshop = create_workshop(account=account, suffix=24)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678924",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+
+        base_data = {
+            "commission_service-is_active": "on",
+            "commission_service-apply_scope": "participation",
+            "commission_service-base": "gross_sale",
+        }
+
+        # Nenhum valor preenchido não é permitido para uma regra ativa.
+        rule = CollaboratorCommissionRule(collaborator=collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
+        form = CollaboratorCommissionScopeForm(data={**base_data}, instance=rule, prefix="commission_service")
+        self.assertFalse(form.is_valid())
+        self.assertIn("percentage", form.errors)
+
+        # Apenas percentual define a modalidade percentual.
+        rule = CollaboratorCommissionRule(collaborator=collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
+        form = CollaboratorCommissionScopeForm(
+            data={**base_data, "commission_service-percentage": "0.100000"},
+            instance=rule,
+            prefix="commission_service",
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.instance.modality, CollaboratorCommissionRule.Modality.PERCENTAGE)
+        self.assertEqual(form.cleaned_data["percentage"], Decimal("0.100000"))
+
+        # Apenas valor fixo define a modalidade fixa e zera o percentual.
+        rule = CollaboratorCommissionRule(collaborator=collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
+        form = CollaboratorCommissionScopeForm(
+            data={
+                **base_data,
+                "commission_service-fixed_amount_0": "50.00",
+                "commission_service-fixed_amount_1": "BRL",
+            },
+            instance=rule,
+            prefix="commission_service",
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.instance.modality, CollaboratorCommissionRule.Modality.FIXED)
+        self.assertEqual(Decimal(str(form.cleaned_data["percentage"])), Decimal("0"))
 
     def test_benefit_formset_exposes_budget_plan_searchable_select(self) -> None:
         account = create_account(suffix=9)

@@ -4,7 +4,6 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.template.loader import render_to_string
-from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from apps.budget.documents.provider import render_budget_pdf_document
@@ -19,11 +18,7 @@ from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
 from apps.core.infrastructure.pdf import render_pdf_from_html
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.infrastructure.providers import get_signature_service
-from apps.core.infrastructure.services.dashboard_query_service import (
-    _build_injected_pricing_context,
-    _prepare_budget_for_dashboard_pricing,
-)
-from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.core.infrastructure.services.dashboard_query_service import prepare_budget_for_gestor_pdf_pricing
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -49,13 +44,7 @@ def _prepare_budget_for_pdf_pricing(budget: Budget) -> Budget:
     if budget.has_frozen_pricing_snapshot:
         setattr(budget, "_read_only_pricing_context", True)
         return budget
-
-    today = timezone.localdate()
-    workshop = budget.workshop
-    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
-    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
-    _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
-    return budget
+    return prepare_budget_for_gestor_pdf_pricing(budget)
 
 
 @xframe_options_exempt

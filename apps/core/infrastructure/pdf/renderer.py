@@ -53,3 +53,11 @@ def build_pdf_http_response(*, document: DocumentPayload, download: bool = False
     response["X-Content-Type-Options"] = "nosniff"
     response["Cache-Control"] = "no-store"
     return response
+
+
+def build_excel_http_response(*, document: DocumentPayload) -> HttpResponse:
+    response = HttpResponse(document.content, content_type=document.content_type)
+    response["Content-Disposition"] = f'attachment; filename="{document.filename}"'
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Cache-Control"] = "no-store"
+    return response

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
@@ -8,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.urls import reverse
 
-from apps.collaborators.models import CollaboratorBenefit, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionRule, WorkshopCollaborator, WorkshopMember
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import (
     CalendarDateInput,
@@ -62,7 +64,6 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             "termination_date",
             "collaborator_type",
             "receives_commission",
-            "commission_percentage",
             "is_active",
             "system_access",
         ]
@@ -83,7 +84,6 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             "termination_date": CalendarDateInput(),
             "collaborator_type": SearchableSelectInput(),
             "receives_commission": CheckboxInput(),
-            "commission_percentage": PercentageInput(),
             "is_active": CheckboxInput(),
             "system_access": CheckboxInput(),
         }
@@ -116,9 +116,6 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
         payment_day_type = self.data.get("payment_day_type") if self.is_bound else (self.initial.get("payment_day_type") or getattr(self.instance, "payment_day_type", WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY))
 
         self.fields["receives_commission"].widget.attrs["x-model"] = "receives_commission"
-        self.fields["commission_percentage"].widget.attrs["x-bind:disabled"] = "!receives_commission"
-        if not receives_commission:
-            self.fields["commission_percentage"].widget.attrs["disabled"] = True
 
         self.fields["system_access"].widget.attrs["x-model"] = "system_access"
         self.fields["system_username"].widget.attrs["x-bind:disabled"] = "!system_access"
@@ -176,14 +173,6 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
                 #
                 Div(
                     HTML('<div class="col-span-12 divider"></div>'),
-                    Field("commission_percentage", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="col-span-12 grid grid-cols-12 gap-4",
-                    x_show="receives_commission",
-                    x_cloak=True,
-                ),
-                #
-                Div(
-                    HTML('<div class="col-span-12 divider"></div>'),
                     HTML(
                         """
                         <div class="col-span-12">
@@ -204,7 +193,6 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                 x_data=f"{{ receives_commission: {str(receives_commission).lower()}, system_access: {str(system_access).lower()} }}",
                 x_effect=(
-                    "$refs.commission_percentage && ($refs.commission_percentage.disabled = !receives_commission);"
                     "$refs.system_username && ($refs.system_username.disabled = !system_access);"
                     "$refs.role && ($refs.role.disabled = !system_access);"
                     "$refs.password1 && ($refs.password1.disabled = !system_access);"
@@ -240,14 +228,6 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
 
     def clean(self):
         cleaned = super().clean()
-
-        receives_commission = cleaned.get("receives_commission")
-        commission_percentage = cleaned.get("commission_percentage")
-
-        if receives_commission and commission_percentage is None:
-            self.add_error("commission_percentage", "Informe o percentual de comissão.")
-        if not receives_commission:
-            cleaned["commission_percentage"] = None
 
         payment_day_type = cleaned.get("payment_day_type")
         payment_day_of_month = cleaned.get("payment_day_of_month")
@@ -470,3 +450,78 @@ CollaboratorBenefitFormSet = inlineformset_factory(
     extra=0,
     can_delete=True,
 )
+
+
+class CollaboratorCommissionScopeForm(CoreModelForm):
+    """Form de configuração de comissão para um escopo fixo (serviço ou produto).
+
+    O escopo é definido na instância passada pelo chamador e não aparece no form.
+    A modalidade (percentual vs valor fixo) é derivada automaticamente: o
+    colaborador preenche percentual OU valor fixo, nunca ambos. O checkbox
+    ``is_active`` é o toggle "Habilitar comissão sobre ...".
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in ("base", "apply_scope"):
+            field = self.fields[field_name]
+            field.widget = SearchableSelectInput(choices=list(field.choices), attrs=field.widget.attrs)
+            field.required = False
+
+    class Meta:
+        model = CollaboratorCommissionRule
+        fields = ["is_active", "base", "apply_scope", "percentage", "fixed_amount"]
+        help_texts = {
+            "base": "Base sobre a qual a comissão é calculada: venda bruta ou lucratividade (venda menos custo).",
+            "apply_scope": "Por participação aplica só quando o colaborador participa da OS; global aplica a todas as OSs aprovadas.",
+        }
+        widgets = {
+            "is_active": CheckboxInput(),
+            "percentage": PercentageInput(decimal_places=2),
+            "fixed_amount": MoneyInput(),
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.errors:
+            return cleaned
+
+        rule = self.instance
+        is_active = cleaned.get("is_active")
+        percentage = cleaned.get("percentage")
+        fixed_amount = cleaned.get("fixed_amount")
+
+        fixed_value = getattr(fixed_amount, "amount", None)
+        has_fixed = fixed_value not in (None, "") and Decimal(str(fixed_value)) > 0
+        has_percentage = percentage not in (None, "") and Decimal(str(percentage)) > 0
+
+        if not is_active:
+            if not rule.modality:
+                rule.modality = CollaboratorCommissionRule.Modality.PERCENTAGE
+            if not cleaned.get("base"):
+                cleaned["base"] = CollaboratorCommissionRule.Base.GROSS_SALE
+                rule.base = CollaboratorCommissionRule.Base.GROSS_SALE
+            return cleaned
+
+        if has_percentage and has_fixed:
+            self.add_error("fixed_amount", "Preencha apenas um dos campos: percentual ou valor fixo da comissão.")
+            return cleaned
+        if not has_percentage and not has_fixed:
+            self.add_error("percentage", "Informe o percentual ou o valor fixo para habilitar a comissão.")
+            return cleaned
+        if not cleaned.get("base"):
+            self.add_error("base", "Selecione a base de cálculo da comissão.")
+        if not cleaned.get("apply_scope"):
+            self.add_error("apply_scope", "Selecione a aplicação da comissão.")
+        if self.errors:
+            return cleaned
+
+        rule.modality = (
+            CollaboratorCommissionRule.Modality.PERCENTAGE
+            if has_percentage
+            else CollaboratorCommissionRule.Modality.FIXED
+        )
+        if has_fixed:
+            cleaned["percentage"] = Decimal("0")
+            rule.percentage = Decimal("0")
+        return cleaned

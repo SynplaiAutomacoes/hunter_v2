@@ -673,8 +673,9 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
         form_kwargs = self.get_form_kwargs()
-        form_kwargs.pop("data", None)
-        form_kwargs.pop("files", None)
+        if step != self.get_current_step():
+            form_kwargs.pop("data", None)
+            form_kwargs.pop("files", None)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object
@@ -1285,6 +1286,10 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if status == "reject" and has_active_workorder:
             error_message = "Não é possível reprovar um orçamento após a abertura da O.S. Cancele a ordem de serviço primeiro ou siga com o cancelamento do orçamento."
+            return JsonResponse({"success": False, "error": error_message}, status=400)
+
+        if status == "reopen" and budget.workorders.filter(status=WorkOrderStatus.APPROVED).exists():
+            error_message = "Não é possível reabrir este orçamento pois a O.S. vinculada já foi finalizada. Reabra a O.S. para continuar."
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
         if budget.is_status_locked and status != "reopen":

@@ -347,8 +347,50 @@
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                 <div class="col-span-12 lg:col-span-3">{{ form.receives_commission|as_crispy_field }}</div>
-                <div class="col-span-12 lg:col-span-3" x-show="receives_commission" x-cloak>{{ form.commission_percentage|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-3">{{ form.system_access|as_crispy_field }}</div>
+            </div>
+
+            <div class="rounded-xl border border-base-300 p-4 space-y-6" x-show="receives_commission" x-cloak>
+                <div>
+                    <h3 class="text-base font-semibold">Regras de comissão</h3>
+                    <p class="text-sm text-base-content/70">Configure as comissões manuais por escopo (serviço ou produto). Preencha o percentual ou o valor fixo — nunca ambos. A regra manual tem prioridade sobre a comissão por OS configurada na oficina.</p>
+                </div>
+
+                {% for card in commission_scope_cards %}
+                {% with scope_form=card.form %}
+                <div
+                    class="rounded-xl border border-base-300 p-4 space-y-4"
+                    x-data="{ enabled: {{ scope_form.is_active.value|yesno:'true,false,false' }} }"
+                    data-rule-exclusive
+                    data-percentage-display-id="{{ scope_form.percentage.id_for_label }}"
+                    data-percentage-name="{{ scope_form.percentage.html_name }}"
+                    data-fixed-name="{{ scope_form.fixed_amount.html_name }}"
+                >
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        {{ scope_form.is_active }}
+                        <span>
+                            <span class="font-medium">{{ card.toggle_label }}</span>
+                            <span class="block text-xs text-base-content/60">{{ card.toggle_hint }}</span>
+                        </span>
+                    </label>
+                    {% if scope_form.is_active.errors %}
+                        <div class="text-error text-sm">{{ scope_form.is_active.errors }}</div>
+                    {% endif %}
+                    {% if scope_form.non_field_errors %}
+                        <div class="alert alert-error text-sm">{{ scope_form.non_field_errors }}</div>
+                    {% endif %}
+
+                    <div x-show="enabled" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start pt-4 border-t border-base-300/60">
+                        <div class="col-span-12 lg:col-span-4">{{ scope_form.percentage|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ scope_form.fixed_amount|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ scope_form.base|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-6">{{ scope_form.apply_scope|as_crispy_field }}</div>
+                    </div>
+                </div>
+                {% endwith %}
+                {% endfor %}
+
+                <p class="text-xs text-base-content/60">Ao habilitar um escopo, escolha a base de cálculo e como a comissão deve ser aplicada. O percentual e o valor fixo são mutuamente exclusivos.</p>
             </div>
 
             <div x-show="system_access" x-cloak class="rounded-xl border border-base-300 p-4">
@@ -545,6 +587,39 @@
             },
         };
     }
+
+    function initCommissionScopeExclusivity(root) {
+        root.querySelectorAll('[data-rule-exclusive]').forEach((panel) => {
+            const percDisplay = document.getElementById(panel.dataset.percentageDisplayId);
+            const percHidden = panel.querySelector(`input[name="${panel.dataset.percentageName}"]`);
+            const fixedDisplay = document.getElementById(`id_${panel.dataset.fixedName}_0_display`);
+            const fixedHidden = panel.querySelector(`input[name="${panel.dataset.fixedName}_0"]`);
+            if (!percDisplay || !percHidden || !fixedDisplay || !fixedHidden) {
+                return;
+            }
+
+            const hasValue = (input) => Boolean(input) && input.value !== '' && input.value !== '0' && input.value !== '0.00' && input.value !== '0,00';
+
+            percDisplay.addEventListener('input', () => {
+                if (hasValue(percHidden)) {
+                    fixedDisplay.value = '';
+                    fixedHidden.value = '';
+                }
+            });
+            fixedDisplay.addEventListener('input', () => {
+                if (hasValue(fixedHidden)) {
+                    percDisplay.value = '';
+                    percHidden.value = '';
+                }
+            });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('[data-rule-exclusive]').forEach((panel) => {
+            initCommissionScopeExclusivity(panel);
+        });
+    });
 </script>
 {% endblock %}
 

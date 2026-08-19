@@ -15,6 +15,8 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget
+from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+from apps.collaborators.commission.payroll_sync import build_commission_payroll_item_description
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
@@ -792,10 +794,6 @@ def remove_pending_workorder_commissions(*, workorder: WorkOrder) -> int:
     return deleted_count
 
 
-def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionEntry) -> str:
-    return f"{entry.percentage * Decimal('100'):.2f}% sobre {entry.base_amount}"
-
-
 def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
     payroll.items.filter(item_type=CollaboratorPayrollItem.ItemType.COMMISSION).delete()
     commission_items = [
@@ -803,7 +801,7 @@ def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commissio
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.COMMISSION,
             title=f"Comissão OS #{entry.workorder.pk}",
-            description=_build_commission_payroll_item_description(entry=entry),
+            description=build_commission_payroll_item_description(entry=entry),
             amount=entry.commission_amount,
         )
         for entry in commission_entries
@@ -872,138 +870,13 @@ def _resolve_benefit_budget_plan(*, collaborator: WorkshopCollaborator, benefit:
 
 @transaction.atomic
 def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> list[CollaboratorCommissionEntry]:
-    resolved = _resolve_reference_date(reference_date)
-    if not collaborator.receives_commission or collaborator.commission_percentage is None:
-        CollaboratorCommissionEntry.objects.filter(
-            collaborator=collaborator,
-            reference_year=resolved.year,
-            reference_month=resolved.month,
-            status=CollaboratorCommissionEntry.Status.FORECAST,
-        ).delete()
-        return []
+    """Wrapper de compatibilidade: a apuração agora é centralizada no orquestrador."""
 
-    workorders = (
-        WorkOrder.objects.filter(
-            workshop=collaborator.workshop,
-            collaborators=collaborator,
-        )
-        .select_related("budget")
-        .prefetch_related(
-            "payments",
-            _WORKORDER_PARENT_MOVEMENTS_PREFETCH,
-            workorder_items_with_kit_prefetch(with_kit_tree=True),
-        )
-        .order_by("id")
-        .distinct()
+    return WorkOrderCommissionOrchestrator().sync_collaborator_commissions(
+        collaborator=collaborator,
+        reference_date=reference_date,
+        lock_reference=lock_reference,
     )
-    workorders = list(workorders)
-    commission_reference_by_workorder_id = {workorder.pk: _resolve_commission_reference_date(workorder=workorder) for workorder in workorders}
-    reference_years = {reference.year for reference in commission_reference_by_workorder_id.values()}
-    reference_months = {reference.month for reference in commission_reference_by_workorder_id.values()}
-    existing_payroll_lookup = {
-        (payroll.reference_year, payroll.reference_month): payroll
-        for payroll in CollaboratorPayroll.objects.filter(
-            collaborator=collaborator,
-            reference_year__in=reference_years or {resolved.year},
-            reference_month__in=reference_months or {resolved.month},
-        ).select_related("financial_movement")
-    }
-    existing_entries_by_workorder_id = {
-        entry.workorder_id: entry
-        for entry in CollaboratorCommissionEntry.objects.filter(
-            collaborator=collaborator,
-            workorder__in=workorders,
-        ).select_related("workorder")
-    }
-    synced_entries: list[CollaboratorCommissionEntry] = []
-    active_workorder_ids: set[int] = set()
-    protected_workorder_ids: set[int] = set()
-    percentage = Decimal(str(collaborator.commission_percentage or 0))
-
-    for workorder in workorders:
-        if not _workorder_can_generate_commission(workorder=workorder):
-            remove_pending_workorder_commissions(workorder=workorder)
-            continue
-
-        protected_workorder_ids.add(workorder.pk)
-
-        commission_reference = commission_reference_by_workorder_id[workorder.pk]
-        effective_reference = _resolve_payroll_reference_date_from_lookup(
-            collaborator=collaborator,
-            reference_date=commission_reference,
-            lock_reference=lock_reference,
-            existing_payroll_lookup=existing_payroll_lookup,
-        )
-        if effective_reference.year != resolved.year or effective_reference.month != resolved.month:
-            continue
-
-        active_workorder_ids.add(workorder.pk)
-        commission_base_amount = _resolve_commission_base_amount(workorder=workorder)
-        base_amount = Decimal(str(commission_base_amount.amount or ZERO))
-        commission_amount = _quantize(base_amount * percentage)
-        status = CollaboratorCommissionEntry.Status.FORECAST
-        paid_at = None
-
-        entry = existing_entries_by_workorder_id.get(workorder.pk)
-        if entry is None:
-            entry = CollaboratorCommissionEntry.objects.create(
-                workshop=collaborator.workshop,
-                collaborator=collaborator,
-                workorder=workorder,
-                reference_year=resolved.year,
-                reference_month=resolved.month,
-                percentage=percentage,
-                base_amount=Money(base_amount, "BRL"),
-                commission_amount=Money(commission_amount, "BRL"),
-                status=status,
-                paid_at=paid_at,
-            )
-            existing_entries_by_workorder_id[workorder.pk] = entry
-        elif entry.status == CollaboratorCommissionEntry.Status.PAID:
-            update_fields: list[str] = []
-            if entry.workshop_id != collaborator.workshop_id:
-                entry.workshop = collaborator.workshop
-                update_fields.append("workshop")
-            if entry.reference_year != resolved.year:
-                entry.reference_year = resolved.year
-                update_fields.append("reference_year")
-            if entry.reference_month != resolved.month:
-                entry.reference_month = resolved.month
-                update_fields.append("reference_month")
-            if entry.percentage != percentage:
-                entry.percentage = percentage
-                update_fields.append("percentage")
-            if update_fields:
-                entry.save(update_fields=update_fields)
-        else:
-            entry.workshop = collaborator.workshop
-            entry.reference_year = resolved.year
-            entry.reference_month = resolved.month
-            entry.percentage = percentage
-            entry.base_amount = Money(base_amount, "BRL")
-            entry.commission_amount = Money(commission_amount, "BRL")
-            entry.status = status
-            entry.paid_at = paid_at
-            entry.save(
-                update_fields=[
-                    "workshop",
-                    "reference_year",
-                    "reference_month",
-                    "percentage",
-                    "base_amount",
-                    "commission_amount",
-                    "status",
-                    "paid_at",
-                ]
-            )
-        synced_entries.append(entry)
-
-    stale_entries = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month)
-    protected_ids = active_workorder_ids | protected_workorder_ids
-    if protected_ids:
-        stale_entries = stale_entries.exclude(workorder_id__in=protected_ids)
-    stale_entries.filter(status=CollaboratorCommissionEntry.Status.FORECAST).delete()
-    return synced_entries
 
 
 def _build_payroll_component_specs(
@@ -1789,12 +1662,12 @@ def _sync_collaborator_payroll_internal(
     existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
     if _is_paid_payroll(payroll=existing_payroll):
         assert existing_payroll is not None
-        synced_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
+        synced_entries = WorkOrderCommissionOrchestrator().sync_collaborator_commissions(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
         commission_entries = _get_effective_commission_entries(collaborator=collaborator, resolved=resolved, synced_entries=synced_entries)
         _sync_paid_payroll_commission_entries(payroll=existing_payroll, commission_entries=commission_entries)
         return existing_payroll
 
-    synced_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
+    synced_entries = WorkOrderCommissionOrchestrator().sync_collaborator_commissions(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
     commission_entries = _get_effective_commission_entries(collaborator=collaborator, resolved=resolved, synced_entries=synced_entries)
 
     salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")
@@ -1943,6 +1816,8 @@ def sync_collaborator_payrolls_batch(*, collaborators: list[WorkshopCollaborator
 def sync_workorder_collaborator_payrolls(*, workorder: WorkOrder, reference_date: date | None = None) -> list[CollaboratorPayroll]:
     if not _workorder_can_generate_commission(workorder=workorder):
         remove_pending_workorder_commissions(workorder=workorder)
+        return []
+    WorkOrderCommissionOrchestrator().generate_commissions_for_workorder(workorder=workorder)
     payrolls: list[CollaboratorPayroll] = []
     for collaborator in workorder.collaborators.all():
         payrolls.append(sync_collaborator_payroll(collaborator=collaborator, reference_date=reference_date))

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from djmoney.money import Money
 
@@ -47,6 +47,42 @@ def build_product_price_warning(*, product: Product, attempted_price: Money | No
 
 def build_service_price_warning(*, service: Service, attempted_price: Money | None) -> PriceWarning | None:
     return _build_price_warning(model_instance=service, attempted_price=attempted_price)
+
+
+def _calculate_profit_margin_percent(*, cost_price: Money | None, selling_price: Money | None) -> Decimal:
+    cost_amount = Decimal(getattr(cost_price, "amount", Decimal("0")) or Decimal("0"))
+    selling_amount = Decimal(getattr(selling_price, "amount", Decimal("0")) or Decimal("0"))
+    if selling_amount <= 0:
+        return Decimal("0.00")
+    return ((selling_amount - cost_amount) / selling_amount * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _assign_money_if_changed(*, model_instance: object, field_name: str, price: Money | None, update_fields: list[str]) -> bool:
+    if price is None:
+        return False
+    if getattr(model_instance, field_name, None) == price:
+        return False
+    setattr(model_instance, field_name, Money(price.amount, price.currency))
+    update_fields.extend([field_name, f"{field_name}_currency"])
+    return True
+
+
+def apply_product_import_prices(*, product: Product | None, purchase_price: Money | None, selling_price: Money | None) -> None:
+    if product is None:
+        return
+
+    update_fields: list[str] = []
+    cost_changed = _assign_money_if_changed(model_instance=product, field_name="cost_price", price=purchase_price, update_fields=update_fields)
+    selling_changed = _assign_money_if_changed(model_instance=product, field_name="selling_price", price=selling_price, update_fields=update_fields)
+    _assign_money_if_changed(model_instance=product, field_name="last_purchase_price", price=purchase_price, update_fields=update_fields)
+    _assign_money_if_changed(model_instance=product, field_name="last_used_price", price=selling_price, update_fields=update_fields)
+
+    if cost_changed or selling_changed:
+        product.profit_margin = _calculate_profit_margin_percent(cost_price=product.cost_price, selling_price=product.selling_price)
+        update_fields.append("profit_margin")
+
+    if update_fields:
+        product.save(update_fields=update_fields)
 
 
 def record_product_last_purchase_price(*, product: Product | None, price: Money | None) -> None:

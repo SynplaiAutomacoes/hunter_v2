@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from io import StringIO
-from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
 
 from django.core.management import call_command
@@ -12,13 +11,14 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetStatus
-from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorCommissionRule, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
 from apps.collaborators.services import get_reference_work_days, sync_collaborator_commission_entries, sync_collaborator_payroll, sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.payroll import _mark_payroll_as_paid, _mark_payroll_commissions_as_paid, _unmark_payroll_commissions_as_paid
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.models.workshop_commission import WorkshopCommissionSettings
 from apps.workshops.models.workshops import Workshop
 
 
@@ -57,6 +57,29 @@ def create_workorder(*, workshop: Workshop, budget_type: str, status: str = Work
         budget=budget,
         status=status,
         budget_type=budget_type,
+    )
+
+
+def add_service_item(*, workorder: WorkOrder, selling_price: Decimal, cost_price: Decimal = Decimal("0"), quantity: int = 1) -> None:
+    WorkOrderItem.objects.create(
+        workshop=workorder.workshop,
+        workorder=workorder,
+        description=f"Serviço OS #{workorder.pk}",
+        quantity=quantity,
+        service_selling_price=Money(selling_price, "BRL"),
+        service_cost_price=Money(cost_price, "BRL"),
+    )
+
+
+def add_product_item(*, workorder: WorkOrder, selling_price: Decimal, cost_price: Decimal = Decimal("0"), quantity: int = 1, customer_supplied: bool = False) -> None:
+    WorkOrderItem.objects.create(
+        workshop=workorder.workshop,
+        workorder=workorder,
+        description=f"Produto OS #{workorder.pk}",
+        quantity=quantity,
+        product_selling_price=Money(selling_price, "BRL"),
+        product_cost_price=Money(cost_price, "BRL"),
+        is_customer_supplied=customer_supplied,
     )
 
 
@@ -257,58 +280,43 @@ class CollaboratorCommissionSyncTests(TestCase):
         workorder.discount_type = "products"
         workorder.save(update_fields=["discount_type"])
         workorder.collaborators.add(collaborator)
-        pricing_snapshot = SimpleNamespace(total_products_by_slider=Money(500, "BRL"), total_services_by_slider=Money(1000, "BRL"))
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
 
-        with (
-            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")),
-            patch("apps.workorder.models.WorkOrder.resolved_discount_value", new_callable=PropertyMock, return_value=Money(100, "BRL")),
-            patch("apps.workorder.models.WorkOrder.pricing_snapshot", new_callable=PropertyMock, return_value=pricing_snapshot),
-        ):
-            sync_workorder_collaborator_payrolls(workorder=workorder)
+        sync_workorder_collaborator_payrolls(workorder=workorder)
 
         entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
         self.assertEqual(entry.base_amount, Money(1000, "BRL"))
         self.assertEqual(entry.commission_amount, Money(100, "BRL"))
 
-    def test_commission_applies_service_only_discount_to_base_amount(self) -> None:
+    def test_commission_ignores_service_only_discount(self) -> None:
         workshop = create_workshop(suffix=12)
         collaborator = create_collaborator(workshop=workshop, suffix=12)
         workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
         workorder.discount_type = "services"
         workorder.save(update_fields=["discount_type"])
         workorder.collaborators.add(collaborator)
-        pricing_snapshot = SimpleNamespace(total_products_by_slider=Money(500, "BRL"), total_services_by_slider=Money(1000, "BRL"))
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
 
-        with (
-            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")),
-            patch("apps.workorder.models.WorkOrder.resolved_discount_value", new_callable=PropertyMock, return_value=Money(100, "BRL")),
-            patch("apps.workorder.models.WorkOrder.pricing_snapshot", new_callable=PropertyMock, return_value=pricing_snapshot),
-        ):
-            sync_workorder_collaborator_payrolls(workorder=workorder)
+        sync_workorder_collaborator_payrolls(workorder=workorder)
 
         entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
-        self.assertEqual(entry.base_amount, Money(900, "BRL"))
-        self.assertEqual(entry.commission_amount, Money(90, "BRL"))
+        self.assertEqual(entry.base_amount, Money(1000, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(100, "BRL"))
 
-    def test_commission_applies_proportional_discount_when_discount_type_is_both(self) -> None:
+    def test_commission_ignores_discount_when_discount_type_is_both(self) -> None:
         workshop = create_workshop(suffix=13)
         collaborator = create_collaborator(workshop=workshop, suffix=13)
         workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
         workorder.discount_type = "both"
         workorder.save(update_fields=["discount_type"])
         workorder.collaborators.add(collaborator)
-        pricing_snapshot = SimpleNamespace(total_products_by_slider=Money(500, "BRL"), total_services_by_slider=Money(1000, "BRL"))
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
 
-        with (
-            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")),
-            patch("apps.workorder.models.WorkOrder.resolved_discount_value", new_callable=PropertyMock, return_value=Money(150, "BRL")),
-            patch("apps.workorder.models.WorkOrder.pricing_snapshot", new_callable=PropertyMock, return_value=pricing_snapshot),
-        ):
-            sync_workorder_collaborator_payrolls(workorder=workorder)
+        sync_workorder_collaborator_payrolls(workorder=workorder)
 
         entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
-        self.assertEqual(entry.base_amount, Money(900, "BRL"))
-        self.assertEqual(entry.commission_amount, Money(90, "BRL"))
+        self.assertEqual(entry.base_amount, Money(1000, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(100, "BRL"))
 
     def test_reopened_workorder_removes_pending_commission_and_preserves_paid_commission(self) -> None:
         workshop = create_workshop(suffix=2)
@@ -352,10 +360,12 @@ class CollaboratorCommissionSyncTests(TestCase):
         collaborator = create_collaborator(workshop=workshop, suffix=22)
         workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
         workorder.collaborators.add(collaborator)
+        add_service_item(workorder=workorder, selling_price=Decimal("1500"))
         paid_entry = CollaboratorCommissionEntry.objects.create(
             workshop=workshop,
             collaborator=collaborator,
             workorder=workorder,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_RULE,
             reference_year=2026,
             reference_month=1,
             percentage=Decimal("0.100000"),
@@ -365,19 +375,18 @@ class CollaboratorCommissionSyncTests(TestCase):
             paid_at=date(2026, 1, 20),
         )
 
-        with patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1500, "BRL")):
-            workorder.status = WorkOrderStatus.DRAFT
-            workorder.save(update_fields=["status"])
-            sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
+        workorder.status = WorkOrderStatus.DRAFT
+        workorder.save(update_fields=["status"])
+        sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
 
-            paid_entry.refresh_from_db()
-            self.assertEqual(paid_entry.status, CollaboratorCommissionEntry.Status.PAID)
-            self.assertEqual(paid_entry.base_amount, Money(1000, "BRL"))
-            self.assertEqual(paid_entry.commission_amount, Money(100, "BRL"))
+        paid_entry.refresh_from_db()
+        self.assertEqual(paid_entry.status, CollaboratorCommissionEntry.Status.PAID)
+        self.assertEqual(paid_entry.base_amount, Money(1000, "BRL"))
+        self.assertEqual(paid_entry.commission_amount, Money(100, "BRL"))
 
-            workorder.status = WorkOrderStatus.APPROVED
-            workorder.save(update_fields=["status"])
-            sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.save(update_fields=["status"])
+        sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
 
         paid_entry.refresh_from_db()
         self.assertEqual(CollaboratorCommissionEntry.objects.filter(workorder=workorder, collaborator=collaborator).count(), 1)
@@ -417,6 +426,7 @@ class CollaboratorCommissionSyncTests(TestCase):
         workorder.collaborators.add(collaborator)
         workorder.criado_em = timezone.make_aware(datetime(2026, 1, 2, 10, 0, 0))
         workorder.save(update_fields=["criado_em"])
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
 
         payroll = CollaboratorPayroll.objects.create(
             workshop=workshop,
@@ -442,22 +452,21 @@ class CollaboratorCommissionSyncTests(TestCase):
         payroll.financial_movement = movement
         payroll.save(update_fields=["financial_movement"])
 
-        with patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")):
-            workorder.status = WorkOrderStatus.DRAFT
-            workorder.save(update_fields=["status"])
-            sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
+        workorder.status = WorkOrderStatus.DRAFT
+        workorder.save(update_fields=["status"])
+        sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
 
-            workorder.status = WorkOrderStatus.CANCELLED
-            workorder.save(update_fields=["status"])
-            sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
+        workorder.status = WorkOrderStatus.CANCELLED
+        workorder.save(update_fields=["status"])
+        sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
 
-            workorder.status = WorkOrderStatus.DRAFT
-            workorder.save(update_fields=["status"])
-            sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
+        workorder.status = WorkOrderStatus.DRAFT
+        workorder.save(update_fields=["status"])
+        sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
 
-            workorder.status = WorkOrderStatus.APPROVED
-            workorder.save(update_fields=["status"])
-            sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.save(update_fields=["status"])
+        sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))
 
         entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
         payroll.refresh_from_db()
@@ -481,9 +490,9 @@ class CollaboratorCommissionSyncTests(TestCase):
         workorder.collaborators.add(collaborator)
         workorder.criado_em = timezone.make_aware(datetime(2026, 1, 2, 10, 0, 0))
         workorder.save(update_fields=["criado_em"])
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
 
-        with patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")):
-            payroll = sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))[0]
+        payroll = sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 1, 1))[0]
 
         entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
         entry.status = CollaboratorCommissionEntry.Status.PAID
@@ -559,6 +568,7 @@ class CollaboratorCommissionSyncTests(TestCase):
                 workshop=workshop,
                 collaborator=collaborator,
                 workorder=workorder,
+                commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_RULE,
                 reference_year=2026,
                 reference_month=8,
                 percentage=Decimal("0.100000"),
@@ -569,10 +579,7 @@ class CollaboratorCommissionSyncTests(TestCase):
             for index, workorder in enumerate(workorders)
         ]
 
-        with (
-            patch("apps.collaborators.services.timezone.localdate", return_value=date(2026, 8, 10)),
-            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(275.20, "BRL")),
-        ):
+        with patch("apps.collaborators.services.timezone.localdate", return_value=date(2026, 8, 10)):
             sync_workorder_collaborator_payrolls(workorder=workorders[0], reference_date=date(2026, 8, 1))
 
         remaining_entries = list(
@@ -850,3 +857,210 @@ class CommissionAndPayrollCommandTests(TestCase):
         self.assertIn("1 folha(s) reconciliada(s) como paga(s).", stdout.getvalue())
         movement.refresh_from_db()
         self.assertTrue(movement.is_paid)
+
+
+class CommissionRuleEngineTests(TestCase):
+    def _create_rule(self, *, collaborator: WorkshopCollaborator, scope: str = "service", modality: str = "percentage", base: str = "gross_sale", apply_scope: str = "participation", **extra) -> CollaboratorCommissionRule:
+        return CollaboratorCommissionRule.objects.create(
+            collaborator=collaborator,
+            scope=scope,
+            modality=modality,
+            apply_scope=apply_scope,
+            base=base,
+            **extra,
+        )
+
+    def test_rule_based_service_gross_sale_commission(self) -> None:
+        workshop = create_workshop(suffix=60)
+        collaborator = create_collaborator(workshop=workshop, suffix=60)
+        collaborator.commission_percentage = None
+        collaborator.save(update_fields=["commission_percentage"])
+        self._create_rule(collaborator=collaborator, percentage=Decimal("0.100000"))
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.collaborators.add(collaborator)
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
+
+        sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
+        self.assertEqual(entry.commission_origin, CollaboratorCommissionEntry.CommissionOrigin.SERVICE_RULE)
+        self.assertEqual(entry.base_amount, Money(1000, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(100, "BRL"))
+        self.assertFalse(entry.is_fixed_amount)
+
+    def test_fixed_amount_rule_commissions_fixed_value(self) -> None:
+        workshop = create_workshop(suffix=61)
+        collaborator = create_collaborator(workshop=workshop, suffix=61)
+        collaborator.commission_percentage = None
+        collaborator.save(update_fields=["commission_percentage"])
+        self._create_rule(collaborator=collaborator, modality="fixed", fixed_amount=Money(50, "BRL"))
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.collaborators.add(collaborator)
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
+
+        sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
+        self.assertTrue(entry.is_fixed_amount)
+        self.assertEqual(entry.commission_amount, Money(50, "BRL"))
+        self.assertEqual(entry.percentage, Decimal("0.000000"))
+
+    def test_service_profitability_base_uses_sell_minus_cost(self) -> None:
+        workshop = create_workshop(suffix=62)
+        collaborator = create_collaborator(workshop=workshop, suffix=62)
+        collaborator.commission_percentage = None
+        collaborator.save(update_fields=["commission_percentage"])
+        self._create_rule(collaborator=collaborator, base="profitability", percentage=Decimal("0.100000"))
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.collaborators.add(collaborator)
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"), cost_price=Decimal("400"))
+
+        sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
+        self.assertEqual(entry.base_amount, Money(600, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(60, "BRL"))
+
+    def test_product_gross_sale_base_ignores_customer_supplied(self) -> None:
+        workshop = create_workshop(suffix=63)
+        collaborator = create_collaborator(workshop=workshop, suffix=63)
+        collaborator.commission_percentage = None
+        collaborator.save(update_fields=["commission_percentage"])
+        self._create_rule(collaborator=collaborator, scope="product", percentage=Decimal("0.100000"))
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.collaborators.add(collaborator)
+        add_product_item(workorder=workorder, selling_price=Decimal("1000"))
+        add_product_item(workorder=workorder, selling_price=Decimal("500"), customer_supplied=True)
+
+        sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
+        self.assertEqual(entry.commission_origin, CollaboratorCommissionEntry.CommissionOrigin.PRODUCT_RULE)
+        self.assertEqual(entry.base_amount, Money(1000, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(100, "BRL"))
+
+    def test_global_rule_applies_to_approved_sale_workorder_without_participation(self) -> None:
+        workshop = create_workshop(suffix=64)
+        collaborator = create_collaborator(workshop=workshop, suffix=64)
+        collaborator.commission_percentage = None
+        collaborator.save(update_fields=["commission_percentage"])
+        self._create_rule(collaborator=collaborator, apply_scope="global", percentage=Decimal("0.100000"))
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
+        participant = create_collaborator(workshop=workshop, suffix=65)
+        workorder.collaborators.add(participant)
+
+        sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
+        self.assertEqual(entry.base_amount, Money(1000, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(100, "BRL"))
+
+    def test_workorder_rate_precedence_over_manual_rule(self) -> None:
+        workshop = create_workshop(suffix=66)
+        rate_collaborator = create_collaborator(workshop=workshop, suffix=66)
+        rate_collaborator.commission_percentage = None
+        rate_collaborator.save(update_fields=["commission_percentage"])
+        rule_collaborator = create_collaborator(workshop=workshop, suffix=67)
+        rule_collaborator.commission_percentage = None
+        rule_collaborator.save(update_fields=["commission_percentage"])
+        self._create_rule(collaborator=rule_collaborator, percentage=Decimal("0.100000"))
+
+        settings, _ = WorkshopCommissionSettings.objects.get_or_create(workshop=workshop)
+        settings.workorder_commission_enabled = True
+        settings.workorder_commission_percentage = Decimal("0.050000")
+        settings.save()
+
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.collaborators.add(rate_collaborator, rule_collaborator)
+        add_service_item(workorder=workorder, selling_price=Decimal("1000"))
+
+        with patch("apps.workorder.models.WorkOrder.total_budget_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")):
+            sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        rate_entry = CollaboratorCommissionEntry.objects.get(
+            workorder=workorder,
+            collaborator=rate_collaborator,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.WORKORDER_RATE,
+        )
+        self.assertEqual(rate_entry.base_amount, Money(1000, "BRL"))
+        self.assertEqual(rate_entry.commission_amount, Money(50, "BRL"))
+        rule_entry = CollaboratorCommissionEntry.objects.get(
+            workorder=workorder,
+            collaborator=rule_collaborator,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_RULE,
+        )
+        self.assertEqual(rule_entry.commission_amount, Money(100, "BRL"))
+        self.assertFalse(
+            CollaboratorCommissionEntry.objects.filter(
+                workorder=workorder,
+                collaborator=rule_collaborator,
+                commission_origin=CollaboratorCommissionEntry.CommissionOrigin.WORKORDER_RATE,
+            ).exists(),
+            "Collaborator with a manual rule must NOT also receive the workshop werkorder rate.",
+        )
+
+
+class LegacyCommissionMigrationLogicTests(TestCase):
+    def test_backfill_creates_service_rule_from_legacy_configuration(self) -> None:
+        from django.apps import apps as live_apps
+
+        importlib = __import__("importlib")
+        migration_module = importlib.import_module("apps.collaborators.migrations.0017_migrate_commission_percentage_to_rules")
+
+        workshop = create_workshop(suffix=70)
+        collaborator = create_collaborator(workshop=workshop, suffix=70)
+        collaborator.commission_percentage = Decimal("0.100000")
+        collaborator.save(update_fields=["commission_percentage"])
+
+        migration_module.backfill_commission_rules_from_legacy_configuration(live_apps, None)
+
+        rule = CollaboratorCommissionRule.objects.get(collaborator=collaborator)
+        self.assertEqual(rule.scope, CollaboratorCommissionRule.Scope.SERVICE)
+        self.assertEqual(rule.modality, CollaboratorCommissionRule.Modality.PERCENTAGE)
+        self.assertEqual(rule.apply_scope, CollaboratorCommissionRule.ApplyScope.PARTICIPATION)
+        self.assertEqual(rule.base, CollaboratorCommissionRule.Base.GROSS_SALE)
+        self.assertEqual(rule.percentage, Decimal("0.100000"))
+        self.assertTrue(rule.is_active)
+
+    def test_backfill_skips_collaborators_without_legacy_percentage(self) -> None:
+        from django.apps import apps as live_apps
+
+        importlib = __import__("importlib")
+        migration_module = importlib.import_module("apps.collaborators.migrations.0017_migrate_commission_percentage_to_rules")
+
+        workshop = create_workshop(suffix=71)
+        collaborator = create_collaborator(workshop=workshop, suffix=71)
+        collaborator.commission_percentage = None
+        collaborator.save(update_fields=["commission_percentage"])
+
+        migration_module.backfill_commission_rules_from_legacy_configuration(live_apps, None)
+
+        self.assertFalse(CollaboratorCommissionRule.objects.filter(collaborator=collaborator).exists())
+
+    def test_backfill_skips_when_active_rule_exists_for_collaborator(self) -> None:
+        from django.apps import apps as live_apps
+
+        importlib = __import__("importlib")
+        migration_module = importlib.import_module("apps.collaborators.migrations.0017_migrate_commission_percentage_to_rules")
+
+        workshop = create_workshop(suffix=72)
+        collaborator = create_collaborator(workshop=workshop, suffix=72)
+        collaborator.commission_percentage = Decimal("0.120000")
+        collaborator.save(update_fields=["commission_percentage"])
+        CollaboratorCommissionRule.objects.create(
+            collaborator=collaborator,
+            scope="product",
+            modality="percentage",
+            apply_scope="participation",
+            base="gross_sale",
+            percentage=Decimal("0.120000"),
+            is_active=True,
+        )
+
+        migration_module.backfill_commission_rules_from_legacy_configuration(live_apps, None)
+
+        scopes = set(
+            CollaboratorCommissionRule.objects.filter(collaborator=collaborator).values_list("scope", flat=True)
+        )
+        self.assertEqual(scopes, {"product"})
