@@ -28,6 +28,7 @@ from apps.budget.documents.provider import build_budget_status_report_pdf_render
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+from apps.workorder.models import WorkOrderStatus
 from apps.core.infrastructure.services.dashboard_query_service import (
     _build_injected_pricing_context,
     _prepare_budget_for_dashboard_pricing,
@@ -1572,7 +1573,10 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         query = str(request.GET.get("q") or "").strip()
         page_number = request.GET.get("page", "1")
 
-        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-pk", "-entry_date")
+        queryset = Budget.objects.filter(
+            workshop=self.workshop,
+            workorders__status=WorkOrderStatus.DRAFT,
+        ).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").distinct().order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
             queryset = queryset.filter(vehicle_id=budget.vehicle_id)
@@ -1625,6 +1629,10 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             if locked_budget.vehicle_id is not None and reference_budget.vehicle_id != locked_budget.vehicle_id:
                 return JsonResponse({"success": False, "error": "Só é possível vincular orçamentos do mesmo veículo."}, status=400)
+
+            has_open_os = reference_budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
+            if not has_open_os:
+                return JsonResponse({"success": False, "error": "Só é possível vincular a orçamentos com OS aberta."}, status=400)
 
             locked_budget.reference_budget = reference_budget
             locked_budget.save(update_fields=["reference_budget"])
