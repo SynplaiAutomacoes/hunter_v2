@@ -20,6 +20,7 @@ from apps.collaborators.services import (
     sync_collaborator_payroll,
     sync_repeated_collaborator_payrolls,
 )
+from apps.collaborators.test_commissions import create_financial_group_path
 from apps.collaborators.views import WorkshopCollaboratorPendingMovementDeleteView, WorkshopCollaboratorUpdateView
 from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.models.financial_group import FinancialGroup
@@ -110,6 +111,22 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         self.assertIsInstance(form.fields["budget_plan"].widget, SearchableSelectInput)
         widget_choices = dict(form.fields["budget_plan"].widget.choices)
         self.assertEqual(str(widget_choices[str(budget_plan.pk)]), str(budget_plan))
+
+    def test_collaborator_form_defaults_transport_budget_plan_to_code_5_1_13(self) -> None:
+        account = create_account(suffix=10)
+        workshop = create_workshop(account=account, suffix=10)
+        default_plan = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 13],
+            names=["Despesas Trabalhistas", "Folha", "Vale Transporte"],
+        )
+
+        form = WorkshopCollaboratorCreateForm(account=account, workshop=workshop)
+
+        self.assertIn("transport_budget_plan", form.fields)
+        self.assertEqual(form.fields["transport_budget_plan"].initial, default_plan)
+        widget_choices = dict(form.fields["transport_budget_plan"].widget.choices)
+        self.assertEqual(str(widget_choices[str(default_plan.pk)]), str(default_plan))
 
     def test_repeated_payrolls_keep_fixed_payment_day_rules(self) -> None:
         account = create_account(suffix=2)
