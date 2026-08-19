@@ -9,10 +9,6 @@
                 <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
             </div>
             <div class="flex items-center gap-2">
-                <button type="button" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% else %}hx-post="{% url 'finance:payroll_refresh' %}" hx-include="#payroll-filter-form [name]" hx-vals='{"mes": "{{ selected_month|unlocalize }}", "ano": "{{ selected_year|unlocalize }}", "search": "{{ request.GET.search|default:""|escapejs }}", "data_inicial": "{{ request.GET.data_inicial|default:""|escapejs }}", "data_final": "{{ request.GET.data_final|default:""|escapejs }}", "collaborator": "{{ selected_collaborator_id|default:""|unlocalize }}", "status": "{{ selected_status|default:""|escapejs }}"}' hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"{% endif %}>
-                    <span class="material-icons">sync</span>
-                    Sincronizar dados
-                </button>
                 <button type="button" class="btn btn-info" id="btn-conciliar-selecionados" disabled @click="$refs.payrollBulkConciliateModal.showModal()">
                     <span class="material-icons">account_balance</span>
                     Conciliar selecionados
