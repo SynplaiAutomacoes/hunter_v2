@@ -56,7 +56,7 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
-from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle
+from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle, linkable_budgets_q
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -1549,8 +1549,8 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def _build_results_page(self, *, budget: Budget, query: str, page_number: str):
         queryset = Budget.objects.filter(
+            linkable_budgets_q(),
             workshop=self.workshop,
-            workorders__status=WorkOrderStatus.DRAFT,
         ).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").distinct().order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
@@ -1577,8 +1577,8 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         page_number = request.GET.get("page", "1")
 
         queryset = Budget.objects.filter(
+            linkable_budgets_q(),
             workshop=self.workshop,
-            workorders__status=WorkOrderStatus.DRAFT,
         ).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").distinct().order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
@@ -1633,9 +1633,9 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if locked_budget.vehicle_id is not None and reference_budget.vehicle_id != locked_budget.vehicle_id:
                 return JsonResponse({"success": False, "error": "Só é possível vincular orçamentos do mesmo veículo."}, status=400)
 
-            has_open_os = reference_budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
-            if not has_open_os:
-                return JsonResponse({"success": False, "error": "Só é possível vincular a orçamentos com OS aberta."}, status=400)
+            is_linkable = Budget.objects.filter(linkable_budgets_q(), pk=reference_budget.pk).exists()
+            if not is_linkable:
+                return JsonResponse({"success": False, "error": "Só é possível vincular a orçamentos abertos ou com OS em andamento."}, status=400)
 
             locked_budget.reference_budget = reference_budget
             locked_budget.save(update_fields=["reference_budget"])
