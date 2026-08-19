@@ -982,26 +982,45 @@ class Budget(TimeStampedModel):
             return self.summary_total_before_benefit_value
         return self.total_budget_value
 
-    @property
-    def selected_items_total_products_without_shipping(self) -> Money:
+    def _raw_selected_items_total_products_without_shipping(self) -> Money:
         total = Money(0, "BRL")
         for item in self._iter_items():
             total += item.summary_products_total_without_shipping
         return total
 
-    @property
-    def selected_items_total_services_value(self) -> Money:
+    def _raw_selected_items_total_services_value(self) -> Money:
         total = Money(0, "BRL")
         for item in self._iter_items():
             total += item.summary_services_total
         return total
 
-    @property
-    def selected_items_total_shipping_value(self) -> Money:
+    def _raw_selected_items_total_shipping_value(self) -> Money:
         total = Money(0, "BRL")
         for item in self._iter_items():
             total += item.summary_shipping_total
         return total
+
+    def _raw_selected_items_total_base_value(self) -> Money:
+        return self._raw_selected_items_total_products_without_shipping() + self._raw_selected_items_total_services_value() + self._raw_selected_items_total_shipping_value()
+
+    @property
+    def selected_items_total_products_without_shipping(self) -> Money:
+        # Sale: pricing snapshot winner (kit vs kit / kit vs avulso). Fixed: catalog sum of every line.
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_products_without_shipping()
+        return self.total_products_value - self.total_products_shipping
+
+    @property
+    def selected_items_total_services_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_services_value()
+        return self.total_services_value - self.total_services_shipping
+
+    @property
+    def selected_items_total_shipping_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_shipping_value()
+        return self.total_shipping
 
     @property
     def selected_items_total_base_value(self) -> Money:
@@ -1040,7 +1059,7 @@ class Budget(TimeStampedModel):
 
     @property
     def summary_chargeable_base_value(self) -> Money:
-        amount = self.selected_items_total_base_value.amount - self.benefit_summary_total_value.amount
+        amount = self._raw_selected_items_total_base_value().amount - self.benefit_summary_total_value.amount
         return Money(max(amount, Decimal("0.00")), "BRL")
 
     @property
