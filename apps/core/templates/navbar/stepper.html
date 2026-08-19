@@ -40,9 +40,13 @@
             </div>
 
             <div class="z-10 flex items-center justify-center shrink-0 w-10 h-10 lg:w-full lg:h-5 text-base font-bold transition-all rounded-full lg:rounded-sm
-                {% if stepper_show_payments_tab and payments_open and step.number <= max_reached_step %}
+                {% if step.always_success %}
+                    bg-success text-success-content cursor-pointer{% if step.number == current_step and not history_open %} ring-2 ring-success/50{% endif %}
+                {% elif stepper_show_payments_tab and payments_open and step.number <= max_reached_step %}
                     bg-success text-success-content cursor-pointer
                 {% elif stepper_show_history_tab and history_open and step.number <= max_reached_step %}
+                    bg-success text-success-content cursor-pointer
+                {% elif payments_open and step.number <= max_reached_step %}
                     bg-success text-success-content cursor-pointer
                 {% elif step.number < current_step %}
                     bg-success text-success-content cursor-pointer
@@ -56,8 +60,8 @@
 
                 {% if not forloop.last %} lg:rounded-none {% endif %}"
 
-                {% if step.number <= max_reached_step and step.number >= min_accessible_step|default:1 %}
-                    {% if step.number != current_step or payments_open or history_open %}
+                {% if step.always_accessible or step.number <= max_reached_step and step.number >= min_accessible_step|default:1 %}
+                    {% if step.number != current_step or payments_open and not step.always_accessible or history_open %}
                         {% if stepper_navigation == "links" %}
                         onclick="window.location.href='?step={{ step.number }}'"
                         {% else %}

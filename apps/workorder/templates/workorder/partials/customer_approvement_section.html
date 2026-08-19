@@ -121,9 +121,9 @@
     <div class="p-4 bg-base-200/50 rounded-lg">
         <h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>
 
-        <div class="grid grid-cols-12 gap-3">
+        <div class="flex flex-row items-stretch gap-3">
             <span
-                class="inline-flex col-span-4 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
+                class="inline-flex flex-1 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
                 {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." data-blocked-toast="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de cancelar a O.S." title="Exclua os planos de pagamento antes de cancelar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de cancelar a O.S." tabindex="0"{% endif %}
                 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
             >
@@ -137,7 +137,7 @@
 
             <span
                 id="workorder-delivery-button-tooltip"
-                class="inline-flex col-span-4 {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}tooltip tooltip-top{% endif %}"
+                class="inline-flex flex-1 {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}tooltip tooltip-top{% endif %}"
                 {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif workorder.km_final is None %}data-tip="É necessário inserir o Km Final para desbloquear o botão" title="É necessário inserir o Km Final para desbloquear o botão" tabindex="0"{% elif workorder.has_completion_blockers %}data-tip="{{ workorder.completion_blockers_display }}" title="{{ workorder.completion_blockers_display }}" tabindex="0"{% endif %}
             >
                 <button
@@ -156,7 +156,7 @@
             </span>
 
             <span
-                class="inline-flex col-span-4 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
+                class="inline-flex flex-1 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
                 {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." data-blocked-toast="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de reprovar a O.S." title="Exclua os planos de pagamento antes de reprovar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de reprovar a O.S." tabindex="0"{% endif %}
                 {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
             >
@@ -169,7 +169,19 @@
             </span>
 
             {% if workorder.can_reopen %}
-            <button type="button" class="btn btn-outline col-span-12" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
+            <span class="inline-flex flex-1">
+                <button type="button" class="btn btn-outline w-full" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
+            </span>
+            {% endif %}
+
+            {% if emission_ui %}
+            <span class="inline-flex flex-1">
+                {% if emission_ui.opens_modal %}
+                <button type="button" class="btn btn-primary w-full" data-allow-locked="1" onclick="workorderEmissionModal.showModal()">{{ emission_ui.button_label }}</button>
+                {% else %}
+                <a href="{{ emission_ui.direct_url }}" class="btn btn-primary w-full" data-allow-locked="1">{{ emission_ui.button_label }}</a>
+                {% endif %}
+            </span>
             {% endif %}
         </div>
 
@@ -230,6 +242,35 @@
                 </form>
             </div>
         </dialog>
+
+        {% if emission_ui and emission_ui.opens_modal %}
+        <dialog id="workorderEmissionModal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box">
+                {% if emission_ui.mode == "partial_choice" %}
+                <h3 class="font-bold text-lg text-base-content">Notas fiscais da O.S.</h3>
+                <p class="py-4 text-base-content/70">
+                    Esta O.S. já possui {{ emission_ui.existing_note_label }}. Deseja emitir a {{ emission_ui.missing_note_label }} faltante ou abrir a nota já emitida?
+                </p>
+                <div class="modal-action flex-wrap gap-2">
+                    <a href="{{ emission_ui.emit_missing_url }}" class="btn btn-primary" data-allow-locked="1">Emitir {{ emission_ui.missing_note_label }}</a>
+                    <a href="{{ emission_ui.direct_url }}" class="btn btn-outline" data-allow-locked="1">Abrir {{ emission_ui.existing_note_label }}</a>
+                    <button type="button" class="btn btn-ghost" onclick="workorderEmissionModal.close()">Fechar</button>
+                </div>
+                {% else %}
+                <h3 class="font-bold text-lg text-base-content">Ver nota fiscal</h3>
+                <p class="py-4 text-base-content/70">Esta O.S. possui Nota Fiscal de Produto e Nota Fiscal de Serviço. Qual deseja abrir?</p>
+                <div class="modal-action flex-wrap gap-2">
+                    <a href="{{ emission_ui.nfe_detail_url }}" class="btn btn-primary" data-allow-locked="1">Abrir Nota Fiscal de Produto</a>
+                    <a href="{{ emission_ui.nfse_detail_url }}" class="btn btn-outline" data-allow-locked="1">Abrir Nota Fiscal de Serviço</a>
+                    <button type="button" class="btn btn-ghost" onclick="workorderEmissionModal.close()">Fechar</button>
+                </div>
+                {% endif %}
+            </div>
+            <form method="dialog" class="modal-backdrop bg-black/50">
+                <button>close</button>
+            </form>
+        </dialog>
+        {% endif %}
 
         {% if workorder.can_reopen and can_reopen_workorder %}
         <form

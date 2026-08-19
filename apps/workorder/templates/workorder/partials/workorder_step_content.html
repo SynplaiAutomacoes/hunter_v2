@@ -2,13 +2,13 @@
 
 {% if not payments_open and not history_open %}
 <div class="flex items-center justify-between mb-6">
-    {% if current_step > 1 %}
+    {% if previous_step %}
         {% if current_step == 2 and not workorder.is_status_locked %}
-            <button type="submit" form="workorder-collaborators-form" name="next" value="?step={{ current_step|add:-1 }}" class="btn btn-outline">
+            <button type="submit" form="workorder-collaborators-form" name="next" value="?step={{ previous_step }}" class="btn btn-outline">
                 <span class="material-icons">arrow_back</span> Voltar
             </button>
         {% else %}
-            <a href="?step={{ current_step|add:-1 }}" class="btn btn-outline">
+            <a href="?step={{ previous_step }}" class="btn btn-outline">
                 <span class="material-icons">arrow_back</span> Voltar
             </a>
         {% endif %}
@@ -16,13 +16,13 @@
         <div></div>
     {% endif %}
 
-    {% if can_advance_step %}
+    {% if can_advance_step and next_step %}
         {% if current_step == 2 %}
-            <button type="submit" form="workorder-collaborators-form" name="next" value="?step={{ current_step|add:1 }}" class="btn btn-primary">
+            <button type="submit" form="workorder-collaborators-form" name="next" value="?step={{ next_step }}" class="btn btn-primary">
                 {{ continue_button_label }} <span class="material-icons">arrow_forward</span>
             </button>
         {% else %}
-            <a href="?step={{ current_step|add:1 }}" class="btn btn-primary">
+            <a href="?step={{ next_step }}" class="btn btn-primary">
                 {{ continue_button_label }} <span class="material-icons">arrow_forward</span>
             </a>
         {% endif %}
@@ -38,11 +38,8 @@
         <div id="collaborators-section" class="{% if payments_open or history_open or current_step != 2 %}hidden{% endif %}">
             {% include 'workorder/partials/collaborators_section.html' %}
         </div>
-        <div id="customer-approvement-section" class="{% if payments_open or history_open or current_step != 3 %}hidden{% endif %}">
+        <div id="customer-approvement-section" class="{% if payments_open or history_open or current_step != 4 %}hidden{% endif %}">
             {% include 'workorder/partials/customer_approvement_section.html' %}
-        </div>
-        <div id="nf-section" class="{% if payments_open or history_open or current_step != 4 %}hidden{% endif %}" data-allow-locked="1">
-            {% include 'workorder/partials/nf_section.html' %}
         </div>
         <div id="vehicle-history-section" class="{% if not history_open %}hidden{% endif %}">
             {% include 'workorder/partials/vehicle_history_section.html' %}

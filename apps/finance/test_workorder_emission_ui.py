@@ -228,14 +228,23 @@ class CustomerApprovementEmissionContextTests(TestCase):
         self.assertIsNone(context["emission_ui"])
         self.assertIsNone(context["emission_form"])
 
-    def test_approvement_context_no_longer_exposes_emission_ui(self) -> None:
-        request = SimpleNamespace(user=SimpleNamespace(pk=1, is_authenticated=True))
+    def test_approvement_context_exposes_emission_ui_without_form(self) -> None:
+        request = SimpleNamespace(user=SimpleNamespace(pk=1, is_authenticated=True), session={}, GET={})
 
-        with patch("apps.workorder.util.can_reopen_workorder", return_value=False):
+        with (
+            patch("apps.workorder.util.can_reopen_workorder", return_value=False),
+            patch("apps.workorder.util.can_view_workorder_emission", return_value=True),
+            patch(
+                "apps.finance.services.workorder_emission.build_slider_allocation_for_workorder",
+                return_value=_allocation(products="100.00", services="50.00"),
+            ),
+        ):
             context = _build_customer_approvement_context(self.workorder, request=request)
 
-        self.assertNotIn("emission_ui", context)
-        self.assertNotIn("can_view_workorder_emission", context)
+        self.assertTrue(context["can_view_workorder_emission"])
+        self.assertIsNotNone(context["emission_ui"])
+        self.assertEqual(context["emission_ui"].mode, "emit")
+        self.assertIsNone(context["emission_form"])
 
     def test_undelivered_workorder_does_not_build_emission_form(self) -> None:
         self.workorder.status = WorkOrderStatus.DRAFT

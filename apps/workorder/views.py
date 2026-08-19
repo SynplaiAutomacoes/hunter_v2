@@ -615,16 +615,17 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context.update(workorder_commission_context(workorder=self.object))
         context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
-        context.update(_build_workorder_emission_section_context(workorder=self.object, request=self.request, build_form=navigation.current_step == 4))
         context["steps_config"] = WORKORDER_DETAIL_STEPS
         context["current_step"] = navigation.current_step
         context["max_reached_step"] = navigation.max_reached_step
+        context["previous_step"] = navigation.previous_step
+        context["next_step"] = navigation.next_step
         context["min_accessible_step"] = 1
         context["payments_open"] = navigation.payments_open
         context["history_open"] = navigation.history_open
         context["can_advance_step"] = navigation.can_advance
         context["continue_button_label"] = navigation.continue_label
-        context["stepper_show_payments_tab"] = True
+        context["stepper_show_payments_tab"] = False
         context["stepper_show_history_tab"] = True
         context["stepper_include_pk"] = False
         context["stepper_navigation"] = "links"

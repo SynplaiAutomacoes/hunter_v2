@@ -586,7 +586,7 @@ class WorkOrder(TimeStampedModel):
 
         self.status = WorkOrderStatus.WAITING_DELIVERY
         self.reopen_reason = reason
-        self.current_step = 3
+        self.current_step = 4
 
         self.save(update_fields=["status", "delivered_at", "reopen_reason", "current_step"])
 
