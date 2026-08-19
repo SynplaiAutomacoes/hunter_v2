@@ -13,6 +13,7 @@ from apps.collaborators.services import sync_collaborator_payroll
 from apps.collaborators.test_commissions import create_financial_group_path, create_workorder
 from apps.core.presentation.navigation import get_navbar_menus
 from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.dre import _agent_label
 from apps.finance.services.payroll_visibility import PAYROLL_REDACTED_LABEL, resolve_payroll_movement_display
@@ -670,6 +671,70 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(payroll.due_date, date(2026, 8, 15))
         self.assertEqual(movement.due_date, date(2026, 8, 15))
         self.assertTrue(movement.is_paid)
+
+    def test_submit_form_persists_amount_and_budget_plan_when_work_days_are_posted(self) -> None:
+        workshop = create_workshop(suffix=81)
+        collaborator = create_collaborator(workshop=workshop, suffix=81)
+        original_plan = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 11],
+            names=["Despesas Trabalhistas", "Folha", "Salarios"],
+        )
+        new_plan = FinancialGroup.objects.create(workshop=workshop, parent=original_plan.parent, name="Salarios Extra")
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            budget_plan=original_plan,
+            is_paid=False,
+            is_reconciled=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            work_days=22,
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "work_days": "22",
+                "comp_SALARY-due_date": "2026-08-05",
+                "comp_SALARY-amount_0": "2750.00",
+                "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(new_plan.pk),
+                "comp_SALARY-is_paid": "False",
+                "comp_SALARY-is_reconciled": "False",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        movement.refresh_from_db()
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(movement.amount, Money(2750, "BRL"))
+        self.assertEqual(movement.budget_plan_id, new_plan.pk)
+        self.assertEqual(payroll.salary_amount, Money(2750, "BRL"))
+        self.assertEqual(payroll.total_amount, Money(2750, "BRL"))
+        self.assertEqual(FinancialMovement.objects.filter(payroll=payroll, payroll_component=FinancialMovement.PayrollComponent.SALARY).count(), 1)
 
     def test_submit_form_marking_payroll_as_unpaid_resets_all_split_movements_reconciliation(self) -> None:
         workshop = create_workshop(suffix=8)
