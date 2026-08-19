@@ -560,23 +560,16 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return f"{reverse('budget:budget_create')}?{urlencode(query_params)}"
 
     def _apply_auto_link(self) -> None:
-        auto_ref_id = self.request.POST.get("auto_reference_budget_id", "").strip()
-        if not auto_ref_id or not auto_ref_id.isdigit():
+        if not self.object or not self.object.vehicle_id:
             return
-        ref_id = int(auto_ref_id)
-        if ref_id == (self.object.pk or 0):
+        if self.object.reference_budget_id is not None:
             return
 
         budget = find_oldest_open_budget_for_vehicle(
             workshop_id=self.workshop.pk,
             vehicle_id=self.object.vehicle_id,
         )
-        if budget is None or budget.pk != ref_id:
-            return
-
-        if budget.workshop_id != self.workshop.pk:
-            return
-        if self.object.vehicle_id and budget.vehicle_id and budget.vehicle_id != self.object.vehicle_id:
+        if budget is None or budget.pk == self.object.pk:
             return
 
         self.object.reference_budget = budget
