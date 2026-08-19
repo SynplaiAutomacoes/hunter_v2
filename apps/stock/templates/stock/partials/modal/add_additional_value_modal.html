@@ -1,4 +1,4 @@
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags l10n %}
 
 <div class="modal modal-open">
     <div class="modal-box w-11/12 max-w-lg">
@@ -6,7 +6,7 @@
         <p class="mt-1 text-sm text-base-content/70">Use este lançamento para custos fora da NF, como frete ou outras despesas.</p>
 
         <form
-            hx-post="{% url 'stock:add_additional_value_session' %}?pk={{ stock_import.pk }}"
+            hx-post="{% url 'stock:add_additional_value_session' %}?pk={{ stock_import.pk|unlocalize }}"
             hx-target="#modal-container"
             class="mt-4 space-y-4">
             {% csrf_token %}

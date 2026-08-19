@@ -48,7 +48,7 @@ from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateR
 from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
-from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus
+from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus, WORKORDER_OPEN_STATUSES
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
@@ -638,7 +638,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
+        pk = clean_id(self.kwargs.get("pk") or self.request.GET.get("pk"))
         if pk:
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return None
@@ -667,6 +667,8 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
         form_kwargs = self.get_form_kwargs()
+        form_kwargs.pop("data", None)
+        form_kwargs.pop("files", None)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object
@@ -852,7 +854,7 @@ class BudgetUpdateView(BudgetCreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk")
+        pk = clean_id(self.kwargs.get("pk"))
         if pk:
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return super().get_object()
@@ -1467,7 +1469,7 @@ class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if budget is None:
             return HttpResponse("")
 
-        is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
+        is_workorder = budget.workorders.filter(status__in=WORKORDER_OPEN_STATUSES).exists()
         context = {
             "reference_budget_id": budget.pk,
             "reference_budget_number": budget.number,
