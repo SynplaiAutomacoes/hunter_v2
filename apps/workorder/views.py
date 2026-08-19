@@ -222,7 +222,7 @@ def _build_workorder_payment_status_map(*, workorder: WorkOrder) -> dict[int, di
         movement = workorder.financial_movements.filter(movement_kind="WORKORDER_PARENT", workorder_payment=payment).order_by("-pk").first()
         if movement is None:
             movement = aggregate_parent_movement
-        is_paid = bool(getattr(movement, "is_paid", True))
+        is_paid = bool(getattr(movement, "is_paid", False))
         label = "Pago" if is_paid else "Pendente"
         badge_class = "badge-success" if is_paid else "badge-warning"
         status_map[payment.pk] = {"label": label, "badge_class": badge_class}
@@ -417,11 +417,7 @@ class WorkOrderStatusReportDataMixin:
         return queryset.prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=False))
 
     def _get_workorder_report_queryset(self):
-        return (
-            WorkOrder.objects.filter(workshop=self.workshop)
-            .select_related("budget", "budget__customer", "budget__vehicle")
-            .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
-        )
+        return WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
 
     def _get_filtered_workorder_queryset(self, *, for_pricing: bool = False, for_report: bool = False):
         queryset = self._get_workorder_report_queryset() if for_report else self._get_workorder_base_queryset(for_pricing=for_pricing)
@@ -1347,9 +1343,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         extra={"workorder_id": workorder.pk, "status": workorder.status},
                     )
                     response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
-                    response["HX-Trigger"] = json.dumps(
-                        {"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}}
-                    )
+                    response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}})
                     return response
 
                 from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage

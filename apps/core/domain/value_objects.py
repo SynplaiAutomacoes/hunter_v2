@@ -3,12 +3,13 @@ core/domain/value_objects.py
 
 Pure Python value objects — no Django imports allowed here.
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 
 __all__ = [
@@ -23,12 +24,14 @@ __all__ = [
     "State",
     "PhoneNumber",
     "Kilometers",
+    "parse_brl_decimal",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Money
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class Money:
@@ -74,13 +77,40 @@ class Money:
         return f"R$ {grouped},{decimal_part}"
 
 
+def parse_brl_decimal(raw_value: str) -> Decimal | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+
+    normalized = value.replace("R$", "").replace("\xa0", "").replace(" ", "")
+    if not normalized or normalized in {"-", ",", "."}:
+        return None
+
+    if "," in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    else:
+        normalized = normalized.replace(",", "")
+
+    try:
+        amount = Decimal(normalized)
+    except InvalidOperation:
+        return None
+
+    if amount < 0:
+        return None
+
+    return amount.quantize(Decimal("0.01"))
+
+
 # ---------------------------------------------------------------------------
 # Percentage
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class Percentage:
     """Represents a percentage as a fraction. E.g. 0.10 = 10%."""
+
     value: Decimal
 
     def __post_init__(self) -> None:
@@ -99,6 +129,7 @@ class Percentage:
 # ---------------------------------------------------------------------------
 # Discount
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class Discount:
@@ -121,6 +152,7 @@ class Discount:
 # ---------------------------------------------------------------------------
 # CPF
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class CPF:
@@ -149,6 +181,7 @@ class CPF:
 # ---------------------------------------------------------------------------
 # CNPJ
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class CNPJ:
@@ -184,6 +217,7 @@ class CNPJ:
 # HoursDuration
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class HoursDuration:
     hours: Decimal
@@ -215,6 +249,7 @@ class HoursDuration:
 # NCM
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class NCM:
     code: str
@@ -238,6 +273,7 @@ _PLATE_PATTERN = re.compile(r"^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$")
 @dataclass(frozen=True, slots=True)
 class Plate:
     """Vehicle plate in Mercosul (ABC1D23) or old Brazilian format (ABC1234)."""
+
     value: str
 
     def __post_init__(self) -> None:
@@ -250,6 +286,7 @@ class Plate:
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
+
 
 class State(str, Enum):
     AC = "AC"
@@ -304,6 +341,7 @@ class PhoneNumber:
 # ---------------------------------------------------------------------------
 # Kilometers
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class Kilometers:
