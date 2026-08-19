@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Count, DecimalField, Sum, Value
+from django.db.models import Count, DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
@@ -636,6 +636,18 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context["concurrent_locked_by_other"] = False
         if lock_info and lock_info.get("locked_by_session") != self.request.session.session_key:
             context["concurrent_locked_by_other"] = True
+
+        context["vehicle_history"] = (
+            WorkOrder.objects.filter(
+                workshop=self.object.workshop,
+                budget__vehicle_id=self.object.budget.vehicle_id,
+            )
+            .select_related("budget")
+            .order_by(
+                F("delivered_at").desc(nulls_last=True),
+                "-pk",
+            )
+        )
 
         return context
 
