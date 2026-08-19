@@ -1548,7 +1548,10 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "budget/partials/budget_link_modal.html", context)
 
     def _build_results_page(self, *, budget: Budget, query: str, page_number: str):
-        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-pk", "-entry_date")
+        queryset = Budget.objects.filter(
+            workshop=self.workshop,
+            workorders__status=WorkOrderStatus.DRAFT,
+        ).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").distinct().order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
             queryset = queryset.filter(vehicle_id=budget.vehicle_id)
