@@ -28,6 +28,7 @@ from apps.budget.documents.provider import build_budget_status_report_pdf_render
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+from apps.workorder.models import WorkOrderStatus
 from apps.core.infrastructure.services.dashboard_query_service import (
     _build_injected_pricing_context,
     _prepare_budget_for_dashboard_pricing,
@@ -55,7 +56,7 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
-from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle
+from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle, linkable_budgets_q
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -559,23 +560,16 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return f"{reverse('budget:budget_create')}?{urlencode(query_params)}"
 
     def _apply_auto_link(self) -> None:
-        auto_ref_id = self.request.POST.get("auto_reference_budget_id", "").strip()
-        if not auto_ref_id or not auto_ref_id.isdigit():
+        if not self.object or not self.object.vehicle_id:
             return
-        ref_id = int(auto_ref_id)
-        if ref_id == (self.object.pk or 0):
+        if self.object.reference_budget_id is not None:
             return
 
         budget = find_oldest_open_budget_for_vehicle(
             workshop_id=self.workshop.pk,
             vehicle_id=self.object.vehicle_id,
         )
-        if budget is None or budget.pk != ref_id:
-            return
-
-        if budget.workshop_id != self.workshop.pk:
-            return
-        if self.object.vehicle_id and budget.vehicle_id and budget.vehicle_id != self.object.vehicle_id:
+        if budget is None or budget.pk == self.object.pk:
             return
 
         self.object.reference_budget = budget
@@ -1287,6 +1281,10 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             error_message = "Não é possível reprovar um orçamento após a abertura da O.S. Cancele a ordem de serviço primeiro ou siga com o cancelamento do orçamento."
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
+        if status == "reopen" and budget.workorders.filter(status=WorkOrderStatus.APPROVED).exists():
+            error_message = "Não é possível reabrir este orçamento pois a O.S. vinculada já foi finalizada. Reabra a O.S. para continuar."
+            return JsonResponse({"success": False, "error": error_message}, status=400)
+
         if budget.is_status_locked and status != "reopen":
             return JsonResponse({"success": False, "error": "Reabra o orçamento antes de alterar o status."}, status=409)
 
@@ -1545,7 +1543,10 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "budget/partials/budget_link_modal.html", context)
 
     def _build_results_page(self, *, budget: Budget, query: str, page_number: str):
-        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-pk", "-entry_date")
+        queryset = Budget.objects.filter(
+            linkable_budgets_q(),
+            workshop=self.workshop,
+        ).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").distinct().order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
             queryset = queryset.filter(vehicle_id=budget.vehicle_id)
@@ -1570,7 +1571,10 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         query = str(request.GET.get("q") or "").strip()
         page_number = request.GET.get("page", "1")
 
-        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-pk", "-entry_date")
+        queryset = Budget.objects.filter(
+            linkable_budgets_q(),
+            workshop=self.workshop,
+        ).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").distinct().order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
             queryset = queryset.filter(vehicle_id=budget.vehicle_id)
@@ -1623,6 +1627,10 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             if locked_budget.vehicle_id is not None and reference_budget.vehicle_id != locked_budget.vehicle_id:
                 return JsonResponse({"success": False, "error": "Só é possível vincular orçamentos do mesmo veículo."}, status=400)
+
+            is_linkable = Budget.objects.filter(linkable_budgets_q(), pk=reference_budget.pk).exists()
+            if not is_linkable:
+                return JsonResponse({"success": False, "error": "Só é possível vincular a orçamentos abertos ou com OS em andamento."}, status=400)
 
             locked_budget.reference_budget = reference_budget
             locked_budget.save(update_fields=["reference_budget"])

@@ -128,7 +128,7 @@ class NfseRequestStep3Form(CoreModelForm):
         self._valid_tax_class_refs = {value for value, _ in self.tax_class_choices if value}
 
         codigo_nbs_field = self.fields["codigo_nbs"]
-        codigo_nbs_field.required = True
+        codigo_nbs_field.required = False
         codigo_nbs_field.help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))

@@ -47,10 +47,10 @@ class EmissionNfseConfigFormCodigoNbsTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["codigo_nbs"], "115021000")
 
-    def test_missing_codigo_nbs_is_invalid(self) -> None:
+    def test_blank_codigo_nbs_is_valid(self) -> None:
         form = self._form(codigo_nbs="")
-        self.assertFalse(form.is_valid())
-        self.assertIn("codigo_nbs", form.errors)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["codigo_nbs"], "")
 
 
 class BuildNfsePayloadCodigoNbsTests(SimpleTestCase):

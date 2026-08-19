@@ -1375,6 +1375,44 @@ def ensure_payroll_component_movements_confirmed(*, payroll: CollaboratorPayroll
 
 
 @transaction.atomic
+def ensure_payroll_single_benefit_synced(*, payroll: CollaboratorPayroll, movement_id: int) -> CollaboratorPayroll:
+    """Sync a single BENEFIT movement back to its projected value."""
+    payroll.refresh_from_db()
+    movement = FinancialMovement.objects.select_for_update().get(
+        pk=movement_id,
+        payroll=payroll,
+        payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
+    )
+    projection = build_payroll_projection(
+        collaborator=payroll.collaborator,
+        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+    )
+    specs = _build_payroll_component_specs(payroll=projection)
+    benefit_specs = [
+        s for s in specs
+        if s["component"] == FinancialMovement.PayrollComponent.BENEFIT
+    ]
+
+    matched_spec: dict[str, object] | None = None
+    if movement.payroll_benefit_id is not None:
+        matched_spec = next(
+            (s for s in benefit_specs if getattr(s.get("payroll_benefit"), "pk", None) == movement.payroll_benefit_id),
+            None,
+        )
+
+    if matched_spec is None and benefit_specs:
+        matched_spec = benefit_specs[0]
+
+    if matched_spec is not None:
+        movement.amount = matched_spec["amount"]
+        movement.description = str(matched_spec["description"])
+        movement.budget_plan = matched_spec["budget_plan"]
+        movement.save(update_fields=["amount", "description", "budget_plan"])
+
+    return recalculate_payroll_from_linked_movements(payroll=payroll)
+
+
+@transaction.atomic
 def recalculate_payroll_from_linked_movements(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
     payroll.refresh_from_db()
     effective_movements = list(payroll.financial_movements.all().order_by("id"))
@@ -1537,10 +1575,12 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         movement.payroll_component = component
         movement.payroll_benefit = payroll_benefit if isinstance(payroll_benefit, CollaboratorBenefit) else None
         movement.direction = FinancialMovement.MovementDirection.DEBIT
-        movement.description = str(spec["description"])
-        movement.amount = spec["amount"]
-        movement.due_date = payroll.due_date
-        movement.budget_plan = budget_plan
+        # Skip overwriting financial data on movements that are already paid.
+        if not (movement.pk and movement.is_paid):
+            movement.description = str(spec["description"])
+            movement.amount = spec["amount"]
+            movement.due_date = payroll.due_date
+            movement.budget_plan = budget_plan
         if is_new_movement:
             movement.is_paid = inherited_paid
             movement.is_reconciled = inherited_reconciled

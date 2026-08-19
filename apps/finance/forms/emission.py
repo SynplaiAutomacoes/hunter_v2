@@ -970,7 +970,7 @@ class EmissionNfseConfigForm(CoreForm):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     codigo_nbs = forms.CharField(
         label="Código NBS",
-        required=True,
+        required=False,
         widget=TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}),
     )
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
@@ -1037,7 +1037,10 @@ class EmissionNfseConfigForm(CoreForm):
         return tax_class
 
     def clean_codigo_nbs(self) -> str:
-        return clean_required_codigo_nbs(self.cleaned_data.get("codigo_nbs"))
+        raw = str(self.cleaned_data.get("codigo_nbs") or "").strip()
+        if not raw:
+            return ""
+        return clean_required_codigo_nbs(raw)
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}
