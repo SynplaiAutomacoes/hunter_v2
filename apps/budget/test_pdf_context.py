@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+from django.test import SimpleTestCase
+from djmoney.money import Money
+
+from apps.budget.pdf_context import _merge_selected_product_rows, _merge_selected_service_rows
+
+
+def _money(amount: str) -> Money:
+    return Money(amount, "BRL")
+
+
+def _product_row(*, product_id: int, quantity: int, selling: str, shipping: str = "0.00") -> dict:
+    total = _money(selling) * quantity + _money(shipping)
+    return {
+        "id": product_id,
+        "description": "Produto",
+        "quantity": quantity,
+        "is_customer_supplied": False,
+        "shipping": _money(shipping),
+        "total_price": total,
+        "unit_price": _money(selling),
+        "adjusted_unit_price": _money(selling),
+        "display_unit_price": _money(selling),
+        "product_cost_price": _money("0.00"),
+        "profit_value": total,
+        "show_kit_duplicate_warning": False,
+    }
+
+
+def _service_row(*, service_id: int, quantity: int, selling: str, duration_seconds: int = 3600) -> dict:
+    total = _money(selling) * quantity
+    return {
+        "id": service_id,
+        "description": "Servico",
+        "quantity": quantity,
+        "shipping": _money("0.00"),
+        "total_price": total,
+        "unit_price": _money(selling),
+        "display_unit_price": _money(selling),
+        "service_cost_price": _money("0.00"),
+        "service_mechanic_cost_price": _money("0.00"),
+        "profit_value": total,
+        "_duration_seconds": duration_seconds * quantity,
+    }
+
+
+class MergeSelectedPdfRowsTests(SimpleTestCase):
+    def test_kit_vs_kit_product_keeps_higher_quantity_instead_of_summing(self) -> None:
+        merged = _merge_selected_product_rows(
+            [
+                _product_row(product_id=10, quantity=6, selling="10.00"),
+                _product_row(product_id=10, quantity=10, selling="10.00"),
+            ]
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["quantity"], 10)
+        self.assertEqual(merged[0]["total_price"], _money("100.00"))
+
+    def test_kit_vs_kit_product_keeps_winner_regardless_of_row_order(self) -> None:
+        merged = _merge_selected_product_rows(
+            [
+                _product_row(product_id=10, quantity=10, selling="10.00"),
+                _product_row(product_id=10, quantity=6, selling="10.00"),
+            ]
+        )
+
+        self.assertEqual(merged[0]["quantity"], 10)
+        self.assertEqual(merged[0]["total_price"], _money("100.00"))
+
+    def test_equal_quantity_keeps_higher_total(self) -> None:
+        merged = _merge_selected_product_rows(
+            [
+                _product_row(product_id=10, quantity=10, selling="10.00"),
+                _product_row(product_id=10, quantity=10, selling="15.00"),
+            ]
+        )
+
+        self.assertEqual(merged[0]["quantity"], 10)
+        self.assertEqual(merged[0]["total_price"], _money("150.00"))
+
+    def test_kit_vs_avulso_product_keeps_higher_quantity(self) -> None:
+        merged = _merge_selected_product_rows(
+            [
+                _product_row(product_id=10, quantity=6, selling="10.00"),
+                _product_row(product_id=10, quantity=10, selling="10.00"),
+            ]
+        )
+
+        self.assertEqual(merged[0]["quantity"], 10)
+
+    def test_kit_vs_kit_service_keeps_higher_quantity_instead_of_summing(self) -> None:
+        merged = _merge_selected_service_rows(
+            [
+                _service_row(service_id=20, quantity=6, selling="10.00"),
+                _service_row(service_id=20, quantity=10, selling="10.00"),
+            ]
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["quantity"], 10)
+        self.assertEqual(merged[0]["total_price"], _money("100.00"))
+        self.assertEqual(merged[0]["duration_display"], "10h 00m")
