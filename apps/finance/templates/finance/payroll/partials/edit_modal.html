@@ -158,6 +158,18 @@
                                                     <span class="shrink-0 text-sm font-bold text-primary">{{ item.amount }}</span>
                                                     <button
                                                         type="button"
+                                                        class="btn btn-ghost btn-xs btn-square relative z-20 shrink-0 text-primary hover:bg-primary/10"
+                                                        title="Sincronizar {{ item.benefit_name }}"
+                                                        aria-label="Sincronizar {{ item.benefit_name }}"
+                                                        hx-get="{% url 'finance:payroll_sync_component' payroll.pk 'BENEFIT' %}?movement_id={{ item.movement_id|unlocalize }}"
+                                                        hx-target="body"
+                                                        hx-swap="beforeend"
+                                                        onclick="event.stopPropagation()"
+                                                    >
+                                                        <span class="material-icons pointer-events-none text-sm">sync</span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
                                                         class="btn btn-ghost btn-xs btn-square relative z-20 shrink-0 text-error hover:bg-error/10"
                                                         title="Excluir {{ item.benefit_name }}"
                                                         aria-label="Excluir {{ item.benefit_name }}"
@@ -232,18 +244,33 @@
                      tabLabels: { {% for tab in component_tabs %}'{{ tab.key }}': '{{ tab.label|escapejs }}'{% if not forloop.last %}, {% endif %}{% endfor %} },
                      tabMovementIds: { {% for tab in component_tabs %}'{{ tab.key }}': {% if tab.default_movement_id is not None %}{{ tab.default_movement_id|unlocalize }}{% else %}null{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %} },
                      removeUrl: '{% url 'finance:financial_movement_remove_payroll_link' 0 %}',
-                     removeUrlForTab(tab) { return this.removeUrl.replace('/0/', '/' + (this.tabMovementIds[tab] || '') + '/'); }
+                     removeUrlForTab(tab) { return this.removeUrl.replace('/0/', '/' + (this.tabMovementIds[tab] || '') + '/'); },
+                     componentKeys: ['SALARY', 'TRANSPORT', 'BENEFIT', 'COMMISSION'],
+                     payrollStatus: '{{ payroll.status }}',
+                     syncUrl: '{% url 'finance:payroll_sync_component' payroll.pk 'COMPONENT_PLACEHOLDER' %}',
+                     syncUrlForTab(tab) { return this.syncUrl.replace('COMPONENT_PLACEHOLDER', tab); },
+                     showTabActions() {
+                         return Boolean(tabMovementIds[activeTab]) && !(activeTab === 'BENEFIT') || (componentKeys.includes(activeTab) && Boolean(tabMovementIds[activeTab]) && this.payrollStatus !== 'PAID');
+                     }
                  }">
-                <div x-show="activeTab !== 'BENEFIT' && tabMovementIds[activeTab]" x-cloak>
+                <div x-show="(activeTab !== 'BENEFIT' && tabMovementIds[activeTab]) || (componentKeys.includes(activeTab) && tabMovementIds[activeTab] && payrollStatus !== 'PAID')" x-cloak>
                     <span class="text-sm text-base-content/70">Ações para <span class="font-semibold" x-text="tabLabels[activeTab] || ''"></span>:</span>
+                    <button type="button" class="btn btn-primary btn-outline btn-sm ml-2"
+                            x-show="componentKeys.includes(activeTab) && activeTab !== 'BENEFIT' && payrollStatus !== 'PAID'"
+                            hx-target="body" hx-swap="beforeend"
+                            @click="htmx.ajax('GET', syncUrlForTab(activeTab), {target: document.body, swap: 'beforeend'})">
+                        <span class="material-icons text-sm">sync</span>
+                        Sincronizar dados
+                    </button>
                     <button type="button" class="btn btn-error btn-outline btn-sm ml-2"
+                            x-show="activeTab !== 'BENEFIT'"
                             hx-target="body" hx-swap="beforeend"
                             x-bind:hx-get="removeUrlForTab(activeTab)">
                         <span class="material-icons text-sm">link_off</span>
                         Excluir <span x-text="tabLabels[activeTab] || ''"></span>
                     </button>
                 </div>
-                <div class="flex items-center gap-2" :class="activeTab === 'BENEFIT' || !tabMovementIds[activeTab] ? 'ml-auto' : ''">
+                <div class="flex items-center gap-2" :class="showTabActions() ? '' : 'ml-auto'">
                     <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
                     <button type="submit" class="btn btn-primary"><span class="material-icons text-sm">save</span>Salvar</button>
                 </div>
