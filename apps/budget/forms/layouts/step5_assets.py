@@ -155,6 +155,9 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                     subtotalDisplay,
                                     discountDisplay,
                                     totalDisplay,
+                                    budgetTotalDisplay: document.getElementById('step5-budget-total-display'),
+                                    partsDisplay: document.getElementById('display-venda-pecas'),
+                                    laborDisplay: document.getElementById('display-venda-mo'),
                                 }};
                             }}
 
@@ -166,9 +169,25 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 const baseTotal = getBaseTotal(elements);
                                 const resolvedDiscount = clamp(roundCurrency(discountAmount), 0, baseTotal);
                                 const totalValue = roundCurrency(baseTotal - resolvedDiscount);
+                                const discountType = getDiscountTypeValue();
 
                                 elements.discountDisplay.textContent = `R$ ${{formatMoney(resolvedDiscount)}}`;
                                 elements.totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                                if (elements.budgetTotalDisplay) {{
+                                    elements.budgetTotalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                                }}
+
+                                if (elements.partsDisplay) {{
+                                    const grossParts = parseDotDecimal(elements.partsDisplay.dataset.grossVal);
+                                    const partsDiscount = discountType === 'products' ? Math.min(resolvedDiscount, grossParts) : 0;
+                                    elements.partsDisplay.textContent = `R$ ${{formatMoney(grossParts - partsDiscount)}}`;
+                                }}
+
+                                if (elements.laborDisplay) {{
+                                    const grossLabor = parseDotDecimal(elements.laborDisplay.dataset.grossVal);
+                                    const laborDiscount = discountType === 'services' ? Math.min(resolvedDiscount, grossLabor) : 0;
+                                    elements.laborDisplay.textContent = `R$ ${{formatMoney(grossLabor - laborDiscount)}}`;
+                                }}
                             }}
 
                             function syncFromPercentage(elements) {{
@@ -259,6 +278,7 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 if (e.target && e.target.name === 'discount_type') {{
                                     const elements = getDiscountElements();
                                     if (elements) {{
+                                        syncFromValue(elements);
                                         clearTimeout(timeout);
                                         persistDiscount(elements);
                                     }}
@@ -403,7 +423,10 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                     updateFill(val);
                                 }}
                         
-                                slider.addEventListener('input', e => update(e.target.value));
+                                if (slider.dataset.step5SliderBound !== 'true') {{
+                                    slider.addEventListener('input', e => update(e.target.value));
+                                    slider.dataset.step5SliderBound = 'true';
+                                }}
                                 update(slider.value || 0);
                             }};
                         
