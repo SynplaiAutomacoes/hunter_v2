@@ -677,6 +677,8 @@ class StockImportCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScope
     def get_object(self, queryset=None):
         pk = self.request.GET.get("pk") or self.kwargs.get("pk")
         if pk:
+            # Remove thousand separators that pt-BR locale may inject (e.g. "1.042" -> "1042")
+            pk = str(pk).replace(".", "").replace(",", "")
             return get_object_or_404(StockImport, id=pk, workshop=self.workshop)
         return None
 
