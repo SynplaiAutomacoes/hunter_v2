@@ -85,6 +85,82 @@ def _resolve_reference_date(reference_date: date | None = None) -> date:
     return date(resolved.year, resolved.month, 1)
 
 
+@dataclass(slots=True, frozen=True)
+class WorkOrderCollaboratorCommissionPreview:
+    collaborator_id: int
+    name: str
+    percentage: Decimal | None
+    percentage_display: str
+    base_amount: Money
+    commission_amount: Money
+    receives_commission: bool
+    eligible: bool
+    consolidates_on_delivery: bool
+    unavailable_reason: str
+
+
+def _format_commission_percentage(percentage: Decimal | None) -> str:
+    if percentage is None:
+        return "—"
+    display = (Decimal(str(percentage)) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{display:.2f}%".replace(".", ",")
+
+
+def preview_workorder_collaborator_commissions(*, workorder: WorkOrder) -> list[WorkOrderCollaboratorCommissionPreview]:
+    """Return a read-only commission forecast for collaborators linked to the work order."""
+    budget_type = _resolve_workorder_budget_type(workorder=workorder)
+    is_sale = budget_type == "sale"
+    consolidates_on_delivery = _workorder_can_generate_commission(workorder=workorder)
+    base_amount = _resolve_commission_base_amount(workorder=workorder)
+    base_decimal = Decimal(str(base_amount.amount or ZERO))
+
+    if not is_sale:
+        unavailable_reason = "Comissão não se aplica a orçamentos de garantia ou cortesia."
+    else:
+        unavailable_reason = ""
+
+    previews: list[WorkOrderCollaboratorCommissionPreview] = []
+    for collaborator in workorder.collaborators.all():
+        receives_commission = bool(collaborator.receives_commission and collaborator.commission_percentage is not None)
+        percentage = Decimal(str(collaborator.commission_percentage)) if receives_commission else None
+        if not is_sale:
+            commission_amount = Money(ZERO, "BRL")
+            eligible = False
+            reason = unavailable_reason
+        elif not receives_commission:
+            commission_amount = Money(ZERO, "BRL")
+            eligible = False
+            reason = "Este colaborador não recebe comissão."
+        else:
+            commission_amount = Money(_quantize(base_decimal * Decimal(str(percentage or ZERO))), "BRL")
+            eligible = True
+            reason = ""
+
+        previews.append(
+            WorkOrderCollaboratorCommissionPreview(
+                collaborator_id=collaborator.pk,
+                name=collaborator.name,
+                percentage=percentage,
+                percentage_display=_format_commission_percentage(percentage),
+                base_amount=base_amount,
+                commission_amount=commission_amount,
+                receives_commission=receives_commission,
+                eligible=eligible,
+                consolidates_on_delivery=consolidates_on_delivery,
+                unavailable_reason=reason,
+            )
+        )
+    return previews
+
+
+def workorder_commission_context(*, workorder: WorkOrder) -> dict[str, object]:
+    return {
+        "commission_previews": preview_workorder_collaborator_commissions(workorder=workorder),
+        "commission_is_sale": _resolve_workorder_budget_type(workorder=workorder) == "sale",
+        "commission_consolidates": _workorder_can_generate_commission(workorder=workorder),
+    }
+
+
 def _resolve_commission_base_amount(*, workorder: WorkOrder) -> Money:
     services_total = Money(_quantize(Decimal(str(workorder.total_services_value.amount or ZERO))), "BRL")
     resolved_discount_value = Money(_quantize(Decimal(str(workorder.resolved_discount_value.amount or ZERO))), "BRL")
@@ -544,8 +620,39 @@ def _calculate_transport_allowance_total_from_work_days(*, collaborator: Worksho
     return Money(_quantize(total), "BRL")
 
 
+def _apply_work_days_to_transport_component(*, payroll: CollaboratorPayroll, work_days: int) -> CollaboratorPayroll:
+    """Update VT amount from work days without rebuilding salary/benefit/commission movements."""
+    transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=payroll.collaborator, work_days=work_days)
+    unpaid_transport_movements = list(
+        payroll.financial_movements.filter(
+            payroll_component=FinancialMovement.PayrollComponent.TRANSPORT,
+            is_paid=False,
+        )
+    )
+    for movement in unpaid_transport_movements:
+        if movement.amount != transport_amount:
+            movement.amount = transport_amount
+            movement.save(update_fields=["amount"])
+    if unpaid_transport_movements:
+        return recalculate_payroll_from_linked_movements(payroll=payroll)
+
+    payroll.transport_allowance_amount = transport_amount
+    total_amount = Money(
+        _quantize(
+            Decimal(str(payroll.salary_amount.amount or ZERO))
+            + Decimal(str(transport_amount.amount or ZERO))
+            + Decimal(str(payroll.benefits_amount.amount or ZERO))
+            + Decimal(str(payroll.commission_amount.amount or ZERO))
+        ),
+        "BRL",
+    )
+    payroll.total_amount = total_amount
+    payroll.save(update_fields=["transport_allowance_amount", "total_amount"])
+    return payroll
+
+
 @transaction.atomic
-def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None, sync_salary_costs: bool = True) -> CollaboratorPayroll:
+def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None, sync_salary_costs: bool = True, resync_components: bool = True) -> CollaboratorPayroll:
     """Update payroll work days. Pass ``None`` to restore the workshop monthly cost default."""
     if _is_paid_payroll(payroll=payroll):
         return payroll
@@ -569,6 +676,8 @@ def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | N
         update_fields.append("work_days_is_custom")
     if update_fields:
         payroll.save(update_fields=update_fields)
+        if not resync_components:
+            return _apply_work_days_to_transport_component(payroll=payroll, work_days=resolved_work_days)
         synced = sync_collaborator_payroll(
             collaborator=payroll.collaborator,
             reference_date=date(payroll.reference_year, payroll.reference_month, 1),
@@ -778,7 +887,16 @@ def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollabor
     return payroll_group
 
 
+def get_default_transport_budget_plan(*, workshop: Workshop) -> FinancialGroup | None:
+    target_code = PAYROLL_COMPONENT_PLAN_CODES[FinancialMovement.PayrollComponent.TRANSPORT]
+    return FinancialGroup.objects.filter(workshop=workshop, code=target_code).first()
+
+
 def get_collaborator_payroll_component_group(*, collaborator: WorkshopCollaborator, component: str) -> FinancialGroup:
+    if component == FinancialMovement.PayrollComponent.TRANSPORT:
+        custom_plan = collaborator.transport_budget_plan
+        if custom_plan is not None and custom_plan.workshop_id == collaborator.workshop_id:
+            return custom_plan
     target_code = PAYROLL_COMPONENT_PLAN_CODES.get(component)
     if target_code:
         component_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, code=target_code).first()
@@ -1050,10 +1168,13 @@ def _get_payroll_representative_movement(*, payroll: CollaboratorPayroll, existi
 
 
 def _build_payroll_component_key(*, component: str | None, budget_plan_id: int | None = None, payroll_benefit_id: int | None = None) -> tuple[str, int | None]:
+    del budget_plan_id
     component_key = str(component or "")
     if component_key == FinancialMovement.PayrollComponent.BENEFIT:
         return (component_key, payroll_benefit_id)
-    return (component_key, budget_plan_id)
+    # Salary, VT and commission are unique per component. Matching by budget_plan
+    # made a plan change look like a new movement and the following sync reverted it.
+    return (component_key, None)
 
 
 def _movement_component_key(*, movement: FinancialMovement) -> tuple[str, int | None]:
@@ -1202,6 +1323,10 @@ def get_payroll_movement_diagnoses(*, payrolls: list[CollaboratorPayroll]) -> di
 
     def resolve_component_group(*, collaborator: WorkshopCollaborator, component: str) -> FinancialGroup:
         nonlocal default_group
+        if component == FinancialMovement.PayrollComponent.TRANSPORT:
+            custom_plan = collaborator.transport_budget_plan
+            if custom_plan is not None and custom_plan.workshop_id == collaborator.workshop_id:
+                return custom_plan
         target_code = PAYROLL_COMPONENT_PLAN_CODES.get(component)
         if target_code and target_code in groups_by_code:
             return groups_by_code[target_code]

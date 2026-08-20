@@ -6,6 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any, Iterable
 
 from django.core.validators import MaxValueValidator, MinValueValidator
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import PositiveIntegerField
 from django.utils import timezone
@@ -40,6 +41,8 @@ class WorkOrderError(Exception):
 
 class WorkOrderStatus(models.TextChoices):
     DRAFT = "draft", "Aprovado"
+    WAITING_COLLABORATOR = "waiting_collaborator", "Aguardando Colaborador"
+    WAITING_DELIVERY = "waiting_delivery", "Aguardando Entrega"
     APPROVED = "approved", "Veículo Entregue"
     REJECTED = "rejected", "Reprovado"
     CANCELLED = "cancelled", "Cancelado"
@@ -52,6 +55,14 @@ WORKORDER_REOPENABLE_STATUSES = frozenset(
         WorkOrderStatus.CANCELLED,
     }
 )
+WORKORDER_OPEN_STATUSES = frozenset(
+    {
+        WorkOrderStatus.DRAFT,
+        WorkOrderStatus.WAITING_COLLABORATOR,
+        WorkOrderStatus.WAITING_DELIVERY,
+    }
+)
+WORKORDER_REVENUE_STATUSES = WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED}
 
 
 class WorkOrderSignatureStatus(models.TextChoices):
@@ -76,6 +87,12 @@ class WorkOrderWarrantyPlan(models.TextChoices):
     NONE = "none", "Serviço sem garantia"
 
 
+class WorkOrderCourtesyReasonType(models.TextChoices):
+    PART_DEFECT = "part_defect", "Defeito de peça"
+    LABOR_FAILURE = "labor_failure", "Falha de mão de obra"
+    BOTH = "both", "Ambos"
+
+
 WARRANTY_PLAN_DAYS: dict[str, int | None] = {
     WorkOrderWarrantyPlan.DAYS_30: 30,
     WorkOrderWarrantyPlan.DAYS_90: 90,
@@ -88,8 +105,10 @@ WARRANTY_PLAN_DAYS: dict[str, int | None] = {
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Criado por", on_delete=models.SET_NULL, related_name="created_workorders", null=True, blank=True)
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="workorders", blank=True)
-    status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
+    status = models.CharField(verbose_name="Status", max_length=32, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
+    current_step = models.PositiveSmallIntegerField(verbose_name="Etapa atual", default=1)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7, decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
     discount_type = models.CharField(verbose_name="Tipo de Desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
@@ -121,6 +140,25 @@ class WorkOrder(TimeStampedModel):
         on_delete=models.SET_NULL,
         related_name="workorders",
         null=True,
+        blank=True,
+    )
+    previous_mechanic = models.ForeignKey(
+        "collaborators.WorkshopCollaborator",
+        verbose_name="Mecânico responsável pelo serviço anterior",
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+    )
+    courtesy_reason_type = models.CharField(
+        verbose_name="Motivo da cortesia/garantia",
+        max_length=20,
+        choices=WorkOrderCourtesyReasonType.choices,
+        null=True,
+        blank=True,
+    )
+    courtesy_reason_description = models.TextField(
+        verbose_name="Descrição do motivo da cortesia/garantia",
         blank=True,
     )
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
@@ -167,6 +205,8 @@ class WorkOrder(TimeStampedModel):
     def workorder_status_badge(self):
         status_color = {
             WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
+            WorkOrderStatus.WAITING_COLLABORATOR: "badge-info min-w-sm",
+            WorkOrderStatus.WAITING_DELIVERY: "badge-warning min-w-sm",
             WorkOrderStatus.APPROVED: "badge-success min-w-sm",
             WorkOrderStatus.REJECTED: "badge-error min-w-sm",
             WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
@@ -402,6 +442,10 @@ class WorkOrder(TimeStampedModel):
         return self.status in WORKORDER_REOPENABLE_STATUSES
 
     @property
+    def can_change_delivery_status(self) -> bool:
+        return self.status == WorkOrderStatus.WAITING_DELIVERY
+
+    @property
     def signature_blockers_display(self) -> str:
         return " ".join(self.signature_blockers)
 
@@ -455,13 +499,14 @@ class WorkOrder(TimeStampedModel):
         if self.status == WorkOrderStatus.APPROVED:
             return
         self.status = WorkOrderStatus.APPROVED
+        self.current_step = max(int(self.current_step or 1), 4)
         if self.pk and not getattr(self, "_skip_stock_consumption_guard", False):
             self._ensure_stock_consumed_on_approve()
+        update_fields = ["status", "current_step"]
         if self.delivered_at is None:
             self.delivered_at = timezone.now()
-            self.save(update_fields=["status", "delivered_at"])
-        else:
-            self.save(update_fields=["status"])
+            update_fields.append("delivered_at")
+        self.save(update_fields=update_fields)
 
     def _ensure_stock_consumed_on_approve(self, user: object | None = None) -> None:
         from apps.stock.services.workorder_stock import has_unreversed_exit_movements
@@ -541,10 +586,11 @@ class WorkOrder(TimeStampedModel):
         if not self.can_reopen:
             raise WorkOrderError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
-        self.status = WorkOrderStatus.DRAFT
+        self.status = WorkOrderStatus.WAITING_DELIVERY
         self.reopen_reason = reason
+        self.current_step = 4
 
-        self.save(update_fields=["status", "delivered_at", "reopen_reason"])
+        self.save(update_fields=["status", "delivered_at", "reopen_reason", "current_step"])
 
     def apply_discount(self, value: Money, percentage: Decimal, discount_type: str | None = None) -> None:
         self.discount_value = value
@@ -562,6 +608,56 @@ class WorkOrder(TimeStampedModel):
         self.km_final = km_final
         self.save(update_fields=["km_final"])
         self._sync_vehicle_km_from_exit()
+
+    def save_delivery_draft(self, *, cleaned_data: dict[str, Any], posted_fields: set[str]) -> None:
+        update_fields: list[str] = []
+        sync_km = False
+
+        if "km_final" in posted_fields:
+            km_final = cleaned_data.get("km_final")
+            self.km_final = int(km_final) if km_final is not None else None
+            update_fields.append("km_final")
+            sync_km = self.km_final is not None
+
+        if "unsigned_delivery_reason" in posted_fields:
+            self.unsigned_delivery_reason = str(cleaned_data.get("unsigned_delivery_reason") or "")
+            update_fields.append("unsigned_delivery_reason")
+
+        if "warranty_plan" in posted_fields:
+            self.warranty_plan = cleaned_data.get("warranty_plan") or None
+            update_fields.append("warranty_plan")
+
+        if "last_oil_change_date" in posted_fields:
+            self.last_oil_change_date = cleaned_data.get("last_oil_change_date")
+            update_fields.append("last_oil_change_date")
+
+        if "last_oil_change_km" in posted_fields:
+            self.last_oil_change_km = cleaned_data.get("last_oil_change_km")
+            update_fields.append("last_oil_change_km")
+
+        if "review_plan" in posted_fields:
+            self.review_plan = cleaned_data.get("review_plan")
+            update_fields.append("review_plan")
+
+        if "previous_mechanic" in posted_fields:
+            mechanic = cleaned_data.get("previous_mechanic")
+            self.previous_mechanic_id = getattr(mechanic, "pk", None)
+            update_fields.append("previous_mechanic_id")
+
+        if "courtesy_reason_type" in posted_fields:
+            self.courtesy_reason_type = cleaned_data.get("courtesy_reason_type") or None
+            update_fields.append("courtesy_reason_type")
+
+        if "courtesy_reason_description" in posted_fields:
+            self.courtesy_reason_description = str(cleaned_data.get("courtesy_reason_description") or "")
+            update_fields.append("courtesy_reason_description")
+
+        if not update_fields:
+            return
+
+        self.save(update_fields=update_fields)
+        if sync_km:
+            self._sync_vehicle_km_from_exit()
 
     def set_unsigned_delivery_reason(self, reason: str) -> None:
         self.unsigned_delivery_reason = reason
@@ -611,6 +707,9 @@ class WorkOrder(TimeStampedModel):
         last_oil_change_km: int | None = None,
         review_plan: "ReviewPlan | None" = None,
         warranty_plan: str | None = None,
+        previous_mechanic_id: int | None = None,
+        courtesy_reason_type: str | None = None,
+        courtesy_reason_description: str = "",
     ) -> None:
         self.km_final = km_final
         self.unsigned_delivery_reason = unsigned_delivery_reason
@@ -618,6 +717,15 @@ class WorkOrder(TimeStampedModel):
         if warranty_plan is not None:
             self.warranty_plan = warranty_plan
             update_fields.append("warranty_plan")
+        if previous_mechanic_id is not None:
+            self.previous_mechanic_id = previous_mechanic_id
+            update_fields.append("previous_mechanic_id")
+        if courtesy_reason_type is not None:
+            self.courtesy_reason_type = courtesy_reason_type or None
+            update_fields.append("courtesy_reason_type")
+        if courtesy_reason_description:
+            self.courtesy_reason_description = courtesy_reason_description
+            update_fields.append("courtesy_reason_description")
         if last_oil_change_date is not None:
             self.last_oil_change_date = last_oil_change_date
             update_fields.append("last_oil_change_date")
@@ -1035,11 +1143,6 @@ class WorkOrder(TimeStampedModel):
             self.discount_type = self.budget.discount_type
             self.budget_type = self.budget.budget_type
             self.save(update_fields=["discount_value", "discount_percentage", "discount_type", "budget_type"])
-
-            collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
-            if not collaborator_ids and self.budget.collaborator_id:
-                collaborator_ids = [self.budget.collaborator_id]
-            self.collaborators.set(collaborator_ids)
 
             self.invalidate_pricing_snapshot_cache()
             self.refresh_stored_amounts()

@@ -231,6 +231,56 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertEqual(benefit_movement.payroll_benefit_id, benefit.pk)
         self.assertEqual(getattr(benefit_movement.budget_plan, "code", None), "5.1.5")
 
+    def test_payroll_uses_collaborator_transport_budget_plan_when_set(self) -> None:
+        workshop = create_workshop(suffix=46)
+        collaborator = create_collaborator(workshop=workshop, suffix=46)
+        collaborator.transport_allowance_daily = Money(10, "BRL")
+        default_plan = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 13],
+            names=["Despesas Trabalhistas", "Folha", "Vale Transporte"],
+        )
+        custom_plan = FinancialGroup.objects.create(workshop=workshop, parent=default_plan.parent, name="VT Personalizado")
+        collaborator.transport_budget_plan = custom_plan
+        collaborator.save(update_fields=["transport_allowance_daily", "transport_budget_plan"])
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            year=2026,
+            month=8,
+            mechanic_quantity=1,
+            work_days_per_month=10,
+        )
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+
+        transport_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.TRANSPORT)
+        self.assertEqual(transport_movement.budget_plan_id, custom_plan.pk)
+        self.assertEqual(transport_movement.amount, Money(100, "BRL"))
+
+    def test_payroll_uses_default_transport_plan_when_collaborator_has_no_custom_plan(self) -> None:
+        workshop = create_workshop(suffix=47)
+        collaborator = create_collaborator(workshop=workshop, suffix=47)
+        collaborator.transport_allowance_daily = Money(8, "BRL")
+        collaborator.save(update_fields=["transport_allowance_daily"])
+        default_plan = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 13],
+            names=["Despesas Trabalhistas", "Folha", "Vale Transporte"],
+        )
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            year=2026,
+            month=8,
+            mechanic_quantity=1,
+            work_days_per_month=5,
+        )
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+
+        transport_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.TRANSPORT)
+        self.assertEqual(transport_movement.budget_plan_id, default_plan.pk)
+        self.assertEqual(getattr(transport_movement.budget_plan, "code", None), "5.1.13")
+
     def test_sale_workorder_generates_commission_but_courtesy_and_warranty_do_not(self) -> None:
         workshop = create_workshop(suffix=1)
         collaborator = create_collaborator(workshop=workshop, suffix=1)

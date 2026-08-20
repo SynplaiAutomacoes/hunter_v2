@@ -109,7 +109,7 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
             else FinancialMovement(
                 workorder_payment=payment,
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
-                is_paid=True,
+                is_paid=False,
                 is_reconciled=False,
             )
         )
@@ -168,7 +168,6 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
             "movement_kind": FinancialMovement.MovementKind.WORKORDER_PARENT,
             "workorder": workorder,
             "workorder_payment": payment,
-            "is_paid": True,
         }
         payment_movements = list(
             FinancialMovement.objects.filter(
@@ -182,7 +181,7 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         )
         payment_movement = payment_movements[0] if payment_movements else None
         if payment_movement is None:
-            FinancialMovement.objects.create(is_reconciled=False, **payment_defaults)
+            FinancialMovement.objects.create(is_paid=False, is_reconciled=False, **payment_defaults)
         else:
             for field_name, field_value in payment_defaults.items():
                 setattr(payment_movement, field_name, field_value)
@@ -226,7 +225,7 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         movement = FinancialMovement.objects.filter(workorder=workorder, workorder_payment__isnull=True, reversal_of__isnull=True).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
 
     if movement is None:
-        movement = FinancialMovement.objects.create(workorder=workorder, is_paid=True, is_reconciled=False, **defaults)
+        movement = FinancialMovement.objects.create(workorder=workorder, is_paid=False, is_reconciled=False, **defaults)
     else:
         for field_name, field_value in defaults.items():
             setattr(movement, field_name, field_value)

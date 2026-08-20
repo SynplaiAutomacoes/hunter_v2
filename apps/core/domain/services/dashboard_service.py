@@ -30,6 +30,7 @@ class DashboardMetrics:
     total_sold_to_date: Decimal = Decimal("0.00")
     accumulated_profitability: float | Decimal = 0
     accumulated_markup: Decimal = Decimal("0.00")
+    accumulated_markup_target: Decimal | None = None
     accumulated_markup_progress: int = 0
     accumulated_markup_tone: str = "error"
     warranty_return_rate: float | Decimal = 0
@@ -71,6 +72,7 @@ class DashboardMetrics:
             "total_vendido_ate_a_data": self.total_sold_to_date,
             "rentabilidade_acumulada_mes": self.accumulated_profitability,
             "markup_acumulado_mes": self.accumulated_markup,
+            "markup_acumulado_meta": self.accumulated_markup_target,
             "markup_acumulado_progresso": self.accumulated_markup_progress,
             "markup_acumulado_tom": self.accumulated_markup_tone,
             "indice_retorno_em_garantia_mes": self.warranty_return_rate,

@@ -292,7 +292,7 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
         filters = self._get_filter_params()
         queryset = (
             CollaboratorPayroll.objects.filter(workshop=self.workshop, collaborator__is_active=True)
-            .select_related("collaborator", "financial_movement")
+            .select_related("collaborator", "collaborator__transport_budget_plan", "financial_movement")
             .prefetch_related("financial_movements")
             .order_by("collaborator__name", "id")
         )
@@ -471,7 +471,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
 
     def _get_payroll(self) -> CollaboratorPayroll:
         return get_object_or_404(
-            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related(
+            CollaboratorPayroll.objects.select_related("collaborator", "collaborator__transport_budget_plan", "financial_movement").prefetch_related(
                 "items",
                 "commission_entries__workorder__budget",
                 "financial_movements__payroll_benefit",
@@ -487,7 +487,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
         collaborator = self._get_collaborator()
         reference_date = self._get_reference_date()
         return (
-            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement")
+            CollaboratorPayroll.objects.select_related("collaborator", "collaborator__transport_budget_plan", "financial_movement")
             .prefetch_related(
                 "items",
                 "commission_entries__workorder__budget",
@@ -878,21 +878,32 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 if all_forms:
                     recalculate_payroll_from_linked_movements(payroll=payroll)
                 # Apply work days after form saves so payment-tab POST data does not overwrite VT.
+                # Submitting the current work_days value (always present in the form) must not
+                # mark the payroll as custom or trigger a full sync that reverts amount/plan.
                 if work_days_requested:
                     previous_work_days = int(payroll.work_days or 0)
                     previous_is_custom = bool(payroll.work_days_is_custom)
+                    workshop_default_work_days = get_workshop_work_days(
+                        workshop=payroll.workshop,
+                        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+                    )
                     if parsed_work_days is None:
-                        resolved_work_days = get_workshop_work_days(
-                            workshop=payroll.workshop,
-                            reference_date=date(payroll.reference_year, payroll.reference_month, 1),
-                        )
+                        resolved_work_days = workshop_default_work_days
                         proposed_is_custom = False
                     else:
                         resolved_work_days = max(0, int(parsed_work_days))
-                        proposed_is_custom = True
+                        if resolved_work_days == previous_work_days:
+                            proposed_is_custom = previous_is_custom
+                        else:
+                            proposed_is_custom = resolved_work_days != workshop_default_work_days
                     work_days_changed = previous_is_custom != proposed_is_custom or previous_work_days != resolved_work_days
                     if work_days_changed:
-                        payroll = update_payroll_work_days(payroll=payroll, work_days=parsed_work_days)
+                        payroll = update_payroll_work_days(
+                            payroll=payroll,
+                            work_days=parsed_work_days,
+                            sync_salary_costs=False,
+                            resync_components=False,
+                        )
                 payroll.refresh_from_db()
 
                 movements = payroll.get_financial_movements()
