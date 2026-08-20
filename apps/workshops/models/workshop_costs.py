@@ -134,7 +134,8 @@ class WorkshopCost(TimeStampedModel):
             return Decimal("0.00")
 
         work_hours_per_day = Decimal(self.work_hours_per_day.total_seconds()) / Decimal("3600")
-        productivity_per_day = Decimal(self.mechanic_quantity or 0) * work_hours_per_day * (self.productivity_average or Decimal("0"))
+        productivity_average = Decimal(str(self.productivity_average or 0))
+        productivity_per_day = Decimal(self.mechanic_quantity or 0) * work_hours_per_day * productivity_average
 
         working_hours_per_month = productivity_per_day * Decimal(self.work_days_per_month or 0)
         return working_hours_per_month.quantize(Decimal("0.01"), ROUND_HALF_UP)
