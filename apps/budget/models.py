@@ -131,6 +131,7 @@ class Budget(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="budgets")
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.SET_NULL, related_name="budgets", null=True)
     vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veículo", on_delete=models.SET_NULL, related_name="budgets", null=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Criado por", on_delete=models.SET_NULL, related_name="created_budgets", null=True, blank=True)
     cost_estimator = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Orçamentista", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="collaborators_budgets", blank=True)
@@ -220,6 +221,7 @@ class Budget(TimeStampedModel):
             "notes",
             "problem_description",
             "technical_diagnosis",
+            "created_by",
             "fuel_level",
             "current_km",
             "atualizado_em",
@@ -276,7 +278,12 @@ class Budget(TimeStampedModel):
 
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
-                    defaults={"workshop": self.workshop},
+                    defaults={
+                        "workshop": self.workshop,
+                        # The approving user is supplied by the approval service.
+                        # Keep this separate from the budget author: they may differ.
+                        "created_by": getattr(self, "_workorder_created_by", None),
+                    },
                 )
                 workorder.sync_from_budget()
 

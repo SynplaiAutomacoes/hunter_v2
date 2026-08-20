@@ -745,6 +745,8 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
+        if form.instance.pk is None:
+            form.instance.created_by = self.request.user
 
         is_creating = form.instance.pk is None
 

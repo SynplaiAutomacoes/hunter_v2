@@ -6,6 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any, Iterable
 
 from django.core.validators import MaxValueValidator, MinValueValidator
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import PositiveIntegerField
 from django.utils import timezone
@@ -104,6 +105,7 @@ WARRANTY_PLAN_DAYS: dict[str, int | None] = {
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Criado por", on_delete=models.SET_NULL, related_name="created_workorders", null=True, blank=True)
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="workorders", blank=True)
     status = models.CharField(verbose_name="Status", max_length=32, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa atual", default=1)

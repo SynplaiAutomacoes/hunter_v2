@@ -497,6 +497,11 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     benefit_total = Money(0, "BRL")
     benefit_label = ""
 
+    created_by = getattr(budget, "created_by", None) or getattr(budget, "cost_estimator", None)
+    opened_by_name = "Sistema"
+    if created_by is not None:
+        opened_by_name = created_by.get_full_name() or created_by.get_username()
+
     return {
         "budget": budget,
         "produtos": produtos,
@@ -525,5 +530,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "warranty_message": warranty_message,
         "workshop_logo_data_uri": workshop_logo_data_uri,
         "budget_rentability": rentability,
+        "document_title": "ORÇAMENTO",
+        "opened_by_name": opened_by_name,
         "request": request,
     }
