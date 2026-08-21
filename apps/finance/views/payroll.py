@@ -21,12 +21,16 @@ from django.http import HttpResponseRedirect
 
 from django.db import transaction
 
+from djmoney.forms import MoneyField as MoneyFormField
 from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import (
     PAYROLL_COMPONENT_LABELS,
+    add_manual_payroll_benefit,
+    add_manual_payroll_commission,
     build_payroll_projection,
+    delete_manual_payroll_commission,
     ensure_payroll_component_movements_confirmed,
     ensure_payroll_movements_confirmed,
     ensure_payroll_single_benefit_synced,
@@ -136,6 +140,40 @@ class PayrollPaymentForm(forms.ModelForm):
         return cleaned_data
 
 
+class ManualPayrollBenefitForm(forms.Form):
+    name = forms.CharField(label="Nome", max_length=255, widget=TextInput(attrs={"placeholder": "Nome do benefício"}))
+    amount = MoneyFormField(label="Valor", min_value=Decimal("0.01"), widget=MoneyInput())
+    budget_plan = forms.ModelChoiceField(label="Plano orçamentário", queryset=FinancialGroup.objects.none(), widget=SearchableSelectInput())
+    description = forms.CharField(label="Descrição", required=False, widget=TextInput(attrs={"placeholder": "Opcional"}))
+
+    def __init__(self, *args: Any, workshop=None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        groups = FinancialGroup.objects.none()
+        if workshop is not None:
+            groups = FinancialGroup.objects.filter(workshop=workshop).order_by("name")
+        self.fields["budget_plan"].queryset = groups
+        self.fields["budget_plan"].widget.choices = [("", "Selecione um plano"), *[(item.pk, str(item)) for item in groups]]
+
+    def clean_amount(self):
+        amount = self.cleaned_data.get("amount")
+        value = Decimal(str(getattr(amount, "amount", amount) or 0))
+        if value <= Decimal("0.00"):
+            raise forms.ValidationError("Informe um valor maior que zero.")
+        return amount
+
+
+class ManualPayrollCommissionForm(forms.Form):
+    amount = MoneyFormField(label="Valor", min_value=Decimal("0.01"), widget=MoneyInput())
+    notes = forms.CharField(label="Observação", required=False, widget=TextareaInput(rows=3, attrs={"placeholder": "Motivo (opcional)"}))
+
+    def clean_amount(self):
+        amount = self.cleaned_data.get("amount")
+        value = Decimal(str(getattr(amount, "amount", amount) or 0))
+        if value <= Decimal("0.00"):
+            raise forms.ValidationError("Informe um valor maior que zero.")
+        return amount
+
+
 class PayrollAccessMixin:
     def dispatch(self, request, *args, **kwargs):
         workshop = get_active_workshop_or_404(request)
@@ -218,11 +256,7 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
             return []
 
         reference_date = date(filters["year"], filters["month"], 1)
-        collaborators = list(
-            self._get_active_collaborators_queryset(filters=filters)
-            .prefetch_related(Prefetch("benefits", queryset=CollaboratorBenefit.objects.filter(is_active=True)))
-            .order_by("name", "id")
-        )
+        collaborators = list(self._get_active_collaborators_queryset(filters=filters).prefetch_related(Prefetch("benefits", queryset=CollaboratorBenefit.objects.filter(is_active=True, source_payroll__isnull=True))).order_by("name", "id"))
         pending_collaborators = [collaborator for collaborator in collaborators if collaborator.pk not in existing_collaborator_ids]
         if not pending_collaborators:
             return []
@@ -234,9 +268,7 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
             reference_year=filters["year"],
             reference_month=filters["month"],
         ).only("collaborator_id", "commission_amount", "commission_amount_currency"):
-            commission_by_collaborator_id[entry.collaborator_id] = commission_by_collaborator_id.get(entry.collaborator_id, Decimal("0.00")) + Decimal(
-                str(entry.commission_amount.amount or 0)
-            )
+            commission_by_collaborator_id[entry.collaborator_id] = commission_by_collaborator_id.get(entry.collaborator_id, Decimal("0.00")) + Decimal(str(entry.commission_amount.amount or 0))
 
         # All pending collaborators share the same workshop — resolve work days once.
         work_days = get_reference_work_days(collaborator=pending_collaborators[0], reference_date=reference_date)
@@ -670,14 +702,44 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             )
         return benefit_items
 
-    def _open_edit_modal(self, *, request: Any, payroll: CollaboratorPayroll, selected_tab: str | None = None) -> HttpResponse:
+    def _manual_launch_template_context(
+        self,
+        *,
+        payroll: CollaboratorPayroll,
+        manual_benefit_form: ManualPayrollBenefitForm | None = None,
+        manual_commission_form: ManualPayrollCommissionForm | None = None,
+        show_manual_benefit_form: bool = False,
+        show_manual_commission_form: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "payroll_is_paid": payroll.status == CollaboratorPayroll.Status.PAID,
+            "manual_benefit_form": manual_benefit_form or ManualPayrollBenefitForm(workshop=self.workshop, prefix="manual_benefit"),
+            "manual_commission_form": manual_commission_form or ManualPayrollCommissionForm(prefix="manual_commission"),
+            "show_manual_benefit_form": show_manual_benefit_form,
+            "show_manual_commission_form": show_manual_commission_form,
+        }
+
+    def _open_edit_modal(
+        self,
+        *,
+        request: Any,
+        payroll: CollaboratorPayroll,
+        selected_tab: str | None = None,
+        force_selected_tab: bool = False,
+        manual_benefit_form: ManualPayrollBenefitForm | None = None,
+        manual_commission_form: ManualPayrollCommissionForm | None = None,
+        show_manual_benefit_form: bool = False,
+        show_manual_commission_form: bool = False,
+    ) -> HttpResponse:
         component_tabs = self._build_component_tabs(payroll=payroll)
         selected_tab = selected_tab or self._get_requested_tab()
         fallback_tab = self._get_first_available_financial_tab(component_tabs)
 
         if selected_tab not in {"collaborator", "commissions_history", "summary"}:
             active_component_tab = next((tab for tab in component_tabs if tab["key"] == selected_tab), None)
-            if active_component_tab is None or active_component_tab["is_missing"]:
+            if active_component_tab is None:
+                selected_tab = fallback_tab
+            elif not force_selected_tab and active_component_tab["is_missing"] and not active_component_tab["movements"]:
                 selected_tab = fallback_tab
 
         modal_url = self._get_modal_url(payroll=payroll)
@@ -724,6 +786,13 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                     reference_date=date(payroll.reference_year, payroll.reference_month, 1),
                 ),
                 "transport_daily_amount": payroll.collaborator.transport_allowance_daily_amount,
+                **self._manual_launch_template_context(
+                    payroll=payroll,
+                    manual_benefit_form=manual_benefit_form,
+                    manual_commission_form=manual_commission_form,
+                    show_manual_benefit_form=show_manual_benefit_form,
+                    show_manual_commission_form=show_manual_commission_form,
+                ),
             },
         )
 
@@ -867,6 +936,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                         reference_date=date(payroll.reference_year, payroll.reference_month, 1),
                     ),
                     "transport_daily_amount": payroll.collaborator.transport_allowance_daily_amount,
+                    **self._manual_launch_template_context(payroll=payroll),
                 },
             )
 
@@ -1018,6 +1088,120 @@ class PayrollSyncComponentView(PayrollEditModalView):
         response["HX-Trigger"] = json.dumps(
             {
                 "showToast": {"message": f"{component_label} sincronizado com sucesso.", "type": "success"},
+                "payrollListRefresh": True,
+            }
+        )
+        return response
+
+
+class PayrollAddManualBenefitView(PayrollEditModalView):
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        payroll = self._get_payroll()
+        form = ManualPayrollBenefitForm(request.POST, workshop=self.workshop, prefix="manual_benefit")
+        if payroll.status == CollaboratorPayroll.Status.PAID:
+            return _build_hx_toast_response(message="A folha paga não pode receber lançamentos manuais.", toast_type="warning", status=400)
+        if not form.is_valid():
+            return self._open_edit_modal(
+                request=request,
+                payroll=payroll,
+                selected_tab=FinancialMovement.PayrollComponent.BENEFIT,
+                force_selected_tab=True,
+                manual_benefit_form=form,
+                show_manual_benefit_form=True,
+            )
+        try:
+            add_manual_payroll_benefit(
+                payroll=payroll,
+                name=str(form.cleaned_data["name"]),
+                amount=form.cleaned_data["amount"],
+                budget_plan=form.cleaned_data["budget_plan"],
+                description=str(form.cleaned_data.get("description") or ""),
+            )
+        except ValueError as exc:
+            return _build_hx_toast_response(message=str(exc), toast_type="warning", status=400)
+
+        payroll = self._get_payroll()
+        response = self._open_edit_modal(
+            request=request,
+            payroll=payroll,
+            selected_tab=FinancialMovement.PayrollComponent.BENEFIT,
+            force_selected_tab=True,
+        )
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {"message": "Benefício lançado nesta competência.", "type": "success"},
+                "payrollListRefresh": True,
+            }
+        )
+        return response
+
+
+class PayrollAddManualCommissionView(PayrollEditModalView):
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        payroll = self._get_payroll()
+        form = ManualPayrollCommissionForm(request.POST, prefix="manual_commission")
+        if payroll.status == CollaboratorPayroll.Status.PAID:
+            return _build_hx_toast_response(message="A folha paga não pode receber lançamentos manuais.", toast_type="warning", status=400)
+        if not form.is_valid():
+            return self._open_edit_modal(
+                request=request,
+                payroll=payroll,
+                selected_tab="commissions_history",
+                force_selected_tab=True,
+                manual_commission_form=form,
+                show_manual_commission_form=True,
+            )
+        try:
+            add_manual_payroll_commission(
+                payroll=payroll,
+                amount=form.cleaned_data["amount"],
+                notes=str(form.cleaned_data.get("notes") or ""),
+            )
+        except ValueError as exc:
+            return _build_hx_toast_response(message=str(exc), toast_type="warning", status=400)
+
+        payroll = self._get_payroll()
+        response = self._open_edit_modal(
+            request=request,
+            payroll=payroll,
+            selected_tab="commissions_history",
+            force_selected_tab=True,
+        )
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {"message": "Comissão lançada nesta competência.", "type": "success"},
+                "payrollListRefresh": True,
+            }
+        )
+        return response
+
+
+class PayrollDeleteManualCommissionView(PayrollEditModalView):
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        payroll = self._get_payroll()
+        entry = get_object_or_404(
+            CollaboratorCommissionEntry,
+            pk=self.kwargs["entry_pk"],
+            collaborator=payroll.collaborator,
+            reference_year=payroll.reference_year,
+            reference_month=payroll.reference_month,
+            origin=CollaboratorCommissionEntry.Origin.MANUAL,
+        )
+        try:
+            delete_manual_payroll_commission(payroll=payroll, entry=entry)
+        except ValueError as exc:
+            return _build_hx_toast_response(message=str(exc), toast_type="warning", status=400)
+
+        payroll = self._get_payroll()
+        response = self._open_edit_modal(
+            request=request,
+            payroll=payroll,
+            selected_tab="commissions_history",
+            force_selected_tab=True,
+        )
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {"message": "Comissão manual excluída.", "type": "success"},
                 "payrollListRefresh": True,
             }
         )

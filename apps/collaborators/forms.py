@@ -466,6 +466,10 @@ class CollaboratorBenefitInlineForm(CoreModelForm):
 
 
 class CollaboratorBenefitInlineFormSet(BaseInlineFormSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(source_payroll__isnull=True)
+
     def clean(self):
         super().clean()
         has_duplicate_names: set[str] = set()

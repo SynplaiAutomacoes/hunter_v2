@@ -94,22 +94,72 @@
                     <a href="{% url 'collaborators:collaborator_update' payroll.collaborator.pk %}" class="btn btn-outline"><span class="material-icons text-sm">open_in_new</span>Editar Colaborador</a>
                 </section>
 
-                <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4">
+                <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4" x-data="{ showManualCommissionForm: {{ show_manual_commission_form|yesno:'true,false' }} }">
+                    <div class="flex items-center justify-between gap-3">
+                        <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">history</span>Histórico de comissões</h3>
+                        <button
+                            type="button"
+                            class="btn btn-primary btn-sm"
+                            {% if payroll_is_paid %}disabled title="Folha paga"{% else %}@click="showManualCommissionForm = true"{% endif %}
+                        >
+                            <span class="material-icons text-sm">add</span>Lançar comissão
+                        </button>
+                    </div>
+
+                    <div id="manual-commission-fields" class="rounded-xl border border-primary/30 bg-primary/5 p-4" x-show="showManualCommissionForm" x-cloak>
+                        {% csrf_token %}
+                        {% if manual_commission_form %}
+                        <div class="grid grid-cols-12 gap-4">
+                            <div class="col-span-12 lg:col-span-4">{{ manual_commission_form.amount|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-8">{{ manual_commission_form.notes|as_crispy_field }}</div>
+                        </div>
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                class="btn btn-primary btn-sm"
+                                hx-post="{% url 'finance:payroll_add_manual_commission' payroll.pk %}"
+                                hx-include="#manual-commission-fields"
+                                hx-target="closest .modal"
+                                hx-swap="outerHTML"
+                            >
+                                <span class="material-icons text-sm">save</span>Confirmar lançamento
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-sm" @click="showManualCommissionForm = false">Cancelar</button>
+                        </div>
+                        {% endif %}
+                    </div>
+
                     <div class="overflow-x-auto rounded-xl border border-base-300">
                         <table class="table table-sm">
-                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55"><tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Status</th></tr></thead>
+                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55"><tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Status</th><th></th></tr></thead>
                             <tbody>
                                 {% for commission in payroll.commission_entries.all %}
                                     <tr>
-                                        <td>#{{ commission.workorder.get_id }}</td>
+                                        <td>{{ commission.workorder_display }}</td>
                                         <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year|unlocalize }}</td>
-                                        <td>{{ commission.base_amount }}</td>
+                                        <td>{% if commission.is_manual %}—{% else %}{{ commission.base_amount }}{% endif %}</td>
                                         <td>{{ commission.percentage_display }}</td>
                                         <td class="font-semibold">{{ commission.commission_amount }}</td>
                                         <td>{% if commission.status == "PAID" %}Pago{% else %}Não Pago{% endif %}</td>
+                                        <td class="text-right">
+                                            {% if commission.is_manual and not payroll_is_paid %}
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-ghost btn-xs btn-square text-error hover:bg-error/10"
+                                                    title="Excluir comissão manual"
+                                                    aria-label="Excluir comissão manual"
+                                                    hx-post="{% url 'finance:payroll_delete_manual_commission' payroll.pk commission.pk %}"
+                                                    hx-target="closest .modal"
+                                                    hx-swap="outerHTML"
+                                                    hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                                >
+                                                    <span class="material-icons pointer-events-none text-sm">delete</span>
+                                                </button>
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                 {% empty %}
-                                    <tr><td colspan="6" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>
+                                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -128,10 +178,42 @@
                 </section>
 
                 {% for tab in component_tabs %}
-                    <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4">
+                    <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4"{% if tab.is_benefit_tab %} x-data="{ showManualBenefitForm: {{ show_manual_benefit_form|yesno:'true,false' }} }"{% endif %}>
                         {% if tab.is_benefit_tab %}
                             <div class="flex items-center justify-between gap-3">
                                 <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
+                                <button
+                                    type="button"
+                                    class="btn btn-primary btn-sm"
+                                    {% if payroll_is_paid %}disabled title="Folha paga"{% else %}@click="showManualBenefitForm = true"{% endif %}
+                                >
+                                    <span class="material-icons text-sm">add</span>Lançar benefício
+                                </button>
+                            </div>
+
+                            <div id="manual-benefit-fields" class="rounded-xl border border-primary/30 bg-primary/5 p-4" x-show="showManualBenefitForm" x-cloak>
+                                {% csrf_token %}
+                                {% if manual_benefit_form %}
+                                <div class="grid grid-cols-12 gap-4">
+                                    <div class="col-span-12 lg:col-span-4">{{ manual_benefit_form.name|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ manual_benefit_form.amount|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ manual_benefit_form.budget_plan|as_crispy_field }}</div>
+                                    <div class="col-span-12">{{ manual_benefit_form.description|as_crispy_field }}</div>
+                                </div>
+                                <div class="mt-4 flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary btn-sm"
+                                        hx-post="{% url 'finance:payroll_add_manual_benefit' payroll.pk %}"
+                                        hx-include="#manual-benefit-fields"
+                                        hx-target="closest .modal"
+                                        hx-swap="outerHTML"
+                                    >
+                                        <span class="material-icons text-sm">save</span>Confirmar lançamento
+                                    </button>
+                                    <button type="button" class="btn btn-ghost btn-sm" @click="showManualBenefitForm = false">Cancelar</button>
+                                </div>
+                                {% endif %}
                             </div>
 
                             {% if tab.is_missing and not tab.movements %}
@@ -199,6 +281,8 @@
                                         </div>
                                     {% endfor %}
                                 </div>
+                            {% else %}
+                                <p class="rounded-xl border border-dashed border-base-300 bg-base-200/40 px-4 py-6 text-center text-sm text-base-content/60">Nenhum benefício nesta competência. Use Lançar benefício para um valor só deste mês.</p>
                             {% endif %}
                         {% else %}
                             <div class="flex items-center justify-between gap-3">
