@@ -215,30 +215,6 @@ def _build_period_label(*, start_date: date | None, end_date: date | None) -> st
     return "Todo o periodo"
 
 
-def _build_workorder_payment_status_map(*, workorder: WorkOrder) -> dict[int, dict[str, str]]:
-    status_map = {}
-    aggregate_parent_movement = workorder.financial_movements.filter(movement_kind="WORKORDER_PARENT", workorder_payment__isnull=True).order_by("-pk").first()
-    for payment in workorder.payments.all():
-        movement = workorder.financial_movements.filter(movement_kind="WORKORDER_PARENT", workorder_payment=payment).order_by("-pk").first()
-        if movement is None:
-            movement = aggregate_parent_movement
-        is_paid = bool(getattr(movement, "is_paid", True))
-        label = "Pago" if is_paid else "Pendente"
-        badge_class = "badge-success" if is_paid else "badge-warning"
-        status_map[payment.pk] = {"label": label, "badge_class": badge_class}
-    return status_map
-
-
-def _get_workorder_payments_with_status(*, workorder: WorkOrder) -> list[WorkOrderPaymentMethod]:
-    payments = list(workorder.payments.select_related("payment_method").all().order_by("pk"))
-    status_map = _build_workorder_payment_status_map(workorder=workorder)
-    for payment in payments:
-        status_data = status_map.get(payment.pk, {"label": "Pendente", "badge_class": "badge-warning"})
-        setattr(payment, "status_badge_label", status_data["label"])
-        setattr(payment, "status_badge_class", status_data["badge_class"])
-    return payments
-
-
 def _render_modal_error(*, workorder: WorkOrder, title: str, message: str, icon: str = "warning", active_tab: str = "kits") -> HttpResponse:
     icon_class = "text-warning" if icon == "warning" else "text-error"
     safe_title = escape(title)
@@ -599,8 +575,6 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
-        context["payment_status_map"] = _build_workorder_payment_status_map(workorder=self.object)
-        context["payment_rows"] = _get_workorder_payments_with_status(workorder=self.object)
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
         context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
@@ -632,10 +606,8 @@ class WorkOrderResumeSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
-        _build_workorder_payment_status_map(workorder=workorder)
         context = _build_edit_items_context(workorder)
         context["workorder"] = workorder
-        context["payment_rows"] = _get_workorder_payments_with_status(workorder=workorder)
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=workorder, workorder=workorder)
         response = render(request, "workorder/partials/resume_section.html", context)
         response["Cache-Control"] = "no-store"
@@ -661,9 +633,7 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
 
         context = _build_edit_items_context(workorder)
-        _build_workorder_payment_status_map(workorder=workorder)
         context["workorder"] = workorder
-        context["payment_rows"] = _get_workorder_payments_with_status(workorder=workorder)
         context["collaborator_form"] = form
         response = render(request, "workorder/partials/resume_section.html", context)
         response["Cache-Control"] = "no-store"
@@ -679,8 +649,6 @@ class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View)
         context = {
             "workorder": workorder,
             "payment_form": WorkOrderPaymentForm(workorder=workorder),
-            "payment_status_map": _build_workorder_payment_status_map(workorder=workorder),
-            "payment_rows": _get_workorder_payments_with_status(workorder=workorder),
         }
         response = render(request, "workorder/partials/payment_section.html", context)
         response["Cache-Control"] = "no-store"
@@ -1180,8 +1148,6 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
             {
                 "workorder": workorder,
                 "payment_form": payment_form,
-                "payment_status_map": _build_workorder_payment_status_map(workorder=workorder),
-                "payment_rows": _get_workorder_payments_with_status(workorder=workorder),
                 "collaborator_form": WorkOrderCollaboratorForm(workorder=workorder),
             }
         )
@@ -1209,8 +1175,6 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
             {
                 "workorder": workorder,
                 "payment_form": WorkOrderPaymentForm(workorder=workorder),
-                "payment_status_map": _build_workorder_payment_status_map(workorder=workorder),
-                "payment_rows": _get_workorder_payments_with_status(workorder=workorder),
                 "collaborator_form": WorkOrderCollaboratorForm(workorder=workorder),
             }
         )
