@@ -4,6 +4,8 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+from . import _idempotent
+
 
 class Migration(migrations.Migration):
 
@@ -15,7 +17,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
+        _idempotent.CreateModelIfMissing(
             name='FiscalDocument',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -37,7 +39,7 @@ class Migration(migrations.Migration):
                 'abstract': False,
             },
         ),
-        migrations.CreateModel(
+        _idempotent.CreateModelIfMissing(
             name='FiscalDocumentEvent',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -64,7 +66,7 @@ class Migration(migrations.Migration):
                 'abstract': False,
             },
         ),
-        migrations.CreateModel(
+        _idempotent.CreateModelIfMissing(
             name='FiscalEmissionAttempt',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -93,51 +95,51 @@ class Migration(migrations.Migration):
                 'abstract': False,
             },
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscaldocument',
             index=models.Index(fields=['workshop', 'document_type', 'status'], name='finance_fis_worksho_6ce3cb_idx'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='fiscaldocument',
             constraint=models.UniqueConstraint(fields=('workshop', 'legacy_nfe_item'), name='unique_fiscal_document_per_legacy_nfe_item'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='fiscaldocument',
             constraint=models.UniqueConstraint(condition=models.Q(('remote_uuid', ''), _negated=True), fields=('workshop', 'document_type', 'remote_uuid'), name='unique_fiscal_document_remote_uuid_per_workshop'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='fiscaldocument',
             constraint=models.UniqueConstraint(condition=models.Q(('access_key', ''), _negated=True), fields=('workshop', 'document_type', 'access_key'), name='unique_fiscal_document_access_key_per_workshop'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscaldocumentevent',
             index=models.Index(fields=['document', 'event_type', 'status'], name='finance_fis_documen_d315ba_idx'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscaldocumentevent',
             index=models.Index(fields=['remote_model', 'remote_uuid'], name='finance_fis_remote__4af94c_idx'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='fiscaldocumentevent',
             constraint=models.UniqueConstraint(fields=('document', 'event_type', 'event_sequence'), name='unique_fiscal_document_event_sequence'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='fiscaldocumentevent',
             constraint=models.UniqueConstraint(condition=models.Q(('remote_uuid', ''), _negated=True), fields=('remote_uuid',), name='unique_fiscal_document_event_remote_uuid'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscalemissionattempt',
             index=models.Index(fields=['workshop', 'document_kind', 'status'], name='finance_fis_worksho_6538c0_idx'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscalemissionattempt',
             index=models.Index(fields=['operation_type', 'status'], name='finance_fis_operati_227094_idx'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscalemissionattempt',
             index=models.Index(fields=['fiscal_document_event'], name='finance_fis_fiscal__86f5e7_idx'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='fiscalemissionattempt',
             constraint=models.UniqueConstraint(fields=('workshop', 'document_kind', 'idempotency_key'), name='unique_fiscal_attempt_per_intention'),
         ),

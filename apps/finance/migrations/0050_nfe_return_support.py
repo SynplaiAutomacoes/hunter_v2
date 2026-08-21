@@ -4,6 +4,8 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+from . import _idempotent
+
 
 class Migration(migrations.Migration):
 
@@ -15,7 +17,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
+        _idempotent.CreateModelIfMissing(
             name='FiscalDocumentLink',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -32,52 +34,52 @@ class Migration(migrations.Migration):
             name='fiscaldocument',
             options={'permissions': [('issue_nfe_return', 'Pode emitir NF-e de devolução'), ('issue_nfe_reversal', 'Pode emitir NF-e de estorno'), ('download_nfe_return', 'Pode baixar XML/DANFE de NF-e de devolução ou estorno')]},
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='danfe_url',
             field=models.URLField(blank=True, default=''),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='external_confirmation',
             field=models.BooleanField(default=False),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='external_confirmed_at',
             field=models.DateTimeField(blank=True, null=True),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='origin',
             field=models.CharField(choices=[('local', 'Local'), ('external', 'Externo'), ('derived', 'Derivado')], db_index=True, default='local', max_length=16),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='purpose',
             field=models.CharField(choices=[('normal', 'Normal'), ('return', 'Devolução'), ('reversal', 'Estorno')], db_index=True, default='normal', max_length=24),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='receipt',
             field=models.CharField(blank=True, default='', max_length=40),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='request_payload',
             field=models.JSONField(blank=True, default=dict),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='requested_by',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='requested_fiscal_documents', to=settings.AUTH_USER_MODEL, verbose_name='Solicitante'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='response_payload',
             field=models.JSONField(blank=True, default=dict),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocument',
             name='xml_url',
             field=models.URLField(blank=True, default=''),
@@ -97,29 +99,29 @@ class Migration(migrations.Migration):
             name='operation_type',
             field=models.CharField(choices=[('cce', 'Carta de correção'), ('return', 'Devolução'), ('reversal', 'Estorno')], db_index=True, default='cce', max_length=32),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscaldocument',
             index=models.Index(fields=['workshop', 'document_type', 'origin', 'purpose'], name='finance_fis_worksho_f0a14e_idx'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocumentlink',
             name='document',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='links_from', to='finance.fiscaldocument', verbose_name='Documento derivado'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='fiscaldocumentlink',
             name='related_document',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='links_to', to='finance.fiscaldocument', verbose_name='Documento original'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscaldocumentlink',
             index=models.Index(fields=['related_document', 'role'], name='finance_fis_related_385dc3_idx'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='fiscaldocumentlink',
             index=models.Index(fields=['document', 'role'], name='finance_fis_documen_1707b4_idx'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='fiscaldocumentlink',
             constraint=models.UniqueConstraint(fields=('document', 'related_document', 'role'), name='unique_fiscal_document_link_role'),
         ),
