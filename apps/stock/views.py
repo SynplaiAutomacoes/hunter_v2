@@ -51,7 +51,7 @@ from .forms import (
     TransferStepReasonForm,
 )
 from .services.files import StockImportFileStorageError, delete_import_xml_file, read_import_xml_file
-from .financial_entries import calculate_import_totals, get_next_entry_id
+from .financial_entries import apply_card_fee_budget_plan, calculate_import_totals, get_next_entry_id, resolve_import_budget_plan
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
@@ -1101,8 +1101,9 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         method_code = (request.POST.get("payment_method") or "").strip()
         payment_date = (request.POST.get("payment_date") or "").strip()
         first_amount_str = (request.POST.get("first_amount_0") or "").strip()
+        budget_plan_id = (request.POST.get("budget_plan") or "").strip()
 
-        if not all([method_code, payment_date, first_amount_str]):
+        if not all([method_code, payment_date, first_amount_str, budget_plan_id]):
             return self._htmx_payment_response("Preencha todos os campos do pagamento antes de incluir.", level="warning")
 
         try:
@@ -1113,6 +1114,10 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             method_obj = PaymentMethod.objects.filter(id=method_code, workshop=self.workshop, is_active=True).first()
             if not method_obj:
                 return self._htmx_payment_response("A forma de pagamento selecionada é inválida.", level="warning")
+
+            budget_plan = resolve_import_budget_plan(workshop=self.workshop, budget_plan_id=budget_plan_id)
+            if budget_plan is None:
+                return self._htmx_payment_response("Selecione o plano orçamentário.", level="warning")
 
             installments = max(int(method_obj.installments_count or 1), 1)
             total_paid = first_amount
@@ -1140,6 +1145,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 direction=FinancialMovement.MovementDirection.DEBIT,
                 description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
                 payment_method=method_obj,
+                budget_plan=budget_plan,
                 nf_number=obj.nf_number,
                 amount=Money(total_paid, "BRL"),
                 due_date=payment_date,
@@ -1162,6 +1168,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     due_date=payment_date,
                     is_paid=False,
                 )
+                apply_card_fee_budget_plan(fee_movement=fm_fee, fallback_plan=budget_plan)
 
             new_payment = {
                 "id": get_next_entry_id(payments),
@@ -1170,6 +1177,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "entry_type": "payment",
                 "method": method_obj.id,
                 "method_display": method_obj.description,
+                "budget_plan_id": budget_plan.pk,
                 "installments": str(installments),
                 "first_amount": str(first_amount),
                 "total_paid": str(total_paid),
