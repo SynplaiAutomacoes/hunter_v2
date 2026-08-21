@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from djmoney.money import Money
 
@@ -65,6 +65,18 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
         self.assertEqual(workorder.current_step, 2)
         self.assertEqual(navigation.continue_label, "Salvar e Continuar")
         self.assertEqual(navigation.next_step, 4)
+
+    @override_settings(ENVIRONMENT="production")
+    def test_production_does_not_advance_step_statuses(self) -> None:
+        workorder = SimpleNamespace(current_step=1, status=WorkOrderStatus.DRAFT, pk=None)
+        navigation = resolve_workorder_detail_navigation(
+            request=SimpleNamespace(GET={"step": "2"}),
+            workorder=workorder,
+        )
+
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
+        self.assertEqual(workorder.current_step, 1)
+        self.assertEqual(navigation.current_step, 1)
 
     def test_payment_step_does_not_unlock_delivery(self) -> None:
         workorder = SimpleNamespace(current_step=2, status=WorkOrderStatus.WAITING_COLLABORATOR, pk=None)

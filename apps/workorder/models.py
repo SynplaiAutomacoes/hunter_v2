@@ -65,6 +65,13 @@ WORKORDER_OPEN_STATUSES = frozenset(
 WORKORDER_REVENUE_STATUSES = WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED}
 
 
+def is_workorder_step_workflow_enabled() -> bool:
+    """O stepper da O.S. ainda não foi liberado em produção."""
+    from apps.core.infrastructure.runtime_environment import is_non_production_environment
+
+    return is_non_production_environment()
+
+
 class WorkOrderSignatureStatus(models.TextChoices):
     NOT_SENT = "not_sent", "Não Enviado"
     SENDING = "sending", "Enviando"
@@ -458,7 +465,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def can_change_delivery_status(self) -> bool:
-        return self.status == WorkOrderStatus.WAITING_DELIVERY
+        return self.status in WORKORDER_OPEN_STATUSES
 
     @property
     def signature_blockers_display(self) -> str:
@@ -601,9 +608,13 @@ class WorkOrder(TimeStampedModel):
         if not self.can_reopen:
             raise WorkOrderError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
-        self.status = WorkOrderStatus.WAITING_DELIVERY
+        if is_workorder_step_workflow_enabled():
+            self.status = WorkOrderStatus.WAITING_DELIVERY
+            self.current_step = 4
+        else:
+            self.status = WorkOrderStatus.DRAFT
+            self.current_step = 1
         self.reopen_reason = reason
-        self.current_step = 4
 
         self.save(update_fields=["status", "delivered_at", "reopen_reason", "current_step"])
 
