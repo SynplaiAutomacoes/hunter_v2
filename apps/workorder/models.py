@@ -172,7 +172,22 @@ class WorkOrder(TimeStampedModel):
             WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
         }
 
-        return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
+        # Status legados renomeados — mapear para o valor atual equivalente
+        LEGACY_STATUS_MAP = {
+            "waiting_delivery": WorkOrderStatus.DRAFT,
+        }
+
+        status_value = self.status
+        if status_value in LEGACY_STATUS_MAP:
+            status_value = LEGACY_STATUS_MAP[status_value].value
+
+        try:
+            status_enum = WorkOrderStatus(status_value)
+            label = str(status_enum.label)
+        except ValueError:
+            label = str(self.status).replace("_", " ").title()
+
+        return {"text": label, "class": status_color.get(status_value, "badge-ghost")}
 
     @property
     def type_badge(self):
