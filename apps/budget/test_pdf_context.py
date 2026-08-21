@@ -90,15 +90,50 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
 
         self.assertEqual(merged[0]["quantity"], 10)
 
-    def test_kit_vs_kit_service_keeps_higher_quantity_instead_of_summing(self) -> None:
+    def test_kit_vs_kit_service_keeps_higher_duration_instead_of_summing(self) -> None:
         merged = _merge_selected_service_rows(
             [
-                _service_row(service_id=20, quantity=6, selling="10.00"),
-                _service_row(service_id=20, quantity=10, selling="10.00"),
+                _service_row(service_id=20, quantity=6, selling="10.00", duration_seconds=600),
+                _service_row(service_id=20, quantity=1, selling="10.00", duration_seconds=7200),
             ]
         )
 
         self.assertEqual(len(merged), 1)
-        self.assertEqual(merged[0]["quantity"], 10)
-        self.assertEqual(merged[0]["total_price"], _money("100.00"))
-        self.assertEqual(merged[0]["duration_display"], "10h 00m")
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["total_price"], _money("10.00"))
+        self.assertEqual(merged[0]["duration_display"], "02h 00m")
+
+    def test_kit_vs_kit_service_keeps_winner_regardless_of_row_order(self) -> None:
+        merged = _merge_selected_service_rows(
+            [
+                _service_row(service_id=20, quantity=1, selling="10.00", duration_seconds=7200),
+                _service_row(service_id=20, quantity=6, selling="10.00", duration_seconds=600),
+            ]
+        )
+
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["total_price"], _money("10.00"))
+        self.assertEqual(merged[0]["duration_display"], "02h 00m")
+
+    def test_equal_duration_service_keeps_higher_total(self) -> None:
+        merged = _merge_selected_service_rows(
+            [
+                _service_row(service_id=20, quantity=2, selling="10.00", duration_seconds=3600),
+                _service_row(service_id=20, quantity=1, selling="25.00", duration_seconds=7200),
+            ]
+        )
+
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["total_price"], _money("25.00"))
+        self.assertEqual(merged[0]["duration_display"], "02h 00m")
+
+    def test_kit_vs_avulso_service_keeps_higher_duration(self) -> None:
+        merged = _merge_selected_service_rows(
+            [
+                _service_row(service_id=20, quantity=6, selling="10.00", duration_seconds=600),
+                _service_row(service_id=20, quantity=1, selling="10.00", duration_seconds=7200),
+            ]
+        )
+
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["duration_display"], "02h 00m")
