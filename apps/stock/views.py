@@ -675,7 +675,7 @@ class StockImportCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScope
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = self.request.GET.get("pk") or self.kwargs.get("pk")
+        pk = clean_id(self.request.GET.get("pk") or self.kwargs.get("pk"))
         if pk:
             # Remove thousand separators that pt-BR locale may inject (e.g. "1.042" -> "1042")
             pk = str(pk).replace(".", "").replace(",", "")
@@ -794,7 +794,7 @@ class StockImportUpdateView(StockImportCreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk")
+        pk = clean_id(self.kwargs.get("pk"))
         if pk:
             return StockImport.objects.get(pk=pk, workshop=self.workshop)
         return super().get_object()
@@ -1978,7 +1978,7 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = self.request.GET.get("pk") or self.kwargs.get("pk")
+        pk = clean_id(self.request.GET.get("pk") or self.kwargs.get("pk"))
         if pk:
             return get_object_or_404(StockTransfer, id=pk)
         return None
@@ -2054,7 +2054,7 @@ class StockTransferUpdateView(StockTransferCreateView):
         return super().get(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
+        pk = clean_id(self.kwargs.get("pk") or self.request.GET.get("pk"))
         if pk:
             return get_object_or_404(StockTransfer, pk=pk)
         return None
