@@ -1,29 +1,74 @@
-{% load format_tags workorder_extras %}
-<div class="card-body">
-    <div class="flex w-full justify-end gap-2">
+{% load workorder_extras format_tags %}
+<style>
+    .budget-step4-table {
+        table-layout: fixed;
+    }
+
+    .budget-step4-table :where(th, td) {
+        vertical-align: middle;
+    }
+
+    .budget-step4-table .budget-step4-description,
+    .budget-step4-table .budget-step4-application {
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: normal;
+    }
+
+    .budget-step4-table thead th {
+        font-size: 0.80rem;
+    }
+
+    .budget-step4-table .origin-cell {
+        overflow: visible;
+        position: relative;
+        z-index: 1;
+    }
+
+    .budget-step4-table .origin-cell:hover,
+    .budget-step4-table .origin-cell:focus-within {
+        z-index: 30;
+    }
+</style>
+
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+    <div>
+        <h2 class="text-2xl font-bold">Itens aprovados no orçamento</h2>
+        <p class="text-sm text-base-content/70 mt-1">
+            {{ workorder.budget.customer.name }}
+            · {{ workorder.budget.vehicle.plate }}
+            · {{ workorder.budget.vehicle.brand }} {{ workorder.budget.vehicle.model }}
+        </p>
+    </div>
+    <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
         <a
             href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6&reopen=1"
-            class="btn btn-outline btn-lg">
+            class="btn btn-outline">
             <span class="material-icons mr-2" aria-hidden="true">edit_note</span>
             Revisar Orçamento
         </a>
     </div>
-    <div class="p-6">
-        <div id="pdf-iframe" class="p-4 border rounded-lg shadow-sm text-base">
+</div>
 
-            <div class="flex justify-between items-start p-4 border-b border-gray-200">
-                <div>
-                    <h3 class="font-bold text-xl uppercase">{{ workorder.workshop.pdf_name }}</h3>
-                    <p class="">CNPJ: {{ workorder.workshop.cnpj|cnpj_br|default:"-" }}</p>
-                    <p class="">{{ workorder.workshop.address|default:"-" }}</p>
-                    <p class="">Telefone: {{ workorder.workshop.phone|default:"-" }}</p>
-                </div>
-                <div class="text-right">
-                    <h4 class="font-bold text-lg">ORDEM DE SERVIÇO</h4>
-                    <p class="text-2xl font-bold">{{workorder.budget.number}}</p>
-                    <p class="">{{workorder.criado_em}}</p>
-                </div>
-            </div>
+{% if resume_pdf_urls %}
+<div class="p-4 bg-base-200/50 rounded-lg mb-6">
+    <h4 class="font-bold text-lg mb-2 border-b">PDF</h4>
+    <div class="grid grid-cols-12 gap-3 text-center">
+        <button type="button" class="btn btn-success col-span-12 sm:col-span-4" data-allow-locked="1"
+            onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ resume_pdf_urls.cliente_url }}', downloadUrl: '{{ resume_pdf_urls.cliente_download_url }}', showSignatureBtn: false, showPdfVariantToggle: {% if resume_pdf_urls.can_toggle_signed_pdf %}true{% else %}false{% endif %}, pdfVariant: '{{ resume_pdf_urls.initial_pdf_variant }}', signedPdfUrl: '{{ resume_pdf_urls.signed_pdf_url }}', basePdfUrl: '{{ resume_pdf_urls.base_pdf_url }}', signedDownloadUrl: '{{ resume_pdf_urls.signed_download_url }}', baseDownloadUrl: '{{ resume_pdf_urls.base_download_url }}' } }))">
+            PDF Cliente
+        </button>
+        <button type="button" class="btn btn-success col-span-12 sm:col-span-4" data-allow-locked="1"
+            onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ resume_pdf_urls.gestor_url }}', showSignatureBtn: false } }))">
+            PDF Gestor
+        </button>
+        <button type="button" class="btn btn-success col-span-12 sm:col-span-4" data-allow-locked="1"
+            onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ resume_pdf_urls.mecanico_url }}', showSignatureBtn: false } }))">
+            PDF Mecânico
+        </button>
+    </div>
+</div>
+{% endif %}
 
 <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
     <div class="col-span-12 xl:col-span-8">
