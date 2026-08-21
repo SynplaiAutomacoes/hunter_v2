@@ -17,7 +17,12 @@ from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
+from apps.budget.pricing import (
+    PricingSnapshot,
+    build_pricing_snapshot,
+    discount_by_pricing_section,
+    resolve_discount_fields,
+)
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -131,6 +136,7 @@ class Budget(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="budgets")
     customer = models.ForeignKey("customer.Customer", verbose_name="Cliente", on_delete=models.SET_NULL, related_name="budgets", null=True)
     vehicle = models.ForeignKey("customer.Vehicle", verbose_name="Veículo", on_delete=models.SET_NULL, related_name="budgets", null=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Criado por", on_delete=models.SET_NULL, related_name="created_budgets", null=True, blank=True)
     cost_estimator = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Orçamentista", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", verbose_name="Colaborador", on_delete=models.SET_NULL, related_name="budgets", null=True)
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="collaborators_budgets", blank=True)
@@ -220,6 +226,7 @@ class Budget(TimeStampedModel):
             "notes",
             "problem_description",
             "technical_diagnosis",
+            "created_by",
             "fuel_level",
             "current_km",
             "atualizado_em",
@@ -276,7 +283,12 @@ class Budget(TimeStampedModel):
 
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
-                    defaults={"workshop": self.workshop},
+                    defaults={
+                        "workshop": self.workshop,
+                        # The approving user is supplied by the approval service.
+                        # Keep this separate from the budget author: they may differ.
+                        "created_by": getattr(self, "_workorder_created_by", None),
+                    },
                 )
                 workorder.sync_from_budget()
 
@@ -563,6 +575,15 @@ class Budget(TimeStampedModel):
         # Valores de Venda
         venda_pecas = self.total_products_value - custo_frete_pecas
         venda_servico_terceiro = self.total_third_party_services_selling
+        venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
+        desconto_pecas, desconto_mao_obra = discount_by_pricing_section(
+            discount_value=self.resolved_discount_value,
+            discount_type=self.discount_type,
+            products_value=venda_pecas,
+            labor_value=venda_mao_obra_hun,
+        )
+        venda_pecas_com_desconto = venda_pecas - desconto_pecas
+        venda_mao_obra_hun_com_desconto = venda_mao_obra_hun - desconto_mao_obra
 
         soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
         subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro + custo_frete_servicos
@@ -570,7 +591,7 @@ class Budget(TimeStampedModel):
         # MÉTOD0 TRADICIONAL
         valor_hora_vendida_trad = pricing_context.hourly_cost_value
         venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
-        valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
+        valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad - self.resolved_discount_value
         lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
         if valor_orcamento_trad.amount > 0:
             rentabilidade_trad = ((lucro_operacional_trad.amount / valor_orcamento_trad.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -578,8 +599,7 @@ class Budget(TimeStampedModel):
             rentabilidade_trad = Decimal("0.00")
 
         # MÉTOD0 HUNTER
-        venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
-        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
+        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun - self.resolved_discount_value
         lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
         if valor_orcamento_hun.amount > 0:
             rentabilidade_hun = ((lucro_operacional_hun.amount / valor_orcamento_hun.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -596,9 +616,9 @@ class Budget(TimeStampedModel):
             "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_trad,
-            "venda_pecas": venda_pecas,
+            "venda_pecas": venda_pecas_com_desconto,
             "venda_servico_terceiro": venda_servico_terceiro,
-            "venda_mao_obra": venda_mao_obra_trad,
+            "venda_mao_obra": venda_mao_obra_trad - desconto_mao_obra,
             "rentabilidade": rentabilidade_trad,
             "valor_orcamento": valor_orcamento_trad,
         }
@@ -612,9 +632,9 @@ class Budget(TimeStampedModel):
             "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_hun,
-            "venda_pecas": venda_pecas,
+            "venda_pecas": venda_pecas_com_desconto,
             "venda_servico_terceiro": venda_servico_terceiro,
-            "venda_mao_obra": venda_mao_obra_hun,
+            "venda_mao_obra": venda_mao_obra_hun_com_desconto,
             "rentabilidade": rentabilidade_hun,
             "valor_orcamento": valor_orcamento_hun,
         }
@@ -639,7 +659,13 @@ class Budget(TimeStampedModel):
         venda_pecas = self.total_products_value - custo_frete_pecas
         venda_servico_terceiro = self.total_third_party_services_selling
         venda_mao_obra = self.total_services_value - venda_servico_terceiro
-        valor_orcamento = self.total_products_value + self.total_services_value
+        desconto_pecas, desconto_mao_obra = discount_by_pricing_section(
+            discount_value=self.resolved_discount_value,
+            discount_type=self.discount_type,
+            products_value=venda_pecas,
+            labor_value=venda_mao_obra,
+        )
+        valor_orcamento = self.total_products_value + self.total_services_value - self.resolved_discount_value
         lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro + custo_frete_servicos)
 
         if valor_orcamento.amount > 0:
@@ -657,9 +683,9 @@ class Budget(TimeStampedModel):
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional,
             "mlr": Decimal("0.00"),
-            "venda_pecas": venda_pecas,
+            "venda_pecas": venda_pecas - desconto_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
-            "venda_mao_obra": venda_mao_obra,
+            "venda_mao_obra": venda_mao_obra - desconto_mao_obra,
             "rentabilidade": rentabilidade,
             "mlo": Decimal("0.00"),
             "valor_orcamento": valor_orcamento,

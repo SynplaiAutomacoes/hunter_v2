@@ -191,6 +191,27 @@ def resolve_discount_fields(
     return zero_money(), Decimal("0.00")
 
 
+def discount_by_pricing_section(
+    *,
+    discount_value: Money,
+    discount_type: str,
+    products_value: Money,
+    labor_value: Money,
+) -> tuple[Money, Money]:
+    """Return the discount shown in the Parts and Labor pricing cards.
+
+    A discount for both categories remains consolidated in the final total,
+    as it must not be visually attributed to either card.
+    """
+    if discount_type == "products":
+        return money_from_decimal(min(discount_value.amount, products_value.amount)), zero_money()
+
+    if discount_type == "services":
+        return zero_money(), money_from_decimal(min(discount_value.amount, labor_value.amount))
+
+    return zero_money(), zero_money()
+
+
 @dataclass(slots=True)
 class _ProductAggregate:
     key: str
