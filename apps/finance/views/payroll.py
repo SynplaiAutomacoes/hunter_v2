@@ -913,12 +913,16 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                     unmark_payroll_commissions_as_paid(payroll=payroll)
                 payroll.refresh_from_db()
 
-            response = HttpResponse()
-            response["HX-Refresh"] = "true"
+            response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=self._get_requested_tab())
             toast_message = "Folha atualizada com sucesso."
             if work_days_changed and not all_forms:
                 toast_message = "Dias úteis atualizados com sucesso."
-            response["HX-Trigger"] = json.dumps({"showToast": {"message": toast_message, "type": "success"}})
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {"message": toast_message, "type": "success"},
+                    "payrollListRefresh": True,
+                }
+            )
             return response
 
         return self._open_edit_modal(request=request, payroll=payroll)
