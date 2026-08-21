@@ -22,7 +22,7 @@ def reverse_migrate(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("workorder", "0043_workorder_signature_decline_pending"),
+        ("workorder", "0049_merge_20260820_1244"),
     ]
 
     operations = [
