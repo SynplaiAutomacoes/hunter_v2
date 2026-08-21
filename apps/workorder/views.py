@@ -1416,29 +1416,25 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Reabra a O.S. antes de alterar o status.", "type": "error"}})
             return response
 
-        if workorder.status != WorkOrderStatus.WAITING_DELIVERY:
-            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
-            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo.", "type": "error"}})
-            return response
-
         if next_status == WorkOrderStatus.APPROVED:
-            if workorder.has_completion_blockers:
-                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
-                response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
-                return response
-
             approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
             if not approval_form.is_valid():
                 context = _build_customer_approvement_context(workorder, request=request)
                 context["approval_form"] = approval_form
                 return render(request, "workorder/partials/customer_approvement_section.html", context)
 
+            posted_km_final = approval_form.cleaned_data["km_final"]
+            assert posted_km_final is not None
+            workorder.km_final = posted_km_final
+            if workorder.has_completion_blockers:
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
+                return response
+
             try:
-                km_final = approval_form.cleaned_data["km_final"]
-                assert km_final is not None
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
                 workorder.complete_delivery(
-                    km_final=km_final,
+                    km_final=posted_km_final,
                     unsigned_delivery_reason=unsigned_delivery_reason,
                     last_oil_change_date=approval_form.cleaned_data.get("last_oil_change_date"),
                     last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
@@ -1487,7 +1483,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "workorder_delivery_completed",
                 extra={
                     "workorder_id": workorder.pk,
-                    "km_final": km_final,
+                    "km_final": posted_km_final,
                     "has_unsigned_delivery": bool(unsigned_delivery_reason),
                 },
             )
