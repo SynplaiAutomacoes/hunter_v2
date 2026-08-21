@@ -64,6 +64,10 @@ class GroupMovementStep3Form(CoreModelForm):
         self.fields["payment_method"].widget.choices = [
             (payment_method.pk, str(payment_method)) for payment_method in payment_methods.order_by("description")
         ]
+        self.payment_method_installments = {
+            str(payment_method.pk): max(int(payment_method.installments_count or 1), 1)
+            for payment_method in payment_methods
+        }
         self.fields["name"].required = True
         self.fields["due_date"].required = True
 

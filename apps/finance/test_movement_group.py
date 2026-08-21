@@ -1,10 +1,12 @@
 from datetime import date
 
 from django.test import TestCase
+from djmoney.money import Money
 
 from apps.finance.forms.movement_group import GroupMovementStep3Form
-from apps.finance.models import FinancialMovement
+from apps.finance.models import FinancialMovement, MovementGroup
 from apps.finance.models.payment_method import PaymentMethod
+from apps.finance.services.reports import build_financial_overview_with_open_workorder_credits, open_credits
 from apps.workshops.models.workshops import Workshop
 
 
@@ -67,3 +69,48 @@ class GroupMovementStep3FormTests(TestCase):
 
         self.assertFalse(self._form(wrong_direction.pk).is_valid())
         self.assertFalse(self._form(from_other_workshop.pk).is_valid())
+
+
+class GroupedMovementsOverviewTests(TestCase):
+    def test_grouped_children_do_not_duplicate_the_consolidated_installment(self) -> None:
+        workshop = Workshop.objects.create(
+            name="Oficina Indicadores",
+            cnpj="11.111.111/0001-11",
+            phone="+5511977777777",
+            address="Rua dos Indicadores, 300",
+        )
+        due_date = date(2026, 8, 21)
+        group = MovementGroup.objects.create(workshop=workshop, name="Teste", due_date=due_date)
+        FinancialMovement.objects.create(
+            workshop=workshop,
+            movement_group=group,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            description="Lançamento original 1",
+            amount=Money(10, "BRL"),
+            due_date=due_date,
+        )
+        FinancialMovement.objects.create(
+            workshop=workshop,
+            movement_group=group,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            description="Lançamento original 2",
+            amount=Money(20, "BRL"),
+            due_date=due_date,
+        )
+        FinancialMovement.objects.create(
+            workshop=workshop,
+            movement_group=group,
+            movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            description="Parcela 1/10",
+            amount=Money(3, "BRL"),
+            due_date=due_date,
+        )
+
+        overview = build_financial_overview_with_open_workorder_credits(
+            workshop=workshop,
+            start_date=due_date,
+            end_date=due_date,
+        )
+
+        self.assertEqual(open_credits(overview), Money(3, "BRL"))
