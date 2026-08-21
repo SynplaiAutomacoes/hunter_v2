@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime
+from types import SimpleNamespace
+
 from django.test import SimpleTestCase
 from djmoney.money import Money
 
-from apps.budget.pdf_context import _merge_selected_product_rows, _merge_selected_service_rows
+from apps.budget.pdf_context import _merge_selected_product_rows, _merge_selected_service_rows, resolve_expected_delivery_at
 
 
 def _money(amount: str) -> Money:
@@ -53,7 +56,6 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
                 _product_row(product_id=10, quantity=10, selling="10.00"),
             ]
         )
-
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["quantity"], 10)
         self.assertEqual(merged[0]["total_price"], _money("100.00"))
@@ -65,7 +67,6 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
                 _product_row(product_id=10, quantity=6, selling="10.00"),
             ]
         )
-
         self.assertEqual(merged[0]["quantity"], 10)
         self.assertEqual(merged[0]["total_price"], _money("100.00"))
 
@@ -76,7 +77,6 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
                 _product_row(product_id=10, quantity=10, selling="15.00"),
             ]
         )
-
         self.assertEqual(merged[0]["quantity"], 10)
         self.assertEqual(merged[0]["total_price"], _money("150.00"))
 
@@ -87,7 +87,6 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
                 _product_row(product_id=10, quantity=10, selling="10.00"),
             ]
         )
-
         self.assertEqual(merged[0]["quantity"], 10)
 
     def test_kit_vs_kit_service_keeps_higher_duration_instead_of_summing(self) -> None:
@@ -97,7 +96,6 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
                 _service_row(service_id=20, quantity=1, selling="10.00", duration_seconds=7200),
             ]
         )
-
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["quantity"], 1)
         self.assertEqual(merged[0]["total_price"], _money("10.00"))

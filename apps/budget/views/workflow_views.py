@@ -29,7 +29,6 @@ from apps.budget.documents.provider import build_budget_status_report_pdf_render
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
-from apps.workorder.models import WorkOrderStatus
 from apps.core.infrastructure.services.dashboard_query_service import (
     _build_injected_pricing_context,
     _prepare_budget_for_dashboard_pricing,
@@ -58,7 +57,12 @@ from apps.collaborators.models import WorkshopCollaborator
 
 from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
-from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle, linkable_budgets_q
+from ..services.budget_linking_service import (
+    LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
+    find_oldest_open_budget_for_vehicle,
+    is_budget_linkable,
+    linkable_budgets_q,
+)
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -1523,13 +1527,18 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, pk):
         budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        can_link = is_budget_linkable(budget)
         context = {
             "budget": budget,
+            "can_link": can_link,
+            "link_blocked_message": None if can_link else LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
         }
         return render(request, "budget/partials/budget_reference_modal.html", context)
 
     def post(self, request, pk):
         current_budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        if not is_budget_linkable(current_budget):
+            return HttpResponse(LINKED_COPY_CLOSED_WORKORDER_MESSAGE, status=400)
         relate = request.POST.get("relate_budget") == "yes"
 
         try:
@@ -1667,8 +1676,7 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if locked_budget.vehicle_id is not None and reference_budget.vehicle_id != locked_budget.vehicle_id:
                 return JsonResponse({"success": False, "error": "Só é possível vincular orçamentos do mesmo veículo."}, status=400)
 
-            is_linkable = Budget.objects.filter(linkable_budgets_q(), pk=reference_budget.pk).exists()
-            if not is_linkable:
+            if not is_budget_linkable(reference_budget):
                 return JsonResponse({"success": False, "error": "Só é possível vincular a orçamentos abertos ou com OS em andamento."}, status=400)
 
             locked_budget.reference_budget = reference_budget
