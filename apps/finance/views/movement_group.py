@@ -26,10 +26,23 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
         step = request.POST.get("step")
 
         if step == "3":
-            form = GroupMovementStep3Form(request.POST)
             movement_ids = request.POST.getlist("movements")
             entity_type = request.POST.get("entity_type")
             entity_id = request.POST.get("entity_id")
+
+            fm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("fm_")]
+            pm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("pm_")]
+            fms = FinancialMovement.objects.filter(id__in=fm_ids, workshop=self.workshop)
+            pms = WorkOrderPaymentMethod.objects.filter(id__in=pm_ids, workorder__workshop=self.workshop)
+
+            direction = FinancialMovement.MovementDirection.DEBIT
+            first_movement = fms.first()
+            if first_movement is not None:
+                direction = first_movement.direction
+            elif pms.exists():
+                direction = FinancialMovement.MovementDirection.CREDIT
+
+            form = GroupMovementStep3Form(request.POST, workshop=self.workshop, direction=direction)
 
             # We need to fetch the entity name to display it on form validation error
             entity_name = ""
@@ -54,14 +67,10 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                     group.save()
 
-                    fm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("fm_")]
-                    pm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("pm_")]
-
                     total_amount = Decimal("0.00")
                     first_direction = FinancialMovement.MovementDirection.DEBIT
                     
                     if fm_ids:
-                        fms = FinancialMovement.objects.filter(id__in=fm_ids, workshop=self.workshop)
                         first_mv = fms.first()
                         if first_mv:
                             first_direction = first_mv.direction
@@ -71,7 +80,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             mv.save()
                     
                     if pm_ids:
-                        pms = WorkOrderPaymentMethod.objects.filter(id__in=pm_ids, workorder__workshop=self.workshop)
                         if pms:
                             first_direction = FinancialMovement.MovementDirection.CREDIT
                         for pm in pms:
@@ -90,6 +98,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         due_date=group.due_date,
                         amount=total_amount,
                         direction=first_direction,
+                        payment_method=form.cleaned_data["payment_method"],
                         supplier_id=group.supplier_id,
                         collaborator_id=group.collaborator_id,
                         is_paid=False,
@@ -208,7 +217,8 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         normalized_movement_ids = [f"fm_{fm.id}" for fm in fms] + [f"pm_{pm.id}" for pm in pms]
 
-        form = GroupMovementStep3Form()
+        direction = next(iter(directions), FinancialMovement.MovementDirection.DEBIT)
+        form = GroupMovementStep3Form(workshop=self.workshop, direction=direction)
         return render(request, "finance/reports/partials/group_step3.html", {
             "form": form,
             "movement_ids": normalized_movement_ids,
