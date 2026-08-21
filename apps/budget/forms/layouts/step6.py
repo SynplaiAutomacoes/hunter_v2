@@ -2,6 +2,7 @@
 from apps.budget.forms.layouts.step6_assets import build_step6_assets_html
 from apps.budget.forms.presenters.step6_context import build_step6_context
 from apps.budget.forms.steps.common import *
+from apps.collaborators.models import WorkshopCollaborator
 
 
 def configure_budget_step6_form(form):
@@ -36,6 +37,14 @@ def configure_budget_step6_form(form):
 
     budget = _get_budget_with_prefetched_items(form.instance)
     ctx = build_step6_context(budget, form)
+    service_responsibles = WorkshopCollaborator.objects.filter(
+        workshop=form.workshop,
+        is_active=True,
+        collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+    ).order_by("name", "pk")
+    responsible_options_html = "".join(
+        "<option value='{pk}'>{name}</option>".format(pk=collaborator.pk, name=escape(collaborator.name)) for collaborator in service_responsibles
+    )
 
     status_label = ctx.status_label
     status_class = ctx.status_class
@@ -109,12 +118,19 @@ def configure_budget_step6_form(form):
         # =========================
         # MODAL DE CANCELAMENTO
         # =========================
-        HTML("""
+        HTML(f"""
                 <dialog id="cancelBudgetModal" class="modal">
                   <div class="modal-box">
                     <h3 class="font-bold text-lg">Cancelar Orçamento</h3>
                     <p class="py-4">Por favor, informe o motivo do cancelamento:</p>
                     <textarea id="cancellation-reason-input" class="textarea textarea-bordered w-full" rows="3" placeholder="Motivo do cancelamento..."></textarea>
+                    <label class="form-control w-full mt-4">
+                      <span class="label-text font-medium mb-2">Responsável pelo atendimento</span>
+                      <select id="cancellation-responsible-input" class="select select-bordered w-full">
+                        <option value="">Selecione o responsável</option>
+                        {responsible_options_html}
+                      </select>
+                    </label>
                     <div class="modal-action">
                       <button type="button" class="btn" onclick="document.getElementById('cancelBudgetModal').close()">Voltar</button>
                       <button type="button" class="btn btn-error" id="confirm-cancel-btn">Confirmar Cancelamento</button>
@@ -126,6 +142,13 @@ def configure_budget_step6_form(form):
                     <h3 class="font-bold text-lg">Reprovar Orçamento</h3>
                     <p class="py-4">Por favor, informe o motivo da reprovação:</p>
                     <textarea id="rejection-reason-input" class="textarea textarea-bordered w-full" rows="3" placeholder="Motivo da reprovação..."></textarea>
+                    <label class="form-control w-full mt-4">
+                      <span class="label-text font-medium mb-2">Responsável pelo atendimento</span>
+                      <select id="rejection-responsible-input" class="select select-bordered w-full">
+                        <option value="">Selecione o responsável</option>
+                        {responsible_options_html}
+                      </select>
+                    </label>
                     <div class="modal-action">
                       <button type="button" class="btn" onclick="document.getElementById('rejectBudgetModal').close()">Voltar</button>
                       <button type="button" class="btn btn-warning" id="confirm-reject-btn">Confirmar Reprovação</button>

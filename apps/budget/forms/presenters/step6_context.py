@@ -158,14 +158,20 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
     cancellation_reason_html = ""
     if budget.cancellation_reason:
         cancellation_reason_html = (
-            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo do Cancelamento</span><span class="text-gray-900 text-base">{reason}</span></div></div>'
-        ).format(reason=budget.cancellation_reason)
+            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo do Cancelamento</span><span class="text-gray-900 text-base">{reason}</span>{responsible}</div></div>'
+        ).format(
+            reason=escape(budget.cancellation_reason),
+            responsible=(f'<span class="text-gray-900 text-sm"><strong>Responsável pelo atendimento:</strong> {escape(budget.cancellation_responsible.name)}</span>' if budget.cancellation_responsible else ""),
+        )
 
     rejection_reason_html = ""
     if budget.rejection_reason:
         rejection_reason_html = (
-            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo da Reprovação</span><span class="text-gray-900 text-base">{reason}</span></div></div>'
-        ).format(reason=budget.rejection_reason)
+            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo da Reprovação</span><span class="text-gray-900 text-base">{reason}</span>{responsible}</div></div>'
+        ).format(
+            reason=escape(budget.rejection_reason),
+            responsible=(f'<span class="text-gray-900 text-sm"><strong>Responsável pelo atendimento:</strong> {escape(budget.rejection_responsible.name)}</span>' if budget.rejection_responsible else ""),
+        )
 
     history_entries = list(budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).select_related("user")[:10])
     history_entries.reverse()

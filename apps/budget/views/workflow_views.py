@@ -54,6 +54,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
+from apps.collaborators.models import WorkshopCollaborator
 
 from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
@@ -1347,15 +1348,23 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         else:
             if status == "cancel":
-                cancellation_reason = request.POST.get("cancellation_reason")
+                cancellation_reason = str(request.POST.get("cancellation_reason") or "").strip()
                 if not cancellation_reason:
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
+                cancellation_responsible = self._get_service_responsible(request.POST.get("cancellation_responsible_id"))
+                if cancellation_responsible is None:
+                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento administrativo ativo desta oficina."}, status=400)
                 budget.cancellation_reason = cancellation_reason
+                budget.cancellation_responsible = cancellation_responsible
             elif status == "reject":
-                rejection_reason = request.POST.get("rejection_reason")
+                rejection_reason = str(request.POST.get("rejection_reason") or "").strip()
                 if not rejection_reason:
                     return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
+                rejection_responsible = self._get_service_responsible(request.POST.get("rejection_responsible_id"))
+                if rejection_responsible is None:
+                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento administrativo ativo desta oficina."}, status=400)
                 budget.rejection_reason = rejection_reason
+                budget.rejection_responsible = rejection_responsible
             elif status == "reopen":
                 reopen_reason = str(request.POST.get("reopen_reason") or "").strip()
                 if not reopen_reason:
@@ -1383,6 +1392,17 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             _consolidate_budget_revision(budget)
 
         return JsonResponse({"success": True})
+
+    def _get_service_responsible(self, collaborator_id: str | None) -> WorkshopCollaborator | None:
+        try:
+            return WorkshopCollaborator.objects.filter(
+                pk=int(collaborator_id or 0),
+                workshop=self.workshop,
+                is_active=True,
+                collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+            ).first()
+        except (TypeError, ValueError):
+            return None
 
 
 class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
