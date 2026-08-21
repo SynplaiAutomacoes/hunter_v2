@@ -660,13 +660,16 @@ class PayrollEditModalViewTests(TestCase):
     def test_submit_form_updates_due_date_for_unpaid_payroll_without_sync_reverting_it(self) -> None:
         workshop = create_workshop(suffix=6)
         collaborator = create_collaborator(workshop=workshop, suffix=6)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description="Folha",
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
+            budget_plan=budget_plan,
             is_paid=False,
             is_reconciled=False,
         )
@@ -680,6 +683,8 @@ class PayrollEditModalViewTests(TestCase):
             salary_amount=Money(2000, "BRL"),
             total_amount=Money(2000, "BRL"),
         )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -687,6 +692,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-12",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "False",
                 "comp_SALARY-is_reconciled": "False",
             },
@@ -708,13 +714,16 @@ class PayrollEditModalViewTests(TestCase):
     def test_submit_form_updates_due_date_for_paid_payroll(self) -> None:
         workshop = create_workshop(suffix=7)
         collaborator = create_collaborator(workshop=workshop, suffix=7)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description="Folha",
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
+            budget_plan=budget_plan,
             is_paid=False,
             is_reconciled=False,
         )
@@ -728,6 +737,8 @@ class PayrollEditModalViewTests(TestCase):
             salary_amount=Money(2000, "BRL"),
             total_amount=Money(2000, "BRL"),
         )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -735,6 +746,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-15",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "True",
                 "comp_SALARY-is_reconciled": "False",
             },
@@ -857,6 +869,9 @@ class PayrollEditModalViewTests(TestCase):
         )
         payroll.financial_movement = salary_movement
         payroll.save(update_fields=["financial_movement"])
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
+        salary_movement.budget_plan = budget_plan
+        salary_movement.save(update_fields=["budget_plan"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -864,6 +879,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-05",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "False",
                 "comp_SALARY-is_reconciled": "True",
             },
