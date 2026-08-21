@@ -2,7 +2,7 @@
 {% load crispy_forms_tags l10n %}
 
 {% block crud_content %}
-<div class="p-6 space-y-6">
+<div class="p-6 space-y-6" x-data="{ activeTab: 'resumo' }">
     <div class="items-center">
         <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.budget.number }}</h2>
         <p class="text-lg-content/70 mt-1">Status: <span class="badge badge-sm {{ workorder.workorder_status_badge.class|cut:' min-w-sm' }} uppercase font-bold">{{ workorder.workorder_status_badge.text }}</span></p>
@@ -11,7 +11,7 @@
     {% if workorder.is_status_locked %}
     <div class="alert alert-warning">
         <span class="material-icons">lock</span>
-        <span>Esta O.S. está com status final. A emissão de notas fiscais continua disponível. Reabra a O.S. para editar os demais campos.</span>
+        <span>Esta O.S. está com status final. Reabra a O.S. para editar campos.</span>
     </div>
     {% endif %}
 
@@ -22,8 +22,53 @@
     </div>
     {% endif %}
 
-    <div id="workorder-step-container" class="mt-8 space-y-4">
-        {% include 'workorder/partials/workorder_step_content.html' %}
+    <div class="mt-8 space-y-4">
+        <div class="app-tabs tabs tabs-lift flex-wrap" role="tablist" aria-label="Seções da ordem de serviço">
+            <input type="radio" name="workorder_tabs" value="resumo" class="tab" aria-label="Resumo" x-model="activeTab" checked />
+            <input type="radio" name="workorder_tabs" value="pagamento" class="tab" aria-label="Condição de Pagamento" x-model="activeTab" />
+            <input type="radio" name="workorder_tabs" value="aprovacao" class="tab" aria-label="Entrega do Veículo" x-model="activeTab" />
+            <input type="radio" name="workorder_tabs" value="historico" class="tab" aria-label="Histórico do Veículo" x-model="activeTab" />
+        </div>
+
+        <div x-show="activeTab === 'resumo'" x-cloak>
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div id="resume-section">
+                        {% include 'workorder/partials/resume_section.html' %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="activeTab === 'pagamento'" x-cloak>
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div id="payment-section">
+                        {% include 'workorder/partials/payment_section.html' %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="activeTab === 'aprovacao'" x-cloak>
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div id="customer-approvement-section">
+                        {% include 'workorder/partials/customer_approvement_section.html' %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="activeTab === 'historico'" x-cloak>
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div id="vehicle-history-section">
+                        {% include 'workorder/partials/vehicle_history_section.html' %}
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <dialog id="form_modal" class="modal">
@@ -179,7 +224,6 @@
 
             const editableScopes = [
                 '#resume-section',
-                '#collaborators-section',
                 '#payment-section',
                 '#customer-approvement-section',
                 '#modal-container',
@@ -193,16 +237,9 @@
                     return;
                 }
 
-                const isLockExempt = (element) => (
-                    element.id === 'toggle-reopen-workorder-form'
-                    || element.closest('#reopen-workorder-form')
-                    || element.closest('[data-allow-locked="1"]')
-                    || element.getAttribute('data-allow-locked') === '1'
-                );
-
                 const fields = scope.querySelectorAll('input:not([type="hidden"]):not([type="radio"]), select, textarea');
                 fields.forEach((field) => {
-                    if (isLockExempt(field)) {
+                    if (field.id === 'toggle-reopen-workorder-form' || field.closest('#reopen-workorder-form')) {
                         return;
                     }
                     field.setAttribute('disabled', 'disabled');
@@ -212,7 +249,10 @@
 
                 const actionButtons = scope.querySelectorAll('button, [hx-post], [hx-put], [hx-delete]');
                 actionButtons.forEach((button) => {
-                    if (isLockExempt(button)) {
+                    if (button.getAttribute('data-allow-locked') === '1') {
+                        return;
+                    }
+                    if (button.id === 'toggle-reopen-workorder-form' || button.closest('#reopen-workorder-form')) {
                         return;
                     }
                     button.setAttribute('disabled', 'disabled');
@@ -303,13 +343,6 @@
                 window.closeWorkorderItemModal();
             });
         }
-
-        document.body.addEventListener('htmx:afterSwap', function (event) {
-            const target = event.detail ? event.detail.target : null;
-            if (target && target.id === 'modal-container' && formModal && !formModal.open) {
-                formModal.showModal();
-            }
-        });
 
         document.body.addEventListener('htmx:afterSwap', function (event) {
             const target = event.detail ? event.detail.target : null;
