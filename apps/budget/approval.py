@@ -15,5 +15,8 @@ def approve_budget_with_stock(*, budget: Budget, user: object | None = None) -> 
         raise BudgetApprovalError(f"Nao e possivel aprovar. {' '.join(blockers)}")
 
     with transaction.atomic():
+        # Budget.save creates the linked work order on approval. Pass the actor
+        # explicitly so its immutable author is not confused with a later PDF viewer.
+        budget._workorder_created_by = user
         budget.status = BudgetStatus.APPROVED
         budget.save(update_fields=["status"])

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetStatus
@@ -83,7 +83,7 @@ class ReopenDeliveryTests(TestCase):
 
         reopen_workorder(workorder=self.workorder, user=self.user, reason="Corrigir item da O.S.")
         self.workorder.refresh_from_db()
-        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.WAITING_DELIVERY)
         self.assertFalse(has_unreversed_exit_movements(workorder=self.workorder))
 
         approve_workorder_with_stock(workorder=self.workorder, user=self.user)
@@ -127,8 +127,19 @@ class ReopenDeliveryTests(TestCase):
 
         reopen_workorder(workorder=service_workorder, user=self.user, reason="Ajustar serviço")
         service_workorder.refresh_from_db()
-        self.assertEqual(service_workorder.status, WorkOrderStatus.DRAFT)
+        self.assertEqual(service_workorder.status, WorkOrderStatus.WAITING_DELIVERY)
 
         approve_workorder_with_stock(workorder=service_workorder, user=self.user)
         service_workorder.refresh_from_db()
         self.assertEqual(service_workorder.status, WorkOrderStatus.APPROVED)
+
+    @override_settings(ENVIRONMENT="production")
+    def test_production_reopen_returns_to_approved_draft(self) -> None:
+        approve_workorder_with_stock(workorder=self.workorder, user=self.user)
+        self.workorder.refresh_from_db()
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+
+        reopen_workorder(workorder=self.workorder, user=self.user, reason="Ajuste em produção")
+        self.workorder.refresh_from_db()
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertEqual(self.workorder.current_step, 1)
