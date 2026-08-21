@@ -6,7 +6,7 @@ from typing import Any
 
 from djmoney.money import Money
 
-from apps.budget.pdf_context import build_workshop_logo_data_uri, is_visible_pdf_pricing_line
+from apps.budget.pdf_context import build_workshop_logo_data_uri, is_visible_pdf_pricing_line, resolve_expected_delivery_at
 from apps.budget.pricing import money_div, money_from_decimal, zero_money
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.customer.models import Customer, Vehicle
@@ -342,6 +342,12 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             discount_products = money_from_decimal(allocated[0])
             discount_services = money_from_decimal(allocated[1])
 
+    expected_delivery_at = resolve_expected_delivery_at(budget=workorder.budget)
+    created_by = workorder.created_by or workorder.budget.created_by or workorder.budget.cost_estimator
+    opened_by_name = "Sistema"
+    if created_by is not None:
+        opened_by_name = created_by.get_full_name() or created_by.get_username()
+
     return {
         "workorder": workorder,
         "budget": budget_proxy,
@@ -367,5 +373,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         "service_warranty_expires_at": workorder.warranty_expires_at,
         "service_warranty_status_label": workorder.warranty_status_label,
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
+        "expected_delivery_at": expected_delivery_at,
+        "document_title": "ORDEM DE SERVIÇO",
+        "opened_by_name": opened_by_name,
         "request": request,
     }

@@ -1,8 +1,8 @@
 {% load crispy_forms_tags %}
 
-<div class="space-y-4">
+<div class="card-body">
     {% if workorder.signature_decline_pending and not workorder.is_status_locked %}
-    <div class="alert alert-warning shadow-sm bg-opacity-20 border-warning">
+    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
         <div class="flex flex-col gap-1 text-warning">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Documento Recusado</span>
             <span class="text-lg text-gray-900">O documento foi recusado na plataforma de assinatura. Exclua os planos de pagamento antes de reprovar a O.S. manualmente.</span>
@@ -10,14 +10,14 @@
     </div>
     {% endif %}
     {% if workorder.status == 'cancelled' and workorder.cancellation_reason %}
-    <div class="alert alert-error shadow-sm bg-opacity-20 border-error">
+    <div class="alert alert-error shadow-sm mb-6 bg-opacity-20 border-error">
         <div class="flex flex-col gap-1 text-error">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo do Cancelamento</span>
             <span class="text-lg text-gray-900">{{ workorder.cancellation_reason }}</span>
         </div>
     </div>
     {% elif workorder.status == 'rejected' and workorder.rejection_reason %}
-    <div class="alert alert-warning shadow-sm bg-opacity-20 border-warning">
+    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
         <div class="flex flex-col gap-1 text-warning">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo da Reprovação</span>
             <span class="text-lg text-gray-900 ">{{ workorder.rejection_reason }}</span>
@@ -25,16 +25,10 @@
     </div>
     {% endif %}
 
-    <div class="p-4 bg-base-200/50 rounded-lg">
-        <h4 class="font-bold text-lg mb-2 border-b">Status</h4>
-        <div class="flex items-center justify-between">
-            <span class="font-bold text-sm uppercase tracking-wider">Status da O.S.</span>
-            <span class="badge {{ workorder.workorder_status_badge.class }} font-bold p-3">{{ workorder.workorder_status_badge.text }}</span>
-        </div>
-    </div>
+    <h3 class="font-bold text-2xl pb-2 mb-4">Entrega do Veículo e Encerramento da O.S.</h3>
 
-    <div class="p-4 bg-base-200/50 rounded-lg">
-        <h4 class="font-bold text-lg mb-2 border-b">Dados de entrega</h4>
+    <div class="mt-2 pb-4">
+        <h4 class="font-bold text-xl mb-3">KM de entrega e plano de revisão</h4>
         <form
             id="approval-km-form"
             method="post"
@@ -188,11 +182,10 @@
                     id="workorder-delivery-button"
                     class="btn w-full rounded-md {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}btn-disabled cursor-not-allowed{% endif %}"
                     data-status-locked="{% if workorder.is_status_locked %}true{% else %}false{% endif %}"
-                    data-can-finalize-delivery="{% if can_finalize_delivery %}true{% else %}false{% endif %}"
                     data-has-completion-blockers="{% if workorder.has_completion_blockers %}true{% else %}false{% endif %}"
                     data-completion-blockers-display="{{ workorder.completion_blockers_display }}"
-                    {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}disabled{% endif %}
-                    {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif not can_finalize_delivery %}title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo."{% elif workorder.km_final is None %}title="É necessário inserir o Km Final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
+                    {% if workorder.is_status_locked or workorder.has_completion_blockers or workorder.km_final is None %}disabled{% endif %}
+                    {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif workorder.km_final is None %}title="É necessário inserir o Km Final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
                 >
                     Entregar veículo
                 </button>
@@ -224,7 +217,6 @@
                 {% else %}
                 <a href="{{ emission_ui.direct_url }}" class="btn btn-primary w-full rounded-md" data-allow-locked="1">{{ emission_ui.button_label }}</a>
                 {% endif %}
-            </span>
             {% endif %}
         </div>
 
@@ -422,20 +414,16 @@
             });
         };
 
-        if (form && kmInput && statusEl && form.dataset.deliveryAutosaveInitialized !== 'true') {
-            form.dataset.deliveryAutosaveInitialized = 'true';
+        if (form && kmInput && statusEl && kmInput.dataset.kmAutosaveInitialized !== 'true') {
+            kmInput.dataset.kmAutosaveInitialized = 'true';
 
         const autosaveUrl = form.dataset.kmAutosaveUrl;
         const signatureApproved = form.dataset.signatureApproved === 'true';
         const hasUnsignedReasonError = form.dataset.hasUnsignedReasonError === 'true';
         const csrfToken = form.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
+        let saveTimeout = null;
         let requestController = null;
-        const formSnapshot = () => {
-            const data = new FormData(form);
-            data.delete('csrfmiddlewaretoken');
-            return new URLSearchParams(data).toString();
-        };
-        let lastSavedSnapshot = formSnapshot();
+        let lastSavedValue = kmInput.value;
         const kmFinalUnlockTooltip = 'É necessário inserir o Km Final para desbloquear o botão';
 
         const setDeliveryButtonTooltip = (button, message) => {
@@ -509,13 +497,6 @@
                 return;
             }
 
-            if (currentDeliveryButton.dataset.canFinalizeDelivery !== 'true') {
-                currentDeliveryButton.disabled = true;
-                currentDeliveryButton.classList.add('btn-disabled', 'cursor-not-allowed');
-                setDeliveryButtonTooltip(currentDeliveryButton, 'Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo.');
-                return;
-            }
-
             if (Object.prototype.hasOwnProperty.call(options, 'hasCompletionBlockers')) {
                 currentDeliveryButton.dataset.hasCompletionBlockers = options.hasCompletionBlockers ? 'true' : 'false';
             }
@@ -567,22 +548,12 @@
             }
         };
 
-        const isAutosaveField = (el) => {
-            if (!el || !form.contains(el)) {
-                return false;
-            }
-            if (el.name === 'csrfmiddlewaretoken' || el.readOnly || el.disabled) {
-                return false;
-            }
-            const tag = el.tagName;
-            return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
-        };
+        const persistKmFinal = async () => {
+            const currentValue = kmInput.value.trim();
 
-        const persistDeliveryDraft = async () => {
-            const currentSnapshot = formSnapshot();
-            if (currentSnapshot === lastSavedSnapshot) {
-                setStatus('');
-                if (kmInput) {
+            if (!currentValue || currentValue === lastSavedValue) {
+                if (!currentValue) {
+                    setStatus('');
                     kmInput.setCustomValidity('');
                     window.updateWorkorderDeliveryButtonState();
                 }
@@ -595,15 +566,12 @@
 
             requestController = new AbortController();
             setStatus('');
-            if (kmInput) {
-                kmInput.setCustomValidity('');
-                window.updateWorkorderDeliveryButtonState();
-            }
+            kmInput.setCustomValidity('');
+            window.updateWorkorderDeliveryButtonState();
 
-            const formData = new FormData(form);
-            if (csrfToken && !formData.get('csrfmiddlewaretoken')) {
-                formData.append('csrfmiddlewaretoken', csrfToken);
-            }
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', csrfToken);
+            formData.append('km_final', currentValue);
 
             try {
                 const response = await fetch(autosaveUrl, {
@@ -615,20 +583,15 @@
                 const payload = await response.json();
 
                 if (!response.ok || !payload.ok) {
-                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Não foi possível salvar os dados de entrega.';
-                    const kmError = payload.field_errors && payload.field_errors.km_final && payload.field_errors.km_final[0];
-                    if (kmInput && kmError) {
-                        kmInput.setCustomValidity(kmError);
-                    }
+                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Nao foi possivel salvar o KM final.';
+                    kmInput.setCustomValidity(errorMessage);
                     window.updateWorkorderDeliveryButtonState();
                     setStatus(errorMessage, 'error');
                     return;
                 }
 
-                lastSavedSnapshot = currentSnapshot;
-                if (kmInput) {
-                    kmInput.setCustomValidity('');
-                }
+                lastSavedValue = currentValue;
+                kmInput.setCustomValidity('');
                 window.updateWorkorderDeliveryButtonState({
                     hasCompletionBlockers: Boolean(payload.has_completion_blockers),
                     completionBlockersDisplay: payload.completion_blockers_display || '',
@@ -638,12 +601,10 @@
                     signatureBlockersDisplay: payload.signature_blockers_display || '',
                 });
                 setStatus('');
-                const hasKmFinal = Boolean(kmInput && kmInput.value.trim());
-                const kmFinalIsValid = Boolean(kmInput && hasKmFinal && kmInput.checkValidity());
                 window.dispatchEvent(new CustomEvent('update-pdf-modal-state', {
                     detail: {
-                        kmBlocked: !kmFinalIsValid,
-                        kmBlockedReason: !hasKmFinal
+                        kmBlocked: !lastSavedValue || !kmInput.checkValidity(),
+                        kmBlockedReason: !lastSavedValue
                             ? 'É necessário inserir o Km Final para desbloquear o botão'
                             : (!kmInput.checkValidity() ? kmInput.validationMessage || 'KM final inválido' : ''),
                         signatureBlocked: Boolean(payload.has_signature_blockers),
@@ -654,25 +615,22 @@
                 if (error.name === 'AbortError') {
                     return;
                 }
-                setStatus('Não foi possível salvar os dados de entrega.', 'error');
+                setStatus('Nao foi possivel salvar o KM final.', 'error');
             }
         };
 
-        form.addEventListener('focusout', (event) => {
-            if (!isAutosaveField(event.target)) {
-                return;
-            }
-            void persistDeliveryDraft();
+        const schedulePersist = () => {
+            clearTimeout(saveTimeout);
+            setStatus('');
+            saveTimeout = window.setTimeout(persistKmFinal, 500);
+        };
+
+        kmInput.addEventListener('input', schedulePersist);
+        kmInput.addEventListener('input', () => window.updateWorkorderDeliveryButtonState());
+        kmInput.addEventListener('blur', () => {
+            clearTimeout(saveTimeout);
+            void persistKmFinal();
         });
-        form.addEventListener('change', (event) => {
-            if (!isAutosaveField(event.target)) {
-                return;
-            }
-            void persistDeliveryDraft();
-        });
-        if (kmInput) {
-            kmInput.addEventListener('input', () => window.updateWorkorderDeliveryButtonState());
-        }
 
         window.updateWorkorderDeliveryButtonState();
 

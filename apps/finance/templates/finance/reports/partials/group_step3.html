@@ -11,7 +11,33 @@
     </div>
 </div>
 
-<form hx-post="{% url 'finance:group_movement_wizard' %}" hx-target="#group-modal-content">
+{{ payment_method_installments|json_script:"group-payment-method-installments" }}
+<form
+    hx-post="{% url 'finance:group_movement_wizard' %}"
+    hx-target="#group-modal-content"
+    x-data="{
+        paymentMethodId: '{{ form.payment_method.value|default_if_none:"" }}',
+        firstDueDate: '{{ form.due_date.value|date:"Y-m-d"|default_if_none:"" }}',
+        installmentsByMethod: JSON.parse(document.getElementById('group-payment-method-installments').textContent),
+        totalAmount: Number('{{ total_amount|unlocalize }}'),
+        get installmentsCount() { return Number(this.installmentsByMethod[this.paymentMethodId] || 0); },
+        get schedule() {
+            if (!this.installmentsCount || !this.firstDueDate) return [];
+            const totalCents = Math.round(this.totalAmount * 100);
+            const amountPerInstallment = Math.floor(totalCents / this.installmentsCount);
+            const remainingCents = totalCents % this.installmentsCount;
+            const [year, month, day] = this.firstDueDate.split('-').map(Number);
+            return Array.from({ length: this.installmentsCount }, (_, index) => {
+                const dueDate = new Date(year, month - 1 + index, 1);
+                dueDate.setDate(Math.min(day, new Date(dueDate.getFullYear(), dueDate.getMonth() + 1, 0).getDate()));
+                const cents = amountPerInstallment + (index === this.installmentsCount - 1 ? remainingCents : 0);
+                return { number: index + 1, amount: (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), dueDate: dueDate.toLocaleDateString('pt-BR') };
+            });
+        }
+    }"
+    @searchable-change.window="if ($event.detail.name === 'payment_method') paymentMethodId = $event.detail.value"
+    @change="if ($event.target.name === 'due_date') firstDueDate = $event.target.value"
+>
     <input type="hidden" name="step" value="3">
     <input type="hidden" name="entity_type" value="{{ entity_type }}">
     <input type="hidden" name="entity_id" value="{{ entity_id|unlocalize }}">
@@ -33,6 +59,24 @@
             
             <div class="bg-base-100 p-6 rounded-2xl shadow-sm border border-base-200">
                 {{ form|crispy }}
+                <div class="alert alert-info mt-4 text-sm" x-show="!installmentsCount" x-cloak>
+                    <span class="material-icons text-base">info</span>
+                    <span>Selecione a forma de pagamento e a data de vencimento para visualizar as parcelas que serão criadas.</span>
+                </div>
+                <section class="mt-4 rounded-xl border border-primary/25 bg-primary/5 p-4" x-show="schedule.length" x-cloak>
+                    <h4 class="font-semibold text-base-content">Prévia do pagamento</h4>
+                    <p class="mt-1 text-sm text-base-content/70" x-text="`${installmentsCount} parcela(s) serão criadas para o total de ${totalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`"></p>
+                    <div class="mt-3 overflow-x-auto">
+                        <table class="table table-sm">
+                            <thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-right">Valor</th></tr></thead>
+                            <tbody>
+                                <template x-for="installment in schedule" :key="installment.number">
+                                    <tr><td x-text="`${installment.number}/${installmentsCount}`"></td><td x-text="installment.dueDate"></td><td class="text-right font-semibold" x-text="installment.amount"></td></tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </div>
     </div>

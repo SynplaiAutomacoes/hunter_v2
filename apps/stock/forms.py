@@ -30,6 +30,7 @@ from apps.core.presentation.forms import address_layout, AddressFormMixin, CoreF
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.core.utils import alert_confirm_layout
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type, sync_payment_entries_with_financial_movements
@@ -479,6 +480,7 @@ class ImportStepItemsForm(CoreModelForm):
 
 class ImportStepPaymentForm(CoreModelForm):
     payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SearchableSelectInput, required=False, empty_label="Selecione uma forma")
+    budget_plan = forms.ModelChoiceField(queryset=FinancialGroup.objects.none(), label="Plano Orçamentário", widget=SearchableSelectInput, required=False, empty_label="---------")
     installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=forms.HiddenInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
@@ -501,6 +503,7 @@ class ImportStepPaymentForm(CoreModelForm):
 
         if self.workshop:
             self.fields["payment_method"].queryset = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True).order_by("description")
+            self.fields["budget_plan"].queryset = FinancialGroup.objects.filter(workshop=self.workshop).order_by("name")
 
         totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
         valor_total = totals.total_value
@@ -526,6 +529,7 @@ class ImportStepPaymentForm(CoreModelForm):
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
+        self.fields["budget_plan"].label = mark_safe('Plano Orçamentário <span class="text-error">*</span>')
         self.fields["first_amount"].label = mark_safe('Valor a ser pago <span class="text-error">*</span>')
         self.fields["payment_date"].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
         self.fields["total_allocated_display"].label = "Valor Pago"
@@ -663,9 +667,10 @@ class ImportStepPaymentForm(CoreModelForm):
                 Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
                 #
                 Div(
-                    Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("payment_method", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("budget_plan", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("first_amount", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("payment_date", wrapper_class="col-span-12 lg:col-span-3"),
                     css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
                 ),
                 Div(

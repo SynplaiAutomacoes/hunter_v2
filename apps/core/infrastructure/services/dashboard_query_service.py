@@ -794,6 +794,7 @@ class DashboardQueryService:
             today_sales=today_sales,
             accumulated_profitability=approved_budget_metrics.accumulated_profitability,
             accumulated_markup=approved_budget_metrics.accumulated_markup,
+            accumulated_markup_target=workshop_cost.profitability_multiplier if workshop_cost is not None else None,
             accumulated_markup_progress=calculate_markup_progress(
                 approved_budget_metrics.accumulated_markup,
                 workshop_cost.profitability_multiplier if workshop_cost is not None else None,
