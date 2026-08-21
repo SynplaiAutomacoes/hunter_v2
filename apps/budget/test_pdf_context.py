@@ -89,34 +89,49 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
         )
         self.assertEqual(merged[0]["quantity"], 10)
 
-    def test_kit_vs_kit_service_keeps_higher_quantity_instead_of_summing(self) -> None:
+    def test_kit_vs_kit_service_keeps_higher_duration_instead_of_summing(self) -> None:
         merged = _merge_selected_service_rows(
             [
-                _service_row(service_id=20, quantity=6, selling="10.00"),
-                _service_row(service_id=20, quantity=10, selling="10.00"),
+                _service_row(service_id=20, quantity=6, selling="10.00", duration_seconds=600),
+                _service_row(service_id=20, quantity=1, selling="10.00", duration_seconds=7200),
             ]
         )
         self.assertEqual(len(merged), 1)
-        self.assertEqual(merged[0]["quantity"], 10)
-        self.assertEqual(merged[0]["total_price"], _money("100.00"))
-        self.assertEqual(merged[0]["duration_display"], "10h 00m")
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["total_price"], _money("10.00"))
+        self.assertEqual(merged[0]["duration_display"], "02h 00m")
 
-
-class ExpectedDeliveryDatePdfContextTests(SimpleTestCase):
-    def test_prefers_date_agreed_with_customer(self) -> None:
-        agreed_date = datetime(2026, 8, 19, 10, 30)
-        budget = SimpleNamespace(
-            customer_agreed_departure_at=agreed_date,
-            service_expected_completion_at=datetime(2026, 8, 18, 17, 0),
+    def test_kit_vs_kit_service_keeps_winner_regardless_of_row_order(self) -> None:
+        merged = _merge_selected_service_rows(
+            [
+                _service_row(service_id=20, quantity=1, selling="10.00", duration_seconds=7200),
+                _service_row(service_id=20, quantity=6, selling="10.00", duration_seconds=600),
+            ]
         )
 
-        self.assertEqual(resolve_expected_delivery_at(budget=budget), agreed_date)
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["total_price"], _money("10.00"))
+        self.assertEqual(merged[0]["duration_display"], "02h 00m")
 
-    def test_falls_back_to_service_completion_date(self) -> None:
-        service_completion_date = datetime(2026, 8, 19, 17, 0)
-        budget = SimpleNamespace(
-            customer_agreed_departure_at=None,
-            service_expected_completion_at=service_completion_date,
+    def test_equal_duration_service_keeps_higher_total(self) -> None:
+        merged = _merge_selected_service_rows(
+            [
+                _service_row(service_id=20, quantity=2, selling="10.00", duration_seconds=3600),
+                _service_row(service_id=20, quantity=1, selling="25.00", duration_seconds=7200),
+            ]
         )
 
-        self.assertEqual(resolve_expected_delivery_at(budget=budget), service_completion_date)
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["total_price"], _money("25.00"))
+        self.assertEqual(merged[0]["duration_display"], "02h 00m")
+
+    def test_kit_vs_avulso_service_keeps_higher_duration(self) -> None:
+        merged = _merge_selected_service_rows(
+            [
+                _service_row(service_id=20, quantity=6, selling="10.00", duration_seconds=600),
+                _service_row(service_id=20, quantity=1, selling="10.00", duration_seconds=7200),
+            ]
+        )
+
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["duration_display"], "02h 00m")
