@@ -81,6 +81,14 @@ class WorkshopCollaborator(TimeStampedModel):
     payment_day_type = models.CharField(verbose_name="Tipo de pagamento", max_length=32, choices=PaymentDayType.choices, default=PaymentDayType.FIFTH_BUSINESS_DAY)
     payment_day_of_month = models.PositiveSmallIntegerField(verbose_name="Dia do pagamento", null=True, blank=True)
     transport_allowance_daily = MoneyField(verbose_name="Vale Transporte Diário", max_digits=14, decimal_places=2, default=Decimal("0.00"), blank=True)
+    transport_budget_plan = models.ForeignKey(
+        "finance.FinancialGroup",
+        verbose_name="Plano orçamentário do vale transporte",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="collaborator_transport_allowances",
+    )
     admission_date = models.DateField(verbose_name="Data de Admissão", null=False, blank=False)
     termination_date = models.DateField(verbose_name="Data de Saída", null=True, blank=True)
     collaborator_type = models.CharField(verbose_name="Tipo", max_length=1, choices=CollaboratorType.choices, blank=False, null=False)

@@ -37,6 +37,7 @@
 
         <form method="post" hx-post="{{ modal_url }}" hx-target="closest .modal" hx-swap="outerHTML">
             {% csrf_token %}
+            <input type="hidden" name="tab" :value="activeTab">
 
             <div class="max-h-[60vh] overflow-y-auto px-1 py-2">
                 <section x-show="activeTab === 'collaborator'" x-cloak class="space-y-4">
@@ -264,8 +265,7 @@
                     </button>
                     <button type="button" class="btn btn-error btn-outline btn-sm ml-2"
                             x-show="activeTab !== 'BENEFIT'"
-                            hx-target="body" hx-swap="beforeend"
-                            x-bind:hx-get="removeUrlForTab(activeTab)">
+                            @click="htmx.ajax('GET', removeUrlForTab(activeTab), {target: document.body, swap: 'beforeend'})">
                         <span class="material-icons text-sm">link_off</span>
                         Excluir <span x-text="tabLabels[activeTab] || ''"></span>
                     </button>

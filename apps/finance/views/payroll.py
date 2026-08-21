@@ -51,7 +51,7 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.services.financial_movement import apply_payment_reconciliation_rules
+from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules
 from apps.finance.views.commissions import MONTH_CHOICES, _parse_int_param, build_paid_status_indicator
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import can_view_payroll_details, get_active_workshop_or_404
@@ -95,7 +95,8 @@ class PayrollPaymentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
-        self.fields["budget_plan"].required = False
+        self.fields["budget_plan"].required = True
+        self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["bank_account"].required = False
         self.fields["payment_method"].required = False
         if payroll is not None:
@@ -113,7 +114,7 @@ class PayrollPaymentForm(forms.ModelForm):
             self.fields["budget_plan"].queryset = groups
             self.fields["bank_account"].queryset = accounts
             self.fields["payment_method"].queryset = methods
-            self.fields["budget_plan"].widget.choices = [(item.pk, str(item)) for item in groups]
+            self.fields["budget_plan"].widget.choices = [("", "---------")] + [(item.pk, str(item)) for item in groups]
             self.fields["bank_account"].widget.choices = [(item.pk, str(item)) for item in accounts]
             self.fields["payment_method"].widget.choices = [(item.pk, str(item)) for item in methods]
 
@@ -123,6 +124,8 @@ class PayrollPaymentForm(forms.ModelForm):
             for field_name, field in self.fields.items():
                 if field_name not in self.PAID_EDITABLE_FIELDS:
                     field.disabled = True
+            # Campos desabilitados não vêm no POST; a instância paga sem plano ainda precisa poder ser desmarcada.
+            self.fields["budget_plan"].required = False
 
     @property
     def is_locked(self) -> bool:
@@ -292,7 +295,7 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
         filters = self._get_filter_params()
         queryset = (
             CollaboratorPayroll.objects.filter(workshop=self.workshop, collaborator__is_active=True)
-            .select_related("collaborator", "financial_movement")
+            .select_related("collaborator", "collaborator__transport_budget_plan", "financial_movement")
             .prefetch_related("financial_movements")
             .order_by("collaborator__name", "id")
         )
@@ -471,7 +474,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
 
     def _get_payroll(self) -> CollaboratorPayroll:
         return get_object_or_404(
-            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related(
+            CollaboratorPayroll.objects.select_related("collaborator", "collaborator__transport_budget_plan", "financial_movement").prefetch_related(
                 "items",
                 "commission_entries__workorder__budget",
                 "financial_movements__payroll_benefit",
@@ -487,7 +490,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
         collaborator = self._get_collaborator()
         reference_date = self._get_reference_date()
         return (
-            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement")
+            CollaboratorPayroll.objects.select_related("collaborator", "collaborator__transport_budget_plan", "financial_movement")
             .prefetch_related(
                 "items",
                 "commission_entries__workorder__budget",
@@ -878,21 +881,32 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 if all_forms:
                     recalculate_payroll_from_linked_movements(payroll=payroll)
                 # Apply work days after form saves so payment-tab POST data does not overwrite VT.
+                # Submitting the current work_days value (always present in the form) must not
+                # mark the payroll as custom or trigger a full sync that reverts amount/plan.
                 if work_days_requested:
                     previous_work_days = int(payroll.work_days or 0)
                     previous_is_custom = bool(payroll.work_days_is_custom)
+                    workshop_default_work_days = get_workshop_work_days(
+                        workshop=payroll.workshop,
+                        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+                    )
                     if parsed_work_days is None:
-                        resolved_work_days = get_workshop_work_days(
-                            workshop=payroll.workshop,
-                            reference_date=date(payroll.reference_year, payroll.reference_month, 1),
-                        )
+                        resolved_work_days = workshop_default_work_days
                         proposed_is_custom = False
                     else:
                         resolved_work_days = max(0, int(parsed_work_days))
-                        proposed_is_custom = True
+                        if resolved_work_days == previous_work_days:
+                            proposed_is_custom = previous_is_custom
+                        else:
+                            proposed_is_custom = resolved_work_days != workshop_default_work_days
                     work_days_changed = previous_is_custom != proposed_is_custom or previous_work_days != resolved_work_days
                     if work_days_changed:
-                        payroll = update_payroll_work_days(payroll=payroll, work_days=parsed_work_days)
+                        payroll = update_payroll_work_days(
+                            payroll=payroll,
+                            work_days=parsed_work_days,
+                            sync_salary_costs=False,
+                            resync_components=False,
+                        )
                 payroll.refresh_from_db()
 
                 movements = payroll.get_financial_movements()
@@ -902,12 +916,16 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                     unmark_payroll_commissions_as_paid(payroll=payroll)
                 payroll.refresh_from_db()
 
-            response = HttpResponse()
-            response["HX-Refresh"] = "true"
+            response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=self._get_requested_tab())
             toast_message = "Folha atualizada com sucesso."
             if work_days_changed and not all_forms:
                 toast_message = "Dias úteis atualizados com sucesso."
-            response["HX-Trigger"] = json.dumps({"showToast": {"message": toast_message, "type": "success"}})
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {"message": toast_message, "type": "success"},
+                    "payrollListRefresh": True,
+                }
+            )
             return response
 
         return self._open_edit_modal(request=request, payroll=payroll)

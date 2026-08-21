@@ -7,7 +7,7 @@ from typing import Any
 
 from djmoney.money import Money
 
-from apps.budget.pricing import _distribute_totals, format_duration_display, money_div, money_from_decimal, zero_money
+from apps.budget.pricing import _distribute_totals, _is_better_service_source, _is_better_source, format_duration_display, money_div, money_from_decimal, zero_money
 from apps.budget.review_display import build_budget_review_display
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.budget.service_costs import calculate_mechanic_service_cost
@@ -78,6 +78,35 @@ def _duration_seconds(duration: timedelta | None) -> int:
     return int((duration or timedelta()).total_seconds())
 
 
+def _pdf_row_total(row: dict) -> Money:
+    total = row.get("total_price")
+    return total if total is not None else Money(0, "BRL")
+
+
+def _keep_better_selected_row(existing: dict, candidate: dict) -> dict:
+    keep_candidate = _is_better_source(
+        candidate_quantity=int(candidate.get("quantity") or 0),
+        candidate_total=_pdf_row_total(candidate),
+        current_quantity=int(existing.get("quantity") or 0),
+        current_total=_pdf_row_total(existing),
+    )
+    winner = dict(candidate) if keep_candidate else existing
+    winner["show_kit_duplicate_warning"] = bool(existing.get("show_kit_duplicate_warning") or candidate.get("show_kit_duplicate_warning"))
+    return winner
+
+
+def _keep_better_selected_service_row(existing: dict, candidate: dict) -> dict:
+    keep_candidate = _is_better_service_source(
+        candidate_duration=timedelta(seconds=int(candidate.get("_duration_seconds") or 0)),
+        candidate_total=_pdf_row_total(candidate),
+        current_duration=timedelta(seconds=int(existing.get("_duration_seconds") or 0)),
+        current_total=_pdf_row_total(existing),
+    )
+    winner = dict(candidate) if keep_candidate else existing
+    winner["show_kit_duplicate_warning"] = bool(existing.get("show_kit_duplicate_warning") or candidate.get("show_kit_duplicate_warning"))
+    return winner
+
+
 def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
     merged_rows: dict[tuple[object, str, bool], dict] = {}
     for row in produtos:
@@ -86,20 +115,7 @@ def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
         if existing is None:
             merged_rows[key] = dict(row)
             continue
-
-        existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
-        existing["shipping"] = existing.get("shipping", Money(0, "BRL")) + row.get("shipping", Money(0, "BRL"))
-        existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
-        existing["product_cost_price"] = existing.get("product_cost_price", Money(0, "BRL")) + row.get("product_cost_price", Money(0, "BRL"))
-        existing["profit_value"] = existing.get("profit_value", Money(0, "BRL")) + row.get("profit_value", Money(0, "BRL"))
-        existing["show_kit_duplicate_warning"] = bool(existing.get("show_kit_duplicate_warning") or row.get("show_kit_duplicate_warning"))
-
-        quantity = int(existing.get("quantity") or 0)
-        if quantity > 0:
-            unit_price = money_div(existing["total_price"] - existing["shipping"], quantity)
-            existing["unit_price"] = unit_price
-            existing["adjusted_unit_price"] = unit_price
-            existing["display_unit_price"] = money_div(existing["total_price"], quantity)
+        merged_rows[key] = _keep_better_selected_row(existing, row)
 
     return list(merged_rows.values())
 
@@ -112,19 +128,7 @@ def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
         if existing is None:
             merged_rows[key] = dict(row)
             continue
-
-        existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
-        existing["shipping"] = existing.get("shipping", Money(0, "BRL")) + row.get("shipping", Money(0, "BRL"))
-        existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
-        existing["service_cost_price"] = existing.get("service_cost_price", Money(0, "BRL")) + row.get("service_cost_price", Money(0, "BRL"))
-        existing["service_mechanic_cost_price"] = existing.get("service_mechanic_cost_price", Money(0, "BRL")) + row.get("service_mechanic_cost_price", Money(0, "BRL"))
-        existing["profit_value"] = existing.get("profit_value", Money(0, "BRL")) + row.get("profit_value", Money(0, "BRL"))
-        existing["_duration_seconds"] = int(existing.get("_duration_seconds") or 0) + int(row.get("_duration_seconds") or 0)
-
-        quantity = int(existing.get("quantity") or 0)
-        if quantity > 0:
-            existing["unit_price"] = money_div(existing["total_price"], quantity)
-            existing["display_unit_price"] = money_div(existing["total_price"], quantity)
+        merged_rows[key] = _keep_better_selected_service_row(existing, row)
 
     for row in merged_rows.values():
         row["duration_display"] = format_duration_display(timedelta(seconds=int(row.pop("_duration_seconds", 0) or 0)))
@@ -369,6 +373,10 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
+def resolve_expected_delivery_at(*, budget):
+    return budget.customer_agreed_departure_at or budget.service_expected_completion_at
+
+
 def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
 
@@ -504,6 +512,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         kits = []
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
+    expected_delivery_at = resolve_expected_delivery_at(budget=budget)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_shipping_value = sum((line["shipping"] for line in servicos), Money(0, "BRL"))
@@ -521,6 +530,11 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
     benefit_total = Money(0, "BRL")
     benefit_label = ""
+
+    created_by = getattr(budget, "created_by", None) or getattr(budget, "cost_estimator", None)
+    opened_by_name = "Sistema"
+    if created_by is not None:
+        opened_by_name = created_by.get_full_name() or created_by.get_username()
 
     return {
         "budget": budget,
@@ -550,5 +564,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "warranty_message": warranty_message,
         "workshop_logo_data_uri": workshop_logo_data_uri,
         "budget_rentability": rentability,
+        "expected_delivery_at": expected_delivery_at,
+        "document_title": "ORÇAMENTO",
+        "opened_by_name": opened_by_name,
         "request": request,
     }

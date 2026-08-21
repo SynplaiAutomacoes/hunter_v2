@@ -8,6 +8,7 @@ from django.urls import reverse
 from django.views.generic import CreateView
 
 from apps.core.presentation.forms import MultiStepFormMixin
+from apps.core.utils import clean_id
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -77,7 +78,7 @@ class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
         return self.model.objects.select_related(*self.base_select_related).filter(workshop=self.workshop)
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
+        pk = clean_id(self.kwargs.get("pk") or self.request.GET.get("pk"))
         if not pk:
             return None
         active_queryset = queryset or self.get_request_queryset()

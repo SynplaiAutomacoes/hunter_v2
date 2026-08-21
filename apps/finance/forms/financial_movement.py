@@ -11,7 +11,7 @@ from apps.core.presentation.widgets import SearchableSelectInput, TextInput, Tex
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.finance.services.financial_movement import apply_payment_reconciliation_rules, generate_card_fee_movement
+from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreModelForm
@@ -437,6 +437,8 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["due_date"].required = True
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
+        self.fields["budget_plan"].required = True
+        self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
 
@@ -452,7 +454,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["repeat_type"] = forms.ChoiceField(choices=repeat_choices, initial="mensal", required=False)
 
         if self.workshop:
-            self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
+            self.fields["budget_plan"].widget.choices = [("", "---------")] + [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
             bank_accounts = BankAccount.objects.filter(workshop=self.workshop, is_active=True).order_by("bank_name", "account_number", "id")
             self.fields["bank_account"].queryset = bank_accounts
             self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in bank_accounts]
@@ -759,7 +761,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["direction"].required = True
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
-        self.fields["budget_plan"].required = getattr(self.instance, "workorder_id", None) is not None
+        self.fields["budget_plan"].required = True
+        self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["bank_account"].required = False
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(getattr(self.instance, "is_reconciled", False)) if self.instance.pk else False
@@ -802,7 +805,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             self.fields["payment_method"].queryset = payment_method_qs
 
             self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_method_qs]
-            self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
+            self.fields["budget_plan"].widget.choices = [("", "---------")] + [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
             bank_account_qs = self._get_bank_account_queryset()
             self.fields["bank_account"].queryset = bank_account_qs
             self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in bank_account_qs]

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlencode
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
@@ -16,7 +17,6 @@ from django.db.models import Q, Value
 from django.db.models.functions import Coalesce
 from typing import List, Tuple
 
-from apps.core.infrastructure.search import build_text_search_query
 from apps.accounts.models import User
 from apps.collaborators.models import WorkshopCollaborator
 from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements, sync_workorder_collaborator_payrolls
@@ -27,7 +27,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
-from apps.finance.services.reports import build_day_month_year_financial_overviews_with_open_workorder_credits, open_credits, open_debits
+from apps.finance.services.reports import build_day_month_year_financial_overviews_with_open_workorder_credits, build_financial_movement_search_query, open_credits, open_debits
 from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -51,8 +51,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     )
     FILTER_PAID_STATUS_CHOICES = (
         ("", "Todos"),
-        ("paid", "Pagos"),
-        ("unpaid", "Não pagos"),
+        ("paid", "Pago"),
+        ("unpaid", "Não pago"),
     )
     FILTER_RECONCILIATION_STATUS_CHOICES = (
         ("", "Todos"),
@@ -78,10 +78,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         label = {"label": "Parcial", "icon": "schedule", "class": "text-warning"}
 
         if total_paid <= Decimal("0.00"):
-            label = {"label": "Não", "icon": "cancel", "class": "text-error"}
+            label = {"label": "Não pago", "icon": "cancel", "class": "text-error"}
 
         if total_paid >= total_amount > Decimal("0.00"):
-            label = {"label": "Sim", "icon": "check_circle", "class": "text-success"}
+            label = {"label": "Pago", "icon": "check_circle", "class": "text-success"}
 
         return label
 
@@ -89,13 +89,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _resolve_workorder_conciliation_status(*, is_reconciled: bool) -> dict[str, str]:
         if is_reconciled:
             return {"label": "Conciliado", "icon": "check_circle", "class": "text-info"}
-        return {"label": "Aguardando Conciliação", "icon": "schedule", "class": "text-warning"}
+        return {"label": "Aguardando conciliação", "icon": "schedule", "class": "text-warning"}
 
     @staticmethod
     def _resolve_simple_paid_status(*, is_paid: bool) -> dict[str, str]:
         if is_paid:
-            return {"label": "Sim", "icon": "check_circle", "class": "text-success"}
-        return {"label": "Não", "icon": "cancel", "class": "text-error"}
+            return {"label": "Pago", "icon": "check_circle", "class": "text-success"}
+        return {"label": "Não pago", "icon": "cancel", "class": "text-error"}
 
     def _resolve_movement_paid_status_display(self, movement: FinancialMovement) -> dict[str, str]:
         return self._resolve_simple_paid_status(is_paid=bool(movement.is_paid))
@@ -343,23 +343,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
         search = self._get_search_value()
         if search:
-            search_query = build_text_search_query(
-                search_value=search,
-                lookups=(
-                    "description",
-                    "items_observation",
-                    "financial_observation",
-                    "nf_number",
-                    "source__name",
-                    "supplier__name",
-                    "collaborator__name",
-                    "budget_plan__name",
-                    "bank_account__bank_name",
-                    "workorder__budget__customer__name",
-                ),
-            )
-            search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
-            queryset = queryset.filter(search_query)
+            queryset = queryset.filter(build_financial_movement_search_query(search_value=search))
 
         return queryset
 
@@ -371,9 +355,6 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payment_method_id = filter_params["payment_method_id"]
         paid_status = filter_params["paid_status"]
         reconciliation_status = filter_params["reconciliation_status"]
-
-        if paid_status == "unpaid":
-            return []
 
         for payment in payments:
             payment_amount = self._resolve_money_amount(payment.total_paid)
@@ -397,6 +378,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             if reconciliation_status == "reconciled" and not is_reconciled:
                 continue
             if reconciliation_status == "pending" and is_reconciled:
+                continue
+            is_paid = bool(getattr(payment_movement, "is_paid", False))
+            if paid_status == "paid" and not is_paid:
+                continue
+            if paid_status == "unpaid" and is_paid:
                 continue
             filtered_payments.append(payment)
 
@@ -510,10 +496,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "title": title,
             "is_placeholder": False,
             "rows": [
-                {"label": "Créditos Totais", "value": format_money(total_credits), "small": False, "tone": "credit"},
-                {"label": "Créditos Pagos", "value": format_money(paid_credits), "small": True, "tone": "credit"},
-                {"label": "Débitos Totais", "value": format_money(total_debits), "small": False, "tone": "debit"},
-                {"label": "Débitos Pagos", "value": format_money(paid_debits), "small": True, "tone": "debit"},
+                {"label": "Contas a receber (total)", "value": format_money(total_credits), "small": False, "tone": "credit"},
+                {"label": "Contas a receber (pagas)", "value": format_money(paid_credits), "small": True, "tone": "credit"},
+                {"label": "Contas a pagar (total)", "value": format_money(total_debits), "small": False, "tone": "debit"},
+                {"label": "Contas a pagar (pagas)", "value": format_money(paid_debits), "small": True, "tone": "debit"},
             ],
             "results": [
                 {"label": "Resultado Total", "value": format_money(total_result), "accent": True, "tone": self._resolve_result_tone(total_result)},
@@ -522,19 +508,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         }
 
     def _build_selection_summary_card(self, *, rows: list[dict[str, object]]) -> dict[str, object]:
-        title = "Créditos e Débitos da Filtragem"
-        if self._has_active_filters():
-            title = "Créditos e Débitos da Página Filtrada"
-        if not self._has_active_filters():
-            return {
-                "title": title,
-                "is_placeholder": True,
-                "description": "Nenhum filtro ou busca ativo",
-                "rows": [],
-                "results": [],
-            }
-
-        return self._build_summary_card_from_rows(title=title, rows=rows)
+        return self._build_summary_card_from_rows(title="Resumo da listagem", rows=rows)
 
     def _build_financial_movement_row(self, movement: FinancialMovement) -> dict[str, object]:
         workorder = getattr(movement, "workorder", None)
@@ -687,7 +661,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_agent_filter_choices(self) -> List[Tuple[str, str]]:
         collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
 
-        choices = [("", "Todos os colaboradores")]
+        choices = [("", "Todos os agentes")]
         for c in collaborators:
             choices.append((f"coll_{c.pk}", c.name))
         return choices
@@ -777,13 +751,43 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             seen_components.add(component)
         return rows
 
-    def _build_indicator_card(self, *, title: str, value: str, tone: str, rows: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    def _build_indicator_card(self, *, title: str, value: str, tone: str, rows: list[dict[str, str]] | None = None, filter_url: str = "") -> dict[str, Any]:
         return {
             "title": title,
             "value": value,
             "tone": tone,
             "rows": rows or [],
+            "filter_url": filter_url,
         }
+
+    def _build_card_filter_url(self, *, start_date: date, end_date: date, direction: str = "", paid_status: str = "") -> str:
+        params: dict[str, str] = {
+            "data_inicial": start_date.isoformat(),
+            "data_final": end_date.isoformat(),
+        }
+        if direction:
+            params["direction"] = direction
+        if paid_status:
+            params["paid_status"] = paid_status
+        return f"{reverse('finance:reports_home')}?{urlencode(params)}"
+
+    def _get_preserved_filter_query_items(self) -> list[tuple[str, str]]:
+        items: list[tuple[str, str]] = []
+        get = self.request.GET
+        for key in ("data_inicial", "data_final", "bank_account", "direction", "paid_status", "agent", "opened_by", "payment_method", "reconciliation_status"):
+            value = str(get.get(key) or "").strip()
+            if value:
+                items.append((key, value))
+        for value in get.getlist("financial_groups"):
+            if str(value).strip():
+                items.append(("financial_groups", str(value)))
+        return items
+
+    @staticmethod
+    def _month_bounds(*, reference_date: date) -> tuple[date, date]:
+        month_start = reference_date.replace(day=1)
+        next_month = (reference_date.replace(day=28) + date.resolution * 4).replace(day=1)
+        return month_start, next_month - date.resolution
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -794,25 +798,55 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         page_obj, paginator = self._get_financial_movements_page(entry_refs=report_entry_refs)
         paginated_movements = self._get_paginated_report_movements(entry_refs=list(page_obj.object_list))
         page_rows = self._get_financial_movement_report_rows(movements=paginated_movements)
+        listing_summary_rows = page_rows
+        if not self._has_active_filters() and len(report_entry_refs) > self.MOVEMENTS_PER_PAGE:
+            listing_summary_rows = self._get_financial_movement_report_rows(movements=self._get_paginated_report_movements(entry_refs=report_entry_refs))
+
+        month_start, month_end = self._month_bounds(reference_date=reference_date)
+        year_start = reference_date.replace(month=1, day=1)
+        year_end = reference_date.replace(month=12, day=31)
+        credit = FinancialMovement.MovementDirection.CREDIT
+        debit = FinancialMovement.MovementDirection.DEBIT
 
         context["top_summary_cards"] = [
-            self._build_indicator_card(title="Contas a pagar do dia", value=format_money(open_debits(day_overview)), tone="debit"),
-            self._build_indicator_card(title="Contas a receber do dia", value=format_money(open_credits(day_overview)), tone="credit"),
-            self._build_indicator_card(title="Contas a pagar do mês", value=format_money(open_debits(month_overview)), tone="debit"),
-            self._build_indicator_card(title="Contas a receber do mês", value=format_money(open_credits(month_overview)), tone="credit"),
+            self._build_indicator_card(
+                title="Contas a pagar do dia",
+                value=format_money(open_debits(day_overview)),
+                tone="debit",
+                filter_url=self._build_card_filter_url(start_date=reference_date, end_date=reference_date, direction=debit, paid_status="unpaid"),
+            ),
+            self._build_indicator_card(
+                title="Contas a receber do dia",
+                value=format_money(open_credits(day_overview)),
+                tone="credit",
+                filter_url=self._build_card_filter_url(start_date=reference_date, end_date=reference_date, direction=credit, paid_status="unpaid"),
+            ),
+            self._build_indicator_card(
+                title="Contas a pagar do mês",
+                value=format_money(open_debits(month_overview)),
+                tone="debit",
+                filter_url=self._build_card_filter_url(start_date=month_start, end_date=month_end, direction=debit, paid_status="unpaid"),
+            ),
+            self._build_indicator_card(
+                title="Contas a receber do mês",
+                value=format_money(open_credits(month_overview)),
+                tone="credit",
+                filter_url=self._build_card_filter_url(start_date=month_start, end_date=month_end, direction=credit, paid_status="unpaid"),
+            ),
             self._build_indicator_card(
                 title="Resultado do ano",
                 value=format_money(year_overview.total_result),
                 tone=self._resolve_result_tone(year_overview.total_result),
+                filter_url=self._build_card_filter_url(start_date=year_start, end_date=year_end),
                 rows=[
-                    {"label": "Total a receber", "value": format_money(year_overview.total_credits), "tone": "credit"},
-                    {"label": "Total recebido", "value": format_money(year_overview.paid_credits), "tone": "credit"},
-                    {"label": "Total a pagar", "value": format_money(year_overview.total_debits), "tone": "debit"},
-                    {"label": "Total pago", "value": format_money(year_overview.paid_debits), "tone": "debit"},
+                    {"label": "Total a receber", "value": format_money(year_overview.total_credits), "tone": "credit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=credit)},
+                    {"label": "Total recebido", "value": format_money(year_overview.paid_credits), "tone": "credit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=credit, paid_status="paid")},
+                    {"label": "Total a pagar", "value": format_money(year_overview.total_debits), "tone": "debit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=debit)},
+                    {"label": "Total pago", "value": format_money(year_overview.paid_debits), "tone": "debit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=debit, paid_status="paid")},
                 ],
             ),
         ]
-        context["selection_summary"] = self._build_selection_summary_card(rows=page_rows)
+        context["selection_summary"] = self._build_selection_summary_card(rows=listing_summary_rows)
         context["financial_movement_report_rows"] = page_rows
         context["financial_group_filters"] = self._get_financial_groups_queryset()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()
@@ -838,6 +872,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         context["payment_method_filter_widget"] = payment_method_widget.get_context(name="payment_method", value=str(filter_params["payment_method_id"]) if filter_params["payment_method_id"] is not None else "", attrs={"id": "reports-filter-payment-method", "class": "w-full"})
 
         context["has_active_filters"] = self._has_active_filters()
+        context["preserved_filter_query_items"] = self._get_preserved_filter_query_items()
         context["clear_filters_url"] = reverse("finance:reports_home")
         context["page_obj"] = page_obj
         context["paginator"] = paginator

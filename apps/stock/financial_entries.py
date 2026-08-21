@@ -6,6 +6,7 @@ from typing import Any
 
 from djmoney.money import Money
 
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.sources.models import Source
@@ -39,6 +40,23 @@ def get_entry_reason(entry: dict[str, Any]) -> str:
 def get_next_entry_id(entries: list[dict[str, Any]]) -> int:
     numeric_ids = [int(entry.get("id", 0) or 0) for entry in entries]
     return (max(numeric_ids) if numeric_ids else 0) + 1
+
+
+def resolve_import_budget_plan(*, workshop: Any, budget_plan_id: Any) -> FinancialGroup | None:
+    if budget_plan_id in (None, ""):
+        return None
+    try:
+        pk = int(str(budget_plan_id))
+    except (TypeError, ValueError):
+        return None
+    return FinancialGroup.objects.filter(pk=pk, workshop=workshop).first()
+
+
+def apply_card_fee_budget_plan(*, fee_movement: FinancialMovement, fallback_plan: FinancialGroup | None) -> None:
+    if fee_movement.budget_plan_id or fallback_plan is None:
+        return
+    fee_movement.budget_plan = fallback_plan
+    fee_movement.save(update_fields=["budget_plan"])
 
 
 @dataclass(frozen=True)
@@ -91,6 +109,10 @@ def sync_payment_entries_with_financial_movements(*, stock_import: Any, entries:
         if payment_method is None:
             raise PaymentMethod.DoesNotExist(f"Forma de pagamento {entry.get('method')} não encontrada para a oficina {workshop.pk}.")
 
+        budget_plan = resolve_import_budget_plan(workshop=workshop, budget_plan_id=entry.get("budget_plan_id"))
+        if budget_plan is None:
+            raise FinancialGroup.DoesNotExist(f"Plano orçamentário {entry.get('budget_plan_id')} não encontrado para a oficina {workshop.pk}.")
+
         financial_movement = FinancialMovement.objects.create(
             workshop=workshop,
             user=user,
@@ -98,6 +120,7 @@ def sync_payment_entries_with_financial_movements(*, stock_import: Any, entries:
             direction=FinancialMovement.MovementDirection.DEBIT,
             description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
             payment_method=payment_method,
+            budget_plan=budget_plan,
             nf_number=stock_import.nf_number,
             amount=Money(get_entry_amount(entry), "BRL"),
             due_date=entry.get("payment_date") or None,
