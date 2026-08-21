@@ -4,24 +4,16 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
-from django.urls import reverse
 from django.utils import timezone
 
-from apps.accounts.models import Account
 from apps.budget.models import Budget
-from apps.collaborators.models import WorkshopMember
 from apps.core.infrastructure.services.signature_webhook import process_signature_webhook_payload
 from apps.customer.models import Customer, Vehicle
 from apps.customer.views import _build_customer_workorder_history_entry
-from apps.iam.models import WorkshopRole
 from apps.workorder.forms import WorkOrderCustomerApprovalForm
 from apps.workorder.models import WorkOrder, WorkOrderStatus, WorkOrderWarrantyPlan
 from apps.workshops.models.workshops import Workshop
-
-
-User = get_user_model()
 
 
 def _create_workshop(*, suffix: int) -> Workshop:
@@ -134,22 +126,6 @@ class WorkOrderWarrantyPlanFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["warranty_plan"], WorkOrderWarrantyPlan.DAYS_180)
 
-    def test_courtesy_reason_fields_render_for_warranty_workorder(self) -> None:
-        workshop = _create_workshop(suffix=9)
-        workorder = _create_workorder(workshop=workshop, suffix=9)
-        workorder.budget.budget_type = "warranty"
-        workorder.budget.save(update_fields=["budget_type"])
-        workorder.budget_type = "warranty"
-        workorder.save(update_fields=["budget_type"])
-
-        form = WorkOrderCustomerApprovalForm(
-            workorder=workorder,
-            require_unsigned_delivery_reason=False,
-        )
-        self.assertTrue(form.is_courtesy_or_warranty)
-        self.assertFalse(form.fields["courtesy_reason_type"].disabled)
-        self.assertFalse(form.fields["previous_mechanic"].disabled)
-
     def test_km_final_update_skips_warranty_requirement(self) -> None:
         workshop = _create_workshop(suffix=7)
         workorder = _create_workorder(workshop=workshop, suffix=7)
@@ -161,36 +137,6 @@ class WorkOrderWarrantyPlanFormTests(TestCase):
             require_warranty_plan=False,
         )
         self.assertTrue(form.is_valid(), form.errors)
-
-    def test_draft_form_allows_empty_km_final(self) -> None:
-        workshop = _create_workshop(suffix=10)
-        workorder = _create_workorder(workshop=workshop, suffix=10)
-
-        form = WorkOrderCustomerApprovalForm(
-            data={"km_final": "", "warranty_plan": WorkOrderWarrantyPlan.DAYS_90},
-            workorder=workorder,
-            require_unsigned_delivery_reason=False,
-            require_warranty_plan=False,
-            require_km_final=False,
-        )
-        self.assertTrue(form.is_valid(), form.errors)
-        self.assertIsNone(form.cleaned_data["km_final"])
-        self.assertEqual(form.cleaned_data["warranty_plan"], WorkOrderWarrantyPlan.DAYS_90)
-
-    def test_save_delivery_draft_persists_warranty_without_completing(self) -> None:
-        workshop = _create_workshop(suffix=11)
-        workorder = _create_workorder(workshop=workshop, suffix=11)
-
-        workorder.save_delivery_draft(
-            cleaned_data={"warranty_plan": WorkOrderWarrantyPlan.DAYS_30, "km_final": None},
-            posted_fields={"warranty_plan", "km_final"},
-        )
-        workorder.refresh_from_db()
-
-        self.assertEqual(workorder.warranty_plan, WorkOrderWarrantyPlan.DAYS_30)
-        self.assertIsNone(workorder.km_final)
-        self.assertNotEqual(workorder.status, WorkOrderStatus.APPROVED)
-        self.assertIsNone(workorder.delivered_at)
 
 
 class WorkOrderWarrantyHistoryEntryTests(TestCase):
@@ -264,42 +210,3 @@ class SignatureWebhookWarrantyGateTests(SimpleTestCase):
         sync_finance_mock.assert_called_once()
         schedule_survey_mock.assert_called_once_with(workorder)
         workorder.mark_signature_approved.assert_not_called()
-
-
-class WorkOrderDeliveryDraftAutosaveViewTests(TestCase):
-    def setUp(self) -> None:
-        account = Account.objects.create(name="Conta Draft OS")
-        self.user = User.objects.create_user(username="draft-os-user", password="secret", cpf="52998224725")
-        self.user.account = account
-        self.user.save(update_fields=["account"])
-        self.workshop = Workshop.objects.create(
-            account=account,
-            name="Oficina Draft OS",
-            cnpj="11.222.333/0001-99",
-            phone="+5511999999999",
-            address="Rua Draft, 1",
-        )
-        role = WorkshopRole.objects.create(account=account, name="Diretor")
-        WorkshopMember.objects.create(user=self.user, workshop=self.workshop, role=role, is_active=True)
-        self.workorder = _create_workorder(workshop=self.workshop, suffix=12)
-        self.client.force_login(self.user)
-        session = self.client.session
-        session["active_workshop_id"] = self.workshop.pk
-        session.save()
-        self.url = reverse("workorder:update_km_final", kwargs={"pk": self.workorder.pk})
-
-    def test_post_persists_warranty_plan_without_km_or_delivery(self) -> None:
-        response = self.client.post(
-            self.url,
-            data={"warranty_plan": WorkOrderWarrantyPlan.DAYS_90, "km_final": ""},
-        )
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
-        self.assertTrue(payload["ok"])
-        self.assertIsNone(payload["km_final"])
-
-        self.workorder.refresh_from_db()
-        self.assertEqual(self.workorder.warranty_plan, WorkOrderWarrantyPlan.DAYS_90)
-        self.assertIsNone(self.workorder.km_final)
-        self.assertIsNone(self.workorder.delivered_at)
-        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)

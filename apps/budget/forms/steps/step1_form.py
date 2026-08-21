@@ -442,7 +442,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
 
         if vehicle and current_km is not None and vehicle.km is not None and current_km < vehicle.km:
             formatted_previous_km = f"{vehicle.km:,}".replace(",", ".")
-            self.add_error("current_km", f"O KM informado não pode ser menor que o KM cadastrado do cliente. Caso necessário, altere o KM no cadastro do cliente. ({formatted_previous_km}).")
+            self.add_error("current_km", f"O KM informado não pode ser menor que o KM anterior do veículo ({formatted_previous_km}).")
 
         cleaned_data["workshop"] = self.workshop
         if self.request and self.request.user:

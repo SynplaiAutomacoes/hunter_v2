@@ -28,7 +28,7 @@ from apps.core.infrastructure.services.dashboard_snapshot_service import get_das
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.utils import clean_id
 from apps.workshops.util.workshops import get_active_workshop_or_404
-from apps.workorder.models import WorkOrderPaymentMethod, WORKORDER_REVENUE_STATUSES
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus
 
 external_calls_logger = logging.getLogger("performance.external")
 logger = logging.getLogger(__name__)
@@ -218,7 +218,7 @@ class DashboardFinancialReportView(View):
                 WorkOrderPaymentMethod.objects.filter(
                     workorder__workshop=workshop,
                     workorder__budget_type="sale",
-                    workorder__status__in=WORKORDER_REVENUE_STATUSES,
+                    workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
                     due_date__month=mes,
                     due_date__year=ano,
                 )
