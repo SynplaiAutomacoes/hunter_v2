@@ -172,7 +172,13 @@ class WorkOrder(TimeStampedModel):
             WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
         }
 
-        return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
+        try:
+            status_enum = WorkOrderStatus(self.status)
+            label = str(status_enum.label)
+        except ValueError:
+            label = str(self.status).replace("_", " ").title()
+
+        return {"text": label, "class": status_color.get(self.status, "badge-ghost")}
 
     @property
     def type_badge(self):
