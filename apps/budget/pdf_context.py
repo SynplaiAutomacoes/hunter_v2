@@ -356,6 +356,10 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
+def resolve_expected_delivery_at(*, budget):
+    return budget.customer_agreed_departure_at or budget.service_expected_completion_at
+
+
 def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
 
@@ -479,6 +483,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         kits = []
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
+    expected_delivery_at = resolve_expected_delivery_at(budget=budget)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_shipping_value = sum((line["shipping"] for line in servicos), Money(0, "BRL"))
@@ -530,6 +535,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "warranty_message": warranty_message,
         "workshop_logo_data_uri": workshop_logo_data_uri,
         "budget_rentability": rentability,
+        "expected_delivery_at": expected_delivery_at,
         "document_title": "ORÇAMENTO",
         "opened_by_name": opened_by_name,
         "request": request,

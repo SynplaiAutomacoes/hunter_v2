@@ -270,8 +270,8 @@
                         — <strong>{{ service_warranty_status_label }}</strong>
                     </p>
                     {% endif %}
-                {% elif budget.customer_agreed_departure_at %}
-                    <p class="text-[11px] mt-1">Data prevista de entrega: {{ budget.customer_agreed_departure_at|date:"d/m/Y" }}</p>
+                {% elif expected_delivery_at %}
+                    <p class="text-[11px] mt-1">Data prevista de entrega: {{ expected_delivery_at|date:"d/m/Y" }}</p>
                     <small class="block text-[10px] text-gray-500 leading-tight mt-1">Essa data pode ser alterada caso haja algum imprevisto. O cliente será informado caso ocorra qualquer mudança.</small>
                 {% endif %}
 
