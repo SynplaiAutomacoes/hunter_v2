@@ -13,6 +13,10 @@ NON_TERMINAL_STATUSES = tuple(
     status for status in BudgetStatus.values if status not in TERMINAL_STATUSES
 )
 
+LINKED_COPY_CLOSED_WORKORDER_MESSAGE = (
+    "Não é possível vincular um novo orçamento porque a O.S. está reprovada, cancelada ou com veículo entregue. Reabra a O.S. para continuar."
+)
+
 
 def linkable_budgets_q() -> Q:
     """Return a Q filter for budgets eligible to receive a link.
@@ -25,6 +29,12 @@ def linkable_budgets_q() -> Q:
         Q(status__in=NON_TERMINAL_STATUSES, workorders__isnull=True)
         | Q(workorders__status__in=WORKORDER_OPEN_STATUSES)
     )
+
+
+def is_budget_linkable(budget: Budget) -> bool:
+    if budget.pk is None:
+        return False
+    return Budget.objects.filter(linkable_budgets_q(), pk=budget.pk).exists()
 
 
 def find_oldest_open_budget_for_vehicle(

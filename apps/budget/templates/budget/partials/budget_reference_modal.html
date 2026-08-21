@@ -1,6 +1,7 @@
 <div class="modal-box max-w-md relative">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="closeBudgetParentModal()">✕</button>
 
+    {% if can_link %}
     <h3 class="font-bold text-2xl mb-4">Criar orçamento a partir deste</h3>
     <p class="text-lg text-base-content/70 mb-4">
         Deseja relacionar o novo orçamento a este?
@@ -22,4 +23,14 @@
             </button>
         </div>
     </form>
+    {% else %}
+    <h3 class="font-bold text-2xl mb-4">Vínculo indisponível</h3>
+    <div role="alert" class="alert alert-warning">
+        <span class="material-icons">lock</span>
+        <span>{{ link_blocked_message }}</span>
+    </div>
+    <div class="modal-action">
+        <button type="button" class="btn btn-primary" onclick="closeBudgetParentModal()">Fechar</button>
+    </div>
+    {% endif %}
 </div>
