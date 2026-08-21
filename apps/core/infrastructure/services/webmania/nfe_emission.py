@@ -7,15 +7,15 @@ import re
 from typing import Any
 
 import requests
-from _decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
+from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
 from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
-from apps.finance.services.pricing import SliderAllocation, _to_decimal_money, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
+from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
 from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -458,6 +458,26 @@ def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe
     pedido_payload["informacoes_complementares"] = additional_information
 
 
+def _apply_transport_to_nfe_payload(*, payload: dict[str, Any], nfe_request: NfeRequest) -> None:
+    try:
+        freight_mode, transport_payload = build_webmania_transport_payload(
+            freight_mode=getattr(nfe_request, "freight_mode", 9),
+            snapshot=getattr(nfe_request, "transport_snapshot", {}),
+        )
+    except NfeTransportValidationError as exc:
+        raise NfeEmissionError(str(exc)) from exc
+
+    if freight_mode == 9:
+        return
+
+    pedido_payload = payload.get("pedido")
+    if not isinstance(pedido_payload, dict):
+        raise NfeEmissionError("Pedido invalido ao aplicar dados de transporte na Nota Fiscal.")
+    pedido_payload["modalidade_frete"] = freight_mode
+    if transport_payload:
+        payload["transporte"] = transport_payload
+
+
 def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation, Decimal]:
     workorder = nfe_request.workorder
     allocation = build_slider_allocation_for_workorder(
@@ -519,10 +539,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
 
 
 def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
-    products_payload, total_products_gross, allocation, product_discount = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
-
-    # O total liquido de produtos ja reflete os descontos embutidos em cada unit_price
-    total_products_net = _quantize_money(total_products_gross + product_discount)
+    products_payload, _total_products_gross, allocation, product_discount = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
 
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
@@ -540,6 +557,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
     }
 
     _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
+    _apply_transport_to_nfe_payload(payload=payload, nfe_request=nfe_request)
 
     logger.info(
         "nfe_payload_built nfe_request_id=%s workshop_id=%s workorder_id=%s slider=%s products_target=%s services_target=%s product_discount=%s discount_type=%s",
