@@ -5,7 +5,7 @@
     <div class="space-y-6">
         <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-                <h1 class="text-3xl font-bold text-base-content">Movimentação Financeira</h1>
+                <h1 class="text-3xl font-bold text-base-content">Movimentações Financeiras</h1>
                 <p class="text-base-content/70">Acompanhe os principais indicadores financeiros das contas de todos os fornecedores. Para o salário de colaboradores acessar a folha de pagamento.</p>
             </div>
 
@@ -19,27 +19,13 @@
             {% for card in top_summary_cards %}
                 <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                     <div class="stat-title text-base-content/70">{{ card.title }}</div>
-                    <div class="stat-value mt-2 flex items-center gap-2 {% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% endif %}">
-                        <span>{{ card.value }}</span>
-                        {% if card.filter_url %}
-                            <a href="{{ card.filter_url }}" class="flex items-center text-base-content/30 hover:{% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% else %}text-primary{% endif %}" title="Visualizar relação" aria-label="Filtrar movimentações de {{ card.title }}">
-                                <span class="material-icons" style="font-size: 14px;">visibility</span>
-                            </a>
-                        {% endif %}
-                    </div>
+                    <div class="stat-value mt-2 {% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% endif %}">{{ card.value }}</div>
                     {% if card.rows %}
                         <div class="stat-desc mt-3 w-full space-y-1">
                             {% for row in card.rows %}
                                 <div class="flex items-center justify-between gap-4 text-xs">
                                     <span class="{% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% endif %}">{{ row.label }}</span>
-                                    <span class="flex items-center gap-1 font-semibold {% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% endif %}">
-                                        {{ row.value }}
-                                        {% if row.filter_url %}
-                                            <a href="{{ row.filter_url }}" class="flex items-center text-base-content/30 hover:{% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% else %}text-primary{% endif %}" title="Visualizar relação" aria-label="Filtrar movimentações de {{ row.label }}">
-                                                <span class="material-icons" style="font-size: 14px;">visibility</span>
-                                            </a>
-                                        {% endif %}
-                                    </span>
+                                    <span class="font-semibold {% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% endif %}">{{ row.value }}</span>
                                 </div>
                             {% endfor %}
                         </div>
@@ -52,15 +38,10 @@
             <div class="card-body gap-6 p-5 md:p-6">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div class="flex w-full flex-col gap-2">
-                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <form method="get" action="{% url 'finance:reports_home' %}" class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                {% for name, value in preserved_filter_query_items %}
-                                    <input type="hidden" name="{{ name }}" value="{{ value }}">
-                                {% endfor %}
-                                <input type="text" name="search" value="{{ request.GET.search|default:'' }}"
-                                    placeholder="Pesquisar descrição, agente, OS ou valor..." class="input input-bordered w-full sm:max-w-xs"/>
-                                <button type="submit" class="btn btn-primary">Buscar</button>
-                            </form>
+                        <form method="get" action="{% url 'finance:reports_home' %}" class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <input type="text" name="search" value="{{ request.GET.search|default:'' }}"
+                                placeholder="Pesquisar movimentações..." class="input input-bordered w-full sm:max-w-xs"/>
+                            <button type="submit" class="btn btn-primary">Buscar</button>
 
                             <button
                                 type="button"
@@ -120,10 +101,7 @@
                             >
                                 <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
                                     <form method="get" action="{% url 'finance:reports_home' %}">
-                                        {% if request.GET.search %}
-                                            <input type="hidden" name="search" value="{{ request.GET.search }}">
-                                        {% endif %}
-                                        <h3 class="text-base font-semibold text-base-content">Filtrar movimentações</h3>
+                                        <h3 class="text-base font-semibold text-base-content">Filtrar relatórios</h3>
 
                                         <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto px-4">
                                             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -138,7 +116,7 @@
                                                 </div>
 
                                                 <div class="sm:col-span-2">
-                                                    <label for="reports-filter-agent" class="mb-1 block text-sm font-medium text-base-content">Agente</label>
+                                                    <label for="reports-filter-agent" class="mb-1 block text-sm font-medium text-base-content">Colaborador</label>
                                                     {% include "widgets/searchable_select.html" with widget=agent_filter_widget.widget %}
                                                 </div>
 
@@ -320,7 +298,7 @@
                                     </form>
                                 </div>
                             </dialog>
-                        </div>
+                        </form>
                     </div>
                 </div>
 
@@ -358,7 +336,7 @@
                                                             <span class="material-icons text-base leading-none text-base-content/55" x-text="openRow === '{{ row.component }}' ? 'expand_more' : 'chevron_right'"></span>
                                                         {% endif %}
                                                         {% if row.paid_status.icon %}
-                                                            <span class="inline-flex items-center gap-1 whitespace-nowrap {% if row.paid_status.label == 'Pago' %}text-success{% elif row.paid_status.label == 'Não pago' %}text-error{% else %}text-warning{% endif %}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
+                                                            <span class="inline-flex items-center gap-1 whitespace-nowrap {% if row.paid_status.label == 'Sim' %}text-success{% elif row.paid_status.label == 'Não' %}text-error{% else %}text-warning{% endif %}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
                                                                 <span class="material-icons text-base leading-none">{{ row.paid_status.icon }}</span>
                                                                 <span class="font-medium">{{ row.paid_status.label }}</span>
                                                             </span>
@@ -430,11 +408,11 @@
                                     </tbody>
                                 </table>
                             </div>
-                            {% if selection_summary and not selection_summary.is_placeholder %}
+                            {% if has_active_filters and selection_summary and not selection_summary.is_placeholder %}
                                 <div class="border-t border-base-300 bg-base-200/30 p-4">
                                     <div class="ml-auto flex w-full max-w-sm flex-col gap-2">
                                         <span class="mb-1 text-xs font-bold uppercase tracking-wider text-base-content/50">
-                                            Resumo da listagem
+                                            Resumo da Seleção
                                         </span>
 
                                         <div class="space-y-1.5">

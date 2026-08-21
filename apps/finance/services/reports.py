@@ -6,10 +6,9 @@ from decimal import Decimal
 from typing import Iterable
 
 from djmoney.money import Money
-from django.db.models import DecimalField, Exists, ExpressionWrapper, F, OuterRef, Q, Sum, Value
+from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 
-from apps.core.domain.value_objects import parse_brl_decimal
 from apps.core.infrastructure.search import build_text_search_query
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrderPaymentMethod
@@ -37,40 +36,17 @@ def _payment_total_annotation():
     )
 
 
-_MOVEMENT_SEARCH_LOOKUPS = (
-    "description",
-    "items_observation",
-    "financial_observation",
-    "nf_number",
-    "source__name",
-    "supplier__name",
-    "collaborator__name",
-    "budget_plan__name",
-    "bank_account__bank_name",
-    "workorder__budget__customer__name",
-)
-
-
-def build_financial_movement_search_query(*, search_value: str) -> Q:
-    search_query = build_text_search_query(search_value=search_value, lookups=_MOVEMENT_SEARCH_LOOKUPS)
-    workorder_query = Q(workorder__id__icontains=search_value)
-    search_query = search_query | workorder_query if search_query.children else workorder_query
-
-    parsed_amount = parse_brl_decimal(search_value)
-    if parsed_amount is None:
-        return search_query
-
-    payment_matches = WorkOrderPaymentMethod.objects.filter(workorder_id=OuterRef("workorder_id")).annotate(payment_total=_payment_total_annotation()).filter(payment_total=parsed_amount)
-    amount_query = Q(amount=parsed_amount) | Q(Exists(payment_matches), movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT)
-    return search_query | amount_query
-
-
 def _sum_amount(queryset) -> Decimal:
     return queryset.aggregate(total=Coalesce(Sum("amount"), Value(_ZERO_DECIMAL), output_field=_DECIMAL_OUT))["total"] or _ZERO_DECIMAL
 
 
 def _sum_payment_totals(queryset) -> Decimal:
-    return queryset.annotate(payment_total=_payment_total_annotation()).aggregate(total=Coalesce(Sum("payment_total"), Value(_ZERO_DECIMAL), output_field=_DECIMAL_OUT))["total"] or _ZERO_DECIMAL
+    return (
+        queryset.annotate(payment_total=_payment_total_annotation()).aggregate(
+            total=Coalesce(Sum("payment_total"), Value(_ZERO_DECIMAL), output_field=_DECIMAL_OUT)
+        )["total"]
+        or _ZERO_DECIMAL
+    )
 
 
 def build_financial_overview(
@@ -141,7 +117,23 @@ def build_financial_overview(
                 agent_query = build_text_search_query(search_value=agent, lookups=("source__name", "workorder__budget__customer__name"))
                 queryset = queryset.filter(agent_query)
         if search:
-            queryset = queryset.filter(build_financial_movement_search_query(search_value=search))
+            search_query = build_text_search_query(
+                search_value=search,
+                lookups=(
+                    "description",
+                    "items_observation",
+                    "financial_observation",
+                    "nf_number",
+                    "source__name",
+                    "supplier__name",
+                    "collaborator__name",
+                    "budget_plan__name",
+                    "bank_account__bank_name",
+                    "workorder__budget__customer__name",
+                ),
+            )
+            search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
+            queryset = queryset.filter(search_query)
         return queryset
 
     movements = _apply_common_filters(FinancialMovement.objects.filter(workshop=workshop))
@@ -175,7 +167,9 @@ def build_financial_overview(
             parent_movements = parent_movements.filter(is_paid=True)
 
         # Path A: parent linked to a specific payment row.
-        linked_payment_ids = list(parent_movements.exclude(workorder_payment_id=None).values_list("workorder_payment_id", flat=True).distinct())
+        linked_payment_ids = list(
+            parent_movements.exclude(workorder_payment_id=None).values_list("workorder_payment_id", flat=True).distinct()
+        )
         linked_payments = WorkOrderPaymentMethod.objects.filter(pk__in=linked_payment_ids, due_date__isnull=False)
         if start_date is not None:
             linked_payments = linked_payments.filter(due_date__gte=start_date)
@@ -186,9 +180,13 @@ def build_financial_overview(
         wo_payment_credits = _sum_payment_totals(linked_payments)
 
         # Path B: parent without workorder_payment_id — sum all payments of those workorders once.
-        unlinked_workorder_ids = list(parent_movements.filter(workorder_payment_id=None).values_list("workorder_id", flat=True).distinct())
+        unlinked_workorder_ids = list(
+            parent_movements.filter(workorder_payment_id=None).values_list("workorder_id", flat=True).distinct()
+        )
         # Exclude WOs already counted via a linked payment on another parent row.
-        linked_workorder_ids = set(parent_movements.exclude(workorder_payment_id=None).values_list("workorder_id", flat=True).distinct())
+        linked_workorder_ids = set(
+            parent_movements.exclude(workorder_payment_id=None).values_list("workorder_id", flat=True).distinct()
+        )
         unlinked_workorder_ids = [wid for wid in unlinked_workorder_ids if wid not in linked_workorder_ids]
         unlinked_payments = WorkOrderPaymentMethod.objects.filter(
             workorder_id__in=unlinked_workorder_ids,
@@ -319,7 +317,23 @@ def _apply_report_common_filters(queryset, *, start_date=None, end_date=None, se
             agent_query = build_text_search_query(search_value=agent, lookups=("source__name", "workorder__budget__customer__name"))
             queryset = queryset.filter(agent_query)
     if search:
-        queryset = queryset.filter(build_financial_movement_search_query(search_value=search))
+        search_query = build_text_search_query(
+            search_value=search,
+            lookups=(
+                "description",
+                "items_observation",
+                "financial_observation",
+                "nf_number",
+                "source__name",
+                "supplier__name",
+                "collaborator__name",
+                "budget_plan__name",
+                "bank_account__bank_name",
+                "workorder__budget__customer__name",
+            ),
+        )
+        search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
+        queryset = queryset.filter(search_query)
     return queryset
 
 
@@ -392,7 +406,9 @@ def build_financial_overview_with_open_workorder_credits(
             parent_movements = parent_movements.filter(is_paid=True)
 
         # Path A: parent linked to a specific payment row.
-        linked_payment_ids = list(parent_movements.exclude(workorder_payment_id=None).values_list("workorder_payment_id", flat=True).distinct())
+        linked_payment_ids = list(
+            parent_movements.exclude(workorder_payment_id=None).values_list("workorder_payment_id", flat=True).distinct()
+        )
         linked_payments = WorkOrderPaymentMethod.objects.filter(pk__in=linked_payment_ids, due_date__isnull=False)
         if start_date is not None:
             linked_payments = linked_payments.filter(due_date__gte=start_date)
@@ -403,13 +419,22 @@ def build_financial_overview_with_open_workorder_credits(
         wo_payment_credits = _sum_payment_totals(linked_payments)
 
         # Paid subset of Path A: only plans whose linked parent movement is paid.
-        paid_linked_payment_ids = list(parent_movements.filter(is_paid=True).exclude(workorder_payment_id=None).values_list("workorder_payment_id", flat=True).distinct())
+        paid_linked_payment_ids = list(
+            parent_movements.filter(is_paid=True)
+            .exclude(workorder_payment_id=None)
+            .values_list("workorder_payment_id", flat=True)
+            .distinct()
+        )
         wo_paid_credits = _sum_payment_totals(linked_payments.filter(pk__in=paid_linked_payment_ids))
 
         # Path B: parent without workorder_payment_id — sum all payments of those workorders once.
-        unlinked_workorder_ids = list(parent_movements.filter(workorder_payment_id=None).values_list("workorder_id", flat=True).distinct())
+        unlinked_workorder_ids = list(
+            parent_movements.filter(workorder_payment_id=None).values_list("workorder_id", flat=True).distinct()
+        )
         # Exclude WOs already counted via a linked payment on another parent row.
-        linked_workorder_ids = set(parent_movements.exclude(workorder_payment_id=None).values_list("workorder_id", flat=True).distinct())
+        linked_workorder_ids = set(
+            parent_movements.exclude(workorder_payment_id=None).values_list("workorder_id", flat=True).distinct()
+        )
         unlinked_workorder_ids = [wid for wid in unlinked_workorder_ids if wid not in linked_workorder_ids]
         unlinked_payments = WorkOrderPaymentMethod.objects.filter(
             workorder_id__in=unlinked_workorder_ids,
@@ -424,7 +449,9 @@ def build_financial_overview_with_open_workorder_credits(
         wo_payment_credits += _sum_payment_totals(unlinked_payments)
 
         # Paid subset of Path B: only workorders whose aggregate parent movement is paid.
-        paid_unlinked_workorder_ids = list(parent_movements.filter(is_paid=True, workorder_payment_id=None).values_list("workorder_id", flat=True).distinct())
+        paid_unlinked_workorder_ids = list(
+            parent_movements.filter(is_paid=True, workorder_payment_id=None).values_list("workorder_id", flat=True).distinct()
+        )
         paid_unlinked_workorder_ids = [wid for wid in paid_unlinked_workorder_ids if wid not in linked_workorder_ids]
         wo_paid_credits += _sum_payment_totals(unlinked_payments.filter(workorder_id__in=paid_unlinked_workorder_ids))
 

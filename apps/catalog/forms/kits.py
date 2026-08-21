@@ -4,7 +4,7 @@ from html import escape
 import json
 import logging
 from datetime import timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, cast
 
 from django import forms
@@ -22,7 +22,6 @@ from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
-from apps.core.domain.value_objects import parse_brl_decimal
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CheckboxInput, TextInput, TextareaInput, MoneyInput, PercentageInput, ImageInput, DurationInput, SearchableSelectInput
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
@@ -261,7 +260,28 @@ class KitForm(CoreModelForm):
 
     @staticmethod
     def _parse_money_value(raw_value: str) -> Decimal | None:
-        return parse_brl_decimal(raw_value)
+        value = (raw_value or "").strip()
+        if not value:
+            return None
+
+        normalized = value.replace("R$", "").replace("\xa0", "").replace(" ", "")
+        if not normalized or normalized in {"-", ",", "."}:
+            return None
+
+        if "," in normalized:
+            normalized = normalized.replace(".", "").replace(",", ".")
+        else:
+            normalized = normalized.replace(",", "")
+
+        try:
+            amount = Decimal(normalized)
+        except InvalidOperation:
+            return None
+
+        if amount < 0:
+            return None
+
+        return amount.quantize(Decimal("0.01"))
 
     def get_layout(self):
         cancel_url = reverse("catalog:kits_list")
@@ -456,7 +476,10 @@ class KitForm(CoreModelForm):
                 brand_option_items.append({"id": brand, "label": brand})
                 existing_brand_values.add(brand)
         brand_options_json = json.dumps(brand_option_items)
-        brand_options_html = "\n".join(f'<option value="{escape(str(option["id"]), quote=True)}">{escape(str(option["label"]))}</option>' for option in brand_option_items)
+        brand_options_html = "\n".join(
+            f'<option value="{escape(str(option["id"]), quote=True)}">{escape(str(option["label"]))}</option>'
+            for option in brand_option_items
+        )
         engine_options_json = json.dumps([{"id": value, "label": label} for value, label in vehicle_engine_form_choices() if value])
         fuel_options_json = json.dumps([{"id": value, "label": label} for value, label in vehicle_fuel_form_choices() if value])
 

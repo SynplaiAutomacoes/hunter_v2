@@ -22,7 +22,7 @@ from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderCourtesyReasonType, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderWarrantyPlan
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderWarrantyPlan
 from apps.workshops.models.review_plans import ReviewPlan
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 
@@ -70,6 +70,8 @@ class WorkOrderCollaboratorForm(CoreModelForm):
         initial_collaborators = []
         if self.workorder and self.workorder.pk:
             initial_collaborators = [{"id": str(collaborator.id), "name": collaborator.name, "is_new": False} for collaborator in self.workorder.collaborators.all()]
+        if not initial_collaborators:
+            initial_collaborators = [{"id": "", "is_new": True}]
         return json.dumps(initial_collaborators)
 
 
@@ -246,7 +248,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             </div>
                         """
                     ),
-                    Field("discount_type", label=False, help_text=False, wrapper_class="mb-0"),
+                    Field("discount_type", wrapper_class="mb-0"),
                     HTML("</div>"),
                     css_class="h-full",
                 ),
@@ -796,48 +798,11 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             },
         ),
     )
-    previous_mechanic = forms.ModelChoiceField(
-        label="Mecânico responsável pelo serviço anterior",
-        queryset=WorkshopCollaborator.objects.none(),
-        required=False,
-        widget=SearchableSelectInput(),
-    )
-    courtesy_reason_type = forms.ChoiceField(
-        label="Motivo da cortesia/garantia",
-        choices=[("", "Selecione o motivo")] + list(WorkOrderCourtesyReasonType.choices),
-        required=False,
-        widget=SearchableSelectInput(),
-    )
-    courtesy_reason_description = forms.CharField(
-        label="Descrição do motivo da cortesia/garantia",
-        required=False,
-        widget=TextareaInput(
-            rows=4,
-            attrs={
-                "placeholder": "Descreva a falha encontrada ou o motivo pelo qual está sendo cedida a cortesia/garantia.",
-            },
-        ),
-    )
-
-    DRAFT_FIELD_NAMES = frozenset(
-        {
-            "km_final",
-            "warranty_plan",
-            "last_oil_change_date",
-            "last_oil_change_km",
-            "review_plan",
-            "unsigned_delivery_reason",
-            "previous_mechanic",
-            "courtesy_reason_type",
-            "courtesy_reason_description",
-        }
-    )
 
     def __init__(self, *args, **kwargs):
         self.workorder = kwargs.pop("workorder", None)
         self.require_unsigned_delivery_reason = kwargs.pop("require_unsigned_delivery_reason", True)
         self.require_warranty_plan = kwargs.pop("require_warranty_plan", True)
-        self.require_km_final = kwargs.pop("require_km_final", True)
         super().__init__(*args, **kwargs)
 
         km_initial_value = 0
@@ -851,7 +816,6 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         self.fields["km_final"].error_messages["required"] = "Preencha o KM final para concluir a entrega do veículo."
         self.fields["warranty_plan"].error_messages["required"] = "Selecione o plano de garantia para concluir a entrega do veículo."
         self.fields["unsigned_delivery_reason"].error_messages["required"] = "Informe a justificativa para entregar o veículo sem a assinatura da O.S."
-        self.fields["km_final"].required = self.require_km_final
         self.fields["warranty_plan"].required = self.require_warranty_plan
 
         vehicle = getattr(getattr(self.workorder, "budget", None), "vehicle", None)
@@ -865,21 +829,6 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             self.fields["warranty_plan"].initial = self.workorder.warranty_plan
         if self.workorder and self.workorder.unsigned_delivery_reason and not self.is_bound:
             self.fields["unsigned_delivery_reason"].initial = self.workorder.unsigned_delivery_reason
-
-        self.is_courtesy_or_warranty = bool(self.workorder and self.workorder.budget_type in ("courtesy", "warranty"))
-        if self.is_courtesy_or_warranty:
-            previous_mechanic_field = cast(forms.ModelChoiceField, self.fields["previous_mechanic"])
-            previous_mechanic_field.queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name") if workshop else WorkshopCollaborator.objects.none()
-            previous_mechanic_field.label_from_instance = lambda obj: obj.name
-            if self.workorder and self.workorder.previous_mechanic_id and not self.is_bound:
-                self.fields["previous_mechanic"].initial = self.workorder.previous_mechanic_id
-            if self.workorder and self.workorder.courtesy_reason_type and not self.is_bound:
-                self.fields["courtesy_reason_type"].initial = self.workorder.courtesy_reason_type
-            if self.workorder and self.workorder.courtesy_reason_description and not self.is_bound:
-                self.fields["courtesy_reason_description"].initial = self.workorder.courtesy_reason_description
-        else:
-            for field_name in ("previous_mechanic", "courtesy_reason_type", "courtesy_reason_description"):
-                self.fields[field_name].disabled = True
 
         if self.workorder and not self.is_bound:
             has_workorder_oil_data = bool(self.workorder.last_oil_change_date or self.workorder.last_oil_change_km is not None or self.workorder.review_plan_id)
@@ -978,41 +927,18 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                 css_id="delivery-oil-reason-row",
                 css_class="mt-4 grid grid-cols-12 gap-4 items-stretch",
             ),
-            *(
-                [
-                    Div(
-                        Div(
-                            Field("previous_mechanic", wrapper_class="mb-0"),
-                            css_class="col-span-12 lg:col-span-6",
-                        ),
-                        Div(
-                            Field("courtesy_reason_type", wrapper_class="mb-0"),
-                            css_class="col-span-12 lg:col-span-6",
-                        ),
-                        Div(
-                            Field("courtesy_reason_description", wrapper_class="mb-0"),
-                            css_class="col-span-12",
-                        ),
-                        css_id="courtesy-reason-section",
-                        css_class="mt-4 grid grid-cols-12 gap-4 rounded-box border border-warning/25 bg-warning/10 p-4 text-base-content [&_label]:text-base-content [&_.label-text]:text-base-content",
-                    )
-                ]
-                if getattr(self, "is_courtesy_or_warranty", False)
-                else []
-            ),
         )
 
-    def clean_km_final(self) -> int | None:
+    def clean_km_final(self) -> int:
         km_final = self.cleaned_data.get("km_final")
         if km_final is None:
-            return None
+            return 0
 
-        km_final_value = int(km_final)
         km_initial = int(getattr(self.workorder.budget, "current_km", 0) or 0) if self.workorder else 0
-        if km_final_value < km_initial:
+        if km_final < km_initial:
             raise ValidationError(f"O KM final não pode ser menor que o KM inicial ({km_initial:,}).".replace(",", "."))
 
-        return km_final_value
+        return km_final
 
     def clean_unsigned_delivery_reason(self) -> str:
         reason = str(self.cleaned_data.get("unsigned_delivery_reason") or "").strip()

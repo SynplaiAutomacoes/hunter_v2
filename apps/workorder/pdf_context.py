@@ -342,11 +342,6 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             discount_products = money_from_decimal(allocated[0])
             discount_services = money_from_decimal(allocated[1])
 
-    created_by = workorder.created_by or workorder.budget.created_by or workorder.budget.cost_estimator
-    opened_by_name = "Sistema"
-    if created_by is not None:
-        opened_by_name = created_by.get_full_name() or created_by.get_username()
-
     return {
         "workorder": workorder,
         "budget": budget_proxy,
@@ -372,7 +367,5 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         "service_warranty_expires_at": workorder.warranty_expires_at,
         "service_warranty_status_label": workorder.warranty_status_label,
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
-        "document_title": "ORDEM DE SERVIÇO",
-        "opened_by_name": opened_by_name,
         "request": request,
     }

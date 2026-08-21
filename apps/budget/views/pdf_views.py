@@ -46,10 +46,6 @@ def _get_budget_for_pdf(*, pk: int, workshop) -> Budget:
 
 
 def _prepare_budget_for_pdf_pricing(budget: Budget) -> Budget:
-    if budget.has_frozen_pricing_snapshot:
-        setattr(budget, "_read_only_pricing_context", True)
-        return budget
-
     today = timezone.localdate()
     workshop = budget.workshop
     workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()

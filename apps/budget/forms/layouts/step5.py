@@ -35,7 +35,6 @@ def configure_budget_step5_form(form):
     venda_mao_obra = ctx.venda_mao_obra
     metodo_precificacao = ctx.metodo_precificacao or "Hunter"
     lucro_operacional = ctx.lucro_operacional
-    valor_orcamento = ctx.valor_orcamento
     rentabilidade = ctx.rentabilidade
     rentabilidade_class = ctx.rentabilidade_class
     rentabilidade_bg = ctx.rentabilidade_bg
@@ -43,11 +42,6 @@ def configure_budget_step5_form(form):
     mlr = ctx.mlr
     mlo = ctx.mlo
     discount_display = ctx.discount_display
-    discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
-    has_discount = ctx.discount_amount > 0
-    parts_discount_hidden_class = "" if has_discount and discount_type == WorkOrderDiscountType.PRODUCTS else "hidden"
-    labor_discount_hidden_class = "" if has_discount and discount_type == WorkOrderDiscountType.SERVICES else "hidden"
-    general_discount_hidden_class = "" if has_discount and discount_type == WorkOrderDiscountType.BOTH else "hidden"
     step5_loading_hidden_class = ctx.step5_loading_hidden_class
     step5_method_hidden_class = ctx.step5_method_hidden_class
     step5_calculated_input_value = ctx.step5_calculated_input_value
@@ -109,15 +103,10 @@ def configure_budget_step5_form(form):
                                                 <span id="display-venda-pecas"
                                                       class="font-bold text-success whitespace-nowrap"
                                                       data-base-val="{venda_pecas.amount}"
-                                                      data-gross-val="{budget.display_total_products_by_slider.amount}"
                                                       data-cost-val="{custo_pecas.amount}"
                                                       data-frete-val="{custo_frete_pecas.amount}">
                                                     {venda_pecas}
                                                 </span>
-                                            </div>
-                                            <div id="step5-parts-discount-row" class="flex justify-between gap-2 text-error {parts_discount_hidden_class}">
-                                                <span>Desconto</span>
-                                                <span class="font-semibold whitespace-nowrap">{discount_display}</span>
                                             </div>
                                         </div>
 
@@ -136,14 +125,9 @@ def configure_budget_step5_form(form):
                                                 <span id="display-venda-mo"
                                                       class="font-bold text-success whitespace-nowrap"
                                                       data-base-val="{venda_mao_obra.amount}"
-                                                      data-gross-val="{(budget.display_total_services_by_slider - budget.display_total_third_party_by_slider).amount}"
                                                       data-cost-val="{custo_total_mao_obra.amount}">
                                                     {venda_mao_obra}
                                                 </span>
-                                            </div>
-                                            <div id="step5-labor-discount-row" class="flex justify-between gap-2 text-error {labor_discount_hidden_class}">
-                                                <span>Desconto</span>
-                                                <span class="font-semibold whitespace-nowrap">{discount_display}</span>
                                             </div>
                                             <p class="text-xs text-base-content/50 pt-1">Hora mecânico: {custo_hora_mecanico} · Duração: {duracao_total}</p>
                                         </div>
@@ -164,25 +148,21 @@ def configure_budget_step5_form(form):
                                             <p class="text-sm font-bold text-base-content">Resultado</p>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">Lucro operacional</span>
-                                                <span id="step5-lucro-operacional" class="font-bold step5-accent-text whitespace-nowrap">{lucro_operacional}</span>
+                                                <span class="font-bold step5-accent-text whitespace-nowrap">{lucro_operacional}</span>
                                             </div>
                                             <div class="flex justify-between gap-2 items-center">
                                                 <span class="text-base-content/70">Rentabilidade</span>
-                                                <span id="step5-rentabilidade" class="font-bold {rentabilidade_class} {rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">
+                                                <span class="font-bold {rentabilidade_class} {rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">
                                                     {rentabilidade:.2f}% ({status_texto})
                                                 </span>
                                             </div>
-                                            <div id="step5-general-discount-row" class="flex justify-between gap-2 text-error {general_discount_hidden_class}">
-                                                <span>Desconto geral</span>
-                                                <span class="font-semibold whitespace-nowrap">{discount_display}</span>
-                                            </div>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">MLO</span>
-                                                <span id="step5-mlo" class="font-semibold whitespace-nowrap">{mlo:.2f}</span>
+                                                <span class="font-semibold whitespace-nowrap">{mlo:.2f}</span>
                                             </div>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">MLR</span>
-                                                <span id="step5-mlr" class="font-semibold whitespace-nowrap">{mlr:.2f}</span>
+                                                <span class="font-semibold whitespace-nowrap">{mlr:.2f}</span>
                                             </div>
                                         </div>
 
@@ -192,7 +172,7 @@ def configure_budget_step5_form(form):
                     Div(
                         HTML(f"""<div class="text-center text-base-content mt-6">
                                         <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                        <p id="step5-budget-total-display" class="text-3xl font-black step5-accent-text">{valor_orcamento}</p>
+                                        <p class="text-3xl font-black step5-accent-text">{budget.display_total_base_value}</p>
                                     </div>""")
                     ),
                     id="step5-method-card",
@@ -249,7 +229,7 @@ def configure_budget_step5_form(form):
                                             <span class="material-icons text-base-content/40">filter_alt</span>
                                         </div>
                                     """),
-                            Field("discount_type", label=False, help_text=False, wrapper_class="mb-0"),
+                            Field("discount_type", wrapper_class="mb-0"),
                             HTML("</div>"),
                             css_class="h-full",
                         ),

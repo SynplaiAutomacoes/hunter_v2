@@ -77,27 +77,6 @@ class VehicleKmSyncTests(TestCase):
         self.vehicle.refresh_from_db()
         self.assertEqual(self.vehicle.km, 50_000)
 
-    def test_budget_approval_creates_workorder_with_empty_courtesy_reason(self) -> None:
-        user = User.objects.create_user(username="km-user-courtesy", password="senha123", cpf="98765432100")
-        budget = Budget.objects.create(
-            workshop=self.workshop,
-            customer=self.customer,
-            vehicle=self.vehicle,
-            entry_date=date(2026, 7, 8),
-            status=BudgetStatus.DRAFT,
-            current_km=50_000,
-            current_step=6,
-            service_expected_completion_at=timezone.now(),
-            customer_agreed_departure_at=timezone.now() + timedelta(days=1),
-        )
-
-        with patch("apps.finance.services.workorder_financial_movements.sync_workorder_financial_movement"):
-            approve_budget_with_stock(budget=budget, user=user)
-
-        workorder = WorkOrder.objects.get(budget=budget)
-        self.assertEqual(workorder.courtesy_reason_description, "")
-        self.assertIsNone(workorder.courtesy_reason_type)
-
     def test_set_km_final_updates_vehicle_km(self) -> None:
         budget = Budget.objects.create(
             workshop=self.workshop,
