@@ -70,206 +70,213 @@
 </div>
 {% endif %}
 
-<div class="mb-10">
-    <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
-        <h3 class="text-xl font-semibold text-gray-700">Produtos</h3>
-    </div>
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+    <div class="col-span-12 xl:col-span-8">
+        <div class="mb-10">
+            <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-700">Produtos</h3>
+            </div>
 
-    {% if workorder.has_stock_issues or workorder.has_invalid_ncm_items %}
-    <div class="mb-3 flex flex-wrap gap-2">
-        {% if workorder.has_stock_issues %}
-        <span class="badge badge-warning gap-1">
-            <span class="material-icons" style="font-size: 16px;">inventory</span>
-            Existem peças com quantidade acima do estoque disponível.
-        </span>
-        {% endif %}
-        {% if workorder.has_invalid_ncm_items %}
-        <span class="badge badge-warning gap-1">
-            <span class="material-icons" style="font-size: 16px;">badge</span>
-            Existem produtos com NCM inválido.
-        </span>
-        {% endif %}
-    </div>
-    {% endif %}
+            {% if workorder.has_stock_issues or workorder.has_invalid_ncm_items %}
+            <div class="mb-3 flex flex-wrap gap-2">
+                {% if workorder.has_stock_issues %}
+                <span class="badge badge-warning gap-1">
+                    <span class="material-icons" style="font-size: 16px;">inventory</span>
+                    Existem peças com quantidade acima do estoque disponível.
+                </span>
+                {% endif %}
+                {% if workorder.has_invalid_ncm_items %}
+                <span class="badge badge-warning gap-1">
+                    <span class="material-icons" style="font-size: 16px;">badge</span>
+                    Existem produtos com NCM inválido.
+                </span>
+                {% endif %}
+            </div>
+            {% endif %}
 
-    <div class="mb-3 rounded-lg shadow-md shadow-gray-300/50 overflow-x-auto">
-        <table class="table table-sm table-zebra w-full budget-step4-table">
-            <thead class="bg-primary text-primary-content">
-                <tr>
-                    <th class="w-[16%] text-left">DESCRIÇÃO</th>
-                    <th class="w-[10%] text-center">ORIGEM</th>
-                    <th class="w-[14%] text-left">APLICAÇÃO</th>
-                    <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
-                    <th class="w-[8%] text-center">QTD.</th>
-                    <th class="w-[12%] text-right">CUSTO</th>
-                    <th class="w-[12%] text-right">VALOR VENDA</th>
-                    <th class="w-[10%] text-right">FRETE</th>
-                    <th class="w-[12%] text-right">TOTAL</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in display_product_items %}
-                    {% with issue_tooltip=product_issue_map|dict_lookup:item.product_id %}
-                    <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' or item.is_customer_supplied %}opacity-[0.85]{% endif %}">
-                        <td class="budget-step4-description">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
-                                {% if item.item_benefit_type == "warranty" %}
-                                    <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
-                                {% elif item.item_benefit_type == "courtesy" %}
-                                    <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
-                                {% endif %}
-                            </div>
-                        </td>
-                        <td class="text-center origin-cell">
-                            <a
-                                href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
-                                class="inline-flex justify-center hover:opacity-80"
-                                data-allow-locked="1"
-                                aria-label="Abrir orçamento">
-                                {{ item.origin_badge|safe }}
-                            </a>
-                        </td>
-                        <td class="budget-step4-application">
-                            <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
-                        </td>
-                        <td class="text-center">
-                            {% if item.is_customer_supplied %}
-                                <span class="badge badge-success badge-outline shrink-0">Sim</span>
-                            {% else %}
-                                <span class="badge badge-ghost badge-outline shrink-0">Não</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-center">
-                            <span class="inline-flex items-center justify-center gap-1">
-                                <span>{{ item.quantity }}</span>
-                                {% if issue_tooltip %}
-                                    <span class="tooltip tooltip-left shrink-0" data-tip="{{ issue_tooltip }}">
-                                        <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+            <div class="mb-3 rounded-lg shadow-md shadow-gray-300/50 overflow-x-auto">
+                <table class="table table-sm table-zebra w-full budget-step4-table">
+                    <thead class="bg-primary text-primary-content">
+                        <tr>
+                            <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                            <th class="w-[10%] text-center">ORIGEM</th>
+                            <th class="w-[14%] text-left">APLICAÇÃO</th>
+                            <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                            <th class="w-[8%] text-center">QTD.</th>
+                            <th class="w-[12%] text-right">CUSTO</th>
+                            <th class="w-[12%] text-right">VALOR VENDA</th>
+                            <th class="w-[10%] text-right">FRETE</th>
+                            <th class="w-[12%] text-right">TOTAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in display_product_items %}
+                            {% with issue_tooltip=product_issue_map|dict_lookup:item.product_id %}
+                            <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' or item.is_customer_supplied %}opacity-[0.85]{% endif %}">
+                                <td class="budget-step4-description">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
+                                        {% if item.item_benefit_type == "warranty" %}
+                                            <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                        {% elif item.item_benefit_type == "courtesy" %}
+                                            <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="text-center origin-cell">
+                                    <a
+                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
+                                        class="inline-flex justify-center hover:opacity-80"
+                                        data-allow-locked="1"
+                                        aria-label="Abrir orçamento">
+                                        {{ item.origin_badge|safe }}
+                                    </a>
+                                </td>
+                                <td class="budget-step4-application">
+                                    <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
+                                </td>
+                                <td class="text-center">
+                                    {% if item.is_customer_supplied %}
+                                        <span class="badge badge-success badge-outline shrink-0">Sim</span>
+                                    {% else %}
+                                        <span class="badge badge-ghost badge-outline shrink-0">Não</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <span class="inline-flex items-center justify-center gap-1">
+                                        <span>{{ item.quantity }}</span>
+                                        {% if issue_tooltip %}
+                                            <span class="tooltip tooltip-left shrink-0" data-tip="{{ issue_tooltip }}">
+                                                <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                                            </span>
+                                        {% endif %}
                                     </span>
-                                {% endif %}
-                            </span>
-                        </td>
-                        <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.gestor_cost_total|money_br }}{% endif %}</td>
-                        <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.product_selling_price }}{% endif %}</td>
-                        <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.shipping }}{% endif %}</td>
-                        <td class="font-bold text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.total_price }}{% endif %}</td>
-                    </tr>
-                    {% endwith %}
-                {% empty %}
-                    <tr>
-                        <td class="text-center text-base-content/60 py-4" colspan="9">Nenhuma peça adicionada.</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    <div class="flex flex-wrap justify-end gap-4 mb-8 text-sm font-semibold">
-        <div class="font-bold">Total Custos: {{ workorder.budget.total_costs_products_value|money_br }}</div>
-        <div class="font-bold">Total Lucro: {{ resume_pdf.total_profit_product_value|money_br }}</div>
-    </div>
-</div>
+                                </td>
+                                <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.gestor_cost_total|money_br }}{% endif %}</td>
+                                <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.product_selling_price }}{% endif %}</td>
+                                <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.shipping }}{% endif %}</td>
+                                <td class="font-bold text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.total_price }}{% endif %}</td>
+                            </tr>
+                            {% endwith %}
+                        {% empty %}
+                            <tr>
+                                <td class="text-center text-base-content/60 py-4" colspan="9">Nenhuma peça adicionada.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex flex-wrap justify-end gap-4 mb-8 text-sm font-semibold">
+                <div class="font-bold">Total Custos: {{ workorder.budget.total_costs_products_value|money_br }}</div>
+                <div class="font-bold">Total Lucro: {{ resume_pdf.total_profit_product_value|money_br }}</div>
+            </div>
+        </div>
 
-<div class="mb-10">
-    <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
-        <h3 class="text-xl font-semibold text-gray-700">Serviços</h3>
+        <div class="mb-10">
+            <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-700">Serviços</h3>
+            </div>
+            <div class="mb-3 rounded-lg shadow-md shadow-gray-300/50 overflow-x-auto">
+                <table class="table table-sm table-zebra w-full budget-step4-table">
+                    <thead class="bg-primary text-primary-content">
+                        <tr>
+                            <th class="w-[20%] text-left">DESCRIÇÃO</th>
+                            <th class="w-[10%] text-center">ORIGEM</th>
+                            <th class="w-[8%] text-center">QTD.</th>
+                            <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
+                            <th class="w-[14%] text-right">VALOR VENDA</th>
+                            <th class="w-[12%] text-right">FRETE</th>
+                            <th class="w-[12%] text-center">TEMPO</th>
+                            <th class="w-[16%] text-right">TOTAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in display_service_items %}
+                            <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' %}opacity-[0.85]{% endif %}">
+                                <td class="budget-step4-description">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
+                                        {% if item.item_benefit_type == "warranty" %}
+                                            <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                        {% elif item.item_benefit_type == "courtesy" %}
+                                            <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="text-center origin-cell">
+                                    <a
+                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
+                                        class="inline-flex justify-center hover:opacity-80"
+                                        data-allow-locked="1"
+                                        aria-label="Abrir orçamento">
+                                        {{ item.origin_badge|safe }}
+                                    </a>
+                                </td>
+                                <td class="text-center">{{ item.quantity }}</td>
+                                <td class="text-right">{{ item.gestor_cost_total|money_br }}</td>
+                                <td class="text-right">{{ item.service_selling_price }}</td>
+                                <td class="text-right">{{ item.service_shipping }}</td>
+                                <td class="text-center">{{ item.duration_display }}</td>
+                                <td class="font-bold text-right">{{ item.total_price }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td class="text-center text-base-content/60 py-4" colspan="8">Nenhum serviço adicionado.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex flex-wrap justify-end gap-4 mb-8 text-sm font-semibold">
+                <div class="font-bold">Total Custos: {{ resume_pdf.total_services_mechanic_cost_value|money_br }}</div>
+                <div class="font-bold">Total Lucro: {{ resume_pdf.total_profit_service_value|money_br }}</div>
+            </div>
+        </div>
     </div>
-    <div class="mb-3 rounded-lg shadow-md shadow-gray-300/50 overflow-x-auto">
-        <table class="table table-sm table-zebra w-full budget-step4-table">
-            <thead class="bg-primary text-primary-content">
-                <tr>
-                    <th class="w-[20%] text-left">DESCRIÇÃO</th>
-                    <th class="w-[10%] text-center">ORIGEM</th>
-                    <th class="w-[8%] text-center">QTD.</th>
-                    <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
-                    <th class="w-[14%] text-right">VALOR VENDA</th>
-                    <th class="w-[12%] text-right">FRETE</th>
-                    <th class="w-[12%] text-center">TEMPO</th>
-                    <th class="w-[16%] text-right">TOTAL</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in display_service_items %}
-                    <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' %}opacity-[0.85]{% endif %}">
-                        <td class="budget-step4-description">
-                            <div class="flex items-center gap-2 min-w-0">
-                                <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
-                                {% if item.item_benefit_type == "warranty" %}
-                                    <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
-                                {% elif item.item_benefit_type == "courtesy" %}
-                                    <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
-                                {% endif %}
-                            </div>
-                        </td>
-                        <td class="text-center origin-cell">
-                            <a
-                                href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
-                                class="inline-flex justify-center hover:opacity-80"
-                                data-allow-locked="1"
-                                aria-label="Abrir orçamento">
-                                {{ item.origin_badge|safe }}
-                            </a>
-                        </td>
-                        <td class="text-center">{{ item.quantity }}</td>
-                        <td class="text-right">{{ item.gestor_cost_total|money_br }}</td>
-                        <td class="text-right">{{ item.service_selling_price }}</td>
-                        <td class="text-right">{{ item.service_shipping }}</td>
-                        <td class="text-center">{{ item.duration_display }}</td>
-                        <td class="font-bold text-right">{{ item.total_price }}</td>
-                    </tr>
-                {% empty %}
-                    <tr>
-                        <td class="text-center text-base-content/60 py-4" colspan="8">Nenhum serviço adicionado.</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    <div class="flex flex-wrap justify-end gap-4 mb-8 text-sm font-semibold">
-        <div class="font-bold">Total Custos: {{ resume_pdf.total_services_mechanic_cost_value|money_br }}</div>
-        <div class="font-bold">Total Lucro: {{ resume_pdf.total_profit_service_value|money_br }}</div>
-    </div>
-</div>
 
-<div class="p-6 h-fit text-lg max-w-xl ml-auto">
-    <div id="workorder-resume-summary">
-        <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
-            <span>Total Produtos</span>
-            <span>{{ resume_pdf.total_produtos|default:workorder.total_products_value }}</span>
+    <div class="col-span-12 xl:col-span-4 mt-10 xl:mt-0">
+        <div class="p-6 h-fit text-lg">
+            <h2 class="text-2xl font-bold mb-4 mt-8 xl:mt-0">Resumo</h2>
+            <div id="workorder-resume-summary" class="sticky top-4">
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span>Total Produtos</span>
+                    <span>{{ resume_pdf.total_produtos|default:workorder.total_products_value }}</span>
+                </div>
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span>Total Serviços</span>
+                    <span>{{ resume_pdf.total_servicos|default:workorder.total_services_value }}</span>
+                </div>
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span>Total Frete</span>
+                    <span>{{ resume_total_shipping }}</span>
+                </div>
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span>Tempo Total</span>
+                    <span>{{ workorder.total_duration_display }}</span>
+                </div>
+                {% if workorder.resolved_discount_value.amount > 0 %}
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2 border-warning/30 bg-warning/10 text-base-content">
+                    <span class="font-medium text-warning">Desconto</span>
+                    <span class="font-medium text-warning">- {{ workorder.resolved_discount_value }}</span>
+                </div>
+                {% endif %}
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span class="font-bold">Total Geral</span>
+                    <span class="font-bold">{{ resume_pdf.total_geral|default:workorder.display_total_budget_value }}</span>
+                </div>
+                {% if warranty_items_count %}
+                <div class="flex items-center gap-2 text-sm p-3">
+                    <span class="badge badge-error badge-xs">{{ warranty_items_count }}</span>
+                    <span>item(ns) em Garantia</span>
+                </div>
+                {% endif %}
+                {% if courtesy_items_count %}
+                <div class="flex items-center gap-2 text-sm p-3">
+                    <span class="badge badge-info badge-xs">{{ courtesy_items_count }}</span>
+                    <span>item(ns) em Cortesia</span>
+                </div>
+                {% endif %}
+            </div>
         </div>
-        <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
-            <span>Total Serviços</span>
-            <span>{{ resume_pdf.total_servicos|default:workorder.total_services_value }}</span>
-        </div>
-        <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
-            <span>Total Frete</span>
-            <span>{{ resume_total_shipping }}</span>
-        </div>
-        <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
-            <span>Tempo Total</span>
-            <span>{{ workorder.total_duration_display }}</span>
-        </div>
-        {% if workorder.resolved_discount_value.amount > 0 %}
-        <div class="border rounded-xl flex justify-between items-center p-3 mb-2 border-warning/30 bg-warning/10 text-base-content">
-            <span class="font-medium text-warning">Desconto</span>
-            <span class="font-medium text-warning">- {{ workorder.resolved_discount_value }}</span>
-        </div>
-        {% endif %}
-        <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
-            <span class="font-bold">Total Geral</span>
-            <span class="font-bold">{{ resume_pdf.total_geral|default:workorder.display_total_budget_value }}</span>
-        </div>
-        {% if warranty_items_count %}
-        <div class="flex items-center gap-2 text-sm p-3">
-            <span class="badge badge-error badge-xs">{{ warranty_items_count }}</span>
-            <span>item(ns) em Garantia</span>
-        </div>
-        {% endif %}
-        {% if courtesy_items_count %}
-        <div class="flex items-center gap-2 text-sm p-3">
-            <span class="badge badge-info badge-xs">{{ courtesy_items_count }}</span>
-            <span>item(ns) em Cortesia</span>
-        </div>
-        {% endif %}
     </div>
 </div>
