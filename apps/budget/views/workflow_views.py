@@ -687,6 +687,13 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if budget and budget.is_status_locked:
             context["max_reached_step"] = total_steps
         context["origin_appointment_id"] = self._get_origin_appointment_id()
+        from apps.terms.models import TermKind, TermTemplate
+
+        context["has_receipt_term"] = TermTemplate.objects.filter(
+            workshop=self.workshop,
+            is_active=True,
+            kind=TermKind.RECEIPT,
+        ).exists()
         return context
 
     def _block_step5_advance_if_needed(self, current_step):

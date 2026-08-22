@@ -20,6 +20,16 @@
         <div></div>
     {% endif %}
 
+    {% if current_step == 2 and object.pk and has_receipt_term %}
+        <button type="button"
+            class="btn btn-outline"
+            hx-get="{% url 'terms:budget_term_modal' object.pk %}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML">
+            Termo de Recebimento
+        </button>
+    {% endif %}
+
     {% if current_step <= steps_config|length %}
     <button type="submit" form="budget-form" class="btn btn-primary{% if current_step == 5 and object.pk and not object.step5_calculation_viewed and object.current_step <= 5 %} btn-disabled{% endif %}" id="budget-submit-btn" {% if current_step == 5 and object.pk and not object.step5_calculation_viewed and object.current_step <= 5 %}disabled{% endif %}>
         <span class="loading loading-spinner loading-sm hidden" id="budget-submit-spinner"></span>
