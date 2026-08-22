@@ -9,6 +9,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 from django.forms import formset_factory
 
+from apps.core.infrastructure.services.webmania.emission import normalize_codigo_nbs
 from apps.core.presentation.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import TaxClassPreset
 from apps.core.presentation.forms import CoreForm, CoreModelForm
@@ -196,6 +197,7 @@ class NfseTaxClassForm(TaxClassFormBase):
     exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS (ABRASF)", required=True, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SearchableSelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
     iss_retido = forms.ChoiceField(label="ISS retido (ABRASF)", required=True, choices=ISS_RETIDO_CHOICES, widget=SearchableSelectInput(choices=ISS_RETIDO_CHOICES))
     responsavel_retencao = forms.ChoiceField(label="Responsável pela retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SearchableSelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
+    codigo_nbs = forms.CharField(label="Código NBS", required=False, help_text="Código NBS da classe NFS-e. Padrão Nacional: 9 dígitos.", widget=TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}))
     codigo_cnae = forms.CharField(label="Código CNAE", required=False, widget=TextInput())
 
     iss = forms.DecimalField(label="Alíquota ISS", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
@@ -232,6 +234,7 @@ class NfseTaxClassForm(TaxClassFormBase):
             "exigibilidade_iss",
             "iss_retido",
             "responsavel_retencao",
+            "codigo_nbs",
             "codigo_cnae",
             "iss",
             "pis",
@@ -312,6 +315,7 @@ class NfseTaxClassForm(TaxClassFormBase):
                     css_class="grid grid-cols-12 gap-4",
                 ),
                 Div(
+                    Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("codigo_cnae", wrapper_class="col-span-12 lg:col-span-4"),
                     css_class="grid grid-cols-12 gap-4 items-end",
                 ),
@@ -370,6 +374,12 @@ class NfseTaxClassForm(TaxClassFormBase):
         if iss_retido != "1" and responsavel_retencao:
             self.add_error("responsavel_retencao", "Preencha apenas quando o ISS for retido.")
 
+        codigo_nbs = normalize_codigo_nbs(cleaned_data.get("codigo_nbs"))
+        if codigo_nbs and len(codigo_nbs) != 9:
+            self.add_error("codigo_nbs", "Informe o código NBS com 9 dígitos.")
+        elif codigo_nbs:
+            cleaned_data["codigo_nbs"] = codigo_nbs
+
         has_service_tax_data = any(
             cleaned_data.get(field_name) not in (None, "")
             for field_name in (
@@ -409,6 +419,7 @@ class NfseTaxClassForm(TaxClassFormBase):
             "exigibilidade_iss",
             "iss_retido",
             "responsavel_retencao",
+            "codigo_nbs",
             "codigo_cnae",
             "informacoes_fisco",
             "informacoes_complementares",

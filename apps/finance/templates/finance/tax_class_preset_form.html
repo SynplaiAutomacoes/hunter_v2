@@ -169,6 +169,11 @@
                         {{ nfse_form.responsavel_retencao.errors }}
                     </div>
                     <div class="col-span-12 lg:col-span-4">
+                        <label class="label" for="{{ nfse_form.codigo_nbs.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.codigo_nbs.label }}</span></label>
+                        {{ nfse_form.codigo_nbs }}
+                        {{ nfse_form.codigo_nbs.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-4">
                         <label class="label" for="{{ nfse_form.codigo_cnae.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.codigo_cnae.label }}</span></label>
                         {{ nfse_form.codigo_cnae }}
                         {{ nfse_form.codigo_cnae.errors }}
