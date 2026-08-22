@@ -3,12 +3,13 @@ from __future__ import annotations
 import calendar
 import logging
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, Q, Sum, Value
+from django.db.models import Prefetch, Q, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from djmoney.money import Money
@@ -55,6 +56,24 @@ PAYROLL_COMPONENT_LABELS: dict[str, str] = {
     FinancialMovement.PayrollComponent.TRANSPORT: "Vale Transporte",
     FinancialMovement.PayrollComponent.COMMISSION: "Comissões",
 }
+
+
+def work_assignable_collaborators(*, workshop: Workshop, include_ids: Iterable[int] | None = None) -> "QuerySet[WorkshopCollaborator]":
+    """Retorna colaboradores elegíveis para vínculo como mecânico responsável.
+
+    Base: produtivos (``CollaboratorType.PRODUCTIVE``) e ativos do workshop, ordenados por nome.
+    IDs em ``include_ids`` (vínculos já existentes) permanecem na lista mesmo quando
+    administrativos, pró-labore ou inativos, preservando edições de registros antigos.
+    """
+    base = WorkshopCollaborator.objects.filter(
+        workshop=workshop,
+        is_active=True,
+        collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+    )
+    include_ids = list(include_ids or [])
+    if include_ids:
+        base = base | WorkshopCollaborator.objects.filter(workshop=workshop, pk__in=include_ids)
+    return base.order_by("name").distinct()
 
 
 def _quantize(value: Decimal) -> Decimal:
@@ -525,8 +544,39 @@ def _calculate_transport_allowance_total_from_work_days(*, collaborator: Worksho
     return Money(_quantize(total), "BRL")
 
 
+def _apply_work_days_to_transport_component(*, payroll: CollaboratorPayroll, work_days: int) -> CollaboratorPayroll:
+    """Update VT amount from work days without rebuilding salary/benefit/commission movements."""
+    transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=payroll.collaborator, work_days=work_days)
+    unpaid_transport_movements = list(
+        payroll.financial_movements.filter(
+            payroll_component=FinancialMovement.PayrollComponent.TRANSPORT,
+            is_paid=False,
+        )
+    )
+    for movement in unpaid_transport_movements:
+        if movement.amount != transport_amount:
+            movement.amount = transport_amount
+            movement.save(update_fields=["amount"])
+    if unpaid_transport_movements:
+        return recalculate_payroll_from_linked_movements(payroll=payroll)
+
+    payroll.transport_allowance_amount = transport_amount
+    total_amount = Money(
+        _quantize(
+            Decimal(str(payroll.salary_amount.amount or ZERO))
+            + Decimal(str(transport_amount.amount or ZERO))
+            + Decimal(str(payroll.benefits_amount.amount or ZERO))
+            + Decimal(str(payroll.commission_amount.amount or ZERO))
+        ),
+        "BRL",
+    )
+    payroll.total_amount = total_amount
+    payroll.save(update_fields=["transport_allowance_amount", "total_amount"])
+    return payroll
+
+
 @transaction.atomic
-def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None, sync_salary_costs: bool = True) -> CollaboratorPayroll:
+def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None, sync_salary_costs: bool = True, resync_components: bool = True) -> CollaboratorPayroll:
     """Update payroll work days. Pass ``None`` to restore the workshop monthly cost default."""
     if _is_paid_payroll(payroll=payroll):
         return payroll
@@ -550,6 +600,8 @@ def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | N
         update_fields.append("work_days_is_custom")
     if update_fields:
         payroll.save(update_fields=update_fields)
+        if not resync_components:
+            return _apply_work_days_to_transport_component(payroll=payroll, work_days=resolved_work_days)
         synced = sync_collaborator_payroll(
             collaborator=payroll.collaborator,
             reference_date=date(payroll.reference_year, payroll.reference_month, 1),
@@ -759,7 +811,16 @@ def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollabor
     return payroll_group
 
 
+def get_default_transport_budget_plan(*, workshop: Workshop) -> FinancialGroup | None:
+    target_code = PAYROLL_COMPONENT_PLAN_CODES[FinancialMovement.PayrollComponent.TRANSPORT]
+    return FinancialGroup.objects.filter(workshop=workshop, code=target_code).first()
+
+
 def get_collaborator_payroll_component_group(*, collaborator: WorkshopCollaborator, component: str) -> FinancialGroup:
+    if component == FinancialMovement.PayrollComponent.TRANSPORT:
+        custom_plan = collaborator.transport_budget_plan
+        if custom_plan is not None and custom_plan.workshop_id == collaborator.workshop_id:
+            return custom_plan
     target_code = PAYROLL_COMPONENT_PLAN_CODES.get(component)
     if target_code:
         component_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, code=target_code).first()
@@ -1031,10 +1092,13 @@ def _get_payroll_representative_movement(*, payroll: CollaboratorPayroll, existi
 
 
 def _build_payroll_component_key(*, component: str | None, budget_plan_id: int | None = None, payroll_benefit_id: int | None = None) -> tuple[str, int | None]:
+    del budget_plan_id
     component_key = str(component or "")
     if component_key == FinancialMovement.PayrollComponent.BENEFIT:
         return (component_key, payroll_benefit_id)
-    return (component_key, budget_plan_id)
+    # Salary, VT and commission are unique per component. Matching by budget_plan
+    # made a plan change look like a new movement and the following sync reverted it.
+    return (component_key, None)
 
 
 def _movement_component_key(*, movement: FinancialMovement) -> tuple[str, int | None]:
@@ -1183,6 +1247,10 @@ def get_payroll_movement_diagnoses(*, payrolls: list[CollaboratorPayroll]) -> di
 
     def resolve_component_group(*, collaborator: WorkshopCollaborator, component: str) -> FinancialGroup:
         nonlocal default_group
+        if component == FinancialMovement.PayrollComponent.TRANSPORT:
+            custom_plan = collaborator.transport_budget_plan
+            if custom_plan is not None and custom_plan.workshop_id == collaborator.workshop_id:
+                return custom_plan
         target_code = PAYROLL_COMPONENT_PLAN_CODES.get(component)
         if target_code and target_code in groups_by_code:
             return groups_by_code[target_code]
@@ -1276,6 +1344,44 @@ def ensure_payroll_component_movements_confirmed(*, payroll: CollaboratorPayroll
         allowed_components={component},
         prune_stale=False,
     )
+    return recalculate_payroll_from_linked_movements(payroll=payroll)
+
+
+@transaction.atomic
+def ensure_payroll_single_benefit_synced(*, payroll: CollaboratorPayroll, movement_id: int) -> CollaboratorPayroll:
+    """Sync a single BENEFIT movement back to its projected value."""
+    payroll.refresh_from_db()
+    movement = FinancialMovement.objects.select_for_update().get(
+        pk=movement_id,
+        payroll=payroll,
+        payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
+    )
+    projection = build_payroll_projection(
+        collaborator=payroll.collaborator,
+        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+    )
+    specs = _build_payroll_component_specs(payroll=projection)
+    benefit_specs = [
+        s for s in specs
+        if s["component"] == FinancialMovement.PayrollComponent.BENEFIT
+    ]
+
+    matched_spec: dict[str, object] | None = None
+    if movement.payroll_benefit_id is not None:
+        matched_spec = next(
+            (s for s in benefit_specs if getattr(s.get("payroll_benefit"), "pk", None) == movement.payroll_benefit_id),
+            None,
+        )
+
+    if matched_spec is None and benefit_specs:
+        matched_spec = benefit_specs[0]
+
+    if matched_spec is not None:
+        movement.amount = matched_spec["amount"]
+        movement.description = str(matched_spec["description"])
+        movement.budget_plan = matched_spec["budget_plan"]
+        movement.save(update_fields=["amount", "description", "budget_plan"])
+
     return recalculate_payroll_from_linked_movements(payroll=payroll)
 
 
@@ -1442,10 +1548,12 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         movement.payroll_component = component
         movement.payroll_benefit = payroll_benefit if isinstance(payroll_benefit, CollaboratorBenefit) else None
         movement.direction = FinancialMovement.MovementDirection.DEBIT
-        movement.description = str(spec["description"])
-        movement.amount = spec["amount"]
-        movement.due_date = payroll.due_date
-        movement.budget_plan = budget_plan
+        # Skip overwriting financial data on movements that are already paid.
+        if not (movement.pk and movement.is_paid):
+            movement.description = str(spec["description"])
+            movement.amount = spec["amount"]
+            movement.due_date = payroll.due_date
+            movement.budget_plan = budget_plan
         if is_new_movement:
             movement.is_paid = inherited_paid
             movement.is_reconciled = inherited_reconciled

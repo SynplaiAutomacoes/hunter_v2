@@ -37,11 +37,29 @@ RUN uv run playwright install --with-deps chromium
 # Install Node dependencies (needed for Tailwind plugins)
 RUN npm ci
 
+# Pre-download Tailwind CLI with retries (avoids flaky GitHub downloads during manage.py build)
+ARG TAILWIND_CLI_VERSION=2.8.2
+RUN set -eux; \
+  url="https://github.com/dobicinaitis/tailwind-cli-extra/releases/download/v${TAILWIND_CLI_VERSION}/tailwindcss-extra-linux-x64"; \
+  for attempt in 1 2 3 4 5; do \
+    if curl -fsSL --retry 3 --retry-delay 2 -o /usr/local/bin/tailwindcss "$url"; then \
+      chmod +x /usr/local/bin/tailwindcss; \
+      break; \
+    fi; \
+    if [ "$attempt" -eq 5 ]; then \
+      echo "Failed to download Tailwind CLI after ${attempt} attempts"; \
+      exit 1; \
+    fi; \
+    echo "Tailwind CLI download failed (attempt ${attempt}); retrying..."; \
+    sleep $((attempt * 2)); \
+  done
+
 # Copy the rest of the application
 COPY . .
 
 # Set the path to include the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
+ENV TAILWIND_CLI_PATH=/usr/local/bin/tailwindcss
 
 RUN uv run python manage.py tailwind build
 RUN uv run python manage.py collectstatic --noinput

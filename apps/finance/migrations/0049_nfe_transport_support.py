@@ -2,6 +2,8 @@
 
 from django.db import migrations, models
 
+from . import _idempotent
+
 
 class Migration(migrations.Migration):
 
@@ -10,12 +12,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='nferequest',
             name='freight_mode',
             field=models.PositiveSmallIntegerField(choices=[(0, 'Por conta do emitente (CIF)'), (1, 'Por conta do destinatario (FOB)'), (2, 'Por conta de terceiros'), (3, 'Transporte proprio do emitente'), (4, 'Transporte proprio do destinatario'), (9, 'Sem transporte')], default=9, verbose_name='Modalidade de frete'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='nferequest',
             name='transport_snapshot',
             field=models.JSONField(blank=True, default=dict, verbose_name='Snapshot de transporte'),

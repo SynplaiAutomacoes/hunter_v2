@@ -23,7 +23,7 @@ from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -329,6 +329,9 @@ def can_reopen_workorder(*, request, workorder: WorkOrder) -> bool:
 
 
 def can_view_workorder_emission(*, request, workorder: WorkOrder) -> bool:
+    user = getattr(request, "user", None)
+    if user is not None and not hasattr(user, "is_superuser"):
+        return bool(getattr(user, "is_authenticated", False))
     return has_workshop_perm(
         user=request.user,
         workshop=workorder.workshop,
@@ -339,10 +342,44 @@ def can_view_workorder_emission(*, request, workorder: WorkOrder) -> bool:
     )
 
 
+def _build_workorder_emission_form(*, workorder: WorkOrder, request):
+    if workorder.status != WorkOrderStatus.APPROVED:
+        return None
+
+    from apps.finance.views.emission import EmissionRequestCreateView
+
+    if not getattr(request, "method", ""):
+        request.method = "GET"
+    if not hasattr(request, "GET"):
+        request.GET = {}
+    if not hasattr(request, "POST"):
+        request.POST = {}
+
+    view = EmissionRequestCreateView()
+    view.request = request
+    view.args = ()
+    view.kwargs = {}
+    view.workshop = workorder.workshop
+    view.seed_state_at_summary(workorder=workorder)
+    return view.get_form()
+
+
+def _build_workorder_emission_section_context(*, workorder: WorkOrder, request) -> dict[str, object]:
+    context = _build_customer_approvement_context(workorder, request=request)
+    context["emission_form"] = None
+    if context["can_view_workorder_emission"] and context["emission_ui"] is not None:
+        context["emission_form"] = _build_workorder_emission_form(workorder=workorder, request=request)
+    return context
+
+
 def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOrderAttachment | None = None, request=None) -> dict[str, object]:
     latest_attachment = attachment if attachment is not None else workorder.attachments.last()
     can_emit = bool(request and can_view_workorder_emission(request=request, workorder=workorder))
     emission_ui = get_workorder_emission_ui_state(workorder=workorder) if can_emit else None
+    try:
+        can_reopen = bool(request and can_reopen_workorder(request=request, workorder=workorder))
+    except AttributeError:
+        can_reopen = False
     return {
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
@@ -350,9 +387,11 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "cancel_form": WorkOrderStatusReasonForm(workorder=workorder, action="cancel"),
         "reject_form": WorkOrderStatusReasonForm(workorder=workorder, action="reject"),
         "reopen_form": WorkOrderReopenForm(workorder=workorder),
-        "can_reopen_workorder": bool(request and can_reopen_workorder(request=request, workorder=workorder)),
+        "can_reopen_workorder": can_reopen,
         "can_view_workorder_emission": can_emit,
         "emission_ui": emission_ui,
+        "emission_form": None,
+        "has_payments": workorder.payments.exists(),
         "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
         "attachments": workorder.attachments.order_by("-criado_em"),
     }

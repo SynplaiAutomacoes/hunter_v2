@@ -15,3 +15,4 @@ class WorkshopCollaboratorAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "cpf", "workshop", "position", "is_active", "system_access")
     list_filter = ("is_active", "system_access", "collaborator_type", "receives_commission")
     search_fields = ("name", "cpf", "rg", "email", "position", "workshop__name")
+    raw_id_fields = ("transport_budget_plan",)

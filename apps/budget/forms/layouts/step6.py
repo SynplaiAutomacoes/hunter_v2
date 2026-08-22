@@ -2,6 +2,7 @@
 from apps.budget.forms.layouts.step6_assets import build_step6_assets_html
 from apps.budget.forms.presenters.step6_context import build_step6_context
 from apps.budget.forms.steps.common import *
+from apps.collaborators.models import WorkshopCollaborator
 
 
 def configure_budget_step6_form(form):
@@ -36,6 +37,14 @@ def configure_budget_step6_form(form):
 
     budget = _get_budget_with_prefetched_items(form.instance)
     ctx = build_step6_context(budget, form)
+    service_responsibles = WorkshopCollaborator.objects.filter(
+        workshop=form.workshop,
+        is_active=True,
+        collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+    ).order_by("name", "pk")
+    responsible_options_html = "".join(
+        "<option value='{pk}'>{name}</option>".format(pk=collaborator.pk, name=escape(collaborator.name)) for collaborator in service_responsibles
+    )
 
     status_label = ctx.status_label
     status_class = ctx.status_class
@@ -65,6 +74,38 @@ def configure_budget_step6_form(form):
     services_html = ctx.services_html
     kits_html = ctx.kits_html
 
+    has_reopen_permission = bool(
+        form.request and form.workshop and has_workshop_perm(
+            user=form.request.user,
+            workshop=form.workshop,
+            app_label="budget",
+            model="budget",
+            codename="add_budget",
+            request=form.request,
+        )
+    )
+    if ctx.blocked_reopen:
+        reopen_button_html = (
+            f"<button type='button' class='btn btn-warning col-span-12 opacity-60 cursor-not-allowed' "
+            f"onclick='showBlockedStep6Action({ctx.reopen_workorder_blocked_reason_json})' "
+            f"aria-disabled='true' title='{escape(ctx.reopen_workorder_block_message)}'>Reabrir Orçamento</button>"
+        )
+        reopen_form_html = ""
+    else:
+        reopen_button_html = (
+            f"<button type='button' class='btn btn-warning col-span-12' data-allow-locked='1' "
+            f"onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(has_reopen_permission).lower()})'>Reabrir Orçamento</button>"
+        )
+        reopen_form_html = (
+            "<div id='reopen-budget-form' class='col-span-12 mt-2 space-y-3 rounded-xl border border-warning/40 bg-warning/10 p-4 hidden' data-allow-locked='1'>"
+            "<p class='text-sm text-base-content/80' data-allow-locked='1'>Informe a justificativa da reabertura antes de concluir esta ação.</p>"
+            "<textarea id='reopen-reason-input' class='textarea textarea-bordered w-full' rows='4' placeholder='Explique por que este orçamento deve ser reaberto...' data-allow-locked='1'></textarea>"
+            "<div class='flex flex-wrap gap-3' data-allow-locked='1'>"
+            f"<button type='button' class='btn btn-warning' data-allow-locked='1' onclick='confirmReopenBudgetStatus({budget.pk})'>Confirmar reabertura</button>"
+            "<button type='button' class='btn btn-ghost' data-allow-locked='1' onclick='cancelReopenBudgetStatus()'>Fechar</button>"
+            "</div></div>"
+        )
+
     form.helper = FormHelper()
     form.helper.form_tag = False
 
@@ -77,12 +118,19 @@ def configure_budget_step6_form(form):
         # =========================
         # MODAL DE CANCELAMENTO
         # =========================
-        HTML("""
+        HTML(f"""
                 <dialog id="cancelBudgetModal" class="modal">
                   <div class="modal-box">
                     <h3 class="font-bold text-lg">Cancelar Orçamento</h3>
                     <p class="py-4">Por favor, informe o motivo do cancelamento:</p>
                     <textarea id="cancellation-reason-input" class="textarea textarea-bordered w-full" rows="3" placeholder="Motivo do cancelamento..."></textarea>
+                    <label class="form-control w-full mt-4">
+                      <span class="label-text font-medium mb-2">Responsável pelo atendimento</span>
+                      <select id="cancellation-responsible-input" class="select select-bordered w-full">
+                        <option value="">Selecione o responsável</option>
+                        {responsible_options_html}
+                      </select>
+                    </label>
                     <div class="modal-action">
                       <button type="button" class="btn" onclick="document.getElementById('cancelBudgetModal').close()">Voltar</button>
                       <button type="button" class="btn btn-error" id="confirm-cancel-btn">Confirmar Cancelamento</button>
@@ -94,6 +142,13 @@ def configure_budget_step6_form(form):
                     <h3 class="font-bold text-lg">Reprovar Orçamento</h3>
                     <p class="py-4">Por favor, informe o motivo da reprovação:</p>
                     <textarea id="rejection-reason-input" class="textarea textarea-bordered w-full" rows="3" placeholder="Motivo da reprovação..."></textarea>
+                    <label class="form-control w-full mt-4">
+                      <span class="label-text font-medium mb-2">Responsável pelo atendimento</span>
+                      <select id="rejection-responsible-input" class="select select-bordered w-full">
+                        <option value="">Selecione o responsável</option>
+                        {responsible_options_html}
+                      </select>
+                    </label>
                     <div class="modal-action">
                       <button type="button" class="btn" onclick="document.getElementById('rejectBudgetModal').close()">Voltar</button>
                       <button type="button" class="btn btn-warning" id="confirm-reject-btn">Confirmar Reprovação</button>
@@ -318,9 +373,9 @@ def configure_budget_step6_form(form):
                                     Reprovar
                                 </button>
 
-                                {f"<button type='button' class='btn btn-warning col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(bool(form.request and form.workshop and has_workshop_perm(user=form.request.user, workshop=form.workshop, app_label='budget', model='budget', codename='add_budget', request=form.request))).lower()})'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
+                                {f"{reopen_button_html}" if budget.is_status_locked else ""}
 
-                                {f"<div id='reopen-budget-form' class='col-span-12 mt-2 space-y-3 rounded-xl border border-warning/40 bg-warning/10 p-4 hidden' data-allow-locked='1'><p class='text-sm text-base-content/80' data-allow-locked='1'>Informe a justificativa da reabertura antes de concluir esta ação.</p><textarea id='reopen-reason-input' class='textarea textarea-bordered w-full' rows='4' placeholder='Explique por que este orçamento deve ser reaberto...' data-allow-locked='1'></textarea><div class='flex flex-wrap gap-3' data-allow-locked='1'><button type='button' class='btn btn-warning' data-allow-locked='1' onclick='confirmReopenBudgetStatus({budget.pk})'>Confirmar reabertura</button><button type='button' class='btn btn-ghost' data-allow-locked='1' onclick='cancelReopenBudgetStatus()'>Fechar</button></div></div>" if budget.is_status_locked else ""}
+                                {f"{reopen_form_html}" if budget.is_status_locked else ""}
                             </div>
                             """),
                     css_class="p-4 bg-base-200/50 rounded-lg",

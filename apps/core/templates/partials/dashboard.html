@@ -199,10 +199,9 @@
                                         <span class="text-2xl font-bold text-base-content">{{ rentabilidade_acumulada_mes|floatformat:2 }}%</span>
                                     </div>
 
-                                    {% with markup_acumulado_progresso as markup_progress %}
-                                    {% if markup_progress >= 100 %}
+                                    {% if markup_acumulado_tom == "success" %}
                                     <div x-show="mode === 'markup'" x-cloak class="radial-progress text-success border-4 border-success/10 cursor-pointer"
-                                    {% elif markup_progress >= 75 %}
+                                    {% elif markup_acumulado_tom == "warning" %}
                                     <div x-show="mode === 'markup'" x-cloak class="radial-progress text-warning border-4 border-warning/10 cursor-pointer"
                                     {% else %}
                                     <div x-show="mode === 'markup'" x-cloak class="radial-progress text-error border-4 border-error/10 cursor-pointer"
@@ -211,7 +210,6 @@
                                          role="progressbar">
                                         <span class="text-2xl font-bold text-base-content">{{ markup_acumulado_mes|floatformat:2 }}x</span>
                                     </div>
-                                    {% endwith %}
                                 </div>
                             {% endwith %}
                             <span x-show="mode === 'profitability'" class="text-lg font-semibold">Rentabilidade Acumulada</span>

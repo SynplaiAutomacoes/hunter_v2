@@ -1,1 +1,7 @@
-{% include 'crud/partials/table.html' with queryset=stock fields=fields actions=actions table_id='stock-table' %}
+{% load table_tags %}
+{% if filter_state.filter_error %}
+    <div class="alert alert-error mb-4">
+        <span>{{ filter_state.filter_error }}</span>
+    </div>
+{% endif %}
+{% render_table stock fields table_id='stock-table' selectable=True checkbox_name='import_ids' actions=actions %}
