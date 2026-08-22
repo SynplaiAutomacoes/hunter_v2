@@ -34,7 +34,7 @@ class GroupMovementStep3Form(CoreModelForm):
         fields = ["name", "description", "due_date"]
         widgets = {
             "name": TextInput(),
-            "description": TextareaInput(attrs={"rows": 3}),
+            "description": TextareaInput(attrs={"rows": 2}),
             "due_date": CalendarDateInput(),
         }
 
