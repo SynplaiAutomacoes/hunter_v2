@@ -8,6 +8,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from djmoney.money import Money
 
 from apps.accounts.models import Account
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm
@@ -127,6 +128,44 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         self.assertEqual(form.fields["transport_budget_plan"].initial, default_plan)
         widget_choices = dict(form.fields["transport_budget_plan"].widget.choices)
         self.assertEqual(str(widget_choices[str(default_plan.pk)]), str(default_plan))
+
+    def test_benefit_formset_excludes_one_off_payroll_benefits(self) -> None:
+        account = create_account(suffix=21)
+        workshop = create_workshop(account=account, suffix=21)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678921",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2500, "BRL"),
+            total_amount=Money(2500, "BRL"),
+        )
+        cadastro = CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Plano de saude",
+            monthly_amount=Money(200, "BRL"),
+            is_active=True,
+        )
+        one_off = CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Bonus pontual",
+            monthly_amount=Money(80, "BRL"),
+            is_active=True,
+            source_payroll=payroll,
+        )
+
+        formset = CollaboratorBenefitFormSet(instance=collaborator, prefix="benefits", form_kwargs={"workshop": workshop})
+        formset_ids = {form.instance.pk for form in formset.forms if form.instance.pk}
+
+        self.assertIn(cadastro.pk, formset_ids)
+        self.assertNotIn(one_off.pk, formset_ids)
 
     def test_repeated_payrolls_keep_fixed_payment_day_rules(self) -> None:
         account = create_account(suffix=2)
