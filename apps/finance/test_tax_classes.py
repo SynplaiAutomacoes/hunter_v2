@@ -162,6 +162,29 @@ class NfseTaxClassFormServiceCodeTests(SimpleTestCase):
 
         self.assertEqual(initial["codigo_nbs"], "115021000")
 
+    def test_nfse_form_uses_local_suggestions_without_blocking_free_values(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe com valores novos",
+                "codigo_servico": "01.05.01",
+                "codigo_nbs": "115.021.000",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+            },
+            nfse_suggestion_tax_classes=[
+                {"codigo_servico": "73.66", "codigo_nbs": "115021000"},
+                {"codigo_servico": "73.66", "codigo_nbs": "115021000"},
+            ],
+        )
+
+        self.assertEqual(form.codigo_servico_suggestions, ["73.66"])
+        self.assertEqual(form.codigo_nbs_suggestions, ["115021000"])
+        self.assertEqual(form.fields["codigo_servico"].widget.attrs["list"], "nfse-codigo-servico-suggestions")
+        self.assertEqual(form.fields["codigo_nbs"].widget.attrs["list"], "nfse-codigo-nbs-suggestions")
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["codigo_servico"], "01.05.01")
+        self.assertEqual(form.cleaned_data["codigo_nbs"], "115021000")
+
 
 class TaxClassServiceTests(TestCase):
     def test_list_tax_classes_does_not_call_remote_without_manual_sync(self) -> None:
@@ -476,6 +499,29 @@ class TaxClassCreateViewTests(TestCase):
         tax_class = TaxClassNfse.objects.get(workshop=self.workshop, reference="REF-NFSE-NBS")
         self.assertEqual(tax_class.codigo_nbs, "115021000")
         self.assertEqual(mock_post.call_args.kwargs["json"]["codigo_nbs"], "115021000")
+
+    def test_get_create_nfse_renders_local_fiscal_field_suggestions(self) -> None:
+        TaxClassNfse.objects.create(
+            workshop=self.workshop,
+            reference="REF-NFSE-LOCAL",
+            description="Classe local",
+            tipo_emissao="1",
+            codigo_servico="73.66",
+            codigo_nbs="115021000",
+        )
+        request = self.factory.get("/finance/classe-imposto/create/?tab=nfse")
+        _attach_request_extras(request, user=self.user)
+        view = self._make_view(request)
+
+        response = view.get(request)
+        response.render()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'list="nfse-codigo-servico-suggestions"')
+        self.assertContains(response, 'list="nfse-codigo-nbs-suggestions"')
+        self.assertContains(response, '<datalist id="nfse-codigo-servico-suggestions">', html=False)
+        self.assertContains(response, 'value="73.66"')
+        self.assertContains(response, 'value="115021000"')
 
     def test_post_filled_icms_rejects_blank_extra_row(self) -> None:
         data = {

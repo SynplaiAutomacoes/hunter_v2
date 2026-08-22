@@ -94,6 +94,22 @@ RETENCAO_PIS_COFINS_CHOICES = (
 )
 
 
+def _clean_suggestion_value(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _build_unique_suggestions(tax_classes: list[dict[str, object]], *, field_name: str) -> list[str]:
+    suggestions: list[str] = []
+    seen: set[str] = set()
+    for tax_class in tax_classes:
+        value = _clean_suggestion_value(tax_class.get(field_name))
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        suggestions.append(value)
+    return suggestions
+
+
 def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     quantizer = Decimal(1).scaleb(-places)
     return f"{value.quantize(quantizer):f}"
@@ -216,6 +232,15 @@ class NfseTaxClassForm(TaxClassFormBase):
     ibs_aliquota_diferimento_municipal = forms.DecimalField(label="Diferimento IBS municipal (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
     cbs_aliquota_diferimento = forms.DecimalField(label="Diferimento CBS (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 
+    def _apply_local_suggestions(self, tax_classes: list[dict[str, object]]) -> None:
+        self.codigo_servico_suggestions = _build_unique_suggestions(tax_classes, field_name="codigo_servico")
+        self.codigo_nbs_suggestions = _build_unique_suggestions(tax_classes, field_name="codigo_nbs")
+
+        if self.codigo_servico_suggestions:
+            self.fields["codigo_servico"].widget.attrs["list"] = "nfse-codigo-servico-suggestions"
+        if self.codigo_nbs_suggestions:
+            self.fields["codigo_nbs"].widget.attrs["list"] = "nfse-codigo-nbs-suggestions"
+
     @classmethod
     def initial_from_tax_class(cls, tax_class: dict[str, Any]) -> dict[str, str]:
         initial = super().initial_from_tax_class(tax_class)
@@ -276,7 +301,14 @@ class NfseTaxClassForm(TaxClassFormBase):
         return initial
 
     def __init__(self, *args, **kwargs):
+        nfse_suggestion_tax_classes = kwargs.pop("nfse_suggestion_tax_classes", None)
         super().__init__(*args, **kwargs)
+        if isinstance(nfse_suggestion_tax_classes, list):
+            self._apply_local_suggestions(nfse_suggestion_tax_classes)
+        else:
+            self.codigo_servico_suggestions = []
+            self.codigo_nbs_suggestions = []
+
         if not self.is_bound:
             self.initial.setdefault("natureza_operacao", "1")
             self.initial.setdefault("exigibilidade_iss", "1")

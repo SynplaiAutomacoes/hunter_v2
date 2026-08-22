@@ -214,6 +214,7 @@
                     <div class="col-span-12 lg:col-span-6">{{ nfse_form.informacoes_complementares.label_tag }}{{ nfse_form.informacoes_complementares }}{{ nfse_form.informacoes_complementares.errors }}</div>
                 </div>
             </section>
+            {% include 'finance/partials/nfse_tax_class_field_suggestions.html' with nfse_form=nfse_form %}
         {% endif %}
 
         <div class="flex flex-wrap justify-end gap-2">
