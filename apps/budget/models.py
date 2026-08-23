@@ -1899,12 +1899,10 @@ class BudgetItem(TimeStampedModel):
         ganha_valor = (slider < 0 and is_product) or (slider > 0 and not is_product)
 
         if ganha_valor:
-            # Aplica o share sobre o que veio do outro grupo
             return original_unit + (valor_transferido_total * share)
-        else:
-            # Perde valor: retira do próprio lucro do item proporcional ao slider
-            margem_propria = max(original_unit - unit_cost, Money(0, "BRL"))
-            return original_unit - (margem_propria * percentual_slider)
+
+        own_margin = max(original_unit - unit_cost, Money(0, "BRL"))
+        return original_unit - (own_margin * percentual_slider)
 
     class Meta:
         verbose_name = "Item do Orçamento"

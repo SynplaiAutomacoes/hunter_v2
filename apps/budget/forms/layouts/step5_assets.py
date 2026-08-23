@@ -362,17 +362,13 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                         
                                 if (!slider || !vendaPecaEl || !vendaMOEl) return;
                         
-                                const basePeca = parseFloat(vendaPecaEl.dataset.baseVal);
-                                const baseMO = parseFloat(vendaMOEl.dataset.baseVal);
-                                const costPeca = parseFloat(vendaPecaEl.dataset.costVal);
-                                const fretePeca = parseFloat(vendaPecaEl.dataset.freteVal || 0);
-                                const minVendaPeca = costPeca + fretePeca;
-                                const costMO = parseFloat(vendaMOEl.dataset.costVal);
-                        
-                                const totalLucro = Math.max(
-                                    (basePeca + baseMO) - (minVendaPeca + costMO),
-                                    0
-                                );
+                                const originPeca = parseFloat(vendaPecaEl.dataset.baseVal) || 0;
+                                const originMO = parseFloat(vendaMOEl.dataset.baseVal) || 0;
+                                const costPeca = parseFloat(vendaPecaEl.dataset.costVal) || 0;
+                                const freightPeca = parseFloat(vendaPecaEl.dataset.freteVal || 0);
+                                const floorPeca = Math.min(originPeca, Math.max(costPeca + freightPeca, 0));
+                                const costMO = parseFloat(vendaMOEl.dataset.costVal) || 0;
+                                const floorMO = Math.min(originMO, Math.max(costMO, 0));
                         
                                 const format = (v) =>
                                     "R$ " + v.toLocaleString("pt-BR", {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
@@ -397,10 +393,24 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 }}
                         
                                 function update(val) {{
-                                    labelPecaPct.textContent = val < 0 ? Math.abs(val) : 0;
-                                    labelMOPct.textContent = val > 0 ? val : 0;
-                        
-                                    updateFill(val);
+                                    const sliderValue = Number(val) || 0;
+                                    labelPecaPct.textContent = sliderValue < 0 ? Math.abs(sliderValue) : 0;
+                                    labelMOPct.textContent = sliderValue > 0 ? sliderValue : 0;
+
+                                    const ratio = Math.abs(sliderValue) / 100;
+                                    let peca = originPeca;
+                                    let mo = originMO;
+                                    if (sliderValue < 0) {{
+                                        mo = floorMO + (originMO - floorMO) * (1 - ratio);
+                                        peca = originPeca + (originMO - mo);
+                                    }} else if (sliderValue > 0) {{
+                                        peca = floorPeca + (originPeca - floorPeca) * (1 - ratio);
+                                        mo = originMO + (originPeca - peca);
+                                    }}
+                                    vendaPecaEl.textContent = format(peca);
+                                    vendaMOEl.textContent = format(mo);
+
+                                    updateFill(sliderValue);
                                 }}
                         
                                 slider.addEventListener('input', e => update(e.target.value));

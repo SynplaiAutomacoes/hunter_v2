@@ -1404,6 +1404,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if slider_value is not None:
             budget.slider = int(slider_value)
             budget.save(update_fields=["slider"])
+            budget.invalidate_pricing_snapshot_cache()
 
         display_products_value = budget.display_total_products_by_slider
         display_third_party_value = budget.display_total_third_party_by_slider
@@ -1412,13 +1413,13 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
         services_list_html = build_step5_services_list_html(budget=budget_for_lists, oob=True)
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.total_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
                     {display_products_value}
                 </span>
                 <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap">
                     {display_third_party_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}" data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
                     {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">

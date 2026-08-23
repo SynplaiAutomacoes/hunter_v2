@@ -102,7 +102,7 @@ def configure_budget_step5_form(form):
                                                 <span class="font-medium">Valor de venda peças</span>
                                                 <span id="display-venda-pecas"
                                                       class="font-bold text-success whitespace-nowrap"
-                                                      data-base-val="{venda_pecas.amount}"
+                                                      data-base-val="{budget.total_products_value.amount}"
                                                       data-cost-val="{custo_pecas.amount}"
                                                       data-frete-val="{custo_frete_pecas.amount}">
                                                     {venda_pecas}
@@ -124,8 +124,8 @@ def configure_budget_step5_form(form):
                                                 <span class="font-medium">Valor de venda mão de obra</span>
                                                 <span id="display-venda-mo"
                                                       class="font-bold text-success whitespace-nowrap"
-                                                      data-base-val="{venda_mao_obra.amount}"
-                                                      data-cost-val="{custo_total_mao_obra.amount}">
+                                                      data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}"
+                                                      data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
                                                     {venda_mao_obra}
                                                 </span>
                                             </div>
