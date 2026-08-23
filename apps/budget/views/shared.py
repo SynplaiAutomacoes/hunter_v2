@@ -213,6 +213,21 @@ def reset_steps_after_step_4(budget):
         )
 
 
+def add_kit_to_budget(*, workshop, budget: Budget, kit) -> BudgetItem:
+    item, created = BudgetItem.objects.get_or_create(
+        workshop=workshop,
+        budget=budget,
+        kit=kit,
+        defaults={"quantity": 1},
+    )
+    if not created:
+        item.quantity += 1
+        item.save(update_fields=["quantity"])
+    reset_steps_after_step_4(budget)
+    sync_linked_workorder_from_budget(budget)
+    return item
+
+
 def sync_linked_workorder_from_budget(budget: Budget) -> None:
     workorder = WorkOrder.objects.filter(budget=budget).order_by("id").first()
     if workorder is None:

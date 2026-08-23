@@ -8,7 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -19,7 +19,8 @@ from djmoney.money import Money
 
 from apps.catalog.fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_model_options, get_vehicle_model_metadata, register_catalog_access_and_maybe_sync
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
-from apps.budget.models import BudgetItem
+from apps.budget.models import Budget, BudgetItem
+from apps.budget.views.shared import add_kit_to_budget, _check_concurrent_budget_lock, _is_budget_edit_locked
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -162,10 +163,15 @@ class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixi
             return next_url
         return ""
 
+    def _get_budget_id(self) -> int | None:
+        raw_budget_id = str(self.request.GET.get("budget_id") or self.request.POST.get("budget_id") or "").strip()
+        return int(raw_budget_id) if raw_budget_id.isdigit() else None
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
         kwargs["next_url"] = self._get_next_url()
+        kwargs["budget_id"] = self._get_budget_id()
         return kwargs
 
     def get_success_url(self):
@@ -177,10 +183,25 @@ class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixi
         context["back_url"] = self._get_next_url() or reverse("catalog:kits_list")
         return context
 
+    def _add_created_kit_to_budget(self, kit: Kit) -> None:
+        budget_id = self._get_budget_id()
+        if budget_id is None:
+            return
+
+        budget = Budget.objects.filter(pk=budget_id, workshop=self.workshop).first()
+        if budget is None:
+            return
+
+        if _is_budget_edit_locked(budget) or not _check_concurrent_budget_lock(self.request, budget):
+            messages.warning(self.request, "O kit foi cadastrado, mas não pôde ser adicionado ao orçamento porque ele está bloqueado.")
+            return
+
+        add_kit_to_budget(workshop=self.workshop, budget=budget, kit=kit)
+
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         try:
-            return super().form_valid(form)
+            self.object = form.save()
         except IntegrityError:
             logger.exception(
                 "Falha de integridade ao criar kit",
@@ -191,6 +212,9 @@ class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixi
             )
             form.add_error("name", "Já existe um kit com este nome na oficina ativa.")
             return self.form_invalid(form)
+
+        self._add_created_kit_to_budget(self.object)
+        return HttpResponseRedirect(self.get_success_url())
 
     def form_invalid(self, form):
         logger.warning(
