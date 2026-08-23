@@ -55,7 +55,7 @@ from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 from apps.collaborators.models import WorkshopCollaborator
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _budget_update_url, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
 from ..services.budget_linking_service import (
     LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
@@ -1544,9 +1544,7 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         current_budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
-        if not is_budget_linkable(current_budget):
-            return HttpResponse(LINKED_COPY_CLOSED_WORKORDER_MESSAGE, status=400)
-        relate = request.POST.get("relate_budget") == "yes"
+        relate = is_budget_linkable(current_budget) and request.POST.get("relate_budget") == "yes"
 
         try:
             with transaction.atomic():
@@ -1571,14 +1569,15 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 )
                 new_budget.save()
         except Exception as e:
+            logger.exception("budget_reference_copy_failed", extra={"source_budget_id": current_budget.pk})
             return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
 
-        # Redirect or trigger HTMX reload
-        response = HttpResponse("", status=200)
-        redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
-        triggers = {"showToast": {"message": "Orçamento criado com sucesso.", "type": "success"}, "redirectAfterToast": {"url": redirect_url, "delay": 500}}
-        response["HX-Trigger"] = json.dumps(triggers)
-        return response
+        redirect_url = _budget_update_url(new_budget.pk, 1)
+        if request.headers.get("HX-Request"):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = redirect_url
+            return response
+        return redirect(redirect_url)
 
 
 class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
