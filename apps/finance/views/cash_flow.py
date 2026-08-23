@@ -1,42 +1,43 @@
 from __future__ import annotations
 
-import calendar
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 from typing import Any
 from urllib.parse import urlencode
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
+from django.http import HttpResponse
 from django.urls import reverse
-from django.utils import timezone
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, View
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+
+from apps.core.domain.contracts.documents import DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response, render_template_request_to_pdf
 
 from apps.core.infrastructure.search import apply_text_search
-from apps.core.presentation.views import MESES_PT
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
-from apps.finance.services.reports import build_financial_overview
+from apps.finance.services.reports import FinancialOverview, build_financial_overview
 from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
 
 _SORTABLE_ATTRS = frozenset({"due_date"})
 _DEFAULT_SORT = "-due_date"
-
-
-def month_bounds(*, year: int, month: int) -> tuple[date, date]:
-    last_day = calendar.monthrange(year, month)[1]
-    return date(year, month, 1), date(year, month, last_day)
+_PAGE_SIZE = 40
 
 
 class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = FinancialMovement
     template_name = "finance/cash_flow/cash_flow.html"
+    htmx_template_name = "finance/cash_flow/partials/cash_flow_rows.html"
     workshop_permission_codename = "view_financialmovement"
 
     @staticmethod
@@ -61,65 +62,22 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         except ValueError:
             return None
 
-    def _parse_month_year(self) -> tuple[int, int]:
-        today = timezone.localdate()
-        mes_param = self.request.GET.get("mes")
-        ano_param = self.request.GET.get("ano")
-
-        selected_month = int(mes_param) if mes_param and str(mes_param).isdigit() else today.month
-        if selected_month < 1 or selected_month > 12:
-            selected_month = today.month
-
-        selected_year = today.year
-        if ano_param:
-            try:
-                selected_year = int(str(ano_param).replace(",", "").replace(".", ""))
-            except ValueError:
-                selected_year = today.year
-
-        return selected_year, selected_month
-
     def _resolve_period(self) -> dict[str, Any]:
-        raw_start = self._parse_date_param(self.request.GET.get("data_inicial"))
-        raw_end = self._parse_date_param(self.request.GET.get("data_final"))
-        today = timezone.localdate()
-
-        # Explicit date filters from the advanced modal take precedence.
-        if raw_start is not None or raw_end is not None:
-            start_date = raw_start
-            end_date = raw_end
-            if start_date and end_date:
-                month_start, month_end = month_bounds(year=start_date.year, month=start_date.month)
-                if start_date == month_start and end_date == month_end:
-                    return {
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "selected_year": start_date.year,
-                        "selected_month": start_date.month,
-                        "period_is_custom": False,
-                    }
-            anchor = start_date or end_date or today
-            return {
-                "start_date": start_date,
-                "end_date": end_date,
-                "selected_year": anchor.year,
-                "selected_month": anchor.month,
-                "period_is_custom": True,
-            }
-
-        if self.request.GET.get("mes") or self.request.GET.get("ano"):
-            selected_year, selected_month = self._parse_month_year()
-        else:
-            selected_year, selected_month = today.year, today.month
-
-        start_date, end_date = month_bounds(year=selected_year, month=selected_month)
+        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
+        end_date = self._parse_date_param(self.request.GET.get("data_final"))
         return {
             "start_date": start_date,
             "end_date": end_date,
-            "selected_year": selected_year,
-            "selected_month": selected_month,
-            "period_is_custom": False,
+            "period_is_custom": start_date is not None or end_date is not None,
         }
+
+    def _parse_page(self) -> int:
+        raw_page = str(self.request.GET.get("page") or "1").strip()
+        try:
+            page = int(raw_page)
+        except ValueError:
+            return 1
+        return page if page > 0 else 1
 
     def _parse_sort(self) -> str:
         sort = str(self.request.GET.get("sort") or _DEFAULT_SORT).strip()
@@ -135,8 +93,6 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         return {
             "start_date": period["start_date"],
             "end_date": period["end_date"],
-            "selected_year": period["selected_year"],
-            "selected_month": period["selected_month"],
             "period_is_custom": period["period_is_custom"],
             "agent": self.request.GET.get("agente", "").strip(),
             "payment_method_id": self.request.GET.get("forma_pagamento"),
@@ -145,21 +101,17 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "bank_account_id": self.request.GET.get("conta_bancaria"),
             "search": self.request.GET.get("search", "").strip(),
             "sort": self._parse_sort(),
+            "page": self._parse_page(),
         }
 
     def _build_query_params(self, *, overrides: dict[str, str | None] | None = None, exclude: set[str] | None = None) -> dict[str, str]:
         filter_params = self._get_filter_params()
         params: dict[str, str] = {}
 
-        if filter_params["period_is_custom"]:
-            if filter_params["start_date"]:
-                params["data_inicial"] = filter_params["start_date"].isoformat()
-            if filter_params["end_date"]:
-                params["data_final"] = filter_params["end_date"].isoformat()
-        else:
-            params["mes"] = str(filter_params["selected_month"])
-            params["ano"] = str(filter_params["selected_year"])
-
+        if filter_params["start_date"]:
+            params["data_inicial"] = filter_params["start_date"].isoformat()
+        if filter_params["end_date"]:
+            params["data_final"] = filter_params["end_date"].isoformat()
         if filter_params["agent"]:
             params["agente"] = filter_params["agent"]
         if filter_params["payment_method_id"]:
@@ -197,10 +149,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
     def _sort_toggle_url(self, *, attr: str) -> str:
         current = self._parse_sort()
-        if current == f"-{attr}":
-            next_sort = attr
-        else:
-            next_sort = f"-{attr}"
+        next_sort = attr if current == f"-{attr}" else f"-{attr}"
         return self._build_url(overrides={"sort": next_sort})
 
     @staticmethod
@@ -208,21 +157,6 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         if getattr(workorder, "budget", None) is None:
             return "-"
         return build_workorder_revenue_description(workorder=workorder)
-
-    @staticmethod
-    def _resolve_payment_method_summary(payments: list[WorkOrderPaymentMethod]) -> str:
-        method_names: list[str] = []
-        for payment in payments:
-            payment_method = getattr(payment, "payment_method", None)
-            description = getattr(payment_method, "description", None)
-            if description and description not in method_names:
-                method_names.append(str(description))
-
-        if not method_names:
-            return "-"
-        if len(method_names) == 1:
-            return method_names[0]
-        return "Múltiplos"
 
     def _apply_workorder_payment_aware_date_filter(self, queryset, *, lookup: str, value: date):
         return queryset.filter(
@@ -283,11 +217,23 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                 queryset = queryset.filter(bank_account_id=filter_params["bank_account_id"])
 
         if filter_params["search"]:
-            queryset = apply_text_search(queryset, search_value=filter_params["search"], lookups=("description", "source__name", "nf_number", "workorder__budget__customer__name")).distinct()
+            queryset = apply_text_search(
+                queryset,
+                search_value=filter_params["search"],
+                lookups=("description", "source__name", "nf_number", "workorder__budget__customer__name"),
+            ).distinct()
 
         return queryset
 
-    def _filter_workorder_payments_for_rows(self, *, payments: list[WorkOrderPaymentMethod], filter_start_date: date | None, filter_end_date: date | None, payment_method_id: str | None, bank_account_id: str | None) -> list[WorkOrderPaymentMethod]:
+    def _filter_workorder_payments_for_rows(
+        self,
+        *,
+        payments: list[WorkOrderPaymentMethod],
+        filter_start_date: date | None,
+        filter_end_date: date | None,
+        payment_method_id: str | None,
+        bank_account_id: str | None,
+    ) -> list[WorkOrderPaymentMethod]:
         reconciled_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_workorder_payment_movements", {})
         filtered_payments = []
         for payment in payments:
@@ -315,9 +261,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     def _build_workorder_payment_row(self, *, movement: FinancialMovement, payment: WorkOrderPaymentMethod) -> dict[str, object]:
         workorder = movement.workorder
         reconciled_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_workorder_payment_movements", {})
-        payment_movement = reconciled_movement_by_payment_id.get(payment.pk)
-        if payment_movement is None:
-            payment_movement = movement
+        payment_movement = reconciled_movement_by_payment_id.get(payment.pk) or movement
         customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
         payment_method = getattr(payment_movement, "payment_method", None) or getattr(payment, "payment_method", None)
         agent, description = resolve_payroll_movement_display(movement=payment_movement, user=self.request.user, workshop=self.workshop, request=self.request)
@@ -341,13 +285,12 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "details": [],
         }
 
-    def _build_financial_movement_row(self, movement: FinancialMovement, filter_start_date: date | None, filter_end_date: date | None) -> dict[str, object] | None:
+    def _build_financial_movement_row(self, movement: FinancialMovement) -> dict[str, object] | None:
         workorder = getattr(movement, "workorder", None)
         customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
 
         if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None:
             return None
-
         if not movement.is_reconciled:
             return None
 
@@ -373,7 +316,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         sort_attr = sort.lstrip("-")
         reverse = sort.startswith("-")
         if sort_attr == "due_date":
-            rows.sort(key=lambda r: (r["due_date"] or date.min, str(r["component"])), reverse=reverse)
+            rows.sort(key=lambda row: (row["due_date"] or date.min, str(row["component"])), reverse=reverse)
         return rows
 
     def _get_financial_movement_report_rows(self) -> list[dict[str, object]]:
@@ -414,82 +357,233 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                     )
                 )
                 continue
-            row = self._build_financial_movement_row(movement, filter_params["start_date"], filter_params["end_date"])
+            row = self._build_financial_movement_row(movement)
             if row is not None:
                 rows.append(row)
 
         return self._sort_rows(rows, sort=filter_params["sort"])
 
-    def _has_active_advanced_filters(self, filter_params: dict[str, Any]) -> bool:
-        return bool(
-            filter_params["agent"]
-            or filter_params["payment_method_id"]
-            or filter_params["budget_plan_id"]
-            or filter_params["movement_type"]
-            or filter_params["search"]
-            or filter_params["period_is_custom"]
-            or filter_params["bank_account_id"]
-            or filter_params["sort"] != _DEFAULT_SORT
-            or (not filter_params["period_is_custom"] and (filter_params["selected_month"] != timezone.localdate().month or filter_params["selected_year"] != timezone.localdate().year))
-        )
+    def _paginate_rows(self, rows: list[dict[str, object]], *, page: int) -> tuple[list[dict[str, object]], bool]:
+        start = (page - 1) * _PAGE_SIZE
+        end = start + _PAGE_SIZE
+        return rows[start:end], end < len(rows)
 
-    def get_context_data(self, **kwargs):
+    def _build_report_url(self, *, view_name: str, account_id: str | None) -> str:
+        params = self._build_query_params(overrides={"conta_bancaria": account_id or None, "page": None})
+        base = reverse(view_name)
+        if not params:
+            return base
+        return f"{base}?{urlencode(params)}"
+
+    def _resolve_account_title(self, *, account_id: str | None) -> str:
+        if not account_id:
+            return "Todas as contas"
+        if account_id == "none":
+            return "Sem Vínculo"
+        try:
+            account = BankAccount.objects.get(pk=account_id, workshop=self.workshop)
+        except (BankAccount.DoesNotExist, ValueError, TypeError):
+            return "Conta bancária"
+        return str(account)
+
+    def _build_full_report_context(self) -> dict[str, Any]:
+        filter_params = self._get_filter_params()
+        account_id = str(filter_params.get("bank_account_id") or "")
+        rows = self._get_financial_movement_report_rows()
+        overview = build_financial_overview(**self._build_overview_kwargs(filter_params, bank_account_id=account_id or None))
+        account_title = self._resolve_account_title(account_id=account_id or None)
+        start_date = filter_params["start_date"]
+        end_date = filter_params["end_date"]
+        if start_date or end_date:
+            start_label = start_date.strftime("%d/%m/%Y") if start_date else "…"
+            end_label = end_date.strftime("%d/%m/%Y") if end_date else "…"
+            period_label = f"{start_label} a {end_label}"
+        else:
+            period_label = "Todo o período"
+
+        return {
+            "workshop": self.workshop,
+            "account_title": account_title,
+            "report_title": f"Fluxo de contas — {account_title}",
+            "period_label": period_label,
+            "filter_start_date": start_date,
+            "filter_end_date": end_date,
+            "financial_movement_report_rows": rows,
+            "record_count": len(rows),
+            "total_value": format_money(overview.confirmed_result),
+            "total_tone": self._resolve_result_tone(overview.confirmed_result),
+            "pdf_url": self._build_report_url(view_name="finance:cash_flow_report_pdf", account_id=account_id or None),
+            "excel_url": self._build_report_url(view_name="finance:cash_flow_report_excel", account_id=account_id or None),
+        }
+
+    def _build_account_card(self, *, name: str, account_id: str, overview: FinancialOverview, selected_account_id: str | None) -> dict[str, object]:
+        return {
+            "name": name,
+            "account_id": account_id,
+            "value": format_money(overview.confirmed_result),
+            "tone": self._resolve_result_tone(overview.confirmed_result),
+            "url": self._build_url(overrides={"conta_bancaria": account_id or None, "page": None}),
+            "report_url": self._build_report_url(view_name="finance:cash_flow_report_modal", account_id=account_id or None),
+            "is_selected": (selected_account_id or "") == account_id,
+        }
+
+    def _build_overview_kwargs(self, filter_params: dict[str, Any], *, bank_account_id: str | None) -> dict[str, Any]:
+        return {
+            "workshop": self.workshop,
+            "start_date": filter_params["start_date"],
+            "end_date": filter_params["end_date"],
+            "search": filter_params["search"],
+            "direction": filter_params["movement_type"],
+            "paid_status": "paid",
+            "reconciliation_status": "reconciled",
+            "budget_plan_ids": [filter_params["budget_plan_id"]] if filter_params["budget_plan_id"] else None,
+            "bank_account_id": bank_account_id or None,
+            "agent": filter_params["agent"],
+            "payment_method_id": filter_params["payment_method_id"],
+        }
+
+    def _has_active_filters(self, filter_params: dict[str, Any]) -> bool:
+        return bool(filter_params["agent"] or filter_params["payment_method_id"] or filter_params["budget_plan_id"] or filter_params["movement_type"] or filter_params["search"] or filter_params["period_is_custom"] or filter_params["bank_account_id"] or filter_params["sort"] != _DEFAULT_SORT)
+
+    def get_template_names(self) -> list[str]:
+        if bool(getattr(self.request, "htmx", False)) and self._parse_page() > 1:
+            return [self.htmx_template_name]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         filter_params = self._get_filter_params()
-        today = timezone.localdate()
+        bank_accounts = list(BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name"))
+        selected_account_id = str(filter_params.get("bank_account_id") or "")
 
-        bank_account_id = filter_params.get("bank_account_id")
-        selected_account_name = None
-        if bank_account_id:
-            if bank_account_id == "none":
-                selected_account_name = "Sem Vínculo"
-            else:
-                try:
-                    selected_account = BankAccount.objects.get(pk=bank_account_id, workshop=self.workshop)
-                    selected_account_name = str(selected_account)
-                except (BankAccount.DoesNotExist, ValueError):
-                    selected_account_name = None
+        account_cards = [
+            self._build_account_card(
+                name="Todas as contas",
+                account_id="",
+                overview=build_financial_overview(**self._build_overview_kwargs(filter_params, bank_account_id=None)),
+                selected_account_id=selected_account_id,
+            )
+        ]
+        for account in bank_accounts:
+            account_cards.append(
+                self._build_account_card(
+                    name=str(account),
+                    account_id=str(account.pk),
+                    overview=build_financial_overview(**self._build_overview_kwargs(filter_params, bank_account_id=str(account.pk))),
+                    selected_account_id=selected_account_id,
+                )
+            )
 
-        general_overview = build_financial_overview(
-            workshop=self.workshop,
-            start_date=filter_params["start_date"],
-            end_date=filter_params["end_date"],
-            search=filter_params["search"],
-            direction=filter_params["movement_type"],
-            paid_status="paid",
-            reconciliation_status="reconciled",
-            budget_plan_ids=[filter_params["budget_plan_id"]] if filter_params["budget_plan_id"] else None,
-            bank_account_id=bank_account_id if bank_account_id else None,
-            agent=filter_params["agent"],
-            payment_method_id=filter_params["payment_method_id"],
-        )
-
+        all_rows = self._get_financial_movement_report_rows()
+        page = filter_params["page"]
+        page_rows, has_next_page = self._paginate_rows(all_rows, page=page)
         sort = filter_params["sort"]
         sort_attr = sort.lstrip("-")
-        context["saldo_atual"] = {
-            "value": format_money(general_overview.confirmed_result),
-            "tone": self._resolve_result_tone(general_overview.confirmed_result),
-            "account_name": selected_account_name,
-        }
+
+        context["account_cards"] = account_cards
         context["filter_start_date"] = filter_params["start_date"]
         context["filter_end_date"] = filter_params["end_date"]
         context["period_is_custom"] = filter_params["period_is_custom"]
-        context["mes_selecionado"] = filter_params["selected_month"]
-        context["ano_selecionado"] = filter_params["selected_year"]
-        context["meses"] = [(index, name) for index, name in enumerate(MESES_PT) if index > 0]
-        context["anos"] = list(range(today.year - 5, today.year + 2))
-        context["financial_movement_report_rows"] = self._get_financial_movement_report_rows()
+        context["financial_movement_report_rows"] = page_rows
+        context["has_next_page"] = has_next_page
+        context["next_page_url"] = self._build_url(overrides={"page": str(page + 1)}) if has_next_page else None
         context["clear_filters_url"] = reverse("finance:cash_flow")
-        context["has_active_filters"] = self._has_active_advanced_filters(filter_params)
-        context["preserved_query_params"] = self._build_query_params()
+        context["has_active_filters"] = self._has_active_filters(filter_params)
+        context["preserved_query_params"] = self._build_query_params(exclude={"page"})
         context["sort"] = sort
         context["sort_due_date_url"] = self._sort_toggle_url(attr="due_date")
         context["sort_due_date_is_asc"] = sort_attr == "due_date" and not sort.startswith("-")
         context["sort_due_date_is_desc"] = sort_attr == "due_date" and sort.startswith("-")
-
-        context["bank_accounts"] = BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name")
+        context["bank_accounts"] = bank_accounts
         context["payment_methods"] = PaymentMethod.objects.filter(workshop=self.workshop).order_by("description")
         context["budget_plans"] = FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key")
         context["movement_types"] = FinancialMovement.MovementDirection.choices
-
         return context
+
+
+class CashFlowReportModalView(CashFlowView):
+    template_name = "finance/cash_flow/partials/cash_flow_report_modal.html"
+
+    def get_template_names(self) -> list[str]:
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super(TemplateView, self).get_context_data(**kwargs)
+        context.update(self._build_full_report_context())
+        context["is_pdf"] = False
+        return context
+
+
+class CashFlowReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = FinancialMovement
+    workshop_permission_codename = "view_financialmovement"
+
+    def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        report_view = CashFlowView()
+        report_view.setup(request)
+        report_view.request = request
+        report_view.workshop = self.workshop
+        context = report_view._build_full_report_context()
+        context["is_pdf"] = True
+        document = render_template_request_to_pdf(
+            DocumentRenderRequest(
+                template_name="finance/cash_flow/pdf/cash_flow_report.html",
+                context=context,
+                filename=f"fluxo_de_contas_{context['account_title']}.pdf",
+            )
+        )
+        return build_pdf_http_response(document=document, download=True)
+
+
+class CashFlowReportExcelView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = FinancialMovement
+    workshop_permission_codename = "view_financialmovement"
+
+    def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        report_view = CashFlowView()
+        report_view.setup(request)
+        report_view.request = request
+        report_view.workshop = self.workshop
+        context = report_view._build_full_report_context()
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Fluxo de contas"
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(fill_type="solid", fgColor="1E3A8A")
+        headers = ["Tipo", "Data", "Agente", "Origem", "Descrição", "Plano Orçamentário", "Conta Bancária", "Tipo Pagamento", "Valor"]
+        for column, header in enumerate(headers, start=1):
+            cell = sheet.cell(row=1, column=column, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+
+        sheet.cell(row=2, column=1, value="Conta")
+        sheet.cell(row=2, column=2, value=str(context["account_title"]))
+        sheet.cell(row=3, column=1, value="Período")
+        sheet.cell(row=3, column=2, value=str(context["period_label"]))
+        sheet.cell(row=4, column=1, value="Total")
+        sheet.cell(row=4, column=2, value=str(context["total_value"]))
+
+        start_row = 6
+        for index, row in enumerate(context["financial_movement_report_rows"], start=start_row):
+            due_date = row.get("due_date")
+            total = row.get("total") or {}
+            sheet.cell(row=index, column=1, value=str((row.get("type_badge") or {}).get("text") or "-"))
+            sheet.cell(row=index, column=2, value=due_date.strftime("%d/%m/%Y") if hasattr(due_date, "strftime") else "-")
+            sheet.cell(row=index, column=3, value=str(row.get("agent") or "-"))
+            sheet.cell(row=index, column=4, value=str(row.get("origin") or "-"))
+            sheet.cell(row=index, column=5, value=str(row.get("description") or "-"))
+            sheet.cell(row=index, column=6, value=str(row.get("budget_plan") or "-"))
+            sheet.cell(row=index, column=7, value=str(row.get("account") or "-"))
+            sheet.cell(row=index, column=8, value=str(row.get("payment_type") or "-"))
+            sheet.cell(row=index, column=9, value=str(total.get("text") or "-"))
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        filename = f"fluxo_de_contas_{context['account_title']}.xlsx".replace(" ", "_")
+        response = HttpResponse(buffer.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "no-store"
+        return response

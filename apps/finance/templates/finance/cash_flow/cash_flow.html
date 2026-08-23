@@ -8,10 +8,45 @@
             <p class="text-base-content/70">Extrato das movimentações conciliadas da oficina (créditos e débitos).</p>
         </div>
 
-        <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] xl:items-stretch">
-            <div class="card border border-base-300 bg-base-100 shadow-xl">
-                <div class="card-body gap-4 p-5 md:p-6">
-                    <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
+        <div class="flex flex-wrap gap-6 items-start">
+            {% for card in account_cards %}
+                <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)] {% if card.is_selected %}ring-2 ring-primary{% endif %}">
+                    <a href="{{ card.url }}" class="no-underline text-inherit">
+                        <div class="stat-title text-base-content/70">
+                            {{ card.name }}
+                            <p class="text-sm font-semibold {% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% endif %}">
+                                {% if card.tone == 'credit' %}Crédito{% elif card.tone == 'debit' %}Débito{% else %}Saldo{% endif %}
+                            </p>
+                        </div>
+                    </a>
+                    <div class="stat-value mt-2 flex items-center gap-2 {% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% elif card.tone == 'neutral' %}text-base-content{% endif %}">
+                        <a
+                            href="{{ card.url }}"
+                            class="hover:opacity-70 transition-opacity no-underline {% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% else %}text-inherit{% endif %}"
+                        >
+                            {{ card.value }}
+                        </a>
+                        <button
+                            type="button"
+                            class="flex items-center text-base-content/30 {% if card.tone == 'debit' %}hover:text-error{% else %}hover:text-success{% endif %}"
+                            title="Visualizar relação"
+                            hx-get="{{ card.report_url }}"
+                            hx-target="#cashflow-report-modal-content"
+                            hx-swap="innerHTML"
+                            onclick="event.preventDefault(); event.stopPropagation(); document.getElementById('cashflowReportModal').showModal()"
+                        >
+                            <span class="material-icons" style="font-size: 22px;">visibility</span>
+                        </button>
+                    </div>
+                    <div class="stat-desc">Resultado conciliado</div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="card border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body gap-6 p-5 md:p-6">
+                <div class="flex flex-col gap-4">
+                    <div class="flex flex-col gap-3 lg:flex-row lg:items-end">
                         <form
                             method="get"
                             action="{% url 'finance:cash_flow' %}"
@@ -20,14 +55,10 @@
                             class="flex w-full flex-1 flex-col gap-3 sm:flex-row sm:items-end"
                         >
                             {% for key, value in preserved_query_params.items %}
-                                {% if key != 'conta_bancaria' and key != 'mes' and key != 'ano' and key != 'data_inicial' and key != 'data_final' %}
+                                {% if key != 'conta_bancaria' %}
                                     <input type="hidden" name="{{ key }}" value="{{ value }}" />
                                 {% endif %}
                             {% endfor %}
-                            {% if period_is_custom %}
-                                {% if filter_start_date %}<input type="hidden" name="data_inicial" value="{{ filter_start_date|date:'Y-m-d' }}" />{% endif %}
-                                {% if filter_end_date %}<input type="hidden" name="data_final" value="{{ filter_end_date|date:'Y-m-d' }}" />{% endif %}
-                            {% endif %}
 
                             <div class="w-full sm:min-w-[14rem] sm:flex-1">
                                 <label for="cashflow-bank-account" class="label py-1 text-xs font-semibold uppercase tracking-wider text-base-content/60">Conta bancária</label>
@@ -39,195 +70,140 @@
                                     {% endfor %}
                                 </select>
                             </div>
-
-                            {% if not period_is_custom %}
-                                <div class="flex w-full items-end gap-2 sm:w-auto">
-                                    <div>
-                                        <label for="cashflow-month" class="label py-1 text-xs font-semibold uppercase tracking-wider text-base-content/60">Mês</label>
-                                        <select name="mes" id="cashflow-month" class="select select-bordered">
-                                            {% for val, name in meses %}
-                                                <option value="{{ val }}" {% if val == mes_selecionado %}selected{% endif %}>{{ name }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label for="cashflow-year" class="label py-1 text-xs font-semibold uppercase tracking-wider text-base-content/60">Ano</label>
-                                        <select name="ano" id="cashflow-year" class="select select-bordered">
-                                            {% for val in anos %}
-                                                <option value="{{ val }}" {% if val == ano_selecionado %}selected{% endif %}>{{ val|stringformat:"d" }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                </div>
-                            {% else %}
-                                <div class="rounded-lg border border-base-300 bg-base-200/40 px-3 py-2 text-sm text-base-content/70">
-                                    Período personalizado:
-                                    <span class="font-semibold text-base-content">
-                                        {{ filter_start_date|date:"d/m/Y"|default:"…" }}
-                                        a
-                                        {{ filter_end_date|date:"d/m/Y"|default:"…" }}
-                                    </span>
-                                </div>
-                            {% endif %}
                         </form>
-                    </div>
-                </div>
-            </div>
 
-            <div class="card border border-base-300 bg-base-100 shadow-xl">
-                <div class="flex h-full flex-col justify-between gap-4 p-5 md:p-6">
-                    <div>
-                        <h2 class="text-lg font-semibold text-base-content md:text-xl">
-                            {% if saldo_atual.account_name %}
-                                Saldo da Conta: {{ saldo_atual.account_name }}
-                            {% else %}
-                                Todas as contas
+                        <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto lg:pb-0" x-data>
+                            <button
+                                type="button"
+                                class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
+                                aria-controls="cashflow-filter-modal"
+                                aria-haspopup="dialog"
+                                @click="$refs.filterModal.showModal()"
+                            >
+                                <span class="material-icons text-[18px]" aria-hidden="true">filter_list</span>
+                                Filtros
+                            </button>
+
+                            {% if has_active_filters %}
+                                <a href="{{ clear_filters_url }}" class="btn btn-error flex-1 text-white sm:w-auto sm:flex-none">Limpar Filtros</a>
                             {% endif %}
-                        </h2>
-                        <p class="mt-1 text-sm text-base-content/60">
-                            {{ filter_start_date|date:"d/m/Y"|default:"…" }}
-                            a
-                            {{ filter_end_date|date:"d/m/Y"|default:"…" }}
-                        </p>
-                    </div>
-                    <div class="flex items-end justify-between gap-4">
-                        <p class="text-sm font-semibold uppercase tracking-wider text-base-content/60">Resultado do período</p>
-                        <p class="text-2xl font-black whitespace-nowrap {% if saldo_atual.tone == 'neutral' %}text-base-content{% endif %}"{% if saldo_atual.tone == 'credit' %} style="color: #166534;"{% elif saldo_atual.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ saldo_atual.value }}</p>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <div class="card border border-base-300 bg-base-100 shadow-xl">
-            <div class="card-body gap-6 p-5 md:p-6">
+                            <dialog
+                                id="cashflow-filter-modal"
+                                class="modal"
+                                x-ref="filterModal"
+                                @click="if ($event.target === $el) $el.close()"
+                            >
+                                <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+                                    <form method="get" action="{% url 'finance:cash_flow' %}">
+                                        <h3 class="text-base font-semibold text-base-content">Filtros avançados</h3>
+
+                                        <div class="mt-4 space-y-4">
+                                            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                                <div>
+                                                    <label for="cashflow-filter-data-inicial" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Data inicial</label>
+                                                    <input type="date" name="data_inicial" id="cashflow-filter-data-inicial" value="{% if filter_start_date %}{{ filter_start_date|date:'Y-m-d' }}{% endif %}" class="input input-bordered w-full" />
+                                                </div>
+                                                <div>
+                                                    <label for="cashflow-filter-data-final" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Data final</label>
+                                                    <input type="date" name="data_final" id="cashflow-filter-data-final" value="{% if filter_end_date %}{{ filter_end_date|date:'Y-m-d' }}{% endif %}" class="input input-bordered w-full" />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label for="cashflow-filter-agente" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Agente (Cliente/Fornecedor)</label>
+                                                <input type="text" name="agente" id="cashflow-filter-agente" placeholder="Nome do agente..." value="{{ request.GET.agente|default:'' }}" class="input input-bordered w-full" />
+                                            </div>
+
+                                            <div>
+                                                <label for="cashflow-filter-tipo-movimentacao" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Tipo</label>
+                                                <select name="tipo_movimentacao" id="cashflow-filter-tipo-movimentacao" class="select select-bordered w-full">
+                                                    <option value="">Todos</option>
+                                                    {% for val, label in movement_types %}
+                                                        <option value="{{ val }}" {% if request.GET.tipo_movimentacao == val %}selected{% endif %}>{{ label }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label for="cashflow-filter-forma-pagamento" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Forma de Pagamento</label>
+                                                <select name="forma_pagamento" id="cashflow-filter-forma-pagamento" class="select select-bordered w-full">
+                                                    <option value="">Todas</option>
+                                                    {% for pm in payment_methods %}
+                                                        <option value="{{ pm.pk|unlocalize }}" {% if request.GET.forma_pagamento == pm.pk|stringformat:"s" %}selected{% endif %}>{{ pm.description }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label for="cashflow-filter-plano-orcamentario" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Plano Orçamentário</label>
+                                                <select name="plano_orcamentario" id="cashflow-filter-plano-orcamentario" class="select select-bordered w-full">
+                                                    <option value="">Todos</option>
+                                                    {% for plan in budget_plans %}
+                                                        <option value="{{ plan.pk|unlocalize }}" {% if request.GET.plano_orcamentario == plan.pk|stringformat:"s" %}selected{% endif %}>{{ plan }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+
+                                            {% if request.GET.conta_bancaria %}
+                                                <input type="hidden" name="conta_bancaria" value="{{ request.GET.conta_bancaria }}" />
+                                            {% endif %}
+                                            {% if request.GET.search %}
+                                                <input type="hidden" name="search" value="{{ request.GET.search }}" />
+                                            {% endif %}
+                                            {% if request.GET.sort %}
+                                                <input type="hidden" name="sort" value="{{ request.GET.sort }}" />
+                                            {% endif %}
+                                        </div>
+
+                                        <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                                            <button type="button" class="btn-form-cancel" @click="$refs.filterModal.close()">Cancelar</button>
+                                            <button type="submit" class="btn btn-primary">Filtrar</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </dialog>
+                        </div>
+                    </div>
+
+                    {% if period_is_custom %}
+                        <p class="text-sm text-base-content/70">
+                            Período:
+                            <span class="font-semibold text-base-content">
+                                {{ filter_start_date|date:"d/m/Y"|default:"…" }}
+                                a
+                                {{ filter_end_date|date:"d/m/Y"|default:"…" }}
+                            </span>
+                        </p>
+                    {% endif %}
+                </div>
+
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div class="flex flex-col gap-2">
-                        <h2 class="text-xl font-semibold text-base-content">
-                            Extrato do período
-                            {% if filter_start_date or filter_end_date %}
-                                <span class="text-base font-normal text-base-content/70">
-                                    {{ filter_start_date|date:"d/m/Y"|default:"" }}
-                                    {% if filter_start_date and filter_end_date %} a {% endif %}
-                                    {{ filter_end_date|date:"d/m/Y"|default:"" }}
-                                </span>
+                        <h2 class="text-xl font-semibold text-base-content">Extrato</h2>
+                        <p class="text-sm text-base-content/70">Movimentações conciliadas, incluindo pagamentos de OS em linhas individuais.</p>
+                    </div>
+
+                    <form method="get" action="{% url 'finance:cash_flow' %}" class="flex flex-1 items-center gap-2 sm:w-auto sm:flex-none lg:flex-initial">
+                        {% for key, value in preserved_query_params.items %}
+                            {% if key != 'search' %}
+                                <input type="hidden" name="{{ key }}" value="{{ value }}" />
                             {% endif %}
-                        </h2>
-                        <p class="text-sm text-base-content/70">Movimentações conciliadas no período, incluindo pagamentos de OS em linhas individuais.</p>
-                    </div>
-
-                    <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto" x-data>
-                        <form method="get" action="{% url 'finance:cash_flow' %}" class="flex flex-1 items-center gap-2 sm:w-auto sm:flex-none">
-                            {% for key, value in preserved_query_params.items %}
-                                {% if key != 'search' %}
-                                    <input type="hidden" name="{{ key }}" value="{{ value }}" />
-                                {% endif %}
-                            {% endfor %}
-                            <div class="relative w-full sm:w-64">
-                                <span class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">search</span>
-                                <input
-                                    type="text"
-                                    name="search"
-                                    placeholder="Pesquisar..."
-                                    value="{{ request.GET.search|default:'' }}"
-                                    class="input input-bordered w-full pl-10"
-                                />
-                            </div>
-                            <button type="submit" class="btn btn-ghost btn-square">
-                                <span class="material-icons">search</span>
-                            </button>
-                        </form>
-
-                        <button
-                            type="button"
-                            class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
-                            aria-controls="cashflow-filter-modal"
-                            aria-haspopup="dialog"
-                            @click="$refs.filterModal.showModal()"
-                        >
-                            <span class="material-icons text-[18px]" aria-hidden="true">filter_list</span>
-                            Filtros
+                        {% endfor %}
+                        <div class="relative w-full sm:w-64">
+                            <span class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40">search</span>
+                            <input
+                                type="text"
+                                name="search"
+                                placeholder="Pesquisar..."
+                                value="{{ request.GET.search|default:'' }}"
+                                class="input input-bordered w-full pl-10"
+                            />
+                        </div>
+                        <button type="submit" class="btn btn-ghost btn-square">
+                            <span class="material-icons">search</span>
                         </button>
-
-                        {% if has_active_filters %}
-                            <a href="{{ clear_filters_url }}" class="btn btn-error flex-1 text-white sm:w-auto sm:flex-none">Limpar Filtros</a>
-                        {% endif %}
-
-                        <dialog
-                            id="cashflow-filter-modal"
-                            class="modal"
-                            x-ref="filterModal"
-                            @click="if ($event.target === $el) $el.close()"
-                        >
-                            <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
-                                <form method="get" action="{% url 'finance:cash_flow' %}">
-                                    <h3 class="text-base font-semibold text-base-content">Filtros avançados</h3>
-
-                                    <div class="mt-4 space-y-4">
-                                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                            <div>
-                                                <label for="cashflow-filter-data-inicial" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Data inicial</label>
-                                                <input type="date" name="data_inicial" id="cashflow-filter-data-inicial" value="{% if filter_start_date %}{{ filter_start_date|date:'Y-m-d' }}{% endif %}" class="input input-bordered w-full" />
-                                            </div>
-                                            <div>
-                                                <label for="cashflow-filter-data-final" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Data final</label>
-                                                <input type="date" name="data_final" id="cashflow-filter-data-final" value="{% if filter_end_date %}{{ filter_end_date|date:'Y-m-d' }}{% endif %}" class="input input-bordered w-full" />
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <label for="cashflow-filter-agente" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Agente (Cliente/Fornecedor)</label>
-                                            <input type="text" name="agente" id="cashflow-filter-agente" placeholder="Nome do agente..." value="{{ request.GET.agente|default:'' }}" class="input input-bordered w-full" />
-                                        </div>
-
-                                        <div>
-                                            <label for="cashflow-filter-tipo-movimentacao" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Tipo</label>
-                                            <select name="tipo_movimentacao" id="cashflow-filter-tipo-movimentacao" class="select select-bordered w-full">
-                                                <option value="">Todos</option>
-                                                {% for val, label in movement_types %}
-                                                    <option value="{{ val }}" {% if request.GET.tipo_movimentacao == val %}selected{% endif %}>{{ label }}</option>
-                                                {% endfor %}
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <label for="cashflow-filter-forma-pagamento" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Forma de Pagamento</label>
-                                            <select name="forma_pagamento" id="cashflow-filter-forma-pagamento" class="select select-bordered w-full">
-                                                <option value="">Todas</option>
-                                                {% for pm in payment_methods %}
-                                                    <option value="{{ pm.pk|unlocalize }}" {% if request.GET.forma_pagamento == pm.pk|stringformat:"s" %}selected{% endif %}>{{ pm.description }}</option>
-                                                {% endfor %}
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <label for="cashflow-filter-plano-orcamentario" class="label text-xs font-semibold uppercase tracking-wider text-base-content/60">Plano Orçamentário</label>
-                                            <select name="plano_orcamentario" id="cashflow-filter-plano-orcamentario" class="select select-bordered w-full">
-                                                <option value="">Todos</option>
-                                                {% for plan in budget_plans %}
-                                                    <option value="{{ plan.pk|unlocalize }}" {% if request.GET.plano_orcamentario == plan.pk|stringformat:"s" %}selected{% endif %}>{{ plan }}</option>
-                                                {% endfor %}
-                                            </select>
-                                        </div>
-
-                                        {% if request.GET.conta_bancaria %}
-                                            <input type="hidden" name="conta_bancaria" value="{{ request.GET.conta_bancaria }}" />
-                                        {% endif %}
-                                        {% if request.GET.search %}
-                                            <input type="hidden" name="search" value="{{ request.GET.search }}" />
-                                        {% endif %}
-                                        {% if request.GET.sort %}
-                                            <input type="hidden" name="sort" value="{{ request.GET.sort }}" />
-                                        {% endif %}
-                                    </div>
-
-                                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
-                                        <button type="button" class="btn-form-cancel" @click="$refs.filterModal.close()">Cancelar</button>
-                                        <button type="submit" class="btn btn-primary">Filtrar</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </dialog>
-                    </div>
+                    </form>
                 </div>
 
                 {% if financial_movement_report_rows %}
@@ -255,29 +231,28 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for row in financial_movement_report_rows %}
-                                        <tr class="bg-base-100">
-                                            <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
-                                            <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
-                                            <td>{{ row.agent }}</td>
-                                            <td>{{ row.origin }}</td>
-                                            <td>{{ row.description }}</td>
-                                            <td>{{ row.budget_plan }}</td>
-                                            <td>{{ row.account }}</td>
-                                            <td>{{ row.payment_type }}</td>
-                                            <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
-                                        </tr>
-                                    {% endfor %}
+                                    {% include "finance/cash_flow/partials/cash_flow_rows.html" %}
                                 </tbody>
                             </table>
                         </div>
                     </div>
                 {% else %}
                     <div class="rounded-xl border border-dashed border-base-300 px-6 py-10 text-center text-sm text-base-content/60">
-                        Nenhuma movimentação conciliada encontrada no respectivo período.
+                        Nenhuma movimentação conciliada encontrada.
                     </div>
                 {% endif %}
             </div>
         </div>
     </div>
+
+    <dialog id="cashflowReportModal" class="modal">
+        <div class="modal-box flex h-[92vh] w-[calc(100vw-4rem)] max-w-[1600px] flex-col overflow-hidden bg-transparent p-0 shadow-none">
+            <div id="cashflow-report-modal-content" class="flex h-full w-full items-center justify-center overflow-hidden rounded-[2rem] border border-base-300/60 bg-base-100 text-base-content/50 shadow-2xl">
+                <span class="loading loading-spinner loading-lg"></span>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button onclick="document.getElementById('cashflow-report-modal-content').innerHTML = '<span class=&quot;loading loading-spinner loading-lg&quot;></span>'">close</button>
+        </form>
+    </dialog>
 {% endblock %}
