@@ -507,6 +507,7 @@ class KitForm(CoreModelForm):
                             class="col-span-12"
                             x-data="kitItemsManager()"
                             @kit-service-updated.window="applyUpdatedService($event.detail)"
+                            @kit-product-updated.window="applyUpdatedProduct($event.detail)"
                         >
                             <div class="p-4 bg-base-300 rounded-box mb-4">
                                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -1484,6 +1485,20 @@ class KitForm(CoreModelForm):
                                         this.refreshServicePricingFromDurations().catch((error) => {{
                                             console.error('Error refreshing duration-based pricing:', error);
                                         }});
+                                        this.resetEditModalContent();
+
+                                        const modalToggle = document.getElementById('edit-item-modal');
+                                        if (modalToggle) modalToggle.checked = false;
+                                    }},
+                                    applyUpdatedProduct(payload) {{
+                                        if (!payload || payload.id === undefined || payload.id === null) return;
+                                        const product = this.selectedProducts.find(item => String(item.id) === String(payload.id));
+                                        if (!product) return;
+
+                                        product.name = \`${payload.code} - ${payload.name}\` ?? product.name;
+                                        product.cost = payload.cost ?? product.cost;
+                                        product.sell = payload.sell ?? product.sell;
+
                                         this.resetEditModalContent();
 
                                         const modalToggle = document.getElementById('edit-item-modal');
@@ -2812,3 +2827,5 @@ class QuickServiceEditForm(CoreModelForm):
             if qs.exists():
                 raise forms.ValidationError("Já existe um serviço com este nome.")
         return name
+
+
