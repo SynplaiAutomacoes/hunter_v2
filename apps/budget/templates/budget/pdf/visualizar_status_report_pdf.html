@@ -77,10 +77,10 @@
                         <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Relatorio gerencial</p>
                         <h1 class="mt-1 text-[20px] font-bold uppercase">{{ status_report_pdf_title }}</h1>
                         <p class="mt-1 text-[20px] font-bold uppercase">{{ workshop.nome_fantasia_display|default:"-" }}</p>
-                        <p class="text-[12px] font-bold">{{ workshop.razao_social_display|default:"-" }}</p>
-                        <p class="mt-1 text-[11px] font-bold">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
-                        <p class="text-[11px] font-bold">Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
-                        <p class="text-[11px] font-bold">{{ workshop.address|default:"-" }}</p>
+                        <p class="text-[12px]">{{ workshop.razao_social_display|default:"-" }}</p>
+                        <p class="mt-1 text-[11px]">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
+                        <p class="text-[11px]">{{ workshop.address|default:"-" }}</p>
+                        <p class="text-[11px]">Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
                     </div>
                 </div>
 

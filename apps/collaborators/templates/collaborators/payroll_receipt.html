@@ -50,10 +50,11 @@
                     <div class="min-w-0">
                         <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Demonstrativo mensal</p>
                         <h1 class="mt-1 text-[20px] font-bold uppercase">Resumo do pagamento</h1>
-                        <p class="mt-2 text-[12px] font-semibold">{{ payroll.workshop.name|default:"-" }}</p>
+                        <p class="mt-2 text-[12px] font-bold uppercase">{{ payroll.workshop.nome_fantasia_display|default:payroll.workshop.name|default:"-" }}</p>
+                        <p class="text-[11px] text-gray-600">{{ payroll.workshop.razao_social_display|default:"-" }}</p>
                         <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ payroll.workshop.cnpj|cnpj_br|default:"-" }}</p>
-                        <p class="text-[11px] text-gray-600">Telefone: {{ payroll.workshop.pdf_phone|phone_br|default:"-" }}</p>
                         <p class="text-[11px] text-gray-600">{{ payroll.workshop.address|default:"-" }}</p>
+                        <p class="text-[11px] text-gray-600">Telefone: {{ payroll.workshop.pdf_phone|phone_br|default:"-" }}</p>
                     </div>
                 </div>
 
