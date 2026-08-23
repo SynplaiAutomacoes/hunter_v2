@@ -8,7 +8,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import Account
-from apps.budget.models import Budget
+from apps.budget.models import Budget, BudgetItem
 from apps.catalog.models.kits import Kit
 from apps.collaborators.models import WorkshopMember
 from apps.customer.models import Customer, Vehicle
@@ -74,6 +74,7 @@ class BudgetKitCatalogCreateRedirectTests(TestCase):
         self.assertContains(response, "Cadastrar Kit")
         self.assertContains(response, reverse("catalog:kits_create"))
         self.assertContains(response, f"next={quote(self.budget_return_url, safe='/')}")
+        self.assertContains(response, f"budget_id={self.budget.pk}")
         self.assertNotContains(response, "Cadastrar no Catálogo")
         self.assertNotContains(
             response,
@@ -83,13 +84,14 @@ class BudgetKitCatalogCreateRedirectTests(TestCase):
 
     def test_kit_create_back_and_cancel_return_to_budget(self) -> None:
         url = reverse("catalog:kits_create")
-        response = self.client.get(url, {"next": self.budget_return_url})
+        response = self.client.get(url, {"next": self.budget_return_url, "budget_id": str(self.budget.pk)})
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'href="{self.budget_return_url}"')
         self.assertContains(response, "Voltar")
         self.assertContains(response, "Cancelar")
         self.assertContains(response, f'name="next" value="{self.budget_return_url}"')
+        self.assertContains(response, f'name="budget_id" value="{self.budget.pk}"')
 
     def test_kit_create_without_next_keeps_kit_list_back_url(self) -> None:
         url = reverse("catalog:kits_create")
@@ -107,8 +109,26 @@ class BudgetKitCatalogCreateRedirectTests(TestCase):
 
         self.assertRedirects(response, self.budget_return_url, fetch_redirect_response=False)
         self.assertTrue(Kit.objects.filter(workshop=self.workshop, name="Kit revisão 10 mil").exists())
+        self.assertFalse(BudgetItem.objects.filter(budget=self.budget, kit__name="Kit revisão 10 mil").exists())
         self.budget.refresh_from_db()
         self.assertEqual(self.budget.current_step, 4)
+
+    def test_kit_create_save_adds_kit_to_source_budget(self) -> None:
+        url = reverse("catalog:kits_create")
+        response = self.client.post(
+            url,
+            data={
+                "name": "Kit automático no orçamento",
+                "next": self.budget_return_url,
+                "budget_id": str(self.budget.pk),
+            },
+        )
+
+        self.assertRedirects(response, self.budget_return_url, fetch_redirect_response=False)
+        kit = Kit.objects.get(workshop=self.workshop, name="Kit automático no orçamento")
+        item = BudgetItem.objects.get(budget=self.budget, kit=kit)
+        self.assertEqual(item.quantity, 1)
+        self.assertEqual(item.workshop_id, self.workshop.pk)
 
     def test_newly_created_kit_without_application_stays_visible(self) -> None:
         kit = Kit.objects.create(workshop=self.workshop, name="Kit sem aplicação")

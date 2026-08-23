@@ -47,10 +47,12 @@ class KitForm(CoreModelForm):
             "is_active": CheckboxInput(),
         }
 
-    def __init__(self, *args, workshop: Workshop | None = None, next_url: str = "", **kwargs):
+    def __init__(self, *args, workshop: Workshop | None = None, next_url: str = "", budget_id: int | str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
         self.next_url = str(next_url or "").strip()
+        raw_budget_id = str(budget_id or "").strip()
+        self.budget_id = raw_budget_id if raw_budget_id.isdigit() else ""
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
@@ -2042,6 +2044,7 @@ class KitForm(CoreModelForm):
             HTML('<div class="divider"></div>'),
             Div(
                 HTML(f'<input type="hidden" name="next" value="{escape(self.next_url, quote=True)}">') if self.next_url else HTML(""),
+                HTML(f'<input type="hidden" name="budget_id" value="{escape(self.budget_id, quote=True)}">') if self.budget_id else HTML(""),
                 HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),
                 Submit("submit", "Salvar", css_class="btn-form-save"),
                 css_class="flex items-center justify-end gap-2",
