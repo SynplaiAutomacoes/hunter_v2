@@ -92,6 +92,7 @@ class BudgetKitCatalogCreateRedirectTests(TestCase):
         self.assertContains(response, "Cancelar")
         self.assertContains(response, f'name="next" value="{self.budget_return_url}"')
         self.assertContains(response, f'name="budget_id" value="{self.budget.pk}"')
+        self.assertContains(response, f"budget_id={self.budget.pk}")
 
     def test_kit_create_without_next_keeps_kit_list_back_url(self) -> None:
         url = reverse("catalog:kits_create")
@@ -108,8 +109,9 @@ class BudgetKitCatalogCreateRedirectTests(TestCase):
         )
 
         self.assertRedirects(response, self.budget_return_url, fetch_redirect_response=False)
-        self.assertTrue(Kit.objects.filter(workshop=self.workshop, name="Kit revisão 10 mil").exists())
-        self.assertFalse(BudgetItem.objects.filter(budget=self.budget, kit__name="Kit revisão 10 mil").exists())
+        kit = Kit.objects.get(workshop=self.workshop, name="Kit revisão 10 mil")
+        item = BudgetItem.objects.get(budget=self.budget, kit=kit)
+        self.assertEqual(item.quantity, 1)
         self.budget.refresh_from_db()
         self.assertEqual(self.budget.current_step, 4)
 
