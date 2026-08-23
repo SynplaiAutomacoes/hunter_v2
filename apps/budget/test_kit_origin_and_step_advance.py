@@ -10,11 +10,11 @@ from djmoney.money import Money
 
 from apps.accounts.models import Account
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.item_origin import AVULSO_ORIGIN_LABEL, KIT_ORIGIN_LABEL, kit_origin_name, origin_badge_for_item
+from apps.budget.item_origin import AVULSO_ORIGIN_LABEL, KIT_ORIGIN_LABEL, iter_kit_product_components, kit_origin_name, origin_badge_for_item
 from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopMember
@@ -308,3 +308,104 @@ class WorkOrderKitOriginDisplayTests(TestCase):
         self.assertEqual(len(context["kit_items"]), 1)
         self.assertEqual(len(context["product_items"]), 1)
         self.assertFalse(any(getattr(item, "origin_badge", "") for item in context["kit_items"]))
+
+
+class BudgetKitSnapshotAndDuplicateTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop, self.user = _create_workshop_with_user(suffix=9)
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo snapshot")
+        self.shared_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="SNAP-P",
+            name="Filtro compartilhado",
+            unit=Product.Unit.UND,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        self.shared_service = Service.objects.create(
+            workshop=self.workshop,
+            name="Troca compartilhada",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("40.00", "BRL"),
+            selling_price=Money("80.00", "BRL"),
+        )
+        self.kit_a = Kit.objects.create(workshop=self.workshop, name="Kit A")
+        self.kit_b = Kit.objects.create(workshop=self.workshop, name="Kit B")
+        KitProduct.objects.create(kit=self.kit_a, product=self.shared_product, quantity=1)
+        KitProduct.objects.create(kit=self.kit_b, product=self.shared_product, quantity=1)
+        KitService.objects.create(
+            kit=self.kit_a,
+            service=self.shared_service,
+            quantity=1,
+            duration=timedelta(hours=1),
+            selling_price=Money("80.00", "BRL"),
+        )
+        KitService.objects.create(
+            kit=self.kit_b,
+            service=self.shared_service,
+            quantity=1,
+            duration=timedelta(hours=1),
+            selling_price=Money("80.00", "BRL"),
+        )
+        self.budget = Budget.objects.create(workshop=self.workshop, entry_date=date(2026, 8, 1), current_step=4)
+
+    def test_catalog_kit_changes_do_not_update_inserted_budget_kit(self) -> None:
+        budget_item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit_a, quantity=1)
+        original_overrides = list(budget_item.kit_overrides.filter(product=self.shared_product))
+        self.assertEqual(len(original_overrides), 1)
+        self.assertEqual(original_overrides[0].quantity, 1)
+        self.assertEqual(original_overrides[0].product_selling_price, Money("20.00", "BRL"))
+
+        kit_product = KitProduct.objects.get(kit=self.kit_a, product=self.shared_product)
+        kit_product.quantity = 5
+        kit_product.save(update_fields=["quantity"])
+        self.shared_product.selling_price = Money("99.00", "BRL")
+        self.shared_product.save(update_fields=["selling_price"])
+        KitProduct.objects.create(
+            kit=self.kit_a,
+            product=Product.objects.create(
+                workshop=self.workshop,
+                group=self.group,
+                code="SNAP-NEW",
+                name="Peça nova no cadastro",
+                unit=Product.Unit.UND,
+                cost_price=Money("1.00", "BRL"),
+                selling_price=Money("2.00", "BRL"),
+            ),
+            quantity=3,
+        )
+
+        budget_item.refresh_from_db()
+        components = iter_kit_product_components(budget_item)
+        self.assertEqual(len(components), 1)
+        self.assertEqual(components[0].product_id, self.shared_product.pk)
+        self.assertEqual(components[0].quantity, 1)
+        self.assertEqual(components[0].product_selling_price, Money("20.00", "BRL"))
+        self.assertTrue(budget_item.kit_snapshot_frozen)
+
+    def test_two_kits_with_same_components_render_product_and_service_once(self) -> None:
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit_a, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit_b, quantity=1)
+
+        rows = _render_budget_items_rows(self.budget, step6=False)
+
+        self.assertEqual(rows["product"].count("Filtro compartilhado"), 1)
+        self.assertEqual(rows["service"].count("Troca compartilhada"), 1)
+        self.assertIn("Kit a", rows["kit"])
+        self.assertIn("Kit b", rows["kit"])
+
+    def test_two_kits_with_same_components_appear_once_in_gestor_pdf_context(self) -> None:
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit_a, quantity=1)
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit_b, quantity=1)
+
+        context = build_budget_pdf_context(budget=self.budget, presentation="selected_items")
+
+        products = [row for row in context["produtos"] if row["description"] == "Filtro compartilhado"]
+        services = [row for row in context["servicos"] if row["description"] == "Troca compartilhada"]
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]["quantity"], 1)
+        self.assertEqual(len(services), 1)
+        self.assertEqual(services[0]["quantity"], 1)
+        self.assertEqual(services[0]["duration_display"], "01h 00m")
+

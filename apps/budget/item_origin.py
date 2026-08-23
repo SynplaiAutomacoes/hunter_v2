@@ -43,55 +43,67 @@ def _effective_kit_quantity(item: Any) -> int:
 
 
 def iter_kit_product_components(item: Any) -> list[Any]:
-    frozen = list(item._iter_frozen_kit_product_overrides())
-    if frozen:
-        return frozen
-
-    product_overrides, _service_overrides = item._get_kit_override_maps()
-    components: list[Any] = []
-    for kit_product in item._iter_kit_products():
-        override = product_overrides.get(kit_product.product_id)
-        if override is not None:
-            components.append(override)
-            continue
-        product = kit_product.product
-        components.append(
-            SimpleNamespace(
-                product=product,
-                product_id=kit_product.product_id,
-                quantity=kit_product.quantity,
-                product_cost_price=getattr(product, "cost_price", zero_money()),
-                product_selling_price=getattr(product, "selling_price", zero_money()),
-                shipping=zero_money(),
-            )
-        )
-    return components
+    return [override for override in item._iter_frozen_kit_product_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
 
 
 def iter_kit_service_components(item: Any) -> list[Any]:
-    frozen = list(item._iter_frozen_kit_service_overrides())
-    if frozen:
-        return frozen
+    return [override for override in item._iter_frozen_kit_service_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
 
-    _product_overrides, service_overrides = item._get_kit_override_maps()
-    components: list[Any] = []
-    for kit_service in item._iter_kit_services():
-        override = service_overrides.get(kit_service.service_id)
-        if override is not None:
-            components.append(override)
+
+def kit_component_winning_item_ids(items: list[Any]) -> tuple[dict[int, int], dict[int, int]]:
+    """Return product_id/service_id -> budget item id using the kit-vs-kit winner rule."""
+    from apps.budget.pricing import _is_better_service_source, _is_better_source, zero_money
+
+    product_winners: dict[int, tuple[int, Any, int]] = {}
+    service_winners: dict[int, tuple[timedelta, Any, int]] = {}
+
+    for item in items:
+        item_id = getattr(item, "pk", None)
+        if item_id is None or not getattr(item, "kit_id", None):
             continue
-        service = kit_service.service
-        components.append(
-            SimpleNamespace(
-                service=service,
-                service_id=kit_service.service_id,
-                quantity=kit_service.quantity,
-                service_cost_price=getattr(service, "suggested_cost", None) or zero_money(),
-                service_selling_price=getattr(kit_service, "resolved_selling_price", None) or getattr(service, "selling_price", zero_money()),
-                duration=getattr(kit_service, "duration", None) or getattr(service, "duration", None),
-            )
-        )
-    return components
+        kit_quantity = _effective_kit_quantity(item)
+        if kit_quantity <= 0:
+            continue
+
+        for override in iter_kit_product_components(item):
+            product_id = getattr(override, "product_id", None)
+            if product_id is None:
+                continue
+            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
+            unit_price = getattr(override, "product_selling_price", None) or zero_money()
+            shipping = (getattr(override, "shipping", None) or zero_money()) * kit_quantity
+            total = (unit_price * quantity) + shipping
+            current = product_winners.get(product_id)
+            if current is None or _is_better_source(
+                candidate_quantity=quantity,
+                candidate_total=total,
+                current_quantity=current[0],
+                current_total=current[1],
+            ):
+                product_winners[product_id] = (quantity, total, item_id)
+
+        for override in iter_kit_service_components(item):
+            service_id = getattr(override, "service_id", None)
+            if service_id is None:
+                continue
+            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
+            unit_price = getattr(override, "service_selling_price", None) or zero_money()
+            total = unit_price * quantity
+            duration = getattr(override, "duration", None) or timedelta()
+            duration = duration * quantity
+            current = service_winners.get(service_id)
+            if current is None or _is_better_service_source(
+                candidate_duration=duration,
+                candidate_total=total,
+                current_duration=current[0],
+                current_total=current[1],
+            ):
+                service_winners[service_id] = (duration, total, item_id)
+
+    return (
+        {product_id: winner[2] for product_id, winner in product_winners.items()},
+        {service_id: winner[2] for service_id, winner in service_winners.items()},
+    )
 
 
 def build_kit_component_product_item(*, kit_item: Any, override: Any) -> SimpleNamespace | None:
