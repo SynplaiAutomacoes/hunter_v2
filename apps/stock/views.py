@@ -85,6 +85,7 @@ class StockHistoryRow:
     criado_em: object
     history_status_badge: dict[str, str]
     xml_file_key: str = ""
+    total_value: object = Decimal("0.00")
 
     @property
     def record_edit_url(self) -> str:
@@ -580,20 +581,28 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             return []
 
         imports = self.get_queryset().select_related("user")
-        return [
-            StockHistoryRow(
-                pk=stock_import.pk,
-                record_type="import",
-                id=stock_import.pk,
-                nf_number=stock_import.nf_number or stock_import.nf_number_display or "---",
-                supplier_name=stock_import.supplier_name or "---",
-                user=stock_import.user,
-                criado_em=stock_import.criado_em,
-                history_status_badge=stock_import.stockimport_status_badge,
-                xml_file_key=stock_import.xml_file_key or "",
+        rows = []
+        for stock_import in imports:
+            items = list(stock_import.items_data or [])
+            total = sum(
+                (Decimal(str(item.get("valor", 0) or 0)) * Decimal(str(item.get("qtd", 0) or 0)) for item in items),
+                start=Decimal("0.00"),
             )
-            for stock_import in imports
-        ]
+            rows.append(
+                StockHistoryRow(
+                    pk=stock_import.pk,
+                    record_type="import",
+                    id=stock_import.pk,
+                    nf_number=stock_import.nf_number or stock_import.nf_number_display or "---",
+                    supplier_name=stock_import.supplier_name or "---",
+                    user=stock_import.user,
+                    criado_em=stock_import.criado_em,
+                    history_status_badge=stock_import.stockimport_status_badge,
+                    xml_file_key=stock_import.xml_file_key or "",
+                    total_value=Money(total, "BRL"),
+                )
+            )
+        return rows
 
     def _build_transfer_history_rows(self) -> list[StockHistoryRow]:
         state = self._get_filter_state()
@@ -615,6 +624,11 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             else:
                 display_path = f"{transfer.source_workshop.name} -> ---"
 
+            transfer_items = list(transfer.items_data or [])
+            transfer_total = sum(
+                (Decimal(str(ti.get("unit_cost", 0) or 0)) * Decimal(str(ti.get("quantity", 0) or 0)) for ti in transfer_items),
+                start=Decimal("0.00"),
+            )
             transfers.append(
                 StockHistoryRow(
                     pk=transfer.pk,
@@ -625,6 +639,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
                     user=transfer.user,
                     criado_em=transfer.criado_em,
                     history_status_badge=transfer.stocktransfer_status_badge,
+                    total_value=Money(transfer_total, "BRL"),
                 )
             )
         return transfers
@@ -641,6 +656,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             TableColumn(StockImport.supplier_name.field.verbose_name, attr="supplier_name"),
             TableColumn(StockImport.user.field.verbose_name, attr="user"),
             TableColumn(StockImport.criado_em.field.verbose_name, attr="criado_em"),
+            TableColumn("Valor Total", attr="total_value", format="money_br"),
             TableColumn(StockImport.status.field.verbose_name, attr="history_status_badge", format="status_badge"),
         ]
         context["actions"] = [
