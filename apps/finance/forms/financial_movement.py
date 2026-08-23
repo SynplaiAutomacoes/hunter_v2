@@ -444,7 +444,12 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
         self.fields["repeat_count"].label = "Repetir este lançamento"
 
-        repeat_choices = [("mensal", "Mensal")]
+        repeat_choices = [
+            ("mensal", "Mensal"),
+            ("quinzenal", "Quinzenal"),
+            ("semanal", "Semanal"),
+            ("diario", "Diário"),
+        ]
         has_collab = getattr(self.instance, "collaborator_id", None)
         if has_collab:
             repeat_choices.append(("5_dia_util", "5º dia útil"))
@@ -468,10 +473,14 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
             self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_methods]
 
-        top_btn = '<input class="join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary" type="radio" name="repeat_type" value="mensal" aria-label="Mensal" checked />'
-        bot_btn = '<input class="join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary" type="radio" name="repeat_type" value="5_dia_util" aria-label="5º dia útil" />'
+        btn_class = "join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary"
+        btn_mensal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="mensal" aria-label="Mensal" checked />'
+        btn_quinzenal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="quinzenal" aria-label="Quinzenal" />'
+        btn_semanal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="semanal" aria-label="Semanal" />'
+        btn_diario = f'<input class="{btn_class}" type="radio" name="repeat_type" value="diario" aria-label="Diário" />'
+        btn_5_dia_util = f'<input class="{btn_class}" type="radio" name="repeat_type" value="5_dia_util" aria-label="5º dia útil" />'
 
-        repeat_html = f'<div class="join">{top_btn}{bot_btn if has_collab else ""}</div>'
+        repeat_html = f'<div class="join">{btn_mensal}{btn_quinzenal}{btn_semanal}{btn_diario}{btn_5_dia_util if has_collab else ""}</div>'
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -678,6 +687,12 @@ class MovementStep4Form(FinancialMovementBaseForm):
 
             if r_type == "mensal":
                 new_instance.due_date = add_months(instance.due_date, i)
+            elif r_type == "quinzenal":
+                new_instance.due_date = instance.due_date + datetime.timedelta(days=15 * i)
+            elif r_type == "semanal":
+                new_instance.due_date = instance.due_date + datetime.timedelta(weeks=i)
+            elif r_type == "diario":
+                new_instance.due_date = instance.due_date + datetime.timedelta(days=i)
             elif r_type == "5_dia_util":
                 target_date = add_months(instance.due_date, i)
                 new_instance.due_date = get_5th_business_day(target_date.year, target_date.month)
