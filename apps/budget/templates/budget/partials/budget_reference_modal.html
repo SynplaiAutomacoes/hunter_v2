@@ -1,20 +1,30 @@
 <div class="modal-box max-w-md relative">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="closeBudgetParentModal()">✕</button>
 
-    {% if can_link %}
     <h3 class="font-bold text-2xl mb-4">Criar orçamento a partir deste</h3>
+    {% if can_link %}
     <p class="text-lg text-base-content/70 mb-4">
         Deseja relacionar o novo orçamento a este?
     </p>
+    {% else %}
+    <div role="alert" class="alert alert-warning mb-4">
+        <span class="material-icons">lock</span>
+        <span>{{ link_blocked_message }}</span>
+    </div>
+    {% endif %}
 
-    <form method="post" action="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-post="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-target="#modal-container" hx-swap="outerHTML">
+    <form method="post" action="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-post="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-swap="none">
         {% csrf_token %}
+        {% if can_link %}
         <div class="form-control w-full mb-6">
             <select class="select select-bordered w-full" id="relate_budget" name="relate_budget" required>
                 <option value="yes" selected>Sim</option>
                 <option value="no">Não</option>
             </select>
         </div>
+        {% else %}
+        <input type="hidden" name="relate_budget" value="no">
+        {% endif %}
 
         <div class="modal-action">
             <button type="button" class="btn" onclick="closeBudgetParentModal()">Cancelar</button>
@@ -23,14 +33,4 @@
             </button>
         </div>
     </form>
-    {% else %}
-    <h3 class="font-bold text-2xl mb-4">Vínculo indisponível</h3>
-    <div role="alert" class="alert alert-warning">
-        <span class="material-icons">lock</span>
-        <span>{{ link_blocked_message }}</span>
-    </div>
-    <div class="modal-action">
-        <button type="button" class="btn btn-primary" onclick="closeBudgetParentModal()">Fechar</button>
-    </div>
-    {% endif %}
 </div>

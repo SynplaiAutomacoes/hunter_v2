@@ -14,7 +14,7 @@ NON_TERMINAL_STATUSES = tuple(
 )
 
 LINKED_COPY_CLOSED_WORKORDER_MESSAGE = (
-    "Não é possível vincular um novo orçamento porque a O.S. está reprovada, cancelada ou com veículo entregue. Reabra a O.S. para continuar."
+    "Não é possível vincular um novo orçamento porque a O.S. está reprovada, cancelada ou com veículo entregue. O orçamento será copiado sem vínculo."
 )
 
 

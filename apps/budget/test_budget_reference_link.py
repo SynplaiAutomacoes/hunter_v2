@@ -60,50 +60,68 @@ class BudgetReferenceLinkTests(TestCase):
     def _reference_url(self, budget: Budget) -> str:
         return reverse("budget:budget_reference_modal", kwargs={"pk": budget.pk})
 
-    def test_post_relate_yes_blocked_when_workorder_is_closed(self) -> None:
+    def test_post_relate_yes_copies_without_link_when_workorder_is_closed(self) -> None:
         for status in CLOSED_WORKORDER_STATUSES:
             with self.subTest(status=status):
                 budget = self._create_budget_with_workorder(workorder_status=status)
-                budget_count = Budget.objects.count()
 
-                response = self.client.post(self._reference_url(budget), {"relate_budget": "yes"})
+                response = self.client.post(
+                    self._reference_url(budget),
+                    {"relate_budget": "yes"},
+                    HTTP_HX_REQUEST="true",
+                )
 
-                self.assertEqual(response.status_code, 400)
-                self.assertIn(LINKED_COPY_CLOSED_WORKORDER_MESSAGE.encode(), response.content)
-                self.assertEqual(Budget.objects.count(), budget_count)
+                self.assertEqual(response.status_code, 204)
+                self.assertNotIn(LINKED_COPY_CLOSED_WORKORDER_MESSAGE.encode(), response.content)
+                new_budget = Budget.objects.exclude(pk=budget.pk).latest("pk")
+                self.assertIn(f"/budget/{new_budget.pk}/edit/", response["HX-Redirect"])
+                self.assertIsNone(new_budget.reference_budget_id)
+                self.assertEqual(new_budget.customer_id, budget.customer_id)
+                self.assertEqual(new_budget.vehicle_id, budget.vehicle_id)
 
     def test_post_relate_yes_allowed_when_workorder_is_open(self) -> None:
         for status in WORKORDER_OPEN_STATUSES:
             with self.subTest(status=status):
                 budget = self._create_budget_with_workorder(workorder_status=status)
 
-                response = self.client.post(self._reference_url(budget), {"relate_budget": "yes"})
+                response = self.client.post(
+                    self._reference_url(budget),
+                    {"relate_budget": "yes"},
+                    HTTP_HX_REQUEST="true",
+                )
 
-                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.status_code, 204)
                 new_budget = Budget.objects.exclude(pk=budget.pk).latest("pk")
+                self.assertIn(f"/budget/{new_budget.pk}/edit/", response["HX-Redirect"])
                 self.assertEqual(new_budget.reference_budget_id, budget.pk)
 
-    def test_post_relate_no_blocked_when_workorder_is_closed(self) -> None:
+    def test_post_relate_no_copies_without_link_when_workorder_is_closed(self) -> None:
         budget = self._create_budget_with_workorder(workorder_status=WorkOrderStatus.APPROVED)
-        budget_count = Budget.objects.count()
 
-        response = self.client.post(self._reference_url(budget), {"relate_budget": "no"})
+        response = self.client.post(
+            self._reference_url(budget),
+            {"relate_budget": "no"},
+            HTTP_HX_REQUEST="true",
+        )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(LINKED_COPY_CLOSED_WORKORDER_MESSAGE.encode(), response.content)
-        self.assertEqual(Budget.objects.count(), budget_count)
+        self.assertEqual(response.status_code, 204)
+        self.assertNotIn(LINKED_COPY_CLOSED_WORKORDER_MESSAGE.encode(), response.content)
+        new_budget = Budget.objects.exclude(pk=budget.pk).latest("pk")
+        self.assertIn(f"/budget/{new_budget.pk}/edit/", response["HX-Redirect"])
+        self.assertIsNone(new_budget.reference_budget_id)
 
-    def test_get_modal_does_not_offer_link_when_workorder_is_closed(self) -> None:
+    def test_get_modal_offers_unlinked_copy_when_workorder_is_closed(self) -> None:
         budget = self._create_budget_with_workorder(workorder_status=WorkOrderStatus.REJECTED)
 
         response = self.client.get(self._reference_url(budget))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, LINKED_COPY_CLOSED_WORKORDER_MESSAGE)
-        self.assertContains(response, "Vínculo indisponível")
-        self.assertNotContains(response, 'name="relate_budget"')
-        self.assertNotContains(response, "Finalizar cópia")
-        self.assertContains(response, "Fechar")
+        self.assertContains(response, "Finalizar cópia")
+        self.assertContains(response, 'name="relate_budget"')
+        self.assertContains(response, 'value="no"')
+        self.assertNotContains(response, 'value="yes"')
+        self.assertNotContains(response, "Vínculo indisponível")
 
     def test_get_modal_offers_link_when_workorder_is_open(self) -> None:
         budget = self._create_budget_with_workorder(workorder_status=WorkOrderStatus.DRAFT)
