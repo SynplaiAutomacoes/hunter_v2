@@ -11,7 +11,61 @@
     </div>
 </div>
 
-<form hx-post="{% url 'finance:group_movement_wizard' %}" hx-target="#group-modal-content">
+{{ payment_method_installments|json_script:"group-payment-method-installments" }}
+{{ initial_installments|json_script:"group-initial-installments" }}
+<form
+    hx-post="{% url 'finance:group_movement_wizard' %}"
+    hx-target="#group-modal-content"
+    x-data="{
+        paymentMethodId: '{{ form.payment_method.value|default_if_none:"" }}',
+        firstDueDate: '{{ form.due_date.value|date:"Y-m-d"|default_if_none:"" }}',
+        installmentsCount: Number('{{ form.installments_count.value|default_if_none:"" }}') || 0,
+        installmentsByMethod: JSON.parse(document.getElementById('group-payment-method-installments').textContent),
+        schedule: JSON.parse(document.getElementById('group-initial-installments').textContent || '[]'),
+        totalAmount: Number('{{ total_amount|unlocalize }}'),
+        addMonths(isoDate, months) {
+            const [year, month, day] = isoDate.split('-').map(Number);
+            const next = new Date(year, month - 1 + months, 1);
+            const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+            next.setDate(Math.min(day, lastDay));
+            const yyyy = next.getFullYear();
+            const mm = String(next.getMonth() + 1).padStart(2, '0');
+            const dd = String(next.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        },
+        suggestedCount() {
+            return Number(this.installmentsByMethod[this.paymentMethodId] || 0);
+        },
+        generateSchedule() {
+            const count = Math.max(Number(this.installmentsCount) || 0, 0);
+            if (!count || !this.firstDueDate) {
+                this.schedule = [];
+                return;
+            }
+            const totalCents = Math.round(this.totalAmount * 100);
+            const amountPerInstallment = Math.floor(totalCents / count);
+            const remainingCents = totalCents % count;
+            this.schedule = Array.from({ length: count }, (_, index) => ({
+                number: index + 1,
+                dueDate: this.addMonths(this.firstDueDate, index),
+                amount: ((amountPerInstallment + (index === count - 1 ? remainingCents : 0)) / 100).toFixed(2),
+            }));
+        },
+        applyPaymentMethodSuggestion() {
+            const suggested = this.suggestedCount();
+            if (suggested) this.installmentsCount = suggested;
+            this.generateSchedule();
+        },
+        scheduleSum() {
+            return this.schedule.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+        },
+        init() {
+            if (!this.schedule.length) this.generateSchedule();
+        }
+    }"
+    @searchable-change.window="if ($event.detail.name === 'payment_method') { paymentMethodId = $event.detail.value; applyPaymentMethodSuggestion(); }"
+    @change="if ($event.target.name === 'due_date') { firstDueDate = $event.target.value; generateSchedule(); }"
+>
     <input type="hidden" name="step" value="3">
     <input type="hidden" name="entity_type" value="{{ entity_type }}">
     <input type="hidden" name="entity_id" value="{{ entity_id|unlocalize }}">
@@ -30,13 +84,60 @@
                     <span class="text-2xl font-black tracking-tight">R$ {{ total_amount|floatformat:2 }}</span>
                 </div>
             </div>
-            
+
             <div class="bg-base-100 p-4 rounded-2xl shadow-sm border border-base-200">
-                {{ form|crispy }}
+                {% if form.non_field_errors %}
+                <div class="alert alert-error mb-3 text-sm py-3">
+                    <span class="material-icons text-base">error</span>
+                    <span>{{ form.non_field_errors.0 }}</span>
+                </div>
+                {% endif %}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+                    <div class="md:col-span-2">{{ form.name|as_crispy_field }}</div>
+                    <div class="md:col-span-2">{{ form.description|as_crispy_field }}</div>
+                    <div>{{ form.payment_method|as_crispy_field }}</div>
+                    <div>{{ form.due_date|as_crispy_field }}</div>
+                    <div>{{ form.installments_count|as_crispy_field }}</div>
+                    <div class="flex items-end pb-4">
+                        <button type="button" class="btn btn-outline btn-sm w-full" @click="generateSchedule()">
+                            <span class="material-icons text-base mr-1">auto_fix_high</span>
+                            Gerar automaticamente
+                        </button>
+                    </div>
+                </div>
+                <div class="alert alert-info mt-3 text-sm py-3" x-show="!schedule.length" x-cloak>
+                    <span class="material-icons text-base">info</span>
+                    <span>Informe a forma de pagamento, o número de parcelas e o primeiro vencimento para gerar ou editar as parcelas.</span>
+                </div>
+                <section class="mt-3 rounded-xl border border-primary/25 bg-primary/5 p-3" x-show="schedule.length" x-cloak>
+                    <div class="flex items-center justify-between gap-3">
+                        <h4 class="font-semibold text-base-content">Parcelas</h4>
+                        <span class="badge badge-primary badge-outline" x-text="`Soma ${scheduleSum().toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`"></span>
+                    </div>
+                    <p class="text-xs text-base-content/60 mt-1">Ajuste valor e vencimento de cada parcela. A soma precisa ser igual ao total agrupado.</p>
+                    <div class="mt-2 overflow-x-auto">
+                        <table class="table table-sm">
+                            <thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-right">Valor</th></tr></thead>
+                            <tbody>
+                                <template x-for="installment in schedule" :key="installment.number">
+                                    <tr>
+                                        <td class="font-medium" x-text="`${installment.number}/${schedule.length}`"></td>
+                                        <td>
+                                            <input type="date" class="input input-bordered input-sm w-full" name="installment_due_date" x-model="installment.dueDate" required>
+                                        </td>
+                                        <td>
+                                            <input type="number" step="0.01" min="0.01" class="input input-bordered input-sm w-full text-right" name="installment_amount" x-model="installment.amount" required>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
-    
+
     <div class="px-6 py-4 bg-base-200/50 rounded-b-3xl border-t border-base-200 flex justify-between items-center">
         <button type="button" class="btn btn-ghost text-base-content/70 hover:bg-base-300/50" onclick="group_modal.close()">
             Cancelar
