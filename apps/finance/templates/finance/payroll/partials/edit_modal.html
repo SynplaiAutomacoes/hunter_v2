@@ -35,6 +35,8 @@
             <button type="button" class="btn btn-sm" :class="activeTab === 'summary' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'summary'">Resumo</button>
         </div>
 
+        <form id="payroll-manual-commission-form" hidden></form>
+        <form id="payroll-manual-benefit-form" hidden></form>
         <form method="post" hx-post="{{ modal_url }}" hx-target="closest .modal" hx-swap="outerHTML">
             {% csrf_token %}
 
@@ -106,7 +108,12 @@
                         </button>
                     </div>
 
-                    <div id="manual-commission-fields" class="rounded-xl border border-primary/30 bg-primary/5 p-4" x-show="showManualCommissionForm" x-cloak>
+                    <div
+                        id="manual-commission-fields"
+                        class="rounded-xl border border-primary/30 bg-primary/5 p-4"
+                        x-show="showManualCommissionForm"
+                        x-cloak
+                    >
                         {% csrf_token %}
                         {% if manual_commission_form %}
                         <div class="grid grid-cols-12 gap-4">
@@ -124,7 +131,7 @@
                             >
                                 <span class="material-icons text-sm">save</span>Confirmar lançamento
                             </button>
-                            <button type="button" class="btn btn-ghost btn-sm" @click="showManualCommissionForm = false">Cancelar</button>
+                            <button type="button" class="btn btn-ghost btn-sm" @click.prevent="showManualCommissionForm = false">Cancelar</button>
                         </div>
                         {% endif %}
                     </div>
@@ -191,7 +198,12 @@
                                 </button>
                             </div>
 
-                            <div id="manual-benefit-fields" class="rounded-xl border border-primary/30 bg-primary/5 p-4" x-show="showManualBenefitForm" x-cloak>
+                            <div
+                                id="manual-benefit-fields"
+                                class="rounded-xl border border-primary/30 bg-primary/5 p-4"
+                                x-show="showManualBenefitForm"
+                                x-cloak
+                            >
                                 {% csrf_token %}
                                 {% if manual_benefit_form %}
                                 <div class="grid grid-cols-12 gap-4">
@@ -211,7 +223,7 @@
                                     >
                                         <span class="material-icons text-sm">save</span>Confirmar lançamento
                                     </button>
-                                    <button type="button" class="btn btn-ghost btn-sm" @click="showManualBenefitForm = false">Cancelar</button>
+                                    <button type="button" class="btn btn-ghost btn-sm" @click.prevent="showManualBenefitForm = false">Cancelar</button>
                                 </div>
                                 {% endif %}
                             </div>

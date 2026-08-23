@@ -1500,6 +1500,28 @@ class PayrollManualLaunchTests(TestCase):
         self.assertTrue(CollaboratorBenefit.objects.filter(pk=cadastro_benefit.pk, source_payroll__isnull=True).exists())
         self.assertEqual(CollaboratorBenefit.objects.filter(collaborator=collaborator, source_payroll__isnull=True).count(), 1)
 
+    def test_edit_modal_keeps_manual_launch_fields_out_of_the_save_form_until_opened(self) -> None:
+        workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=77, month=8)
+
+        request = RequestFactory().get(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {"continue_without_create": "true"},
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('form="payroll-manual-benefit-form"', content)
+        self.assertIn('form="payroll-manual-commission-form"', content)
+        self.assertIn("lancar-beneficio", content)
+        self.assertIn('@click.prevent="showManualBenefitForm = false"', content)
+
     def test_manual_commission_shows_as_manual_and_survives_os_sync(self) -> None:
         workshop, collaborator, payroll, _budget_plan = self._create_payroll(suffix=72, month=8)
 
