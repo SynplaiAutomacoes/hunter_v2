@@ -34,7 +34,7 @@ BASE_PDF_VARIANT = "base"
 
 
 def _budget_pdf_queryset():
-    return Budget.objects.select_related("customer", "vehicle", "workshop").prefetch_related(
+    return Budget.objects.select_related("customer", "vehicle", "workshop", "workshop__webmania_company").prefetch_related(
         budget_items_with_kit_prefetch(with_kit_tree=True),
         "collaborators",
     )
@@ -164,6 +164,7 @@ def visualizar_pdf_checklist(request, pk):
         "name": workshop.pdf_name,
         "nome_fantasia": workshop.nome_fantasia_display,
         "razao_social": workshop.razao_social_display,
+        "cnpj": workshop.cnpj or "-",
         "address": workshop.address or "-",
         "cep_city": workshop_cep_city,
         "phone": workshop.pdf_phone,

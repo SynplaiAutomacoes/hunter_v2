@@ -221,16 +221,20 @@ class Workshop(TimeStampedModel):
             nome = str(company.nome_fantasia or "").strip()
             if nome:
                 return nome
-        return self.webmania_company_name_display
+        workshop_name = str(self.name or "").strip()
+        if workshop_name:
+            return workshop_name
+        return "-"
 
     @property
     def razao_social_display(self) -> str:
         company = self._get_webmania_company()
         if company is not None:
-            razao = str(company.razao_social or "").strip()
+            razao = str(company.razao_social or company.nome_completo or "").strip()
             if razao:
                 return razao
-        return self.name
+        workshop_name = str(self.name or "").strip()
+        return workshop_name or "-"
 
     @property
     def webmania_company_document_display(self) -> str:

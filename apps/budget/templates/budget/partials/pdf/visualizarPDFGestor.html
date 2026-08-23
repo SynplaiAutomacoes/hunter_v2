@@ -98,10 +98,10 @@
 
           <div class="min-w-0">
             <h3 class="text-[18px] font-bold uppercase m-0">{{ budget.workshop.nome_fantasia_display }}</h3>
-            <p class="font-bold">{{ budget.workshop.razao_social_display }}</p>
-            <p class="font-bold">CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</p>
-            <p class="font-bold">{{ budget.workshop.address|default:"-" }}</p>
-            <p class="font-bold">Fone: {{ budget.workshop.pdf_phone|phone_br|default:"-" }}</p>
+            <p>{{ budget.workshop.razao_social_display }}</p>
+            <p>CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</p>
+            <p>{{ budget.workshop.address|default:"-" }}</p>
+            <p>Fone: {{ budget.workshop.pdf_phone|phone_br|default:"-" }}</p>
           </div>
         </div>
         <div class="text-right">
