@@ -1,4 +1,5 @@
 # ruff: noqa: F403,F405
+from apps.budget.discount import render_step5_discount_row
 from apps.budget.forms.layouts.step5_assets import build_step5_assets_html
 from apps.budget.forms.layouts.step5_items_expand import build_step5_items_expand_section_html
 from apps.budget.forms.presenters.step5_context import build_step5_context
@@ -42,6 +43,9 @@ def configure_budget_step5_form(form):
     mlr = ctx.mlr
     mlo = ctx.mlo
     discount_display = ctx.discount_display
+    discount_products_row = render_step5_discount_row(element_id="step5-discount-products-row", value=ctx.discount_products)
+    discount_labor_row = render_step5_discount_row(element_id="step5-discount-labor-row", value=ctx.discount_labor)
+    discount_third_party_row = render_step5_discount_row(element_id="step5-discount-third-party-row", value=ctx.discount_third_party)
     step5_loading_hidden_class = ctx.step5_loading_hidden_class
     step5_method_hidden_class = ctx.step5_method_hidden_class
     step5_calculated_input_value = ctx.step5_calculated_input_value
@@ -108,6 +112,7 @@ def configure_budget_step5_form(form):
                                                     {venda_pecas}
                                                 </span>
                                             </div>
+                                            {discount_products_row}
                                         </div>
 
                                         <div class="rounded-xl border border-base-300 bg-base-100 p-3 space-y-2 md:col-span-1">
@@ -129,6 +134,7 @@ def configure_budget_step5_form(form):
                                                     {venda_mao_obra}
                                                 </span>
                                             </div>
+                                            {discount_labor_row}
                                             <p class="text-xs text-base-content/50 pt-1">Hora mecânico: {custo_hora_mecanico} · Duração: {duracao_total}</p>
                                         </div>
 
@@ -140,8 +146,9 @@ def configure_budget_step5_form(form):
                                             </div>
                                             <div class="flex justify-between gap-2 border-t border-base-300 pt-2">
                                                 <span class="font-medium">Valor de venda serviço terceiro</span>
-                                                <span id="display-venda-terceiros" class="font-bold text-success whitespace-nowrap">{venda_servico_terceiros}</span>
+                                                <span id="display-venda-terceiros" class="font-bold text-success whitespace-nowrap" data-base-val="{venda_servico_terceiros.amount}">{venda_servico_terceiros}</span>
                                             </div>
+                                            {discount_third_party_row}
                                         </div>
 
                                         <div class="rounded-xl border border-base-300 bg-base-100 p-3 space-y-2 md:col-span-1">

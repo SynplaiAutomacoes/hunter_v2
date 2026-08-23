@@ -22,6 +22,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
+from apps.budget.discount import render_step5_discount_rows_oob
 from apps.budget.forms.layouts.step5_items_expand import build_step5_products_list_html, build_step5_services_list_html
 from apps.budget.forms.shared import _get_budget_with_prefetched_items
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
@@ -1003,6 +1004,7 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget.discount_type = raw_discount_type
                 update_fields.append("discount_type")
             budget.save(update_fields=update_fields)
+            budget.invalidate_pricing_snapshot_cache()
             sync_budget_discount_to_workorder(budget=budget)
         except (ValueError, TypeError, InvalidOperation):
             logger.warning(
@@ -1014,8 +1016,18 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "raw_discount_type": request.POST.get("discount_type"),
                 },
             )
+            return HttpResponse(status=204)
 
-        return HttpResponse(status=204)
+        html = f"""
+                <span id="step5-discount-display" hx-swap-oob="true">
+                    {budget.display_resolved_discount_value}
+                </span>
+                <span id="valor-final-display" hx-swap-oob="true">
+                    {budget.display_total_budget_value}
+                </span>
+                {render_step5_discount_rows_oob(budget=budget)}
+                """
+        return HttpResponse(html)
 
 
 def _serialize_budget_state(budget):
@@ -1416,7 +1428,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.total_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
                     {display_products_value}
                 </span>
-                <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap">
+                <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_third_party_services_selling.amount}">
                     {display_third_party_value}
                 </span>
                 <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}" data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
@@ -1431,6 +1443,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="valor-final-display" hx-swap-oob="true">
                     {budget.display_total_budget_value}
                 </span>
+                {render_step5_discount_rows_oob(budget=budget)}
                 {products_list_html}
                 {services_list_html}
                 """

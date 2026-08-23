@@ -162,6 +162,51 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 return parseDotDecimal(elements.subtotalDisplay.dataset.baseTotal);
                             }}
 
+                            function updateCardDiscounts(discountAmount) {{
+                                const type = getDiscountTypeValue();
+                                const products = parseDotDecimal(document.getElementById('display-venda-pecas')?.dataset.baseVal);
+                                const labor = parseDotDecimal(document.getElementById('display-venda-mo')?.dataset.baseVal);
+                                const thirdParty = parseDotDecimal(document.getElementById('display-venda-terceiros')?.dataset.baseVal);
+                                const services = labor + thirdParty;
+                                const total = products + services;
+                                let discountProducts = 0;
+                                let discountServices = 0;
+                                if (type === 'products') {{
+                                    discountProducts = discountAmount;
+                                }} else if (type === 'services') {{
+                                    discountServices = discountAmount;
+                                }} else if (total > 0) {{
+                                    discountProducts = roundCurrency(discountAmount * products / total);
+                                    discountServices = roundCurrency(discountAmount - discountProducts);
+                                }}
+                                let discountLabor = 0;
+                                let discountThird = 0;
+                                if (discountServices > 0) {{
+                                    if (services <= 0) {{
+                                        discountLabor = discountServices;
+                                    }} else {{
+                                        discountLabor = roundCurrency(discountServices * labor / services);
+                                        discountThird = roundCurrency(discountServices - discountLabor);
+                                    }}
+                                }}
+                                applyDiscountRow('step5-discount-products-row', discountProducts);
+                                applyDiscountRow('step5-discount-labor-row', discountLabor);
+                                applyDiscountRow('step5-discount-third-party-row', discountThird);
+                            }}
+
+                            function applyDiscountRow(rowId, amount) {{
+                                const row = document.getElementById(rowId);
+                                if (!row) return;
+                                const valueEl = row.querySelector('.font-semibold');
+                                if (amount > 0.009) {{
+                                    row.classList.remove('hidden');
+                                    if (valueEl) valueEl.textContent = `- R$ ${{formatMoney(amount)}}`;
+                                    return;
+                                }}
+                                row.classList.add('hidden');
+                                if (valueEl) valueEl.textContent = '';
+                            }}
+
                             function updateSummary(elements, discountAmount) {{
                                 const baseTotal = getBaseTotal(elements);
                                 const resolvedDiscount = clamp(roundCurrency(discountAmount), 0, baseTotal);
@@ -169,6 +214,7 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
 
                                 elements.discountDisplay.textContent = `R$ ${{formatMoney(resolvedDiscount)}}`;
                                 elements.totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                                updateCardDiscounts(resolvedDiscount);
                             }}
 
                             function syncFromPercentage(elements) {{
@@ -255,18 +301,21 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 syncFromValue(elements);
                             }}
 
-                            document.addEventListener('change', function(e) {{
-                                if (e.target && e.target.name === 'discount_type') {{
-                                    const elements = getDiscountElements();
-                                    if (elements) {{
-                                        clearTimeout(timeout);
-                                        persistDiscount(elements);
+                            if (document.documentElement.dataset.step5DiscountListeners !== 'true') {{
+                                document.documentElement.dataset.step5DiscountListeners = 'true';
+                                document.addEventListener('change', function(e) {{
+                                    if (e.target && e.target.name === 'discount_type') {{
+                                        const elements = getDiscountElements();
+                                        if (elements) {{
+                                            updateSummary(elements, parseDotDecimal(elements.hiddenMoney.value));
+                                            persistDiscount(elements);
+                                        }}
                                     }}
-                                }}
-                            }});
-
-                            document.addEventListener('DOMContentLoaded', bindDiscountSync);
-                            document.body.addEventListener('htmx:afterSettle', bindDiscountSync);
+                                }});
+                                document.addEventListener('DOMContentLoaded', bindDiscountSync);
+                                document.body.addEventListener('htmx:afterSettle', bindDiscountSync);
+                            }}
+                            bindDiscountSync();
                         }})();
 
                         (function () {{
