@@ -143,6 +143,16 @@ class PayrollPaymentForm(forms.ModelForm):
         return cleaned_data
 
 
+def _bind_widgets_to_html_form(form: forms.Form, form_id: str) -> None:
+    """Keep launch fields out of the payroll save form's native validation."""
+    for field in form.fields.values():
+        field.widget.attrs["form"] = form_id
+        widgets = getattr(field.widget, "widgets", None)
+        if widgets:
+            for widget in widgets:
+                widget.attrs["form"] = form_id
+
+
 class ManualPayrollBenefitForm(forms.Form):
     name = forms.CharField(label="Nome", max_length=255, widget=TextInput(attrs={"placeholder": "Nome do benefício"}))
     amount = MoneyFormField(label="Valor", min_value=Decimal("0.01"), widget=MoneyInput())
@@ -156,6 +166,7 @@ class ManualPayrollBenefitForm(forms.Form):
             groups = FinancialGroup.objects.filter(workshop=workshop).order_by("name")
         self.fields["budget_plan"].queryset = groups
         self.fields["budget_plan"].widget.choices = [("", "Selecione um plano"), *[(item.pk, str(item)) for item in groups]]
+        _bind_widgets_to_html_form(self, "payroll-manual-benefit-form")
 
     def clean_amount(self):
         amount = self.cleaned_data.get("amount")
@@ -168,6 +179,10 @@ class ManualPayrollBenefitForm(forms.Form):
 class ManualPayrollCommissionForm(forms.Form):
     amount = MoneyFormField(label="Valor", min_value=Decimal("0.01"), widget=MoneyInput())
     notes = forms.CharField(label="Observação", required=False, widget=TextareaInput(rows=3, attrs={"placeholder": "Motivo (opcional)"}))
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        _bind_widgets_to_html_form(self, "payroll-manual-commission-form")
 
     def clean_amount(self):
         amount = self.cleaned_data.get("amount")
@@ -1133,6 +1148,7 @@ class PayrollAddManualBenefitView(PayrollEditModalView):
             payroll=payroll,
             selected_tab=FinancialMovement.PayrollComponent.BENEFIT,
             force_selected_tab=True,
+            show_manual_benefit_form=True,
         )
         response["HX-Trigger"] = json.dumps(
             {
@@ -1173,6 +1189,7 @@ class PayrollAddManualCommissionView(PayrollEditModalView):
             payroll=payroll,
             selected_tab="commissions_history",
             force_selected_tab=True,
+            show_manual_commission_form=True,
         )
         response["HX-Trigger"] = json.dumps(
             {
