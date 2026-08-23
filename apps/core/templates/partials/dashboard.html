@@ -177,11 +177,19 @@
                     <!-- Aumentado o gap e o padding vertical para dar destaque -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-10 py-4">
                         <div class="flex flex-col items-center gap-4">
+                            {% with taxa_aprovacao|floatformat:0 as aprov_val %}
+                            {% if aprov_val|add:"0" >= 75 %}
                             <div class="radial-progress text-success border-4 border-success/10"
+                            {% elif aprov_val|add:"0" >= 70 %}
+                            <div class="radial-progress text-warning border-4 border-warning/10"
+                            {% else %}
+                            <div class="radial-progress text-error border-4 border-error/10"
+                            {% endif %}
                                  style="--value:{{ taxa_aprovacao|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
                                  role="progressbar">
                                 <span class="text-2xl font-bold text-base-content">{{ taxa_aprovacao|floatformat:2 }}%</span>
                             </div>
+                            {% endwith %}
                             <span class="text-lg font-semibold">Taxa de Aprovação</span>
                             <p class="text-xs text-base-content/60 text-center max-w-[200px]">Valor calculado em cima dos orçamentos reprovados / orçamentos enviados</p>
                         </div>
