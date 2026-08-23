@@ -7,7 +7,6 @@ from decimal import Decimal
 
 from apps.finance.models import FinancialMovement, MovementGroup
 from apps.finance.forms.movement_group import GroupMovementStep3Form
-from apps.finance.services.movement_grouping import build_group_installments
 from apps.suppliers.models import Supplier
 from apps.collaborators.models import WorkshopCollaborator
 from apps.customer.models import Customer
@@ -35,6 +34,9 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             pm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("pm_")]
             fms = FinancialMovement.objects.filter(id__in=fm_ids, workshop=self.workshop)
             pms = WorkOrderPaymentMethod.objects.filter(id__in=pm_ids, workorder__workshop=self.workshop)
+            total_amount = sum((Decimal(str(movement.amount.amount)) for movement in fms), Decimal("0.00")) + sum(
+                (Decimal(str(payment.total_paid.amount)) for payment in pms), Decimal("0.00")
+            )
 
             direction = FinancialMovement.MovementDirection.DEBIT
             first_movement = fms.first()
@@ -43,7 +45,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             elif pms.exists():
                 direction = FinancialMovement.MovementDirection.CREDIT
 
-            form = GroupMovementStep3Form(request.POST, workshop=self.workshop, direction=direction)
+            form = GroupMovementStep3Form(request.POST, workshop=self.workshop, direction=direction, total_amount=total_amount)
 
             # We need to fetch the entity name to display it on form validation error
             entity_name = ""
@@ -89,11 +91,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             pm.save()
 
                     payment_method = form.cleaned_data["payment_method"]
-                    installments = build_group_installments(
-                        total_amount=total_amount,
-                        first_due_date=group.due_date,
-                        installments_count=payment_method.installments_count,
-                    )
+                    installments = form.cleaned_data["installment_schedule"]
                     for installment in installments:
                         installment_label = ""
                         if installment.total > 1:
@@ -124,8 +122,9 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "entity_type": entity_type,
                 "entity_id": entity_id,
                 "entity_name": entity_name,
-                "total_amount": sum((Decimal(str(movement.amount.amount)) for movement in fms), Decimal("0.00")) + sum((Decimal(str(payment.total_paid.amount)) for payment in pms), Decimal("0.00")),
+                "total_amount": total_amount,
                 "payment_method_installments": form.payment_method_installments,
+                "initial_installments": form.installment_schedule_payload(),
             })
 
         # No step - entry point from reports_home.html checkbox selection
@@ -230,7 +229,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
         normalized_movement_ids = [f"fm_{fm.id}" for fm in fms] + [f"pm_{pm.id}" for pm in pms]
 
         direction = next(iter(directions), FinancialMovement.MovementDirection.DEBIT)
-        form = GroupMovementStep3Form(workshop=self.workshop, direction=direction)
+        form = GroupMovementStep3Form(workshop=self.workshop, direction=direction, total_amount=total_amount)
         return render(request, "finance/reports/partials/group_step3.html", {
             "form": form,
             "movement_ids": normalized_movement_ids,
@@ -239,6 +238,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "total_amount": total_amount,
             "entity_name": entity_name,
             "payment_method_installments": form.payment_method_installments,
+            "initial_installments": form.installment_schedule_payload(),
         })
 
 
