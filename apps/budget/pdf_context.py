@@ -107,10 +107,25 @@ def _keep_better_selected_service_row(existing: dict, candidate: dict) -> dict:
     return winner
 
 
+def _selected_product_merge_key(row: dict) -> tuple[object, ...]:
+    product_id = row.get("id")
+    customer_supplied = bool(row.get("is_customer_supplied"))
+    if product_id is None:
+        return (None, str(row.get("description") or ""), customer_supplied)
+    return (product_id, customer_supplied)
+
+
+def _selected_service_merge_key(row: dict) -> tuple[object, ...]:
+    service_id = row.get("id")
+    if service_id is None:
+        return (None, str(row.get("description") or ""))
+    return (service_id,)
+
+
 def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
-    merged_rows: dict[tuple[object, str, bool], dict] = {}
+    merged_rows: dict[tuple[object, ...], dict] = {}
     for row in produtos:
-        key = (row.get("id"), str(row.get("description") or ""), bool(row.get("is_customer_supplied")))
+        key = _selected_product_merge_key(row)
         existing = merged_rows.get(key)
         if existing is None:
             merged_rows[key] = dict(row)
@@ -121,9 +136,9 @@ def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
 
 
 def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
-    merged_rows: dict[tuple[object, str], dict] = {}
+    merged_rows: dict[tuple[object, ...], dict] = {}
     for row in servicos:
-        key = (row.get("id"), str(row.get("description") or ""))
+        key = _selected_service_merge_key(row)
         existing = merged_rows.get(key)
         if existing is None:
             merged_rows[key] = dict(row)
@@ -484,23 +499,19 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
             servicos.append(servico)
 
+        from apps.budget.item_origin import kit_component_winning_item_ids
+
+        winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
         for line in review_display.kits:
             kit_item = line.item
-            kit_quantity = kit_item.quantity
-            produtos.extend(_explode_kit_product_rows(kit_line=line, kit_item=kit_item))
-            servicos.extend(_explode_kit_service_rows(budget=budget, kit_line=line, kit_item=kit_item))
-
-            kits.append(
-                {
-                    "id": kit_item.kit_id,
-                    "description": kit_item.description,
-                    "quantity": kit_quantity,
-                    "product_count": kit_item.effective_kit_products_count,
-                    "service_count": kit_item.effective_kit_services_count,
-                    "products_summary": line.products_summary,
-                    "services_summary": line.services_summary,
-                }
-            )
+            for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+                if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                    continue
+                produtos.append(exploded)
+            for exploded in _explode_kit_service_rows(budget=budget, kit_line=line, kit_item=kit_item):
+                if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                    continue
+                servicos.append(exploded)
         produtos, servicos = _merge_selected_pdf_rows(produtos=produtos, servicos=servicos)
     else:
         produtos = _build_snapshot_product_rows(snapshot=snapshot)

@@ -27,6 +27,7 @@ from apps.budget.item_origin import (
     build_origin_badge,
     iter_kit_product_components,
     iter_kit_service_components,
+    kit_component_winning_item_ids,
     origin_badge_for_item,
 )
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
@@ -419,6 +420,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     display_product_items: list[object] = []
     display_service_items: list[object] = []
     avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
+    winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(items)
 
     for item in items:
         if item.product:
@@ -437,6 +439,8 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
             kit_items.append(item)
             origin_label, origin_badge, _is_kit = origin_badge_for_item(item=item)
             for override in iter_kit_product_components(item):
+                if winning_kit_product_item_ids.get(override.product_id) not in {None, item.pk}:
+                    continue
                 component = build_kit_component_product_item(kit_item=item, override=override)
                 if component is None:
                     continue
@@ -445,6 +449,8 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
                 component.origin_badge = origin_badge
                 display_product_items.append(component)
             for override in iter_kit_service_components(item):
+                if winning_kit_service_item_ids.get(override.service_id) not in {None, item.pk}:
+                    continue
                 component = build_kit_component_service_item(kit_item=item, override=override)
                 if component is None:
                     continue

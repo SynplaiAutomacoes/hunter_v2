@@ -80,6 +80,28 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
         self.assertEqual(merged[0]["quantity"], 10)
         self.assertEqual(merged[0]["total_price"], _money("150.00"))
 
+    def test_full_tie_product_keeps_first_row_without_summing(self) -> None:
+        merged = _merge_selected_product_rows(
+            [
+                _product_row(product_id=10, quantity=2, selling="10.00"),
+                _product_row(product_id=10, quantity=2, selling="10.00"),
+            ]
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["quantity"], 2)
+        self.assertEqual(merged[0]["total_price"], _money("20.00"))
+
+    def test_same_product_id_merges_even_when_descriptions_differ(self) -> None:
+        first = _product_row(product_id=10, quantity=2, selling="10.00")
+        first["description"] = "Nome do item"
+        second = _product_row(product_id=10, quantity=5, selling="10.00")
+        second["description"] = "Nome do cadastro"
+        merged = _merge_selected_product_rows([first, second])
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["quantity"], 5)
+
     def test_kit_vs_avulso_product_keeps_higher_quantity(self) -> None:
         merged = _merge_selected_product_rows(
             [
@@ -137,3 +159,15 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
 
         self.assertEqual(merged[0]["quantity"], 1)
         self.assertEqual(merged[0]["duration_display"], "02h 00m")
+
+    def test_full_tie_service_keeps_first_row_without_summing(self) -> None:
+        merged = _merge_selected_service_rows(
+            [
+                _service_row(service_id=20, quantity=1, selling="80.00", duration_seconds=3600),
+                _service_row(service_id=20, quantity=1, selling="80.00", duration_seconds=3600),
+            ]
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["quantity"], 1)
+        self.assertEqual(merged[0]["duration_display"], "01h 00m")
