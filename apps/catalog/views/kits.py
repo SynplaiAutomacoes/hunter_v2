@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 
+from urllib.parse import urlparse
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
@@ -10,7 +12,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.urls import reverse, reverse_lazy
+from django.urls import Resolver404, reverse, reverse_lazy, resolve
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -20,7 +22,7 @@ from djmoney.money import Money
 from apps.catalog.fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_model_options, get_vehicle_model_metadata, register_catalog_access_and_maybe_sync
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
 from apps.budget.models import Budget, BudgetItem
-from apps.budget.views.shared import add_kit_to_budget, _check_concurrent_budget_lock, _is_budget_edit_locked
+from apps.budget.views.shared import add_kit_to_budget
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -165,7 +167,25 @@ class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixi
 
     def _get_budget_id(self) -> int | None:
         raw_budget_id = str(self.request.GET.get("budget_id") or self.request.POST.get("budget_id") or "").strip()
-        return int(raw_budget_id) if raw_budget_id.isdigit() else None
+        if raw_budget_id.isdigit():
+            return int(raw_budget_id)
+        return self._get_budget_id_from_next_url()
+
+    def _get_budget_id_from_next_url(self) -> int | None:
+        next_url = self._get_next_url()
+        if not next_url:
+            return None
+        path = urlparse(next_url).path
+        try:
+            match = resolve(path)
+        except Resolver404:
+            return None
+        if match.namespace != "budget" or match.url_name != "budget_update":
+            return None
+        raw_pk = match.kwargs.get("pk")
+        if raw_pk is None or not str(raw_pk).isdigit():
+            return None
+        return int(raw_pk)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -186,17 +206,19 @@ class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixi
     def _add_created_kit_to_budget(self, kit: Kit) -> None:
         budget_id = self._get_budget_id()
         if budget_id is None:
+            logger.info("kit_create_skip_budget_attach_missing_id", extra={"kit_id": kit.pk})
             return
 
         budget = Budget.objects.filter(pk=budget_id, workshop=self.workshop).first()
         if budget is None:
-            return
-
-        if _is_budget_edit_locked(budget) or not _check_concurrent_budget_lock(self.request, budget):
-            messages.warning(self.request, "O kit foi cadastrado, mas não pôde ser adicionado ao orçamento porque ele está bloqueado.")
+            logger.warning(
+                "kit_create_skip_budget_attach_not_found",
+                extra={"kit_id": kit.pk, "budget_id": budget_id, "workshop_id": getattr(self.workshop, "id", None)},
+            )
             return
 
         add_kit_to_budget(workshop=self.workshop, budget=budget, kit=kit)
+        messages.success(self.request, "Kit cadastrado e adicionado ao orçamento.")
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
