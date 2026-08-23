@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from django import forms
 from django.urls import reverse
+from urllib.parse import urlencode
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
@@ -56,6 +57,13 @@ class KitForm(CoreModelForm):
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
+        action_query: dict[str, str] = {}
+        if self.next_url:
+            action_query["next"] = self.next_url
+        if self.budget_id:
+            action_query["budget_id"] = self.budget_id
+        if action_query:
+            self.helper.form_action = f"{reverse('catalog:kits_create')}?{urlencode(action_query)}"
         self.helper.layout = self.get_layout()
 
     def clean_name(self) -> str:
