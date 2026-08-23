@@ -240,17 +240,12 @@ class WorkOrder(TimeStampedModel):
                 total += item.duration * item.quantity
                 continue
 
-            if not item.kit:
+            if not item.kit_id:
                 continue
 
-            _, service_overrides = item._get_kit_override_maps()
-            for kit_service in item._iter_kit_services():
-                override = service_overrides.get(kit_service.service_id)
-                if override:
-                    if override.quantity > 0 and override.duration:
-                        total += override.duration * override.quantity * item.quantity
-                elif kit_service.quantity > 0 and kit_service.service.duration:
-                    total += kit_service.service.duration * kit_service.quantity * item.quantity
+            for override in item._iter_frozen_kit_service_overrides():
+                if override.quantity > 0 and override.duration:
+                    total += override.duration * override.quantity * item.quantity
         return total
 
     @property
