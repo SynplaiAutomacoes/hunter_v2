@@ -10,7 +10,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -155,14 +156,26 @@ class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixi
     success_url = reverse_lazy("catalog:kits_list")
     favorite_page_definition = KIT_CREATE_FAVORITE_PAGE
 
+    def _get_next_url(self) -> str:
+        next_url = str(self.request.GET.get("next") or self.request.POST.get("next") or "").strip()
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={self.request.get_host()}, require_https=self.request.is_secure()):
+            return next_url
+        return ""
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
+        kwargs["next_url"] = self._get_next_url()
         return kwargs
+
+    def get_success_url(self):
+        return self._get_next_url() or str(self.success_url)
 
     def get_context_data(self, **kwargs):
         self.maybe_register_fipe_catalog_access()
-        return super().get_context_data(**kwargs)
+        context = super().get_context_data(**kwargs)
+        context["back_url"] = self._get_next_url() or reverse("catalog:kits_list")
+        return context
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop

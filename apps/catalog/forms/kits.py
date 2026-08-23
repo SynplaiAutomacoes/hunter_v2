@@ -47,9 +47,10 @@ class KitForm(CoreModelForm):
             "is_active": CheckboxInput(),
         }
 
-    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+    def __init__(self, *args, workshop: Workshop | None = None, next_url: str = "", **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.next_url = str(next_url or "").strip()
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
@@ -264,7 +265,7 @@ class KitForm(CoreModelForm):
         return parse_brl_decimal(raw_value)
 
     def get_layout(self):
-        cancel_url = reverse("catalog:kits_list")
+        cancel_url = escape(self.next_url or reverse("catalog:kits_list"), quote=True)
         product_search_url = reverse("catalog:kits_product_search")
         service_search_url = reverse("catalog:kits_service_search")
         service_bulk_pricing_url = reverse("catalog:kits_service_bulk_pricing")
@@ -2040,6 +2041,7 @@ class KitForm(CoreModelForm):
             ),
             HTML('<div class="divider"></div>'),
             Div(
+                HTML(f'<input type="hidden" name="next" value="{escape(self.next_url, quote=True)}">') if self.next_url else HTML(""),
                 HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),
                 Submit("submit", "Salvar", css_class="btn-form-save"),
                 css_class="flex items-center justify-end gap-2",
