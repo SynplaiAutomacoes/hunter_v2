@@ -1,17 +1,52 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
+from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.pdf_context import build_workshop_logo_data_uri, is_visible_pdf_pricing_line
-from apps.budget.pricing import money_div, money_from_decimal, zero_money
+from apps.budget.pdf_context import build_workshop_logo_data_uri as build_workshop_logo_data_uri
+from apps.budget.pdf_context import is_visible_pdf_pricing_line as is_visible_pdf_pricing_line
+from apps.budget.pricing import money_div as money_div
+from apps.budget.pricing import money_from_decimal as money_from_decimal
+from apps.budget.pricing import zero_money as zero_money
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.customer.models import Customer, Vehicle
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderStatus, WorkOrderDiscountType
+from apps.workorder.models import (
+    WARRANTY_PLAN_DAYS,
+    WorkOrder,
+    WorkOrderDiscountType,
+    WorkOrderItem,
+    WorkOrderStatus,
+    WorkOrderWarrantyPlan,
+)
 from apps.workshops.models.workshops import Workshop
+
+
+def resolve_workorder_pdf_delivery(*, workorder: WorkOrder) -> dict[str, Any]:
+    delivered_at = workorder.delivered_at or timezone.now()
+    plan_label = workorder.warranty_plan_display
+    status_label = None
+    expires_at = None
+    if workorder.warranty_plan == WorkOrderWarrantyPlan.NONE:
+        status_label = "Sem garantia"
+    elif workorder.warranty_plan:
+        days = WARRANTY_PLAN_DAYS.get(workorder.warranty_plan)
+        if days is not None:
+            expires_at = timezone.localtime(delivered_at).date() + timedelta(days=days)
+            if timezone.localdate() <= expires_at:
+                status_label = "Em garantia"
+            else:
+                status_label = "Garantia vencida"
+    return {
+        "pdf_delivered_at": delivered_at,
+        "service_warranty_plan_label": plan_label,
+        "service_warranty_expires_at": expires_at,
+        "service_warranty_status_label": status_label,
+    }
 
 
 def _build_pdf_pages(produtos: list[dict[str, Any]], servicos: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -342,6 +377,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             discount_products = money_from_decimal(allocated[0])
             discount_services = money_from_decimal(allocated[1])
 
+    delivery_context = resolve_workorder_pdf_delivery(workorder=workorder)
+
     return {
         "workorder": workorder,
         "budget": budget_proxy,
@@ -363,9 +400,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
         "special_budget_label": special_budget_label,
         "warranty_message": warranty_message,
-        "service_warranty_plan_label": workorder.warranty_plan_display,
-        "service_warranty_expires_at": workorder.warranty_expires_at,
-        "service_warranty_status_label": workorder.warranty_status_label,
+        **delivery_context,
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
+        "expected_delivery_at": None,
         "request": request,
     }
