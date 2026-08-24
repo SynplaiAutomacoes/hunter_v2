@@ -9,6 +9,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
     workshop = forms.CharField(label="Empresa", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     cost_estimator = forms.CharField(label="Orçamentista", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=False, widget=SearchableSelectInput())
+    confirm_entry_km_mismatch = forms.BooleanField(required=False, widget=forms.HiddenInput())
 
     class Meta:
         model = Budget
@@ -58,6 +59,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
         vehicle_field.widget.attrs.update({"id": "id_vehicle"})
         self.fields["fuel_level"].required = False
         self.fields["current_km"].error_messages["required"] = "Preencha o KM atual para continuar."
+        self.fields["confirm_entry_km_mismatch"].label = ""
 
         selected_customer_id = ""
         selected_vehicle_id = ""
@@ -160,16 +162,9 @@ class BudgetStep1Form(BudgetStepBaseForm):
             maybeOpenKmCadastroModal() {{
                 if (this.isLocked) return false;
                 if (!this.kmMismatchesCadastro()) return false;
-                this.$refs.kmCadastroModal?.showModal();
-                return true;
+                if (isBudgetEntryKmMismatchConfirmed()) return false;
+                return openBudgetKmCadastroModal(this.kmMismatchMessage);
             }},
-            openVehicleKmCadastro() {{
-                this.$refs.kmCadastroModal?.close();
-                if (!this.vehicleId) return;
-                const url = `/customer/vehicle/quick-update/${{this.vehicleId}}/`;
-                htmx.ajax('GET', url, {{target: '#modal-container', swap: 'innerHTML'}});
-                document.getElementById('form_modal').showModal();
-            }}
         }}"""
 
         self.helper = FormHelper()
@@ -262,6 +257,54 @@ class BudgetStep1Form(BudgetStepBaseForm):
                         console.error("Erro ao carregar KM cadastrado:", error);
                     }
                 }
+
+                function getBudgetKmCadastroModal() {
+                    return document.getElementById('budget-km-cadastro-modal');
+                }
+
+                function openBudgetKmCadastroModal(message) {
+                    const modal = getBudgetKmCadastroModal();
+                    if (!modal) return false;
+                    const messageEl = document.getElementById('budget-km-cadastro-modal-message');
+                    if (messageEl && message) {
+                        messageEl.textContent = message;
+                    }
+                    if (!modal.open) {
+                        modal.showModal();
+                    }
+                    return true;
+                }
+
+                function closeBudgetKmCadastroModal() {
+                    const modal = getBudgetKmCadastroModal();
+                    if (modal && modal.open) {
+                        modal.close();
+                    }
+                }
+
+                function getBudgetEntryKmConfirmInput() {
+                    return document.getElementById('id_confirm_entry_km_mismatch');
+                }
+
+                function isBudgetEntryKmMismatchConfirmed() {
+                    const confirmInput = getBudgetEntryKmConfirmInput();
+                    return Boolean(confirmInput && confirmInput.value === '1');
+                }
+
+                function clearBudgetEntryKmMismatchConfirmation() {
+                    const confirmInput = getBudgetEntryKmConfirmInput();
+                    if (confirmInput) {
+                        confirmInput.value = '';
+                    }
+                }
+
+                window.continueBudgetWithEntryKm = function continueBudgetWithEntryKm() {
+                    const confirmInput = getBudgetEntryKmConfirmInput();
+                    if (confirmInput) {
+                        confirmInput.value = '1';
+                    }
+                    closeBudgetKmCadastroModal();
+                };
 
                 function bindBudgetKmSubmitGuard() {
                     const form = document.getElementById('budget-form');
@@ -471,21 +514,18 @@ class BudgetStep1Form(BudgetStepBaseForm):
                         Div(
                             Div(
                                 Field("current_km", wrapper_class="mb-0"),
-                                HTML("""
-                                    <dialog x-ref="kmCadastroModal" class="modal">
-                                        <div class="modal-box max-w-lg border border-base-300 bg-base-100 shadow-2xl">
-                                            <h3 class="text-xl font-bold">KM cadastrado do cliente</h3>
-                                            <p class="mt-3 text-sm leading-relaxed text-base-content/80" x-text="kmMismatchMessage"></p>
-                                            <div class="modal-action flex-wrap gap-2">
-                                                <button type="button" class="btn btn-ghost" @click="$refs.kmCadastroModal.close()">Fechar</button>
-                                                <button type="button" class="btn btn-primary" :disabled="!vehicleId" @click="openVehicleKmCadastro()">Alterar KM no cadastro</button>
-                                            </div>
-                                        </div>
-                                        <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
-                                    </dialog>
-                                """),
+                                Field("confirm_entry_km_mismatch", wrapper_class="hidden"),
                                 css_class="col-span-12 lg:col-span-6",
-                                **{"@focusout": "maybeOpenKmCadastroModal()"},
+                                **{
+                                    "@focusout": """
+                                        const related = $event.relatedTarget;
+                                        const kmModal = document.getElementById('budget-km-cadastro-modal');
+                                        if (kmModal && related && kmModal.contains(related)) {
+                                            return;
+                                        }
+                                        maybeOpenKmCadastroModal();
+                                    """
+                                },
                             ),
                             Field("fuel_level", wrapper_class="col-span-12 lg:col-span-6"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
@@ -502,11 +542,15 @@ class BudgetStep1Form(BudgetStepBaseForm):
                                     customerId = $event.target.value;
                                     vehicleId = '';
                                     registeredKm = null;
+                                    clearBudgetEntryKmMismatchConfirmation();
                                     updateVehicleList($event.target.value);
                                 } else if ($event.target.name === 'vehicle') {
                                     vehicleId = $event.target.value;
+                                    clearBudgetEntryKmMismatchConfirmation();
                                     checkOpenBudget($event.target.value);
                                     syncRegisteredKm($event.target.value, $data);
+                                } else if ($event.target.name === 'current_km') {
+                                    clearBudgetEntryKmMismatchConfirmation();
                                 }
                             """,
                         },
@@ -539,7 +583,8 @@ class BudgetStep1Form(BudgetStepBaseForm):
         vehicle = cleaned_data.get("vehicle")
 
         registered_km = vehicle.km if vehicle is not None else None
-        if budget_entry_km_mismatches_cadastro(current_km=current_km, registered_km=registered_km):
+        confirmed_mismatch = bool(cleaned_data.get("confirm_entry_km_mismatch"))
+        if budget_entry_km_mismatches_cadastro(current_km=current_km, registered_km=registered_km) and not confirmed_mismatch:
             self.add_error("current_km", BUDGET_KM_CADASTRO_MISMATCH_MESSAGE)
 
         cleaned_data["workshop"] = self.workshop

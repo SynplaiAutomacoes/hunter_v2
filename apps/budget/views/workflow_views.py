@@ -28,7 +28,6 @@ from apps.budget.documents.provider import build_budget_status_report_pdf_render
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
-from apps.workorder.models import WorkOrderStatus
 from apps.core.infrastructure.services.dashboard_query_service import (
     _build_injected_pricing_context,
     _prepare_budget_for_dashboard_pricing,
@@ -244,6 +243,12 @@ def _parse_positive_int(raw_value: str | None) -> int | None:
     if parsed_value <= 0:
         return None
     return parsed_value
+
+
+def _parse_budget_pk(raw_value: str | None) -> int | None:
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    return _parse_positive_int(clean_id(raw_value))
 
 
 class BudgetStatusReportDataMixin:
@@ -638,7 +643,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
+        pk = _parse_budget_pk(self.kwargs.get("pk") or self.request.GET.get("pk"))
         if pk:
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return None
