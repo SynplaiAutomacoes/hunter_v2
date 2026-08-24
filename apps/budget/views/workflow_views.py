@@ -52,10 +52,16 @@ from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
+from apps.collaborators.models import WorkshopCollaborator
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _budget_update_url, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
-from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle, linkable_budgets_q
+from ..services.budget_linking_service import (
+    LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
+    find_oldest_open_budget_for_vehicle,
+    is_budget_linkable,
+    linkable_budgets_q,
+)
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -1307,15 +1313,23 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         else:
             if status == "cancel":
-                cancellation_reason = request.POST.get("cancellation_reason")
+                cancellation_reason = str(request.POST.get("cancellation_reason") or "").strip()
                 if not cancellation_reason:
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
+                cancellation_responsible = self._get_service_responsible(request.POST.get("cancellation_responsible_id"))
+                if cancellation_responsible is None:
+                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento administrativo ativo desta oficina."}, status=400)
                 budget.cancellation_reason = cancellation_reason
+                budget.cancellation_responsible = cancellation_responsible
             elif status == "reject":
-                rejection_reason = request.POST.get("rejection_reason")
+                rejection_reason = str(request.POST.get("rejection_reason") or "").strip()
                 if not rejection_reason:
                     return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
+                rejection_responsible = self._get_service_responsible(request.POST.get("rejection_responsible_id"))
+                if rejection_responsible is None:
+                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento administrativo ativo desta oficina."}, status=400)
                 budget.rejection_reason = rejection_reason
+                budget.rejection_responsible = rejection_responsible
             elif status == "reopen":
                 reopen_reason = str(request.POST.get("reopen_reason") or "").strip()
                 if not reopen_reason:
@@ -1343,6 +1357,17 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             _consolidate_budget_revision(budget)
 
         return JsonResponse({"success": True})
+
+    def _get_service_responsible(self, collaborator_id: str | None) -> WorkshopCollaborator | None:
+        try:
+            return WorkshopCollaborator.objects.filter(
+                pk=int(collaborator_id or 0),
+                workshop=self.workshop,
+                is_active=True,
+                collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+            ).first()
+        except (TypeError, ValueError):
+            return None
 
 
 class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -1487,14 +1512,17 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, pk):
         budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        can_link = is_budget_linkable(budget)
         context = {
             "budget": budget,
+            "can_link": can_link,
+            "link_blocked_message": None if can_link else LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
         }
         return render(request, "budget/partials/budget_reference_modal.html", context)
 
     def post(self, request, pk):
         current_budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
-        relate = request.POST.get("relate_budget") == "yes"
+        relate = is_budget_linkable(current_budget) and request.POST.get("relate_budget") == "yes"
 
         try:
             with transaction.atomic():
@@ -1519,14 +1547,15 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 )
                 new_budget.save()
         except Exception as e:
+            logger.exception("budget_reference_copy_failed", extra={"source_budget_id": current_budget.pk})
             return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
 
-        # Redirect or trigger HTMX reload
-        response = HttpResponse("", status=200)
-        redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
-        triggers = {"showToast": {"message": "Orçamento criado com sucesso.", "type": "success"}, "redirectAfterToast": {"url": redirect_url, "delay": 500}}
-        response["HX-Trigger"] = json.dumps(triggers)
-        return response
+        redirect_url = _budget_update_url(new_budget.pk, 1)
+        if request.headers.get("HX-Request"):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = redirect_url
+            return response
+        return redirect(redirect_url)
 
 
 class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -1631,8 +1660,7 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if locked_budget.vehicle_id is not None and reference_budget.vehicle_id != locked_budget.vehicle_id:
                 return JsonResponse({"success": False, "error": "Só é possível vincular orçamentos do mesmo veículo."}, status=400)
 
-            is_linkable = Budget.objects.filter(linkable_budgets_q(), pk=reference_budget.pk).exists()
-            if not is_linkable:
+            if not is_budget_linkable(reference_budget):
                 return JsonResponse({"success": False, "error": "Só é possível vincular a orçamentos abertos ou com OS em andamento."}, status=400)
 
             locked_budget.reference_budget = reference_budget

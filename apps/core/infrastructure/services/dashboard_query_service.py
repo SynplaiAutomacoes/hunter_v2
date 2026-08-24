@@ -802,6 +802,7 @@ class DashboardQueryService:
                 approved_budget_metrics.accumulated_markup,
                 workshop_cost.profitability_multiplier if workshop_cost is not None else None,
             ),
+            markup_target=workshop_cost.profitability_multiplier if workshop_cost is not None else None,
             warranty_return_rate=warranty_return_rate,
             approval_rate=approval_rate,
             total_pending_receivable=pending_receivable_metrics.total_general,

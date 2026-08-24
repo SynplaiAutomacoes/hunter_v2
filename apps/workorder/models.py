@@ -172,7 +172,22 @@ class WorkOrder(TimeStampedModel):
             WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
         }
 
-        return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
+        # Status legados renomeados — mapear para o valor atual equivalente
+        LEGACY_STATUS_MAP = {
+            "waiting_delivery": WorkOrderStatus.DRAFT,
+        }
+
+        status_value = self.status
+        if status_value in LEGACY_STATUS_MAP:
+            status_value = LEGACY_STATUS_MAP[status_value].value
+
+        try:
+            status_enum = WorkOrderStatus(status_value)
+            label = str(status_enum.label)
+        except ValueError:
+            label = str(self.status).replace("_", " ").title()
+
+        return {"text": label, "class": status_color.get(status_value, "badge-ghost")}
 
     @property
     def type_badge(self):
@@ -225,17 +240,12 @@ class WorkOrder(TimeStampedModel):
                 total += item.duration * item.quantity
                 continue
 
-            if not item.kit:
+            if not item.kit_id:
                 continue
 
-            _, service_overrides = item._get_kit_override_maps()
-            for kit_service in item._iter_kit_services():
-                override = service_overrides.get(kit_service.service_id)
-                if override:
-                    if override.quantity > 0 and override.duration:
-                        total += override.duration * override.quantity * item.quantity
-                elif kit_service.quantity > 0 and kit_service.service.duration:
-                    total += kit_service.service.duration * kit_service.quantity * item.quantity
+            for override in item._iter_frozen_kit_service_overrides():
+                if override.quantity > 0 and override.duration:
+                    total += override.duration * override.quantity * item.quantity
         return total
 
     @property

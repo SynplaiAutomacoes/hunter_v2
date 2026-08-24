@@ -93,7 +93,12 @@ class BudgetStep1EntryKmFormTests(TestCase):
     def test_lower_km_than_cadastro_blocks_step(self) -> None:
         form = self._form(current_km="10")
         self.assertFalse(form.is_valid())
-        self.assertIn(BUDGET_KM_CADASTRO_MISMATCH_MESSAGE, form.errors["current_km"])
+        self.assertIn("O KM informado não pode ser menor que o KM anterior do veículo (87.673).", form.errors["current_km"])
+
+    def test_confirm_does_not_allow_km_below_cadastro(self) -> None:
+        form = self._form(current_km="10", confirm_mismatch=True)
+        self.assertFalse(form.is_valid())
+        self.assertIn("O KM informado não pode ser menor que o KM anterior do veículo (87.673).", form.errors["current_km"])
 
     def test_matching_cadastro_km_is_valid(self) -> None:
         form = self._form(current_km="87673")

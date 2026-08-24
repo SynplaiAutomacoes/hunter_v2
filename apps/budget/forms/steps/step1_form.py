@@ -581,11 +581,15 @@ class BudgetStep1Form(BudgetStepBaseForm):
 
         current_km = cleaned_data.get("current_km")
         vehicle = cleaned_data.get("vehicle")
-
         registered_km = vehicle.km if vehicle is not None else None
-        confirmed_mismatch = bool(cleaned_data.get("confirm_entry_km_mismatch"))
-        if budget_entry_km_mismatches_cadastro(current_km=current_km, registered_km=registered_km) and not confirmed_mismatch:
-            self.add_error("current_km", BUDGET_KM_CADASTRO_MISMATCH_MESSAGE)
+
+        if vehicle and current_km is not None and registered_km is not None and current_km < registered_km:
+            formatted_previous_km = f"{registered_km:,}".replace(",", ".")
+            self.add_error("current_km", f"O KM informado não pode ser menor que o KM anterior do veículo ({formatted_previous_km}).")
+        else:
+            confirmed_mismatch = bool(cleaned_data.get("confirm_entry_km_mismatch"))
+            if budget_entry_km_mismatches_cadastro(current_km=current_km, registered_km=registered_km) and not confirmed_mismatch:
+                self.add_error("current_km", BUDGET_KM_CADASTRO_MISMATCH_MESSAGE)
 
         cleaned_data["workshop"] = self.workshop
         if self.request and self.request.user:

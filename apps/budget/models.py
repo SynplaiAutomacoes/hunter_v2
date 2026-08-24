@@ -169,7 +169,23 @@ class Budget(TimeStampedModel):
     # Status e Controle
     status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
+    cancellation_responsible = models.ForeignKey(
+        "collaborators.WorkshopCollaborator",
+        verbose_name="Responsável pelo atendimento no cancelamento",
+        on_delete=models.SET_NULL,
+        related_name="cancelled_budgets",
+        null=True,
+        blank=True,
+    )
     rejection_reason = models.CharField(verbose_name="Motivo da Reprovação", max_length=255, blank=True, null=True)
+    rejection_responsible = models.ForeignKey(
+        "collaborators.WorkshopCollaborator",
+        verbose_name="Responsável pelo atendimento na reprovação",
+        on_delete=models.SET_NULL,
+        related_name="rejected_budgets",
+        null=True,
+        blank=True,
+    )
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
     step5_calculation_viewed = models.BooleanField(verbose_name="Calculo da etapa 5 visualizado", default=False)
 
@@ -210,7 +226,9 @@ class Budget(TimeStampedModel):
             "signature_document_id",
             "signature_sent_at",
             "cancellation_reason",
+            "cancellation_responsible",
             "rejection_reason",
+            "rejection_responsible",
             "customer_agreed_departure_at",
             "service_expected_completion_at",
             "entry_date",
@@ -765,17 +783,12 @@ class Budget(TimeStampedModel):
                 total += item.duration * item.quantity
                 continue
 
-            if not item.kit:
+            if not item.kit_id:
                 continue
 
-            _, service_overrides = item._get_kit_override_maps()
-            for kit_service in item._iter_kit_services():
-                override = service_overrides.get(kit_service.service_id)
-                if override:
-                    if override.quantity > 0 and override.duration:
-                        total += override.duration * override.quantity * item.quantity
-                elif kit_service.quantity > 0 and kit_service.duration:
-                    total += kit_service.duration * kit_service.quantity * item.quantity
+            for override in item._iter_frozen_kit_service_overrides():
+                if override.quantity > 0 and override.duration:
+                    total += override.duration * override.quantity * item.quantity
         return total
 
     @property
@@ -982,26 +995,45 @@ class Budget(TimeStampedModel):
             return self.summary_total_before_benefit_value
         return self.total_budget_value
 
-    @property
-    def selected_items_total_products_without_shipping(self) -> Money:
+    def _raw_selected_items_total_products_without_shipping(self) -> Money:
         total = Money(0, "BRL")
         for item in self._iter_items():
             total += item.summary_products_total_without_shipping
         return total
 
-    @property
-    def selected_items_total_services_value(self) -> Money:
+    def _raw_selected_items_total_services_value(self) -> Money:
         total = Money(0, "BRL")
         for item in self._iter_items():
             total += item.summary_services_total
         return total
 
-    @property
-    def selected_items_total_shipping_value(self) -> Money:
+    def _raw_selected_items_total_shipping_value(self) -> Money:
         total = Money(0, "BRL")
         for item in self._iter_items():
             total += item.summary_shipping_total
         return total
+
+    def _raw_selected_items_total_base_value(self) -> Money:
+        return self._raw_selected_items_total_products_without_shipping() + self._raw_selected_items_total_services_value() + self._raw_selected_items_total_shipping_value()
+
+    @property
+    def selected_items_total_products_without_shipping(self) -> Money:
+        # Sale: pricing snapshot winner (kit vs kit / kit vs avulso). Fixed: catalog sum of every line.
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_products_without_shipping()
+        return self.total_products_value - self.total_products_shipping
+
+    @property
+    def selected_items_total_services_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_services_value()
+        return self.total_services_value - self.total_services_shipping
+
+    @property
+    def selected_items_total_shipping_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_shipping_value()
+        return self.total_shipping
 
     @property
     def selected_items_total_base_value(self) -> Money:
@@ -1040,7 +1072,7 @@ class Budget(TimeStampedModel):
 
     @property
     def summary_chargeable_base_value(self) -> Money:
-        amount = self.selected_items_total_base_value.amount - self.benefit_summary_total_value.amount
+        amount = self._raw_selected_items_total_base_value().amount - self.benefit_summary_total_value.amount
         return Money(max(amount, Decimal("0.00")), "BRL")
 
     @property

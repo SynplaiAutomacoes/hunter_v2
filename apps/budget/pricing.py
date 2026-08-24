@@ -321,6 +321,100 @@ def _coerce_money(value: Money | None) -> Money:
     return value if value is not None else zero_money()
 
 
+def _is_better_source(*, candidate_quantity: int, candidate_total: Money, current_quantity: int, current_total: Money) -> bool:
+    """Same winner rule used for avulso vs kit and kit vs kit: higher qty, then higher total."""
+    if current_quantity <= 0:
+        return True
+    if candidate_quantity != current_quantity:
+        return candidate_quantity > current_quantity
+    return candidate_total.amount > current_total.amount
+
+
+def _timedelta_seconds(duration: timedelta | None) -> int:
+    if not duration:
+        return 0
+    return int(duration.total_seconds())
+
+
+def _is_better_service_source(
+    *,
+    candidate_duration: timedelta,
+    candidate_total: Money,
+    current_duration: timedelta,
+    current_total: Money,
+) -> bool:
+    """Winner for services: higher duration, then higher selling total."""
+    current_seconds = _timedelta_seconds(current_duration)
+    candidate_seconds = _timedelta_seconds(candidate_duration)
+    if current_seconds <= 0 and current_total.amount <= 0:
+        return True
+    if candidate_seconds != current_seconds:
+        return candidate_seconds > current_seconds
+    return candidate_total.amount > current_total.amount
+
+
+def iter_kit_product_components(item: Any) -> list[Any]:
+    return [override for override in item._iter_frozen_kit_product_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
+
+
+def iter_kit_service_components(item: Any) -> list[Any]:
+    return [override for override in item._iter_frozen_kit_service_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
+
+
+def kit_component_winning_item_ids(items: list[Any]) -> tuple[dict[int, int], dict[int, int]]:
+    """Return product_id/service_id -> budget item id using the kit-vs-kit winner rule."""
+    product_winners: dict[int, tuple[int, Any, int]] = {}
+    service_winners: dict[int, tuple[timedelta, Any, int]] = {}
+
+    for item in items:
+        item_id = getattr(item, "pk", None)
+        if item_id is None or not getattr(item, "kit_id", None):
+            continue
+        kit_quantity = int(getattr(item, "quantity", 0) or 0)
+        if kit_quantity <= 0:
+            continue
+
+        for override in iter_kit_product_components(item):
+            product_id = getattr(override, "product_id", None)
+            if product_id is None:
+                continue
+            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
+            unit_price = getattr(override, "product_selling_price", None) or zero_money()
+            shipping = (getattr(override, "shipping", None) or zero_money()) * kit_quantity
+            total = (unit_price * quantity) + shipping
+            current = product_winners.get(product_id)
+            if current is None or _is_better_source(
+                candidate_quantity=quantity,
+                candidate_total=total,
+                current_quantity=current[0],
+                current_total=current[1],
+            ):
+                product_winners[product_id] = (quantity, total, item_id)
+
+        for override in iter_kit_service_components(item):
+            service_id = getattr(override, "service_id", None)
+            if service_id is None:
+                continue
+            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
+            unit_price = getattr(override, "service_selling_price", None) or zero_money()
+            total = unit_price * quantity
+            duration = getattr(override, "duration", None) or timedelta()
+            duration = duration * quantity
+            current = service_winners.get(service_id)
+            if current is None or _is_better_service_source(
+                candidate_duration=duration,
+                candidate_total=total,
+                current_duration=current[0],
+                current_total=current[1],
+            ):
+                service_winners[service_id] = (duration, total, item_id)
+
+    return (
+        {product_id: winner[2] for product_id, winner in product_winners.items()},
+        {service_id: winner[2] for service_id, winner in service_winners.items()},
+    )
+
+
 def build_pricing_snapshot(
     *,
     items: Iterable[Any],
@@ -380,13 +474,18 @@ def build_pricing_snapshot(
             direct_total = (effective_selling * item_quantity) + _coerce_money(getattr(item, "shipping", None))
             direct_cost_total = _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
             direct_shipping = _coerce_money(getattr(item, "shipping", None))
-            should_replace_direct = product_id is not None and (item_quantity > aggregate.direct_quantity or (item_quantity == aggregate.direct_quantity and direct_total.amount > aggregate.direct_total.amount))
+            should_replace_direct = product_id is not None and _is_better_source(
+                candidate_quantity=item_quantity,
+                candidate_total=direct_total,
+                current_quantity=aggregate.direct_quantity,
+                current_total=aggregate.direct_total,
+            )
             if product_id is None:
                 aggregate.direct_quantity += item_quantity
                 aggregate.direct_total += direct_total
                 aggregate.direct_cost_total += direct_cost_total
                 aggregate.direct_shipping += direct_shipping
-            elif aggregate.direct_quantity <= 0 or should_replace_direct:
+            elif should_replace_direct:
                 aggregate.direct_quantity = item_quantity
                 aggregate.direct_total = direct_total
                 aggregate.direct_cost_total = direct_cost_total
@@ -418,16 +517,32 @@ def build_pricing_snapshot(
                 )
                 service_aggregates[key] = service_aggregate
 
-            service_aggregate.direct_quantity += item_quantity
             effective_selling = _coerce_money(getattr(item, "service_selling_price", None))
-            service_aggregate.direct_raw_total += effective_selling * item_quantity
-            service_aggregate.direct_cost_total += _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
-            service_aggregate.direct_shipping += _coerce_money(getattr(item, "service_shipping", None)) * item_quantity
+            direct_raw_total = effective_selling * item_quantity
+            direct_cost_total = _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
+            direct_shipping = _coerce_money(getattr(item, "service_shipping", None)) * item_quantity
             item_duration = getattr(item, "duration", None)
-            if item_duration:
-                service_aggregate.direct_duration += item_duration * item_quantity
-            service_aggregate.direct_description = str(getattr(item, "description", "") or getattr(getattr(item, "service", None), "name", "Servico"))
-            service_aggregate.direct_source_object = getattr(item, "service", None)
+            direct_duration = (item_duration * item_quantity) if item_duration else timedelta()
+            should_replace_direct = service_id is not None and _is_better_service_source(
+                candidate_duration=direct_duration,
+                candidate_total=direct_raw_total,
+                current_duration=service_aggregate.direct_duration,
+                current_total=service_aggregate.direct_raw_total,
+            )
+            if service_id is None:
+                service_aggregate.direct_quantity += item_quantity
+                service_aggregate.direct_raw_total += direct_raw_total
+                service_aggregate.direct_cost_total += direct_cost_total
+                service_aggregate.direct_shipping += direct_shipping
+                service_aggregate.direct_duration += direct_duration
+            elif should_replace_direct:
+                service_aggregate.direct_quantity = item_quantity
+                service_aggregate.direct_raw_total = direct_raw_total
+                service_aggregate.direct_cost_total = direct_cost_total
+                service_aggregate.direct_shipping = direct_shipping
+                service_aggregate.direct_duration = direct_duration
+                service_aggregate.direct_description = str(getattr(item, "description", "") or getattr(getattr(item, "service", None), "name", "Servico"))
+                service_aggregate.direct_source_object = getattr(item, "service", None)
             service_aggregate.has_direct_source = True
             continue
 
@@ -462,16 +577,23 @@ def build_pricing_snapshot(
             shipping = override.shipping * item_quantity
             unit_price = override.product_selling_price
             unit_cost = override.product_cost_price
+            kit_total = (unit_price * consolidated_quantity) + shipping
 
-            aggregate.kit_quantity += consolidated_quantity
-            aggregate.kit_total += (unit_price * consolidated_quantity) + shipping
-            aggregate.kit_cost_total += unit_cost * consolidated_quantity
-            aggregate.kit_shipping += shipping
-            aggregate.kit_code = str(getattr(product, "code", "") or "")
-            aggregate.kit_application = str(getattr(product, "application", "") or "")
-            aggregate.kit_location = str(getattr(product, "location", "") or "")
-            aggregate.kit_source_object = product
-            aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
+            if _is_better_source(
+                candidate_quantity=consolidated_quantity,
+                candidate_total=kit_total,
+                current_quantity=aggregate.kit_quantity,
+                current_total=aggregate.kit_total,
+            ):
+                aggregate.kit_quantity = consolidated_quantity
+                aggregate.kit_total = kit_total
+                aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                aggregate.kit_shipping = shipping
+                aggregate.kit_code = str(getattr(product, "code", "") or "")
+                aggregate.kit_application = str(getattr(product, "application", "") or "")
+                aggregate.kit_location = str(getattr(product, "location", "") or "")
+                aggregate.kit_source_object = product
+                aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
 
         for override in item._iter_frozen_kit_service_overrides():
             service = override.service
@@ -498,21 +620,28 @@ def build_pricing_snapshot(
 
             unit_price = override.service_selling_price
             unit_cost = override.service_cost_price
+            kit_raw_total = unit_price * consolidated_quantity
             fixed_cost_total = unit_cost * consolidated_quantity
             service_duration = timedelta(0)
             if override.duration:
                 service_duration = override.duration * consolidated_quantity
 
-            service_aggregate.kit_quantity += consolidated_quantity
-            service_aggregate.kit_raw_total += unit_price * consolidated_quantity
-            service_aggregate.kit_cost_total += unit_cost * consolidated_quantity
-            service_aggregate.kit_fixed_cost_total += fixed_cost_total
-            service_aggregate.kit_duration += service_duration
-            service_aggregate.kit_description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
-            service_aggregate.kit_source_object = service
+            if _is_better_service_source(
+                candidate_duration=service_duration,
+                candidate_total=kit_raw_total,
+                current_duration=service_aggregate.kit_duration,
+                current_total=service_aggregate.kit_raw_total,
+            ):
+                service_aggregate.kit_quantity = consolidated_quantity
+                service_aggregate.kit_raw_total = kit_raw_total
+                service_aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                service_aggregate.kit_fixed_cost_total = fixed_cost_total
+                service_aggregate.kit_duration = service_duration
+                service_aggregate.kit_description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
+                service_aggregate.kit_source_object = service
+                service_aggregate.third_party = bool(getattr(service, "is_third_party", False))
 
             service_aggregate.has_kit_source = True
-            service_aggregate.third_party = service_aggregate.third_party or bool(getattr(service, "is_third_party", False))
 
     product_lines: list[ConsolidatedPricingLine] = []
     for product_aggregate in sorted(product_aggregates.values(), key=lambda value: (value.sort_order, value.description.lower())):
@@ -520,12 +649,12 @@ def build_pricing_snapshot(
         has_kit_source = product_aggregate.kit_quantity > 0
 
         if has_direct_source and has_kit_source:
-            if product_aggregate.direct_quantity > product_aggregate.kit_quantity:
-                use_direct_source = True
-            elif product_aggregate.kit_quantity > product_aggregate.direct_quantity:
-                use_direct_source = False
-            else:
-                use_direct_source = product_aggregate.direct_total.amount > product_aggregate.kit_total.amount
+            use_direct_source = _is_better_source(
+                candidate_quantity=product_aggregate.direct_quantity,
+                candidate_total=product_aggregate.direct_total,
+                current_quantity=product_aggregate.kit_quantity,
+                current_total=product_aggregate.kit_total,
+            )
 
             if use_direct_source:
                 quantity = product_aggregate.direct_quantity
@@ -592,12 +721,12 @@ def build_pricing_snapshot(
         has_kit_source = service_aggregate.kit_quantity > 0
 
         if has_direct_source and has_kit_source:
-            if service_aggregate.direct_quantity > service_aggregate.kit_quantity:
-                use_direct_source = True
-            elif service_aggregate.kit_quantity > service_aggregate.direct_quantity:
-                use_direct_source = False
-            else:
-                use_direct_source = service_aggregate.direct_raw_total.amount > service_aggregate.kit_raw_total.amount
+            use_direct_source = _is_better_service_source(
+                candidate_duration=service_aggregate.direct_duration,
+                candidate_total=service_aggregate.direct_raw_total,
+                current_duration=service_aggregate.kit_duration,
+                current_total=service_aggregate.kit_raw_total,
+            )
 
             if use_direct_source:
                 quantity = service_aggregate.direct_quantity
