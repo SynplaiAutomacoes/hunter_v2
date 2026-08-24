@@ -16,7 +16,7 @@ from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefe
 from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WORKORDER_REVENUE_STATUSES
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
 
@@ -134,7 +134,7 @@ def build_dre_calculation(
     pagamentos_ordens_de_servico = WorkOrderPaymentMethod.objects.filter(
         workorder__workshop__in=workshops,
         workorder__budget_type="sale",
-        workorder__status__in=WORKORDER_REVENUE_STATUSES,
+        workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
     )
     if start_date is not None:
         pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)

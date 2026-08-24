@@ -1,7 +1,7 @@
-{% load crispy_forms_tags l10n %}
+{% load crispy_forms_tags %}
 
 <div id="import-step-wrapper" class="w-full"
-     hx-get="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
+     hx-get="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
      hx-trigger="productCreated from:body, sefaz-list-refresh from:body"
      hx-target="#step-container"
      hx-indicator="#loading-spinner"
@@ -18,7 +18,7 @@
             {% endif %}
 
             <button type="button" class="btn btn-outline"
-                    hx-get="{{ back_url_base }}?step={{ current_step|add:-1 }}{% if object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
+                    hx-get="{{ back_url_base }}?step={{ current_step|add:-1 }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
                     hx-target="#step-container"
                     hx-push-url="true">
                 <span class="material-icons">arrow_back</span> Voltar
@@ -35,8 +35,8 @@
     <div id="form-container">
         <form id="import-form"
               method="post"
-              action="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
-              hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
+              action="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+              hx-post="{{ request.path }}?step={{ current_step }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
               hx-target="#step-container"
               hx-encoding="multipart/form-data"
               enctype="multipart/form-data"

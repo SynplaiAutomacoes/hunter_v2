@@ -15,7 +15,7 @@ from django.db.models import Count, DecimalField, F, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import get_object_or_404, render
 from django.utils.decorators import method_decorator
 from django.utils.html import escape
 from django.utils import timezone
@@ -32,7 +32,7 @@ from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
 from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
-from apps.collaborators.services import sync_workorder_collaborator_payrolls, workorder_commission_context
+from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.core.domain.services.editing_lock_service import get_lock_info
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
@@ -49,6 +49,7 @@ from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
+from apps.workorder import util as workorder_util
 from apps.workorder.documents.provider import (
     build_workorder_pdf_render_request,
     build_workorder_status_report_pdf_render_request,
@@ -71,7 +72,6 @@ from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 from apps.workorder.util import (
     _get_workorder_for_workshop,
     _build_edit_items_context,
-    _build_workorder_emission_section_context,
     _render_edit_items_modal,
     _active_tab_from_item,
     _get_workorder_item_for_workshop,
@@ -79,11 +79,8 @@ from apps.workorder.util import (
     _parse_duration_from_string,
     _calculate_service_prices,
     _get_workorder_workshop_cost,
-    resolve_workorder_detail_navigation,
-    WORKORDER_DETAIL_STEPS,
-    apply_workorder_collaborators_continue,
-    build_workorder_collaborators_next_url,
     _build_customer_approvement_context,
+    _build_workorder_emission_section_context,
     _build_workorder_pdf_file_response,
     can_reopen_workorder,
     trigger_workorder_signature_send_if_needed,
@@ -142,8 +139,6 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         allowed_values=frozenset(
             {
                 WorkOrderStatus.DRAFT,
-                WorkOrderStatus.WAITING_COLLABORATOR,
-                WorkOrderStatus.WAITING_DELIVERY,
                 WorkOrderStatus.APPROVED,
                 WorkOrderStatus.REJECTED,
                 WorkOrderStatus.CANCELLED,
@@ -179,8 +174,6 @@ WORKORDER_BUDGET_TYPE_CHOICES = tuple((budget_type.value, str(budget_type.label)
 WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "budget_type", "data_inicial", "data_final")
 WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
-    WorkOrderStatus.WAITING_COLLABORATOR: "badge-info min-w-sm",
-    WorkOrderStatus.WAITING_DELIVERY: "badge-warning min-w-sm",
     WorkOrderStatus.APPROVED: "badge-success min-w-sm",
     WorkOrderStatus.REJECTED: "badge-error min-w-sm",
     WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
@@ -402,7 +395,11 @@ class WorkOrderStatusReportDataMixin:
         return queryset.prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=False))
 
     def _get_workorder_report_queryset(self):
-        return WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
+        return (
+            WorkOrder.objects.filter(workshop=self.workshop)
+            .select_related("budget", "budget__customer", "budget__vehicle")
+            .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
+        )
 
     def _get_filtered_workorder_queryset(self, *, for_pricing: bool = False, for_report: bool = False):
         queryset = self._get_workorder_report_queryset() if for_report else self._get_workorder_base_queryset(for_pricing=for_pricing)
@@ -579,27 +576,10 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        navigation = resolve_workorder_detail_navigation(request=self.request, workorder=self.object)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
-        context.update(workorder_commission_context(workorder=self.object))
         context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
-        context["steps_config"] = WORKORDER_DETAIL_STEPS
-        context["current_step"] = navigation.current_step
-        context["max_reached_step"] = navigation.max_reached_step
-        context["previous_step"] = navigation.previous_step
-        context["next_step"] = navigation.next_step
-        context["min_accessible_step"] = 1
-        context["payments_open"] = navigation.payments_open
-        context["history_open"] = navigation.history_open
-        context["can_advance_step"] = navigation.can_advance
-        context["continue_button_label"] = navigation.continue_label
-        context["stepper_show_payments_tab"] = False
-        context["stepper_show_history_tab"] = True
-        context["stepper_include_pk"] = False
-        context["stepper_navigation"] = "links"
-        context["object"] = self.object
 
         lock_info = get_lock_info(self.object)
         context["concurrent_lock_info"] = lock_info
@@ -630,6 +610,7 @@ class WorkOrderResumeSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
         context = _build_edit_items_context(workorder)
         context["workorder"] = workorder
+        context["collaborator_form"] = WorkOrderCollaboratorForm(instance=workorder, workorder=workorder)
         response = render(request, "workorder/partials/resume_section.html", context)
         response["Cache-Control"] = "no-store"
         return response
@@ -643,16 +624,7 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
         workorder = _get_workorder_for_workshop(self.workshop, pk)
         if not _check_concurrent_edit_lock(request, workorder):
             return _build_concurrent_lock_response(request, workorder)
-
-        next_url = build_workorder_collaborators_next_url(workorder_pk=workorder.pk, raw_next=str(request.POST.get("next") or ""))
         if _is_workorder_edit_locked(workorder):
-            if next_url:
-                if bool(getattr(request, "htmx", False)):
-                    response = HttpResponse(status=204)
-                    response["HX-Redirect"] = next_url
-                    response["Cache-Control"] = "no-store"
-                    return response
-                return redirect(next_url)
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
@@ -661,73 +633,13 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
             workorder.refresh_from_db()
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
-            apply_workorder_collaborators_continue(workorder=workorder, next_url=next_url)
 
-            if next_url:
-                if bool(getattr(request, "htmx", False)):
-                    response = HttpResponse(status=204)
-                    response["HX-Redirect"] = next_url
-                    response["Cache-Control"] = "no-store"
-                    return response
-                return redirect(next_url)
-
-        context = {
-            "workorder": workorder,
-            "collaborator_form": form,
-        }
-        context.update(workorder_commission_context(workorder=workorder))
-        response = render(request, "workorder/partials/collaborators_section.html", context)
+        context = _build_edit_items_context(workorder)
+        context["workorder"] = workorder
+        context["collaborator_form"] = form
+        response = render(request, "workorder/partials/resume_section.html", context)
         response["Cache-Control"] = "no-store"
         return response
-
-
-class WorkOrderEmissionContinueView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = WorkOrder
-    workshop_permission_app_label = "finance"
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "view_nfserequest"
-
-    def post(self, request, pk):
-        from apps.finance.forms import EMISSION_NOTE_MODE_CHOICES, EmissionStep4Form
-        from apps.finance.views.emission import bind_emission_request_view
-
-        workorder = _get_workorder_for_workshop(self.workshop, pk)
-        if workorder.status != WorkOrderStatus.APPROVED:
-            context = _build_workorder_emission_section_context(workorder=workorder, request=request)
-            context["workorder"] = workorder
-            response = render(request, "workorder/partials/nf_section.html", context)
-            response["Cache-Control"] = "no-store"
-            return response
-
-        emission_view = bind_emission_request_view(request=request, workshop=self.workshop)
-        state = emission_view.seed_state_at_summary(workorder=workorder)
-        selected_slider = emission_view._selected_slider(state=state, workorder=workorder)
-        allowed_note_modes, availability_message = emission_view._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
-        if not allowed_note_modes:
-            context = _build_workorder_emission_section_context(workorder=workorder, request=request)
-            context["workorder"] = workorder
-            response = render(request, "workorder/partials/nf_section.html", context)
-            response["Cache-Control"] = "no-store"
-            return response
-        form = EmissionStep4Form(
-            request.POST,
-            workorder=workorder,
-            note_mode_choices=EMISSION_NOTE_MODE_CHOICES,
-            allowed_note_modes=allowed_note_modes,
-            availability_message=availability_message,
-            form_selector="#workorder-emission-form",
-            preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
-        )
-        if not form.is_valid():
-            context = _build_workorder_emission_section_context(workorder=workorder, request=request)
-            context["workorder"] = workorder
-            context["emission_form"] = form
-            response = render(request, "workorder/partials/nf_section.html", context)
-            response["Cache-Control"] = "no-store"
-            return response
-
-        continue_url = reverse("workorder:emission_continue", kwargs={"pk": workorder.pk})
-        return emission_view.apply_summary_and_note_mode(form=form, workorder=workorder, form_action=continue_url)
 
 
 class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -804,22 +716,19 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             workorder=workorder,
             require_unsigned_delivery_reason=False,
             require_warranty_plan=False,
-            require_km_final=False,
         )
 
         if not approval_form.is_valid():
-            field_errors = {field: list(messages) for field, messages in approval_form.errors.items()}
-            errors = [message for messages in field_errors.values() for message in messages]
-            return JsonResponse({"ok": False, "errors": errors, "field_errors": field_errors}, status=400)
+            km_final_errors = approval_form.errors.get("km_final", [])
+            return JsonResponse({"ok": False, "errors": list(km_final_errors)}, status=400)
 
-        posted_fields = {name for name in request.POST if name in WorkOrderCustomerApprovalForm.DRAFT_FIELD_NAMES}
-        workorder.save_delivery_draft(cleaned_data=approval_form.cleaned_data, posted_fields=posted_fields)
-        workorder.refresh_from_db()
+        km_final = approval_form.cleaned_data["km_final"]
+        workorder.set_km_final(km_final)
 
         return JsonResponse(
             {
                 "ok": True,
-                "km_final": workorder.km_final,
+                "km_final": km_final,
                 "has_completion_blockers": workorder.has_completion_blockers,
                 "completion_blockers_display": workorder.completion_blockers_display,
                 "has_signature_blockers": workorder.has_signature_blockers,
@@ -1383,32 +1292,27 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return response
 
         if next_status == WorkOrderStatus.APPROVED:
+            if workorder.has_completion_blockers:
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
+                return response
+
             approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
             if not approval_form.is_valid():
                 context = _build_customer_approvement_context(workorder, request=request)
                 context["approval_form"] = approval_form
                 return render(request, "workorder/partials/customer_approvement_section.html", context)
 
-            posted_km_final = approval_form.cleaned_data["km_final"]
-            assert posted_km_final is not None
-            workorder.km_final = posted_km_final
-            if workorder.has_completion_blockers:
-                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
-                response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
-                return response
-
             try:
+                km_final = approval_form.cleaned_data["km_final"]
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
                 workorder.complete_delivery(
-                    km_final=posted_km_final,
+                    km_final=km_final,
                     unsigned_delivery_reason=unsigned_delivery_reason,
                     last_oil_change_date=approval_form.cleaned_data.get("last_oil_change_date"),
                     last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
                     review_plan=approval_form.cleaned_data.get("review_plan"),
                     warranty_plan=approval_form.cleaned_data.get("warranty_plan"),
-                    previous_mechanic_id=getattr(approval_form.cleaned_data.get("previous_mechanic"), "pk", None),
-                    courtesy_reason_type=approval_form.cleaned_data.get("courtesy_reason_type"),
-                    courtesy_reason_description=approval_form.cleaned_data.get("courtesy_reason_description") or "",
                 )
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
@@ -1421,7 +1325,9 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         extra={"workorder_id": workorder.pk, "status": workorder.status},
                     )
                     response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
-                    response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}})
+                    response["HX-Trigger"] = json.dumps(
+                        {"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}}
+                    )
                     return response
 
                 from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
@@ -1449,7 +1355,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "workorder_delivery_completed",
                 extra={
                     "workorder_id": workorder.pk,
-                    "km_final": posted_km_final,
+                    "km_final": km_final,
                     "has_unsigned_delivery": bool(unsigned_delivery_reason),
                 },
             )
@@ -1504,6 +1410,31 @@ class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return response
 
         return HttpResponse(headers={"HX-Refresh": "true"})
+
+
+class WorkOrderEmissionContinueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "view_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not workorder_util.can_view_workorder_emission(request=request, workorder=workorder):
+            return HttpResponse(status=403)
+
+        context = _build_workorder_emission_section_context(workorder=workorder, request=request)
+        form = context.get("emission_form")
+        if form is None or not form.is_valid():
+            return render(request, "workorder/partials/nf_section.html", context)
+
+        from apps.finance.views.emission import EmissionRequestCreateView
+
+        view = EmissionRequestCreateView()
+        view.request = request
+        view.args = ()
+        view.kwargs = {}
+        view.workshop = self.workshop
+        view.seed_state_at_summary(workorder=workorder)
+        return view.apply_summary_and_note_mode(form=form, workorder=workorder, form_action="workorder_emission_continue")
 
 
 @xframe_options_exempt

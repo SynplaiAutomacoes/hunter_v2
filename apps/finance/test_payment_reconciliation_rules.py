@@ -320,4 +320,3 @@ class PaymentReconciliationFormTests(TestCase):
         step3_bank_account_pks = [pk for pk, _ in step3_form.fields["bank_account"].widget.choices]
         self.assertIn(active_account.pk, step3_bank_account_pks)
         self.assertNotIn(inactive_account.pk, step3_bank_account_pks)
-
