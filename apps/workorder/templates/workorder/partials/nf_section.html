@@ -1,1 +1,41 @@
 {% include "workorder/partials/customer_approvement_section.html" %}
+
+{% load crispy_forms_tags %}
+<div class="card-body">
+    <h3 class="font-bold text-2xl pb-2 mb-2">Nota fiscal</h3>
+
+    {% if workorder.status != 'approved' %}
+        <div class="alert alert-info">
+            <span>A emissão de nota fiscal fica disponível após a entrega do veículo.</span>
+        </div>
+    {% elif not can_view_workorder_emission %}
+        <div class="alert alert-warning">
+            <span>Você não tem permissão para emitir ou visualizar notas fiscais desta O.S.</span>
+        </div>
+    {% elif emission_ui and emission_ui.mode == 'view_both' %}
+        <p class="text-base-content/70 mb-4">Esta O.S. já possui Nota Fiscal de Produto e Nota Fiscal de Serviço.</p>
+        <div class="flex flex-wrap gap-3">
+            <a href="{{ emission_ui.nfe_detail_url }}" class="btn btn-primary" data-allow-locked="1">Abrir Nota Fiscal de Produto</a>
+            <a href="{{ emission_ui.nfse_detail_url }}" class="btn btn-outline" data-allow-locked="1">Abrir Nota Fiscal de Serviço</a>
+        </div>
+    {% elif emission_ui and emission_ui.mode == 'view_single' %}
+        <p class="text-base-content/70 mb-4">Esta O.S. já possui {% if emission_ui.has_nfe %}Nota Fiscal de Produto{% else %}Nota Fiscal de Serviço{% endif %}.</p>
+        <a href="{{ emission_ui.direct_url }}" class="btn btn-primary" data-allow-locked="1">Abrir {% if emission_ui.has_nfe %}Nota Fiscal de Produto{% else %}Nota Fiscal de Serviço{% endif %}</a>
+    {% elif emission_ui and emission_ui.mode == 'partial_choice' %}
+        <div class="alert alert-info mb-6">
+            <span>Esta O.S. já possui {{ emission_ui.existing_note_label }}. Você pode emitir a {{ emission_ui.missing_note_label }} faltante ou abrir a nota já emitida.</span>
+        </div>
+        <div class="flex flex-wrap gap-3 mb-6">
+            <a href="{{ emission_ui.direct_url }}" class="btn btn-outline" data-allow-locked="1">Abrir {{ emission_ui.existing_note_label }}</a>
+        </div>
+        {% if emission_form %}
+            {% include "workorder/partials/nf_emission_form.html" %}
+        {% endif %}
+    {% elif emission_form %}
+        {% include "workorder/partials/nf_emission_form.html" %}
+    {% else %}
+        <div class="alert alert-warning">
+            <span>Não há saldo de produtos ou serviços para emitir nota com a configuração atual.</span>
+        </div>
+    {% endif %}
+</div>
