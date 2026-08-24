@@ -437,6 +437,41 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         )
         self.assertEqual(extract_signature_envelope_id({"id": "env-99", "type": "envelope"}), "env-99")
 
+    @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=False)
+    @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")
+    def test_workorder_signature_is_approved_when_completion_is_pending(
+        self,
+        approve_mock: Mock,
+        _can_finalize_mock: Mock,
+    ) -> None:
+        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", mark_signature_approved=Mock())
+
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_SIGNED", "envelopeId": "env-os-685"},
+            workorder=workorder,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workorder.mark_signature_approved.assert_called_once()
+        approve_mock.assert_not_called()
+
+    @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=True)
+    @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock", side_effect=RuntimeError("estoque insuficiente"))
+    def test_workorder_signature_is_approved_even_when_finalize_fails(
+        self,
+        _approve_mock: Mock,
+        _can_finalize_mock: Mock,
+    ) -> None:
+        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", mark_signature_approved=Mock())
+
+        response = process_signature_webhook_payload(
+            payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "env-os-685"},
+            workorder=workorder,
+        )
+
+        self.assertEqual(response.status_code, 500)
+        workorder.mark_signature_approved.assert_called_once()
+
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
     def test_document_declined_rejects_budget(self, budget_filter: Mock, workorder_filter: Mock) -> None:

@@ -1477,11 +1477,7 @@ def visualizar_pdf_workorder(request, pk):
             from apps.core.infrastructure.services.signature_download import download_signed_pdf
             from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
-            synplaisign_api_key = ""
-            try:
-                synplaisign_api_key = get_workshop_synplaisign_api_key(workorder.workshop)
-            except WorkshopSynplaiSignError:
-                synplaisign_api_key = ""
+            synplaisign_api_key = get_workshop_synplaisign_api_key(workorder.workshop)
             signed_pdf = download_signed_pdf(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,

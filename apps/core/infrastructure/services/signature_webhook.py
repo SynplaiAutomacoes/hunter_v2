@@ -326,6 +326,7 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
 
         if workorder is not None:
             has_warranty_plan = bool(workorder.warranty_plan)
+            workorder.mark_signature_approved()
             if workorder_can_finalize_after_signature(workorder):
                 approve_workorder_with_stock(workorder=workorder, signature_approved=True)
                 sync_workorder_financial_movement(workorder=workorder)
@@ -335,7 +336,6 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
                 schedule_satisfaction_survey_for_workorder(workorder)
                 logger.info("signature_webhook_workorder_approved", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
             else:
-                workorder.mark_signature_approved()
                 logger.info(
                     "signature_webhook_workorder_signature_approved_pending_completion",
                     extra={
