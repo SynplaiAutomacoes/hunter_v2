@@ -9,7 +9,10 @@
           hx-indicator="#payment-loader"
           class="space-y-4">
         {% csrf_token %}
-        <div id="payment-form-fields">
+        <div id="payment-form-fields" class="relative">
+            <div id="payment-loader" class="htmx-indicator pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-base-100/60">
+                <span class="loading loading-spinner loading-md text-primary"></span>
+            </div>
             {% crispy payment_form %}
         </div>
     </form>
@@ -42,11 +45,13 @@
                         </td>
 
                         <td class="text-center">
-                            <button class="btn btn-ghost btn-xs text-error"
+                            <button type="button" class="btn btn-ghost btn-xs text-error"
                                 hx-delete="{% url 'workorder:delete_payment' payment.pk %}"
                                 hx-target="#payment-section"
+                                hx-swap="innerHTML"
                                 data-confirm="Deseja remover esta forma de pagamento?"
-                                hx-indicator="#payment-loader">
+                                hx-disabled-elt="this"
+                                hx-on::before-swap="if (event.detail.xhr && event.detail.xhr.status >= 400) event.detail.shouldSwap = false">
                                 <span class="material-icons text-sm">delete</span>
                             </button>
                         </td>

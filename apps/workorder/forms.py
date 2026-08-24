@@ -20,7 +20,6 @@ from apps.collaborators.services import work_assignable_collaborators
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
-from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderWarrantyPlan
 from apps.workshops.models.review_plans import ReviewPlan
@@ -200,7 +199,6 @@ class WorkOrderPaymentForm(CoreModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            alert_confirm_layout(title="Deseja remover este registro?"),
             HTML(f"""
                 <div id="payment-success-workorder-js" class="{payment_success_container_class}">
                     <div class="alert alert-success shadow-lg border-2 border-success">
@@ -888,7 +886,6 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            alert_confirm_layout(),
             Div(
                 Div(
                     Field("km_initial", wrapper_class="mb-0"),
