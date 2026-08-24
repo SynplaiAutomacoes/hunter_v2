@@ -10,6 +10,7 @@ from django.utils import timezone
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.excel_report_style import BadgeKey, ExcelCell, ExcelColumn, build_hunter_excel_document
 from apps.core.infrastructure.services.dashboard_query_service import resolve_indicator_row_amount
+from apps.core.workorder_numbers import resolve_budget_workorder_number, resolve_workorder_number
 from apps.workshops.models.workshops import Workshop
 
 
@@ -69,7 +70,7 @@ def _build_budget_sheet(*, context: dict[str, Any], value_column_label: str) -> 
         amount = resolve_indicator_row_amount(item=item, indicator=indicator, is_budget_report=True)
         total += amount
         row = [
-            ExcelCell(value=_budget_number(item)),
+            ExcelCell(value=resolve_budget_workorder_number(item)),
             ExcelCell(value=str(getattr(item, "customer", None) or "-")),
             ExcelCell(value=getattr(item, "entry_date", None)),
             ExcelCell(value=str(getattr(item, "vehicle", None) or "-")),
@@ -121,7 +122,7 @@ def _workorder_row(*, item: Any, amount: Decimal, link_label: str) -> list[Excel
     budget_type = str(getattr(item, "budget_type", "") or "")
     row_date = getattr(item, "delivered_at", None) or getattr(item, "criado_em", None)
     return [
-        ExcelCell(value=_workorder_number(item)),
+        ExcelCell(value=resolve_workorder_number(item)),
         ExcelCell(value=str(getattr(budget, "customer", None) or "-")),
         ExcelCell(value=str(getattr(budget, "vehicle", None) or "-")),
         ExcelCell(value=row_date),
@@ -129,22 +130,6 @@ def _workorder_row(*, item: Any, amount: Decimal, link_label: str) -> list[Excel
         ExcelCell(value=link_label),
         ExcelCell(value=amount, kind="money_sale"),
     ]
-
-
-def _budget_number(item: Any) -> object:
-    public_number = getattr(item, "public_number", None)
-    if public_number is not None:
-        return public_number
-    return getattr(item, "pk", None) or getattr(item, "id", None) or "-"
-
-
-def _workorder_number(item: Any) -> object:
-    get_id = getattr(item, "get_id", None)
-    if callable(get_id):
-        return get_id()
-    if get_id is not None:
-        return get_id
-    return getattr(item, "pk", None) or "-"
 
 
 def _budget_type_label(budget_type: str) -> str:

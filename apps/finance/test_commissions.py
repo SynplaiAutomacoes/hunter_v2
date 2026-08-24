@@ -40,7 +40,7 @@ class CommissionReportVisibilityTests(TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], CollaboratorCommissionEntry.Status.PAID)
-        self.assertEqual(rows[0]["workorder_id"], paid_entry.workorder.budget_id)
+        self.assertEqual(rows[0]["workorder_id"], paid_entry.workorder.get_id)
         self.assertNotIn("edit_url", rows[0])
 
     def test_forecast_commission_hidden_when_workorder_reopened(self) -> None:

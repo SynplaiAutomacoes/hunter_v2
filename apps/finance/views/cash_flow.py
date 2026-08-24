@@ -10,6 +10,7 @@ from django.views.generic import TemplateView
 
 from django.db.models import Q
 from apps.core.infrastructure.search import apply_text_search
+from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.bank_account import BankAccount
@@ -193,7 +194,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "type_badge": payment_movement.report_direction_badge,
             "due_date": payment.due_date,
             "agent": (getattr(customer, "name", "-") or "-") if workorder is not None else agent,
-            "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
+            "origin": format_workorder_reference(workorder) if workorder is not None else "-",
             "description": self._resolve_workorder_description(workorder) if workorder is not None else description,
             "budget_plan": payment_movement.report_budget_plan_display,
             "account": payment_movement.report_bank_account_display,
@@ -225,7 +226,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "type_badge": movement.report_direction_badge,
             "due_date": movement.due_date,
             "agent": agent if not workorder else (getattr(customer, "name", "-") or "-"),
-            "origin": movement.report_origin_display if not workorder else f"OS #{workorder.pk}",
+            "origin": movement.report_origin_display if not workorder else format_workorder_reference(workorder),
             "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,

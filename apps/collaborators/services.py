@@ -17,6 +17,7 @@ from djmoney.money import Money
 from apps.budget.models import Budget
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
+from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -857,7 +858,7 @@ def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionE
 def _commission_payroll_item_title(*, entry: CollaboratorCommissionEntry) -> str:
     if entry.is_manual or entry.workorder_id is None:
         return "Comissão manual"
-    return f"Comissão OS #{entry.workorder_id}"
+    return f"Comissão {format_workorder_reference(entry.workorder)}"
 
 
 def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
@@ -1508,7 +1509,7 @@ def _refresh_payroll_commission_from_entries(*, payroll: CollaboratorPayroll) ->
             reference_year=payroll.reference_year,
             reference_month=payroll.reference_month,
         )
-        .select_related("workorder")
+        .select_related("workorder", "workorder__budget")
         .order_by("id")
     )
     entries_to_attach = [entry for entry in entries if entry.payroll_id != payroll.pk]
@@ -1730,7 +1731,7 @@ def _sync_payroll_items_from_movements(*, payroll: CollaboratorPayroll, movement
             amount=movement.amount,
         )
 
-    commission_entries = list(payroll.commission_entries.select_related("workorder").all())
+    commission_entries = list(payroll.commission_entries.select_related("workorder", "workorder__budget").all())
     if Decimal(str(payroll.commission_amount.amount or ZERO)) > ZERO and commission_entries:
         _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
     elif Decimal(str(payroll.commission_amount.amount or ZERO)) > ZERO:
@@ -1996,9 +1997,9 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
 
     updated_payrolls = 0
     if touched_payroll_ids:
-        payrolls = CollaboratorPayroll.objects.filter(pk__in=touched_payroll_ids).select_related("financial_movement").prefetch_related("items", "commission_entries__workorder")
+        payrolls = CollaboratorPayroll.objects.filter(pk__in=touched_payroll_ids).select_related("financial_movement").prefetch_related("items", "commission_entries__workorder__budget")
         for payroll in payrolls:
-            commission_entries = list(payroll.commission_entries.select_related("workorder").order_by("id"))
+            commission_entries = list(payroll.commission_entries.select_related("workorder", "workorder__budget").order_by("id"))
             commission_total = Money(
                 _quantize(sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)),
                 "BRL",

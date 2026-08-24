@@ -24,6 +24,7 @@ from apps.core.presentation.forms import CoreForm
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfse
@@ -137,7 +138,7 @@ def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
             "uf": customer.estado or "-",
             "email": customer.email or "-",
         },
-        "descricao": description or f"Prestação de serviço referente à OS #{workorder.pk}",
+        "descricao": description or f"Prestação de serviço referente à OS #{resolve_workorder_number(workorder)}",
         "total": format_money(net_amount),
         "tributos": "Consulte a tributação aplicável após a emissão",
         "codigo_servico": str(getattr(tax_class, "codigo_servico", "") or "-"),

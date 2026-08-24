@@ -20,6 +20,7 @@ from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.models.payment_method import PaymentMethod
 
 if TYPE_CHECKING:
@@ -1554,7 +1555,7 @@ class WorkOrderItem(TimeStampedModel):
         verbose_name_plural = "Itens da O.S."
 
     def __str__(self):
-        return f"Item #{self.id} da O.S. #{self.workorder_id}"
+        return f"Item #{self.id} da O.S. #{resolve_workorder_number(self.workorder)}"
 
 
 class WorkOrderKitItemOverride(TimeStampedModel):
@@ -1584,9 +1585,9 @@ class WorkOrderKitItemOverride(TimeStampedModel):
 
     def __str__(self):
         if self.product:
-            return f"Override O.S.: {self.product.name} - WorkOrder #{self.workorder_item.workorder_id}"
+            return f"Override O.S.: {self.product.name} - O.S. #{resolve_workorder_number(self.workorder_item.workorder)}"
         if self.service:
-            return f"Override O.S.: {self.service.name} - WorkOrder #{self.workorder_item.workorder_id}"
+            return f"Override O.S.: {self.service.name} - O.S. #{resolve_workorder_number(self.workorder_item.workorder)}"
         return f"Override O.S. #{self.id}"
 
 
