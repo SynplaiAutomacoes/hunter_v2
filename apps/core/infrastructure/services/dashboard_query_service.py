@@ -80,6 +80,7 @@ INDICATOR_LABELS: dict[str, tuple[str, str]] = {
     "reprovados": ("Total Reprovados", "Orçamentos"),
     "carros_mes": ("Carros no Mês", "Ordens de Serviço"),
     "garantia_cortesia_mes": ("Garantia + Cortesia", "Ordens de Serviço"),
+    "total_vendido": ("Total Vendido", "Ordens de Serviço"),
     "venda_do_dia": ("Venda do Dia", "Ordens de Serviço"),
 }
 
@@ -401,6 +402,9 @@ def resolve_indicator_row_amount(*, item: Any, indicator: str, is_budget_report:
             return resolve_decimal_amount(item.display_total_budget_value)
         return resolve_decimal_amount(item.total_budget_value)
 
+    if indicator == "total_vendido":
+        return resolve_decimal_amount(getattr(item, "dashboard_report_amount", Decimal("0.00")))
+
     if indicator.startswith("a_receber"):
         stored_total = getattr(item, "stored_total_amount", None)
         stored_paid = getattr(item, "stored_paid_amount", None)
@@ -524,6 +528,8 @@ def _build_workorder_groups(*, items: list[WorkOrder], indicator: str) -> list[F
 
 
 def _resolve_value_column_label(indicator: str) -> str:
+    if indicator == "total_vendido":
+        return "Valor vendido"
     if indicator.startswith("a_receber"):
         return "Valor pendente"
     if indicator in {"carros_mes", "garantia_cortesia_mes"}:
@@ -1245,6 +1251,42 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
 }
 
 
+def _get_total_sold_workorders(*, workshop: Workshop, month: int, year: int) -> tuple[list[WorkOrder], str]:
+    """Return the exact payment-plan totals that compose the Total Vendido card.
+
+    A work order can have several payment methods; their full plan values are
+    consolidated under one O.S. so the detailed report and its export always
+    close with the dashboard total.
+    """
+    payment_total_expression = ExpressionWrapper(
+        F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
+        output_field=DecimalField(max_digits=14, decimal_places=2),
+    )
+    amounts_by_workorder = {
+        row["workorder_id"]: row["total"] or Decimal("0.00")
+        for row in WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop=workshop,
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__budget_type="sale",
+            due_date__month=month,
+            due_date__year=year,
+        )
+        .values("workorder_id")
+        .annotate(total=Sum(payment_total_expression))
+    }
+    items = list(
+        WorkOrder.objects.filter(pk__in=amounts_by_workorder)
+        .select_related("budget__customer", "budget__vehicle")
+        .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
+        .order_by("criado_em", "pk")
+    )
+    for item in items:
+        setattr(item, "dashboard_report_amount", amounts_by_workorder[item.pk])
+
+    total = sum(amounts_by_workorder.values(), Decimal("0.00"))
+    return items, _format_brl(total)
+
+
 def _get_today_sales_workorders(workshop: Workshop) -> tuple[list[Any], bool, str]:
     """Return WorkOrders that have payment methods with due_date = today.
 
@@ -1284,6 +1326,9 @@ def get_financial_indicator_data(
     # which doesn't fit the standard month/year filter pattern.
     if indicator == "venda_do_dia":
         return _get_today_sales_workorders(workshop)
+    if indicator == "total_vendido":
+        items, total = _get_total_sold_workorders(workshop=workshop, month=month, year=year)
+        return items, False, total
 
     query_config = _INDICATOR_QUERIES.get(indicator)
     if query_config is None:

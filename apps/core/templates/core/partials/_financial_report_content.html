@@ -36,7 +36,7 @@
                 </div>
             {% endif %}
             <div class="rounded-[1.25rem] border border-success/15 bg-success/10 px-4 py-3">
-                <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-success/70">Valor Total Entregue</p>
+                <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-success/70">{% if indicator == 'total_vendido' %}Valor total vendido{% else %}Valor Total Entregue{% endif %}</p>
                 <p class="mt-1 text-2xl font-black tabular-nums text-success">{{ total_value|money_br }}</p>
                 {% if indicator == 'carros_mes' %}
                     <p class="mt-2 text-xs text-base-content/50">valor considerando veículos entregues, não está considerando os veículos que estão na oficina</p>
@@ -159,7 +159,9 @@
                                                 </td>
                                             {% with color=child.budget_type|budget_type_color %}
                                             <td class="text-right font-semibold tabular-nums text-{{ color }}">
-                                                {% if indicator|slice:':10' == 'a_receber_' %}
+                                                {% if indicator == 'total_vendido' %}
+                                                    {{ child.dashboard_report_amount|money_br }}
+                                                {% elif indicator|slice:':10' == 'a_receber_' %}
                                                     {{ child.pending_payment_value|money_br }}
                                                 {% else %}
                                                     {{ child.display_total_budget_value|money_br }}
