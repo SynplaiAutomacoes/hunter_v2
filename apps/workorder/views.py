@@ -48,7 +48,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
-from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
+from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock, workorder_can_finalize_after_signature
 from apps.workorder.documents.provider import (
     build_workorder_pdf_render_request,
     build_workorder_status_report_pdf_render_request,
@@ -735,19 +735,38 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             workorder=workorder,
             require_unsigned_delivery_reason=False,
             require_warranty_plan=False,
+            require_km_final=False,
         )
 
         if not approval_form.is_valid():
-            km_final_errors = approval_form.errors.get("km_final", [])
-            return JsonResponse({"ok": False, "errors": list(km_final_errors)}, status=400)
+            field_errors = {field: list(messages) for field, messages in approval_form.errors.items()}
+            errors = [message for messages in field_errors.values() for message in messages]
+            return JsonResponse({"ok": False, "errors": errors, "field_errors": field_errors}, status=400)
 
-        km_final = approval_form.cleaned_data["km_final"]
-        workorder.set_km_final(km_final)
+        posted_fields = {name for name in request.POST if name in WorkOrderCustomerApprovalForm.DRAFT_FIELD_NAMES}
+        workorder.save_delivery_draft(cleaned_data=approval_form.cleaned_data, posted_fields=posted_fields)
+        workorder.refresh_from_db()
+
+        finalized = False
+        if workorder.is_customer_signature_approved and workorder_can_finalize_after_signature(workorder):
+            try:
+                approve_workorder_with_stock(workorder=workorder, signature_approved=True)
+                sync_workorder_financial_movement(workorder=workorder)
+                from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
+
+                workorder.refresh_from_db()
+                schedule_satisfaction_survey_for_workorder(workorder)
+                finalized = workorder.status == WorkOrderStatus.APPROVED
+            except WorkOrderApprovalError:
+                logger.warning("workorder_delivery_draft_finalize_blocked", extra={"workorder_id": workorder.pk})
 
         return JsonResponse(
             {
                 "ok": True,
-                "km_final": km_final,
+                "km_final": workorder.km_final,
+                "warranty_plan": workorder.warranty_plan,
+                "status": workorder.status,
+                "finalized": finalized,
                 "has_completion_blockers": workorder.has_completion_blockers,
                 "completion_blockers_display": workorder.completion_blockers_display,
                 "has_signature_blockers": workorder.has_signature_blockers,
@@ -1324,6 +1343,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             try:
                 km_final = approval_form.cleaned_data["km_final"]
+                assert km_final is not None
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
                 workorder.complete_delivery(
                     km_final=km_final,

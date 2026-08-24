@@ -629,6 +629,10 @@
                 if (kmInput) {
                     kmInput.setCustomValidity('');
                 }
+                if (payload.finalized) {
+                    window.location.reload();
+                    return;
+                }
                 window.updateWorkorderDeliveryButtonState({
                     hasCompletionBlockers: Boolean(payload.has_completion_blockers),
                     completionBlockersDisplay: payload.completion_blockers_display || '',

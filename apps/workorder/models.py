@@ -578,6 +578,43 @@ class WorkOrder(TimeStampedModel):
         self.save(update_fields=["km_final"])
         self._sync_vehicle_km_from_exit()
 
+    def save_delivery_draft(self, *, cleaned_data: dict[str, Any], posted_fields: set[str]) -> None:
+        update_fields: list[str] = []
+        sync_km = False
+
+        if "km_final" in posted_fields:
+            km_final = cleaned_data.get("km_final")
+            self.km_final = int(km_final) if km_final is not None else None
+            update_fields.append("km_final")
+            sync_km = self.km_final is not None
+
+        if "unsigned_delivery_reason" in posted_fields:
+            self.unsigned_delivery_reason = str(cleaned_data.get("unsigned_delivery_reason") or "")
+            update_fields.append("unsigned_delivery_reason")
+
+        if "warranty_plan" in posted_fields:
+            self.warranty_plan = cleaned_data.get("warranty_plan") or None
+            update_fields.append("warranty_plan")
+
+        if "last_oil_change_date" in posted_fields:
+            self.last_oil_change_date = cleaned_data.get("last_oil_change_date")
+            update_fields.append("last_oil_change_date")
+
+        if "last_oil_change_km" in posted_fields:
+            self.last_oil_change_km = cleaned_data.get("last_oil_change_km")
+            update_fields.append("last_oil_change_km")
+
+        if "review_plan" in posted_fields:
+            self.review_plan = cleaned_data.get("review_plan")
+            update_fields.append("review_plan")
+
+        if not update_fields:
+            return
+
+        self.save(update_fields=update_fields)
+        if sync_km:
+            self._sync_vehicle_km_from_exit()
+
     def set_unsigned_delivery_reason(self, reason: str) -> None:
         self.unsigned_delivery_reason = reason
         self.save(update_fields=["unsigned_delivery_reason"])

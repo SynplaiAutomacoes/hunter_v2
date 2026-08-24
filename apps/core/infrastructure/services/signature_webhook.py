@@ -14,7 +14,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
-from apps.workorder.approval import approve_workorder_with_stock
+from apps.workorder.approval import approve_workorder_with_stock, workorder_can_finalize_after_signature
 from apps.workorder.models import WorkOrder, WorkOrderError, WorkOrderStatus
 
 
@@ -309,9 +309,8 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
                 logger.info("signature_webhook_budget_approved", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
 
         if workorder is not None:
-            can_finalize_workorder = workorder.is_fully_paid or workorder.budget_type in ("warranty", "courtesy")
             has_warranty_plan = bool(workorder.warranty_plan)
-            if (can_finalize_workorder and has_warranty_plan) or workorder.status == WorkOrderStatus.APPROVED:
+            if workorder_can_finalize_after_signature(workorder):
                 approve_workorder_with_stock(workorder=workorder, signature_approved=True)
                 sync_workorder_financial_movement(workorder=workorder)
                 from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
