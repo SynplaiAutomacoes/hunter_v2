@@ -107,3 +107,102 @@ class WorkOrderResumeKitExpansionTests(TestCase):
         self.assertEqual(service_row.service_id, self.kit_service.pk)
         self.assertIn(self.kit.name, service_row.origin_badge)
         self.assertIn(f'href="{kit_url}"', service_row.origin_badge)
+
+
+class WorkOrderResumeDeduplicationTests(TestCase):
+    """The resume must apply the same avulso-vs-kit and kit-vs-kit winner rule as the PDF."""
+
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(
+            name="Oficina Dedup",
+            cnpj="12.345.678/0001-95",
+            phone="+5511999999995",
+            address="Rua Dedup, 1",
+        )
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Dedup")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="DP-1",
+            name="Oleo Compartilhado",
+            unit=Product.Unit.UND,
+            cost_price=Money("15.00", "BRL"),
+            selling_price=Money("30.00", "BRL"),
+        )
+        self.service = Service.objects.create(
+            workshop=self.workshop,
+            name="Troca Compartilhada",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("40.00", "BRL"),
+            selling_price=Money("80.00", "BRL"),
+        )
+        self.budget = Budget.objects.create(workshop=self.workshop, entry_date=date(2026, 8, 24))
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
+
+    def _create_kit(self, *, name: str, product_quantity: int, service_quantity: int, service_duration: timedelta) -> Kit:
+        kit = Kit.objects.create(workshop=self.workshop, name=name)
+        kit.refresh_from_db()
+        KitProduct.objects.create(kit=kit, product=self.product, quantity=product_quantity)
+        KitService.objects.create(kit=kit, service=self.service, quantity=service_quantity, duration=service_duration)
+        return kit
+
+    def _add_kit_item(self, kit: Kit, *, quantity: int = 1) -> WorkOrderItem:
+        return WorkOrderItem.objects.create(workshop=self.workshop, workorder=self.workorder, kit=kit, quantity=quantity)
+
+    def _add_avulso_service_item(self, *, quantity: int) -> WorkOrderItem:
+        return WorkOrderItem.objects.create(workshop=self.workshop, workorder=self.workorder, service=self.service, quantity=quantity)
+
+    def _add_avulso_product_item(self, *, quantity: int) -> WorkOrderItem:
+        return WorkOrderItem.objects.create(workshop=self.workshop, workorder=self.workorder, product=self.product, quantity=quantity)
+
+    def _resume_rows(self) -> tuple[list, list]:
+        context = _build_edit_items_context(self.workorder)
+        return list(context["display_product_items"]), list(context["display_service_items"])
+
+    def test_avulso_service_wins_over_kit_component_by_duration(self) -> None:
+        self._add_avulso_service_item(quantity=2)
+        self._add_kit_item(self._create_kit(name="Kit Menor", product_quantity=1, service_quantity=1, service_duration=timedelta(hours=1)))
+
+        _product_rows, service_rows = self._resume_rows()
+
+        self.assertEqual(len(service_rows), 1)
+        self.assertEqual(service_rows[0].service_id, self.service.pk)
+        self.assertEqual(service_rows[0].origin_label, AVULSO_ORIGIN_LABEL)
+        self.assertEqual(service_rows[0].quantity, 2)
+
+    def test_kit_component_wins_over_avulso_service_by_duration(self) -> None:
+        self._add_avulso_service_item(quantity=1)
+        kit = self._create_kit(name="Kit Maior", product_quantity=1, service_quantity=1, service_duration=timedelta(hours=3))
+        self._add_kit_item(kit)
+
+        _product_rows, service_rows = self._resume_rows()
+
+        self.assertEqual(len(service_rows), 1)
+        self.assertEqual(service_rows[0].service_id, self.service.pk)
+        self.assertEqual(service_rows[0].origin_label, KIT_ORIGIN_LABEL)
+        self.assertIn(kit.name, service_rows[0].origin_badge)
+
+    def test_kit_product_wins_over_avulso_product_by_quantity(self) -> None:
+        self._add_avulso_product_item(quantity=1)
+        kit = self._create_kit(name="Kit Produto", product_quantity=4, service_quantity=1, service_duration=timedelta(hours=1))
+        self._add_kit_item(kit)
+
+        product_rows, _service_rows = self._resume_rows()
+
+        self.assertEqual(len(product_rows), 1)
+        self.assertEqual(product_rows[0].product_id, self.product.pk)
+        self.assertEqual(product_rows[0].origin_label, KIT_ORIGIN_LABEL)
+        self.assertEqual(product_rows[0].quantity, 4)
+
+    def test_two_kits_sharing_components_keep_only_the_winning_kit(self) -> None:
+        self._add_kit_item(self._create_kit(name="Kit Fraco", product_quantity=1, service_quantity=1, service_duration=timedelta(hours=1)))
+        strong_kit = self._create_kit(name="Kit Forte", product_quantity=3, service_quantity=1, service_duration=timedelta(hours=4))
+        self._add_kit_item(strong_kit)
+
+        product_rows, service_rows = self._resume_rows()
+
+        self.assertEqual(len(product_rows), 1)
+        self.assertEqual(product_rows[0].quantity, 3)
+        self.assertIn(strong_kit.name, product_rows[0].origin_badge)
+        self.assertEqual(len(service_rows), 1)
+        self.assertIn(strong_kit.name, service_rows[0].origin_badge)

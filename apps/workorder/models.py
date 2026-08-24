@@ -55,6 +55,18 @@ WORKORDER_REOPENABLE_STATUSES = frozenset(
     }
 )
 
+# Work in progress: the O.S. was approved but the vehicle has not been delivered yet.
+WORKORDER_OPEN_STATUSES = frozenset(
+    {
+        WorkOrderStatus.DRAFT,
+        WorkOrderStatus.WAITING_COLLABORATOR,
+        WorkOrderStatus.WAITING_DELIVERY,
+    }
+)
+
+# Statuses that already count as revenue for dashboards and DRE.
+WORKORDER_REVENUE_STATUSES = frozenset(WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED})
+
 
 class WorkOrderSignatureStatus(models.TextChoices):
     NOT_SENT = "not_sent", "Não Enviado"

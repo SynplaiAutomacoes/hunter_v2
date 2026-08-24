@@ -28,6 +28,7 @@ from apps.budget.item_origin import (
     origin_badge_for_item,
 )
 from apps.budget.pdf_context import build_budget_pdf_context
+from apps.budget.pricing import _is_better_service_source, _is_better_source, kit_component_winning_item_ids, zero_money
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
@@ -444,6 +445,48 @@ def _annotate_workorder_resume_gestor_costs(*, workorder: WorkOrder, display_pro
     }
 
 
+def _resume_row_total(row: object) -> Money:
+    total: Money | None = getattr(row, "total_price", None)
+    return total if total is not None else zero_money()
+
+
+def _resume_row_quantity(row: object) -> int:
+    return int(getattr(row, "quantity", 0) or 0)
+
+
+def _resume_service_row_duration(row: object) -> timedelta:
+    duration: timedelta | None = getattr(row, "duration", None)
+    if not duration:
+        return timedelta()
+    return duration * _resume_row_quantity(row)
+
+
+def _merge_resume_product_row(rows: dict[object, object], row: object) -> None:
+    product_id = getattr(row, "product_id", None)
+    key: object = (product_id, bool(getattr(row, "is_customer_supplied", False))) if product_id is not None else id(row)
+    existing = rows.get(key)
+    if existing is None or _is_better_source(
+        candidate_quantity=_resume_row_quantity(row),
+        candidate_total=_resume_row_total(row),
+        current_quantity=_resume_row_quantity(existing),
+        current_total=_resume_row_total(existing),
+    ):
+        rows[key] = row
+
+
+def _merge_resume_service_row(rows: dict[object, object], row: object) -> None:
+    service_id = getattr(row, "service_id", None)
+    key: object = service_id if service_id is not None else id(row)
+    existing = rows.get(key)
+    if existing is None or _is_better_service_source(
+        candidate_duration=_resume_service_row_duration(row),
+        candidate_total=_resume_row_total(row),
+        current_duration=_resume_service_row_duration(existing),
+        current_total=_resume_row_total(existing),
+    ):
+        rows[key] = row
+
+
 def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:
     prefetched_items = getattr(workorder, "_prefetched_objects_cache", {}).get("items")
     if prefetched_items is not None:
@@ -465,9 +508,10 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     product_items: list[WorkOrderItem] = []
     service_items: list[WorkOrderItem] = []
     kit_items: list[WorkOrderItem] = []
-    display_product_items: list[object] = []
-    display_service_items: list[object] = []
+    display_product_rows: dict[object, object] = {}
+    display_service_rows: dict[object, object] = {}
     avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
+    winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(items)
 
     for item in items:
         if item.product:
@@ -475,13 +519,13 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
             item.origin_is_kit = False
             item.origin_badge = avulso_badge
             product_items.append(item)
-            display_product_items.append(item)
+            _merge_resume_product_row(display_product_rows, item)
         elif item.service:
             item.origin_label = AVULSO_ORIGIN_LABEL
             item.origin_is_kit = False
             item.origin_badge = avulso_badge
             service_items.append(item)
-            display_service_items.append(item)
+            _merge_resume_service_row(display_service_rows, item)
         elif item.kit:
             kit_items.append(item)
             origin_label, origin_badge, _is_kit = origin_badge_for_item(item=item)
@@ -489,18 +533,25 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
                 component = build_kit_component_product_item(kit_item=item, override=override)
                 if component is None:
                     continue
-                component.origin_label = origin_label
-                component.origin_is_kit = True
-                component.origin_badge = origin_badge
-                display_product_items.append(component)
-            for override in iter_kit_service_components(item):
-                component = build_kit_component_service_item(kit_item=item, override=override)
-                if component is None:
+                if winning_kit_product_item_ids.get(component.product_id) not in {None, item.pk}:
                     continue
                 component.origin_label = origin_label
                 component.origin_is_kit = True
                 component.origin_badge = origin_badge
-                display_service_items.append(component)
+                _merge_resume_product_row(display_product_rows, component)
+            for override in iter_kit_service_components(item):
+                component = build_kit_component_service_item(kit_item=item, override=override)
+                if component is None:
+                    continue
+                if winning_kit_service_item_ids.get(component.service_id) not in {None, item.pk}:
+                    continue
+                component.origin_label = origin_label
+                component.origin_is_kit = True
+                component.origin_badge = origin_badge
+                _merge_resume_service_row(display_service_rows, component)
+
+    display_product_items: list[object] = list(display_product_rows.values())
+    display_service_items: list[object] = list(display_service_rows.values())
 
     pricing_snapshot = workorder.pricing_snapshot
     _ = workorder.product_issue_summary

@@ -1,7 +1,7 @@
 from django.db.models import Q
 
 from apps.budget.models import Budget, BudgetStatus
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WORKORDER_OPEN_STATUSES
 
 TERMINAL_STATUSES = {
     BudgetStatus.APPROVED,
@@ -23,11 +23,11 @@ def linkable_budgets_q() -> Q:
 
     A budget is linkable when:
     - it has a non-terminal status AND no work-order exists yet, OR
-    - it has at least one open work-order (status=DRAFT).
+    - it has at least one work-order still open (not delivered, rejected or cancelled).
     """
     return (
         Q(status__in=NON_TERMINAL_STATUSES, workorders__isnull=True)
-        | Q(workorders__status=WorkOrderStatus.DRAFT)
+        | Q(workorders__status__in=WORKORDER_OPEN_STATUSES)
     )
 
 
