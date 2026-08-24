@@ -23,6 +23,7 @@ from apps.catalog.models.kits import KitProduct
 from apps.catalog.models.products import Product
 from apps.stock.models import StockProduct
 from apps.catalog.util import build_product_kits_assignment_context
+from apps.suppliers.models import Supplier
 from apps.core.utils import clean_id
 from apps.core.presentation.navigation import PRODUCT_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
@@ -35,7 +36,7 @@ from apps.stock.services.adjust_stock import adjust_stock_quantity
 from apps.stock.services.stock_balance import recover_missing_stock_balance
 from apps.workshops.mixin import WorkshopScopedMixin
 
-_PRODUCT_ACTIVE_TABS = frozenset({"cadastro", "atribuicao_kit", "estoque", "historico", "movimentacao"})
+_PRODUCT_ACTIVE_TABS = frozenset({"cadastro", "atribuicao_kit", "estoque", "historico", "movimentacao", "fornecedor"})
 
 
 PRODUCT_LIST_BASE_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -257,6 +258,8 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
         context["history_list"] = history_list
+
+        context["product_suppliers"] = self._build_product_suppliers_context(stock_obj)
         context["back_url"] = self._get_next_url() or reverse_lazy("catalog:product_list")
         requested_tab = str(self.request.GET.get("active_tab") or "").strip()
         if requested_tab in _PRODUCT_ACTIVE_TABS:
@@ -269,6 +272,48 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         )
 
         return context
+
+    def _build_product_suppliers_context(self, stock_obj: StockProduct) -> list[dict]:
+        current_supplier = stock_obj.supplier
+        entry_movements = StockMovement.objects.filter(
+            stock_product=stock_obj,
+            type=StockMovement.MovementType.ENTRY,
+            supplier__isnull=False,
+        ).select_related("supplier").order_by("-criado_em")
+
+        supplier_ids: set[int] = set()
+        last_entry_by_supplier: dict[int, StockMovement] = {}
+        for movement in entry_movements:
+            supplier_id = movement.supplier_id
+            if supplier_id not in last_entry_by_supplier:
+                last_entry_by_supplier[supplier_id] = movement
+            supplier_ids.add(supplier_id)
+
+        if current_supplier is not None:
+            supplier_ids.add(current_supplier.id)
+
+        suppliers_by_id = {supplier.id: supplier for supplier in Supplier.objects.filter(id__in=supplier_ids, workshop=self.workshop)}
+
+        product_suppliers: list[dict] = []
+        for supplier in sorted(suppliers_by_id.values(), key=lambda item: item.name):
+            last_entry = last_entry_by_supplier.get(supplier.id)
+            unit_cost = stock_obj.unit_cost
+            if last_entry is not None and last_entry.quantity:
+                unit_cost = last_entry.total_value / last_entry.quantity
+
+            product_suppliers.append(
+                {
+                    "supplier": supplier,
+                    "is_current": current_supplier is not None and current_supplier.id == supplier.id,
+                    "last_unit_cost": unit_cost,
+                    "last_total_value": last_entry.total_value if last_entry is not None else None,
+                    "last_purchase_date": last_entry.display_date if last_entry is not None else None,
+                    "last_purchase_quantity": last_entry.quantity if last_entry is not None else None,
+                    "last_purchase_nf": stock_obj.last_nf,
+                }
+            )
+
+        return product_suppliers
 
 
 class ProductDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
