@@ -65,17 +65,30 @@ def _normalize_event_name(raw_event: str) -> str:
     return normalized
 
 
-def extract_signature_event(payload: dict[str, Any], *, header_event: str = "") -> str:
-    if header_event.strip():
-        return _normalize_event_name(header_event)
-    for key in ("event", "eventType", "type"):
+def _normalized_payload_event(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return _normalize_event_name(value)
-    raw_event = _find_first_string(payload, ("event", "eventType", "type"))
+    raw_event = _find_first_string(payload, keys)
     if not raw_event:
         return ""
     return _normalize_event_name(raw_event)
+
+
+def extract_signature_event(payload: dict[str, Any], *, header_event: str = "") -> str:
+    if header_event.strip():
+        return _normalize_event_name(header_event)
+
+    named_event = _normalized_payload_event(payload, ("event", "eventType"))
+    if named_event:
+        return named_event
+
+    status_event = _normalized_payload_event(payload, ("status",))
+    if status_event in {"ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"}:
+        return status_event
+
+    return _normalized_payload_event(payload, ("type",))
 
 
 def _payload_structure(payload: Any, depth: int = 0, max_depth: int = 3) -> str:
@@ -95,7 +108,7 @@ def _payload_structure(payload: Any, depth: int = 0, max_depth: int = 3) -> str:
 
 
 def extract_signature_envelope_id(payload: dict[str, Any]) -> str:
-    direct = _find_first_string(payload, ("envelopeId", "envelope_id", "envelopeID"))
+    direct = _find_first_string(payload, ("envelopeId", "envelope_id", "envelopeID", "documentId", "document_id"))
     if direct:
         return direct
 
@@ -113,6 +126,9 @@ def extract_signature_envelope_id(payload: dict[str, Any]) -> str:
                     queue.append(value)
         elif isinstance(current, list):
             queue.extend(current)
+    top_id = payload.get("id")
+    if isinstance(top_id, str) and top_id.strip():
+        return top_id.strip()
     return ""
 
 

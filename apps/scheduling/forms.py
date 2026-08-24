@@ -292,18 +292,6 @@ class AppointmentForm(CoreModelForm):
         if self.workshop:
             customer_field.queryset = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
 
-            budget_qs = Budget.objects.filter(workshop=self.workshop).select_related("customer", "vehicle").order_by("-criado_em")[:200]
-            if self.instance and self.instance.budget_id:
-                if not budget_qs.filter(pk=self.instance.budget_id).exists():
-                    budget_qs = budget_qs | Budget.objects.filter(pk=self.instance.budget_id)
-            budget_field.queryset = budget_qs
-
-            workorder_qs = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")[:200]
-            if self.instance and self.instance.workorder_id:
-                if not workorder_qs.filter(pk=self.instance.workorder_id).exists():
-                    workorder_qs = workorder_qs | WorkOrder.objects.filter(pk=self.instance.workorder_id)
-            workorder_field.queryset = workorder_qs
-
             def _budget_label_from_instance(obj):
                 return f"Orçamento #{obj.number}"
 
