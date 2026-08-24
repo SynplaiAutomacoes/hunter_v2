@@ -401,6 +401,19 @@ def resolve_expected_delivery_at(*, budget):
     return budget.customer_agreed_departure_at or budget.service_expected_completion_at
 
 
+def resolve_pdf_opened_by_name(*users: Any) -> str:
+    for user in users:
+        if user is None:
+            continue
+        full_name = user.get_full_name() if callable(getattr(user, "get_full_name", None)) else ""
+        if full_name:
+            return str(full_name)
+        username = user.get_username() if callable(getattr(user, "get_username", None)) else ""
+        if username:
+            return str(username)
+    return "Sistema"
+
+
 def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
 
@@ -548,6 +561,10 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
     benefit_total = Money(0, "BRL")
     benefit_label = ""
+    opened_by_name = resolve_pdf_opened_by_name(
+        getattr(budget, "created_by", None),
+        getattr(budget, "cost_estimator", None),
+    )
 
     return {
         "budget": budget,
@@ -578,5 +595,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "workshop_logo_data_uri": workshop_logo_data_uri,
         "budget_rentability": rentability,
         "expected_delivery_at": expected_delivery_at,
+        "document_title": "ORÇAMENTO",
+        "opened_by_name": opened_by_name,
         "request": request,
     }

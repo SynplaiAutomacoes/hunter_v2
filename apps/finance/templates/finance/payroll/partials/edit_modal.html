@@ -39,6 +39,7 @@
         <form id="payroll-manual-benefit-form" hidden></form>
         <form method="post" hx-post="{{ modal_url }}" hx-target="closest .modal" hx-swap="outerHTML">
             {% csrf_token %}
+            <input type="hidden" name="tab" :value="activeTab">
 
             <div class="max-h-[60vh] overflow-y-auto px-1 py-2">
                 <section x-show="activeTab === 'collaborator'" x-cloak class="space-y-4">

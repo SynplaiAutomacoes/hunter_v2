@@ -93,3 +93,12 @@ class WorkOrderPdfContextTests(TestCase):
         self.assertIn("válida até", html)
         self.assertIn("04/11/2026", html)
         self.assertIn("Em garantia", html)
+
+    def test_os_pdf_keeps_ordem_de_servico_title(self) -> None:
+        workorder = _create_workorder(suffix=3)
+        context = build_workorder_pdf_context(workorder=workorder)
+        html = render_to_string("workorder/partials/pdf/visualizarPDF.html", context)
+
+        self.assertEqual(context["document_title"], "ORDEM DE SERVIÇO")
+        self.assertIn("ORDEM DE SERVIÇO", html)
+        self.assertNotIn(">ORÇAMENTO<", html)
