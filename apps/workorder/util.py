@@ -17,7 +17,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
-from apps.budget.forms.presenters.step6_context import resolve_budget_pdf_modal_urls
+from apps.budget.forms.presenters.step6_context import resolve_pdf_modal_urls
 from apps.budget.item_origin import (
     AVULSO_ORIGIN_LABEL,
     build_kit_component_product_item,
@@ -349,6 +349,35 @@ def _zero_brl() -> Money:
     return Money(0, "BRL")
 
 
+def workorder_can_toggle_signed_pdf(workorder: WorkOrder) -> bool:
+    status = str(getattr(workorder, "signature_request_status", "") or "")
+    return status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED} and bool(
+        getattr(workorder, "signature_external_id", None) or getattr(workorder, "signature_document_id", None)
+    )
+
+
+def resolve_workorder_pdf_modal_urls(*, workorder_id: int, can_toggle_signed_pdf: bool):
+    pdf_view_url = reverse("workorder:visualizar_pdf", args=[workorder_id])
+    return resolve_pdf_modal_urls(pdf_view_url=pdf_view_url, can_toggle_signed_pdf=can_toggle_signed_pdf)
+
+
+def _build_workorder_pdf_modal_context(workorder: WorkOrder) -> dict[str, object]:
+    can_toggle = workorder_can_toggle_signed_pdf(workorder)
+    pdf_urls = resolve_workorder_pdf_modal_urls(workorder_id=int(workorder.pk), can_toggle_signed_pdf=can_toggle)
+    return {
+        "can_toggle_signed_pdf": can_toggle,
+        "initial_pdf_variant": pdf_urls.initial_pdf_variant,
+        "initial_pdf_url": pdf_urls.default_pdf_url,
+        "initial_download_url": pdf_urls.default_pdf_download_url,
+        "signed_pdf_url": pdf_urls.signed_pdf_url,
+        "base_pdf_url": pdf_urls.base_pdf_url,
+        "signed_download_url": pdf_urls.signed_pdf_download_url,
+        "base_download_url": pdf_urls.base_pdf_download_url,
+        "is_signature_resend": str(getattr(workorder, "signature_request_status", "") or "") == WorkOrderSignatureStatus.SENT
+        and bool(getattr(workorder, "signature_external_id", None)),
+    }
+
+
 def _annotate_workorder_resume_gestor_costs(*, workorder: WorkOrder, display_product_items: list[object], display_service_items: list[object]) -> dict[str, object]:
     budget = getattr(workorder, "budget", None) if getattr(workorder, "budget_id", None) else None
     if budget is not None:
@@ -396,19 +425,16 @@ def _annotate_workorder_resume_gestor_costs(*, workorder: WorkOrder, display_pro
     resume_pdf_urls: dict[str, object] = {}
     if budget is not None:
         resume_pdf = build_budget_pdf_context(budget=budget, presentation="selected_items")
-        can_toggle_signed_pdf = str(getattr(budget, "signature_request_status", "") or "") in {"sent", "approved"} and bool(
-            getattr(budget, "signature_external_id", None) or getattr(budget, "signature_document_id", None)
-        )
-        pdf_urls = resolve_budget_pdf_modal_urls(budget_id=budget.pk, can_toggle_signed_pdf=can_toggle_signed_pdf)
+        workorder_pdf = _build_workorder_pdf_modal_context(workorder)
         resume_pdf_urls = {
-            "can_toggle_signed_pdf": can_toggle_signed_pdf,
-            "initial_pdf_variant": pdf_urls.initial_pdf_variant,
-            "cliente_url": pdf_urls.default_pdf_url,
-            "cliente_download_url": pdf_urls.default_pdf_download_url,
-            "signed_pdf_url": pdf_urls.signed_pdf_url,
-            "base_pdf_url": pdf_urls.base_pdf_url,
-            "signed_download_url": pdf_urls.signed_pdf_download_url,
-            "base_download_url": pdf_urls.base_pdf_download_url,
+            "can_toggle_signed_pdf": workorder_pdf["can_toggle_signed_pdf"],
+            "initial_pdf_variant": workorder_pdf["initial_pdf_variant"],
+            "cliente_url": workorder_pdf["initial_pdf_url"],
+            "cliente_download_url": workorder_pdf["initial_download_url"],
+            "signed_pdf_url": workorder_pdf["signed_pdf_url"],
+            "base_pdf_url": workorder_pdf["base_pdf_url"],
+            "signed_download_url": workorder_pdf["signed_download_url"],
+            "base_download_url": workorder_pdf["base_download_url"],
             "gestor_url": reverse("budget:visualizar_pdf_gestor", args=[budget.pk]),
             "mecanico_url": reverse("budget:visualizar_pdf_mecanico", args=[budget.pk]),
         }
@@ -699,6 +725,7 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "has_payments": workorder.payments.exists(),
         "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
         "attachments": workorder.attachments.order_by("-criado_em"),
+        "workorder_pdf_urls": _build_workorder_pdf_modal_context(workorder),
     }
 
 

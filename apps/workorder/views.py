@@ -65,7 +65,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -80,6 +80,7 @@ from apps.workorder.util import (
     _get_workorder_workshop_cost,
     _build_customer_approvement_context,
     _build_workorder_pdf_file_response,
+    workorder_can_toggle_signed_pdf,
     apply_workorder_collaborators_continue,
     build_workorder_collaborators_next_url,
     can_reopen_workorder,
@@ -115,7 +116,7 @@ def _get_requested_pdf_variant(request) -> str | None:
 
 
 def _can_use_signed_workorder_pdf(workorder: WorkOrder) -> bool:
-    return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}
+    return workorder_can_toggle_signed_pdf(workorder)
 
 
 def _should_default_to_signed_workorder_pdf(workorder: WorkOrder) -> bool:
@@ -1463,10 +1464,6 @@ def visualizar_pdf_workorder(request, pk):
         pk=pk,
         workshop=workshop,
     )
-    today = timezone.localdate()
-    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
-    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
-    _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
     should_download = request.GET.get("download") == "1"
     explicit_variant = _get_requested_pdf_variant(request)
     requested_variant = explicit_variant
@@ -1479,7 +1476,11 @@ def visualizar_pdf_workorder(request, pk):
             from apps.core.infrastructure.services.signature_download import download_signed_pdf
             from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
 
-            synplaisign_api_key = get_workshop_synplaisign_api_key(workorder.workshop)
+            synplaisign_api_key = ""
+            try:
+                synplaisign_api_key = get_workshop_synplaisign_api_key(workorder.workshop)
+            except WorkshopSynplaiSignError:
+                synplaisign_api_key = ""
             signed_pdf = download_signed_pdf(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,
@@ -1505,6 +1506,11 @@ def visualizar_pdf_workorder(request, pk):
             )
             if explicit_variant == SIGNED_PDF_VARIANT:
                 return HttpResponse(str(exc) or "Erro ao carregar PDF assinado", status=502)
+
+    today = timezone.localdate()
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+    _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
 
     try:
         document = render_workorder_pdf_document(
