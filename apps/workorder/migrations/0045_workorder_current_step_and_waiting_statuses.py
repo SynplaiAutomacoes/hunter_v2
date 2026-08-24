@@ -1,5 +1,7 @@
 from django.db import migrations, models
 
+from . import _idempotent
+
 
 def backfill_current_step(apps, schema_editor):
     WorkOrder = apps.get_model("workorder", "WorkOrder")
@@ -31,7 +33,7 @@ class Migration(migrations.Migration):
                 verbose_name="Status",
             ),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name="workorder",
             name="current_step",
             field=models.PositiveSmallIntegerField(default=1, verbose_name="Etapa atual"),
