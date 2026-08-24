@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
 from djmoney.money import Money
 
 from apps.budget.item_origin import AVULSO_ORIGIN_LABEL, KIT_ORIGIN_LABEL
@@ -95,9 +96,14 @@ class WorkOrderResumeKitExpansionTests(TestCase):
         self.assertIn(KIT_ORIGIN_LABEL, kit_row.origin_badge)
         self.assertIn(AVULSO_ORIGIN_LABEL, avulso_row.origin_badge)
         self.assertIn(self.kit.name, kit_row.origin_badge)
+        kit_url = reverse("catalog:kits_update", kwargs={"pk": self.kit.pk})
+        self.assertIn(f'href="{kit_url}"', kit_row.origin_badge)
+        self.assertIn("<a ", kit_row.origin_badge)
+        self.assertNotIn("<a ", avulso_row.origin_badge)
 
         self.assertEqual(len(service_rows), 1)
         service_row = service_rows[0]
         self.assertEqual(service_row.origin_label, KIT_ORIGIN_LABEL)
         self.assertEqual(service_row.service_id, self.kit_service.pk)
         self.assertIn(self.kit.name, service_row.origin_badge)
+        self.assertIn(f'href="{kit_url}"', service_row.origin_badge)

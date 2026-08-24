@@ -4,6 +4,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
 
+from django.urls import reverse
 from django.utils.html import escape
 
 from apps.budget.pricing import format_duration_display, money_div, zero_money
@@ -19,22 +20,61 @@ def kit_origin_name(item: Any) -> str:
     return str(getattr(kit, "name", "") or "").strip()
 
 
-def build_origin_badge(*, label: str, is_kit: bool = False, tooltip: str = "") -> str:
+def kit_origin_id(item: Any) -> int | None:
+    kit_id = getattr(item, "kit_id", None)
+    if kit_id:
+        return int(kit_id)
+    kit = getattr(item, "kit", None)
+    kit_pk = getattr(kit, "pk", None) if kit is not None else None
+    if kit_pk:
+        return int(kit_pk)
+    return None
+
+
+def kit_origin_url(item: Any) -> str:
+    kit_id = kit_origin_id(item)
+    if kit_id is None:
+        return ""
+    return reverse("catalog:kits_update", kwargs={"pk": kit_id})
+
+
+def build_origin_badge(*, label: str, is_kit: bool = False, tooltip: str = "", href: str = "") -> str:
     tone = "badge-info badge-outline" if is_kit else "badge-outline"
     badge = f'<span class="badge {tone} whitespace-nowrap">{escape(label)}</span>'
     tip = str(tooltip or "").strip()
-    if not is_kit or not tip:
+    url = str(href or "").strip()
+    if not is_kit:
         return badge
-    escaped_tip = escape(tip)
+
+    classes = ["inline-flex"]
+    if tip:
+        classes.append("tooltip tooltip-bottom z-20 before:z-50 before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs")
+    if url:
+        classes.append("cursor-pointer hover:opacity-80")
+        attrs = f'class="{" ".join(classes)}" href="{escape(url)}"'
+        if tip:
+            attrs += f' data-tip="{escape(tip)}"'
+        return f"<a {attrs}>{badge}</a>"
+    if not tip:
+        return badge
     return (
         f'<span class="tooltip tooltip-bottom z-20 inline-flex cursor-help before:z-50 before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs" '
-        f'data-tip="{escaped_tip}" tabindex="0">{badge}</span>'
+        f'data-tip="{escape(tip)}" tabindex="0">{badge}</span>'
     )
 
 
 def origin_badge_for_item(*, item: Any) -> tuple[str, str, bool]:
     if getattr(item, "kit_id", None) or getattr(item, "kit", None):
-        return KIT_ORIGIN_LABEL, build_origin_badge(label=KIT_ORIGIN_LABEL, is_kit=True, tooltip=kit_origin_name(item)), True
+        return (
+            KIT_ORIGIN_LABEL,
+            build_origin_badge(
+                label=KIT_ORIGIN_LABEL,
+                is_kit=True,
+                tooltip=kit_origin_name(item),
+                href=kit_origin_url(item),
+            ),
+            True,
+        )
     return AVULSO_ORIGIN_LABEL, build_origin_badge(label=AVULSO_ORIGIN_LABEL), False
 
 
