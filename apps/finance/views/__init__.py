@@ -9,6 +9,7 @@ from .commissions import CommissionReportPdfView, CommissionReportView
 from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollSyncComponentView
+from .purchase_return import PurchaseReturnCreateView, PurchaseReturnPreviewPdfView, PurchaseReturnPreviewView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassDeleteView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -48,6 +49,11 @@ __all__ = [
     "PayrollEditModalView",
     "PayrollListView",
     "PayrollSyncComponentView",
+    "PurchaseReturnCreateView",
+    "PurchaseReturnPreviewPdfView",
+    "PurchaseReturnPreviewView",
+    "PurchaseReturnTransmitView",
+    "PurchaseReturnWorkflowView",
     "FinancialGroupUpdateView",
     "IssuedDocumentsArchiveDownloadView",
     "IssuedDocumentsListView",
