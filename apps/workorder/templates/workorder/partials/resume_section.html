@@ -1,303 +1,279 @@
-{% load format_tags workorder_extras %}
-<div class="card-body">
-    <div class="flex w-full justify-end gap-2">
+{% load workorder_extras format_tags %}
+<style>
+    .budget-step4-table {
+        table-layout: fixed;
+    }
+
+    .budget-step4-table :where(th, td) {
+        vertical-align: middle;
+    }
+
+    .budget-step4-table .budget-step4-description,
+    .budget-step4-table .budget-step4-application {
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: normal;
+    }
+
+    .budget-step4-table thead th {
+        font-size: 0.80rem;
+    }
+
+    .budget-step4-table .origin-cell {
+        overflow: visible;
+        position: relative;
+        z-index: 1;
+    }
+
+    .budget-step4-table .origin-cell:hover,
+    .budget-step4-table .origin-cell:focus-within {
+        z-index: 30;
+    }
+</style>
+
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+    <div>
+        <h2 class="text-2xl font-bold">Itens aprovados no orçamento</h2>
+        <p class="text-sm text-base-content/70 mt-1">
+            {{ workorder.budget.customer.name }}
+            · {{ workorder.budget.vehicle.plate }}
+            · {{ workorder.budget.vehicle.brand }} {{ workorder.budget.vehicle.model }}
+        </p>
+    </div>
+    <div class="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
         <a
             href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6&reopen=1"
-            class="btn btn-outline btn-lg">
+            class="btn btn-outline">
             <span class="material-icons mr-2" aria-hidden="true">edit_note</span>
             Revisar Orçamento
         </a>
     </div>
-    <div class="p-6">
-        <div id="pdf-iframe" class="p-4 border rounded-lg shadow-sm text-base">
+</div>
 
-            <div class="flex justify-between items-start p-4 border-b border-gray-200">
-                <div>
-                    <h3 class="font-bold text-xl uppercase">{{ workorder.workshop.pdf_name }}</h3>
-                    <p class="">CNPJ: {{ workorder.workshop.cnpj|cnpj_br|default:"-" }}</p>
-                    <p class="">{{ workorder.workshop.address|default:"-" }}</p>
-                    <p class="">Telefone: {{ workorder.workshop.phone|default:"-" }}</p>
-                </div>
-                <div class="text-right">
-                    <h4 class="font-bold text-lg">ORDEM DE SERVIÇO</h4>
-                    <p class="text-2xl font-bold">{{workorder.budget.number}}</p>
-                    <p class="">{{workorder.criado_em}}</p>
-                </div>
+{% if resume_pdf_urls %}
+<div class="p-4 bg-base-200/50 rounded-lg mb-6">
+    <h4 class="font-bold text-lg mb-2 border-b">PDF</h4>
+    <div class="grid grid-cols-12 gap-3 text-center">
+        <button type="button" class="btn btn-success col-span-12 sm:col-span-4" data-allow-locked="1"
+            onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ resume_pdf_urls.cliente_url }}', downloadUrl: '{{ resume_pdf_urls.cliente_download_url }}', showSignatureBtn: false, showPdfVariantToggle: {% if resume_pdf_urls.can_toggle_signed_pdf %}true{% else %}false{% endif %}, pdfVariant: '{{ resume_pdf_urls.initial_pdf_variant }}', signedPdfUrl: '{{ resume_pdf_urls.signed_pdf_url }}', basePdfUrl: '{{ resume_pdf_urls.base_pdf_url }}', signedDownloadUrl: '{{ resume_pdf_urls.signed_download_url }}', baseDownloadUrl: '{{ resume_pdf_urls.base_download_url }}' } }))">
+            PDF Cliente
+        </button>
+        <button type="button" class="btn btn-success col-span-12 sm:col-span-4" data-allow-locked="1"
+            onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ resume_pdf_urls.gestor_url }}', showSignatureBtn: false } }))">
+            PDF Gestor
+        </button>
+        <button type="button" class="btn btn-success col-span-12 sm:col-span-4" data-allow-locked="1"
+            onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ resume_pdf_urls.mecanico_url }}', showSignatureBtn: false } }))">
+            PDF Mecânico
+        </button>
+    </div>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+    <div class="col-span-12 xl:col-span-8">
+        <div class="mb-10">
+            <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-700">Produtos</h3>
             </div>
 
-            <div class="grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
-                <div>
-                    <h4 class="font-bold mb-2">CLIENTE</h4>
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                        <p><span class="font-medium">Código:</span> {{workorder.budget.customer.id}}</p>
-                        <p><span class="font-medium">Nome:</span> {{workorder.budget.customer.name}}</p>
-                        <p><span class="font-medium">CPF/CNPJ:</span> {{workorder.budget.customer.cpf_or_cnpj}}</p>
-                        <p><span class="font-medium">Celular:</span> {{workorder.budget.customer.phone|default:""}}</p>
-                        <p class="col-span-2"><span class="font-medium">Endereço:</span> {{workorder.budget.customer.logradouro}}, {{workorder.budget.customer.numero}} / CEP: {{workorder.budget.customer.cep}}</p>
-                        <p class="col-span-2"><span class="font-medium">Email:</span> {{workorder.budget.customer.email|default:""}}</p>
-                    </div>
-                </div>
-                <div>
-                    <h4 class="font-bold mb-2">VEÍCULO</h4>
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                        <p><span class="font-medium">Placa:</span> {{ workorder.budget.vehicle.plate }}</p>
-                        <p><span class="font-medium">Ano/Fab:</span> {{ workorder.budget.vehicle.year_fabrication }}</p>
-                        <p><span class="font-medium">Ano/Mod:</span> {{ workorder.budget.vehicle.year_model }}</p>
-                        <p><span class="font-medium">Marca:</span> {{ workorder.budget.vehicle.brand }}</p>
-                        <p><span class="font-medium">Modelo:</span> {{ workorder.budget.vehicle.model }}</p>
-                        <p class="col-span-2"><span class="font-medium">Cor:</span> {{ workorder.budget.vehicle.color }}</p>
-                    </div>
-                </div>
+            {% if workorder.has_stock_issues or workorder.has_invalid_ncm_items %}
+            <div class="mb-3 flex flex-wrap gap-2">
+                {% if workorder.has_stock_issues %}
+                <span class="badge badge-warning gap-1">
+                    <span class="material-icons" style="font-size: 16px;">inventory</span>
+                    Existem peças com quantidade acima do estoque disponível.
+                </span>
+                {% endif %}
+                {% if workorder.has_invalid_ncm_items %}
+                <span class="badge badge-warning gap-1">
+                    <span class="material-icons" style="font-size: 16px;">badge</span>
+                    Existem produtos com NCM inválido.
+                </span>
+                {% endif %}
             </div>
+            {% endif %}
 
-            <div class="p-4 border-b border-gray-200">
-                <h4 class="font-bold mb-1">PROBLEMAS/AVARIAS</h4>
-                <p class="italic">{{workorder.budget.technical_diagnosis|default:"N/A"}}</p>
+            <div class="mb-3 rounded-lg shadow-md shadow-gray-300/50 overflow-x-auto">
+                <table class="table table-sm table-zebra w-full budget-step4-table">
+                    <thead class="bg-primary text-primary-content">
+                        <tr>
+                            <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                            <th class="w-[10%] text-center">ORIGEM</th>
+                            <th class="w-[14%] text-left">APLICAÇÃO</th>
+                            <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                            <th class="w-[8%] text-center">QTD.</th>
+                            <th class="w-[12%] text-right">CUSTO</th>
+                            <th class="w-[12%] text-right">VALOR VENDA</th>
+                            <th class="w-[10%] text-right">FRETE</th>
+                            <th class="w-[12%] text-right">TOTAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in display_product_items %}
+                            {% with issue_tooltip=product_issue_map|dict_lookup:item.product_id %}
+                            <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' or item.is_customer_supplied %}opacity-[0.85]{% endif %}">
+                                <td class="budget-step4-description">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
+                                        {% if item.item_benefit_type == "warranty" %}
+                                            <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                        {% elif item.item_benefit_type == "courtesy" %}
+                                            <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="text-center origin-cell">
+                                    <a
+                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
+                                        class="inline-flex justify-center hover:opacity-80"
+                                        data-allow-locked="1"
+                                        aria-label="Abrir orçamento">
+                                    </a>
+                                </td>
+                                <td class="budget-step4-application">
+                                    <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
+                                </td>
+                                <td class="text-center">
+                                    {% if item.is_customer_supplied %}
+                                        <span class="badge badge-success badge-outline shrink-0">Sim</span>
+                                    {% else %}
+                                        <span class="badge badge-ghost badge-outline shrink-0">Não</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <span class="inline-flex items-center justify-center gap-1">
+                                        <span>{{ item.quantity }}</span>
+                                        {% if issue_tooltip %}
+                                            <span class="tooltip tooltip-left shrink-0" data-tip="{{ issue_tooltip }}">
+                                                <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                                            </span>
+                                        {% endif %}
+                                    </span>
+                                </td>
+                                <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.gestor_cost_total|money_br }}{% endif %}</td>
+                                <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.product_selling_price }}{% endif %}</td>
+                                <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.shipping }}{% endif %}</td>
+                                <td class="font-bold text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.total_price }}{% endif %}</td>
+                            </tr>
+                            {% endwith %}
+                        {% empty %}
+                            <tr>
+                                <td class="text-center text-base-content/60 py-4" colspan="9">Nenhuma peça adicionada.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
+            <div class="flex flex-wrap justify-end gap-4 mb-8 text-sm font-semibold">
+                <div class="font-bold">Total Custos: {{ workorder.budget.total_costs_products_value|money_br }}</div>
+                <div class="font-bold">Total Lucro: {{ resume_pdf.total_profit_product_value|money_br }}</div>
+            </div>
+        </div>
 
-            <div class="p-4 border-b border-gray-200">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div class="lg:max-w-xl">
-                        <h4 class="font-bold mb-1">COLABORADORES DA O.S.</h4>
-                        <p class="text-sm text-base-content/70">Use esta vinculação para prever e consolidar a comissão futura do colaborador.</p>
-                        <div class="mt-3 flex flex-wrap gap-2">
-                            {% for collaborator in workorder.collaborators.all %}
-                                <span class="badge badge-primary badge-outline">{{ collaborator.name }}</span>
-                            {% empty %}
-                                <span class="text-sm text-base-content/60">Nenhum colaborador vinculado.</span>
-                            {% endfor %}
-                        </div>
-                    </div>
+        <div class="mb-10">
+            <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
+                <h3 class="text-xl font-semibold text-gray-700">Serviços</h3>
+            </div>
+            <div class="mb-3 rounded-lg shadow-md shadow-gray-300/50 overflow-x-auto">
+                <table class="table table-sm table-zebra w-full budget-step4-table">
+                    <thead class="bg-primary text-primary-content">
+                        <tr>
+                            <th class="w-[20%] text-left">DESCRIÇÃO</th>
+                            <th class="w-[10%] text-center">ORIGEM</th>
+                            <th class="w-[8%] text-center">QTD.</th>
+                            <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
+                            <th class="w-[14%] text-right">VALOR VENDA</th>
+                            <th class="w-[12%] text-right">FRETE</th>
+                            <th class="w-[12%] text-center">TEMPO</th>
+                            <th class="w-[16%] text-right">TOTAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in display_service_items %}
+                            <tr class="{% if item.item_benefit_type == 'warranty' or item.item_benefit_type == 'courtesy' %}opacity-[0.85]{% endif %}">
+                                <td class="budget-step4-description">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
+                                        {% if item.item_benefit_type == "warranty" %}
+                                            <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                        {% elif item.item_benefit_type == "courtesy" %}
+                                            <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="text-center origin-cell">
+                                    <a
+                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
+                                        class="inline-flex justify-center hover:opacity-80"
+                                        data-allow-locked="1"
+                                        aria-label="Abrir orçamento">
+                                    </a>
+                                </td>
+                                <td class="text-center">{{ item.quantity }}</td>
+                                <td class="text-right">{{ item.gestor_cost_total|money_br }}</td>
+                                <td class="text-right">{{ item.service_selling_price }}</td>
+                                <td class="text-right">{{ item.service_shipping }}</td>
+                                <td class="text-center">{{ item.duration_display }}</td>
+                                <td class="font-bold text-right">{{ item.total_price }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td class="text-center text-base-content/60 py-4" colspan="8">Nenhum serviço adicionado.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex flex-wrap justify-end gap-4 mb-8 text-sm font-semibold">
+                <div class="font-bold">Total Custos: {{ resume_pdf.total_services_mechanic_cost_value|money_br }}</div>
+                <div class="font-bold">Total Lucro: {{ resume_pdf.total_profit_service_value|money_br }}</div>
+            </div>
+        </div>
+    </div>
 
-                    <form
-                        method="post"
-                        hx-post="{% url 'workorder:update_collaborators' workorder.pk %}"
-                        hx-target="#resume-section"
-                        hx-swap="innerHTML"
-                        class="w-full lg:max-w-lg rounded-xl border border-base-300 bg-base-100 p-4"
-                    >
-                        {% csrf_token %}
-                        {% include "budget/partials/components/collaborator_field.html" with field=collaborator_form.collaborators initial_collaborators_json=collaborator_form.initial_collaborators_json form=collaborator_form object=workorder %}
-                        <p class="mt-2 text-xs text-base-content/60">{{ collaborator_form.collaborators.help_text }}</p>
-                        <div class="mt-4 flex justify-end">
-                            <button type="submit" class="btn btn-primary btn-sm">Salvar colaboradores</button>
-                        </div>
-                    </form>
+    <div class="col-span-12 xl:col-span-4 mt-10 xl:mt-0">
+        <div class="p-6 h-fit text-lg">
+            <h2 class="text-2xl font-bold mb-4 mt-8 xl:mt-0">Resumo</h2>
+            <div id="workorder-resume-summary" class="sticky top-4">
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span>Total Produtos</span>
+                    <span>{{ resume_pdf.total_produtos|default:workorder.total_products_value }}</span>
                 </div>
-            </div>
-
-            <div class="p-4 border-b border-gray-200">
-                <h4 class="font-bold mb-2">PRODUTOS</h4>
-
-                {% if workorder.has_stock_issues or workorder.has_invalid_ncm_items %}
-                <div class="mb-3 flex flex-wrap gap-2">
-                    {% if workorder.has_stock_issues %}
-                    <span class="badge badge-warning gap-1">
-                        <span class="material-icons" style="font-size: 16px;">inventory</span>
-                        Existem peças com quantidade acima do estoque disponível.
-                    </span>
-                    {% endif %}
-                    {% if workorder.has_invalid_ncm_items %}
-                    <span class="badge badge-warning gap-1">
-                        <span class="material-icons" style="font-size: 16px;">badge</span>
-                        Existem produtos com NCM inválido.
-                    </span>
-                    {% endif %}
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span>Total Serviços</span>
+                    <span>{{ resume_pdf.total_servicos|default:workorder.total_services_value }}</span>
+                </div>
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span>Total Frete</span>
+                    <span>{{ resume_total_shipping }}</span>
+                </div>
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span>Tempo Total</span>
+                    <span>{{ workorder.total_duration_display }}</span>
+                </div>
+                {% if workorder.resolved_discount_value.amount > 0 %}
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2 border-warning/30 bg-warning/10 text-base-content">
+                    <span class="font-medium text-warning">Desconto</span>
+                    <span class="font-medium text-warning">- {{ workorder.resolved_discount_value }}</span>
                 </div>
                 {% endif %}
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead>
-                            <tr class="border-b">
-                                <th class="p-2 font-semibold">Código</th>
-                                <th class="p-2 font-semibold">Nome</th>
-                                <th class="p-2 font-semibold">Peça do Cliente</th>
-                                <th class="p-2 font-semibold">Descrição</th>
-                                <th class="p-2 font-semibold">Aplicação</th>
-                                <th class="p-2 font-semibold text-center">Qtd.</th>
-                                <th class="p-2 font-semibold">R$ Valor</th>
-                                <th class="p-2 font-semibold">R$ Total</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            {% for item in summary_product_items %}
-                                {% with benefit_type=benefit_map|dict_lookup:item.entity_id %}
-                                <tr class="{% if benefit_type == 'warranty' or benefit_type == 'courtesy' or item.is_customer_supplied %}opacity-[0.85]{% endif %}">
-                                    <td class="p-2">{{ item.code|default:"-" }}</td>
-                                    <td class="p-2">
-                                        <div class="flex items-center gap-2 min-w-0">
-                                            <span>{{ item.product.name }}</span>
-                                            {% if benefit_type == "warranty" %}
-                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
-                                            {% elif benefit_type == "courtesy" %}
-                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                    <td class="p-2 text-center">
-                                        {% if item.is_customer_supplied %}
-                                            <span class="badge badge-success badge-outline shrink-0">Sim</span>
-                                        {% else %}
-                                            <span class="badge badge-ghost badge-outline shrink-0">Não</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="p-2">{{ item.product.description }}</td>
-                                    <td class="p-2 whitespace-normal break-words">{{ item.application|default:"-" }}</td>
-                                    <td class="p-2 text-center">
-                                        <span class="inline-flex items-center justify-center gap-1">
-                                            <span>{{ item.quantity }}</span>
-                                            {% if item.has_product_issues %}
-                                                <span class="tooltip tooltip-left shrink-0" data-tip="{{ item.product_issue_tooltip }}">
-                                                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
-                                                </span>
-                                            {% endif %}
-                                        </span>
-                                    </td>
-                                    <td class="p-2">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.unit_price }}{% endif %}</td>
-                                    <td class="p-2 font-semibold">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.total_price }}{% endif %}</td>
-                                </tr>
-                                {% endwith %}
-                            {% empty %}
-                                <tr>
-                                    <td class="p-2 text-center text-base-content/60" colspan="8">Nenhuma peça adicionada.</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <div class="border rounded-xl flex justify-between items-center p-3 mb-2">
+                    <span class="font-bold">Total Geral</span>
+                    <span class="font-bold">{{ resume_pdf.total_geral|default:workorder.display_total_budget_value }}</span>
                 </div>
-                <div class="text-right mt-2 font-bold uppercase">
-                    Total das peças: {{workorder.get_total_products_by_slider}}
+                {% if warranty_items_count %}
+                <div class="flex items-center gap-2 text-sm p-3">
+                    <span class="badge badge-error badge-xs">{{ warranty_items_count }}</span>
+                    <span>item(ns) em Garantia</span>
                 </div>
-            </div>
-
-            <div class="p-4 border-b border-gray-200">
-                <h4 class="font-bold mb-2">SERVIÇOS</h4>
-                <table class="w-full text-left">
-                    <thead>
-                        <tr class="border-b">
-                            <th class="p-2 font-semibold">Descrição</th>
-                            <th class="p-2 font-semibold w-32">R$ Total</th>
-                        </tr>
-                    </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            {% for item in summary_service_items %}
-                                <tr class="{% if item.item_benefit_type == "warranty" or item.item_benefit_type == "courtesy" %}opacity-[0.85]{% endif %}">
-                                    <td class="p-2">
-                                        <div class="flex items-center gap-2 min-w-0">
-                                            <span>{{ item.service.name }}</span>
-                                            {% if item.item_benefit_type == "warranty" %}
-                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
-                                            {% elif item.item_benefit_type == "courtesy" %}
-                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                    <td class="p-2 font-semibold">{{ item.total_price }}</td>
-                                </tr>
-                        {% empty %}
-                            <tr>
-                                <td class="p-2 text-center text-base-content/60" colspan="2">Nenhum serviço adicionado.</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                <div class="text-right mt-2 font-bold uppercase">
-                    Total dos serviços: {{workorder.get_total_services_by_slider}}
+                {% endif %}
+                {% if courtesy_items_count %}
+                <div class="flex items-center gap-2 text-sm p-3">
+                    <span class="badge badge-info badge-xs">{{ courtesy_items_count }}</span>
+                    <span>item(ns) em Cortesia</span>
                 </div>
-            </div>
-
-            <div class="p-4 border-b border-gray-200">
-                <h4 class="font-bold mb-2">KITS</h4>
-                <table class="w-full text-left">
-                    <thead>
-                        <tr class="border-b">
-                            <th class="p-2 font-semibold">Kit</th>
-                            <th class="p-2 font-semibold text-center">Qtd.</th>
-                            <th class="p-2 font-semibold text-center">Produtos</th>
-                            <th class="p-2 font-semibold text-center">Serviços</th>
-                            <th class="p-2 font-semibold text-right">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                            {% for item in kit_items %}
-                                <tr class="{% if item.item_benefit_type == "warranty" or item.item_benefit_type == "courtesy" %}opacity-[0.85]{% endif %}">
-                                    <td class="p-2">
-                                        <div class="flex items-center gap-2 min-w-0">
-                                            <span>{{ item.kit.name }}</span>
-                                            {% if item.item_benefit_type == "warranty" %}
-                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
-                                            {% elif item.item_benefit_type == "courtesy" %}
-                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                    <td class="p-2 text-center">{{ item.quantity }}</td>
-                                <td class="p-2 text-center">{{ item.effective_kit_products_count }}</td>
-                                <td class="p-2 text-center">{{ item.effective_kit_services_count }}</td>
-                                <td class="p-2 text-right font-semibold">{{ item.total_price }}</td>
-                            </tr>
-                        {% empty %}
-                            <tr>
-                                <td class="p-2 text-center text-base-content/60" colspan="5">Nenhum kit adicionado.</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="p-4 grid grid-cols-1 gap-8 border-b border-gray-200 md:grid-cols-2">
-                <div class="min-w-0">
-                    {% if workorder.payments.all %}
-                        <h4 class="font-bold mb-1">CONDIÇÕES DE PAGAMENTO</h4>
-                        {% for payment in workorder.payments.all %}
-                            <p class="text-sm flex flex-wrap items-center gap-2">
-                                <span>{{ payment.payment_method.description }}</span>
-                                <span>-</span>
-                                <span>Vencimento {{ payment.due_date|date:"d/m/Y" }}</span>
-                                <span>-</span>
-                                <span>{% if forloop.first %}Valor de entrada{% else %}Valor a ser pago{% endif %}: {{ payment.total_paid }}</span>
-                            </p>
-                        {% endfor %}
-                    {% endif %}
-                    <h4 class="font-bold mb-1">OBSERVAÇÕES</h4>
-                    <p class="text-sm whitespace-pre-wrap break-words">{{ workorder.budget.pdf_observation|default:"Nenhuma observação." }}</p>
-                </div>
-                <div class="min-w-0 space-y-1">
-                    <p class="flex justify-between"><span>Total de Produtos:</span> <span>{{workorder.get_total_products_by_slider}}</span></p>
-                    <p class="flex justify-between"><span>Total de Serviços:</span> <span>{{workorder.get_total_services_by_slider}}</span></p>
-                    {% if discount_type == "products" %}
-                    <p class="flex justify-between font-medium">
-                        <span>Desconto para Produtos ({{ workorder.discount_percentage_display }}):</span>
-                        <span class="text-red-600">- {{ discount_products }}</span>
-                    </p>
-                    {% elif discount_type == "services" %}
-                    <p class="flex justify-between font-medium">
-                        <span>Desconto para Serviços ({{ workorder.discount_percentage_display }}):</span>
-                        <span class="text-red-600">- {{ discount_services }}</span>
-                    </p>
-                    {% else %}
-                    <p class="flex justify-between font-medium">
-                        <span>Desconto para Produtos ({{ workorder.discount_percentage_display }}):</span>
-                        <span class="text-red-600">- {{ discount_products }}</span>
-                    </p>
-                    <p class="flex justify-between font-medium">
-                        <span>Desconto para Serviços:</span>
-                        <span class="text-red-600">- {{ discount_services }}</span>
-                    </p>
-                    {% endif %}
-                    <p class="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-gray-300">
-                        <span>TOTAL GERAL:</span>
-                        <span>{{workorder.display_total_budget_value}}</span>
-                    </p>
-                </div>
-            </div>
-
-            <div class="p-4 mt-12 text-center">
-                <div class="inline-block border-t border-gray-400 px-16 pt-2">
-                    <p class="font-semibold">{{workorder.budget.customer.name}}</p>
-                    <p class="text-xs italic">Assinatura do cliente ou pessoa autorizada</p>
-                </div>
+                {% endif %}
             </div>
         </div>
     </div>
