@@ -37,6 +37,7 @@ from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
+from apps.collaborators.services import workorder_commission_context
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType, WorkOrderStatus
 from apps.workorder.service import (
@@ -254,9 +255,7 @@ def workorder_stepper_context(*, request, workorder: WorkOrder) -> dict[str, obj
         "stepper_include_pk": False,
         "stepper_navigation": "links",
         "can_finalize_delivery": workorder.status == WorkOrderStatus.WAITING_DELIVERY,
-        "commission_previews": [],
-        "commission_is_sale": workorder.budget_type == "sale",
-        "commission_consolidates": False,
+        **workorder_commission_context(workorder=workorder),
     }
 
 

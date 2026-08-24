@@ -141,6 +141,82 @@ def _resolve_commission_base_amount(*, workorder: WorkOrder) -> Money:
     return Money(_quantize(max(Decimal(str(services_total.amount)) - services_discount, ZERO)), "BRL")
 
 
+@dataclass(slots=True, frozen=True)
+class WorkOrderCollaboratorCommissionPreview:
+    collaborator_id: int
+    name: str
+    percentage: Decimal | None
+    percentage_display: str
+    base_amount: Money
+    commission_amount: Money
+    receives_commission: bool
+    eligible: bool
+    consolidates_on_delivery: bool
+    unavailable_reason: str
+
+
+def _format_commission_percentage(percentage: Decimal | None) -> str:
+    if percentage is None:
+        return "—"
+    display = (Decimal(str(percentage)) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{display:.2f}%".replace(".", ",")
+
+
+def preview_workorder_collaborator_commissions(*, workorder: WorkOrder) -> list[WorkOrderCollaboratorCommissionPreview]:
+    """Return a read-only commission forecast for collaborators linked to the work order."""
+    budget_type = _resolve_workorder_budget_type(workorder=workorder)
+    is_sale = budget_type == "sale"
+    consolidates_on_delivery = _workorder_can_generate_commission(workorder=workorder)
+    base_amount = _resolve_commission_base_amount(workorder=workorder)
+    base_decimal = Decimal(str(base_amount.amount or ZERO))
+
+    if not is_sale:
+        unavailable_reason = "Comissão não se aplica a orçamentos de garantia ou cortesia."
+    else:
+        unavailable_reason = ""
+
+    previews: list[WorkOrderCollaboratorCommissionPreview] = []
+    for collaborator in workorder.collaborators.all():
+        receives_commission = bool(collaborator.receives_commission and collaborator.commission_percentage is not None)
+        percentage = Decimal(str(collaborator.commission_percentage)) if receives_commission else None
+        if not is_sale:
+            commission_amount = Money(ZERO, "BRL")
+            eligible = False
+            reason = unavailable_reason
+        elif not receives_commission:
+            commission_amount = Money(ZERO, "BRL")
+            eligible = False
+            reason = "Este colaborador não recebe comissão."
+        else:
+            commission_amount = Money(_quantize(base_decimal * Decimal(str(percentage or ZERO))), "BRL")
+            eligible = True
+            reason = ""
+
+        previews.append(
+            WorkOrderCollaboratorCommissionPreview(
+                collaborator_id=collaborator.pk,
+                name=collaborator.name,
+                percentage=percentage,
+                percentage_display=_format_commission_percentage(percentage),
+                base_amount=base_amount,
+                commission_amount=commission_amount,
+                receives_commission=receives_commission,
+                eligible=eligible,
+                consolidates_on_delivery=consolidates_on_delivery,
+                unavailable_reason=reason,
+            )
+        )
+    return previews
+
+
+def workorder_commission_context(*, workorder: WorkOrder) -> dict[str, object]:
+    return {
+        "commission_previews": preview_workorder_collaborator_commissions(workorder=workorder),
+        "commission_is_sale": _resolve_workorder_budget_type(workorder=workorder) == "sale",
+        "commission_consolidates": _workorder_can_generate_commission(workorder=workorder),
+    }
+
+
 def _get_next_month_reference(reference_date: date) -> date:
     if reference_date.month == 12:
         return date(reference_date.year + 1, 1, 1)
