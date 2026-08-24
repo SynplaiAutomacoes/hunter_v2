@@ -66,7 +66,7 @@ from apps.finance.views import (
     DreResultsView,
 )
 
-from apps.finance.views.cash_flow import CashFlowView
+from apps.finance.views.cash_flow import CashFlowView, CashFlowReportExcelView, CashFlowReportModalView, CashFlowReportPdfView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
 from apps.finance.views.emission import EmissionCheckWorkorderView
 from apps.finance.views.financial_movement import (
@@ -187,6 +187,9 @@ urlpatterns = [
     path("webmania/webhook/", WebhookView.as_view(), name="webhook"),
     # Fluxo de Contas
     path("fluxo-de-contas/", CashFlowView.as_view(), name="cash_flow"),
+    path("fluxo-de-contas/relatorio/", CashFlowReportModalView.as_view(), name="cash_flow_report_modal"),
+    path("fluxo-de-contas/relatorio/pdf/", CashFlowReportPdfView.as_view(), name="cash_flow_report_pdf"),
+    path("fluxo-de-contas/relatorio/excel/", CashFlowReportExcelView.as_view(), name="cash_flow_report_excel"),
     # DRE
     path("dre/", DreReportView.as_view(), name="dre_report"),
     path("dre/resultados/", DreResultsView.as_view(), name="dre_results"),
