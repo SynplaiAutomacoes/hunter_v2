@@ -14,7 +14,7 @@ from apps.core.text_normalization import normalize_search_text
 from apps.core.infrastructure.services.webmania.nfe_emission import ProductEmissionLine
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
 from apps.finance.models import FiscalDocumentStatus, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus
-from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose
+from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentType
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfe_returns import NfeReturnError, calculate_available_return_quantities, create_nfe_return_draft, download_nfe_return_preview_document, transmit_nfe_return_document
 from apps.stock.models import StockImport, StockImportFiscalItem
@@ -52,10 +52,46 @@ def legacy_purchase_summary(stock_import: StockImport) -> tuple[Decimal, int]:
 def _is_legacy_purchase(stock_import: StockImport) -> bool:
     return (
         stock_import.fiscal_document_id is None
+        and stock_import.method in {StockImport.ImportMethods.XML, StockImport.ImportMethods.KEY, StockImport.ImportMethods.SEFAZ}
         and stock_import.status == StockImport.ImportStatus.COMPLETED
         and len(normalize_access_key(stock_import.nf_key)) == 44
-        and bool(stock_import.items_data)
+        and _has_legacy_stock_entry_items(stock_import)
     )
+
+
+def _has_legacy_stock_entry_items(stock_import: StockImport) -> bool:
+    items = stock_import.items_data if isinstance(stock_import.items_data, list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            quantity = Decimal(str(item.get("qtd") or "0"))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if quantity <= 0:
+            continue
+        if item.get("linked_product_id"):
+            return True
+    return False
+
+
+def _validate_stock_purchase_document(*, stock_import: StockImport) -> None:
+    document = stock_import.fiscal_document
+    snapshot = stock_import.fiscal_snapshot if isinstance(stock_import.fiscal_snapshot, dict) else {}
+    document_snapshot = snapshot.get("document") if isinstance(snapshot.get("document"), dict) else {}
+    if (
+        stock_import.status != StockImport.ImportStatus.COMPLETED
+        or document is None
+        or document.document_type != FiscalDocumentType.NFE
+        or document.origin != FiscalDocumentOrigin.EXTERNAL
+        or document.purpose != FiscalDocumentPurpose.NORMAL
+        or document.status != FiscalDocumentStatus.APPROVED
+        or document.legacy_nfe_item_id is not None
+        or bool(document_snapshot.get("cancelled"))
+    ):
+        raise PurchaseReturnError("A NF-e de compra não está autorizada ou não pode originar uma devolução.")
+    if not stock_import.fiscal_items.filter(stock_product__isnull=False).exists():
+        raise PurchaseReturnError("A NF-e de compra não possui itens de estoque disponíveis para devolução.")
 
 
 def find_purchase_by_access_key(*, workshop: Any, access_key: str, requested_by: Any | None = None) -> StockImport:
@@ -81,18 +117,7 @@ def find_purchase_by_access_key(*, workshop: Any, access_key: str, requested_by:
             .prefetch_related("fiscal_items__stock_product__product")
             .get(pk=stock_import.pk)
         )
-    document = stock_import.fiscal_document
-    snapshot = stock_import.fiscal_snapshot if isinstance(stock_import.fiscal_snapshot, dict) else {}
-    document_snapshot = snapshot.get("document") if isinstance(snapshot.get("document"), dict) else {}
-    if (
-        document is None
-        or document.origin != FiscalDocumentOrigin.EXTERNAL
-        or document.status != FiscalDocumentStatus.APPROVED
-        or bool(document_snapshot.get("cancelled"))
-    ):
-        raise PurchaseReturnError("A NF-e de compra não está autorizada ou não pode originar uma devolução.")
-    if not stock_import.fiscal_items.exists():
-        raise PurchaseReturnError("A NF-e de compra não possui itens fiscais disponíveis para devolução.")
+    _validate_stock_purchase_document(stock_import=stock_import)
     return stock_import
 
 
@@ -105,17 +130,27 @@ def find_purchase_by_id(*, workshop: Any, stock_import_id: int, requested_by: An
 
 def eligible_purchase_imports(*, workshop: Any) -> QuerySet[StockImport]:
     normalized_purchase = Q(
+        status=StockImport.ImportStatus.COMPLETED,
+        fiscal_document__document_type=FiscalDocumentType.NFE,
         fiscal_document__origin=FiscalDocumentOrigin.EXTERNAL,
+        fiscal_document__purpose=FiscalDocumentPurpose.NORMAL,
         fiscal_document__status=FiscalDocumentStatus.APPROVED,
-        fiscal_items__isnull=False,
+        fiscal_document__legacy_nfe_item__isnull=True,
+        fiscal_items__stock_product__isnull=False,
     ) & (Q(fiscal_snapshot__document__cancelled=False) | Q(fiscal_snapshot__document__cancelled__isnull=True))
     legacy_purchase = Q(
         fiscal_document__isnull=True,
         status=StockImport.ImportStatus.COMPLETED,
+        method__in=[StockImport.ImportMethods.XML, StockImport.ImportMethods.KEY, StockImport.ImportMethods.SEFAZ],
     ) & ~Q(nf_key="") & ~Q(items_data=[])
+    legacy_ids = [
+        stock_import.pk
+        for stock_import in StockImport.objects.filter(workshop=workshop).filter(legacy_purchase).only("pk", "items_data")
+        if _has_legacy_stock_entry_items(stock_import)
+    ]
     return (
         StockImport.objects.filter(workshop=workshop)
-        .filter(normalized_purchase | legacy_purchase)
+        .filter(normalized_purchase | Q(pk__in=legacy_ids))
         .select_related("fiscal_document")
         .annotate(
             purchase_total=Sum("fiscal_items__total_value"),
