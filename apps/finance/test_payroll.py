@@ -1521,6 +1521,8 @@ class PayrollManualLaunchTests(TestCase):
         self.assertIn('form="payroll-manual-commission-form"', content)
         self.assertIn("lancar-beneficio", content)
         self.assertIn('@click.prevent="showManualBenefitForm = false"', content)
+        self.assertIn("Lançar comissão", content)
+        self.assertIn('@click.prevent="showManualCommissionForm = false"', content)
 
     def test_manual_commission_shows_as_manual_and_survives_os_sync(self) -> None:
         workshop, collaborator, payroll, _budget_plan = self._create_payroll(suffix=72, month=8)
@@ -1545,6 +1547,7 @@ class PayrollManualLaunchTests(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertIn("Manual", content)
+        self.assertIn("Ajuste pontual", content)
         entry = CollaboratorCommissionEntry.objects.get(collaborator=collaborator, origin=CollaboratorCommissionEntry.Origin.MANUAL)
         self.assertIsNone(entry.workorder_id)
         self.assertEqual(entry.commission_amount, Money(80, "BRL"))
