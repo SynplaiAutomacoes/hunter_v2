@@ -1495,7 +1495,7 @@ class KitForm(CoreModelForm):
                                         const product = this.selectedProducts.find(item => String(item.id) === String(payload.id));
                                         if (!product) return;
 
-                                        product.name = \`${payload.code} - ${payload.name}\` ?? product.name;
+                                        product.name = [payload.code, payload.name].filter(Boolean).join(' - ') || product.name;
                                         product.cost = payload.cost ?? product.cost;
                                         product.sell = payload.sell ?? product.sell;
 

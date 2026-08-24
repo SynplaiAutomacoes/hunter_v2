@@ -17,6 +17,18 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
+from apps.budget.forms.presenters.step6_context import resolve_budget_pdf_modal_urls
+from apps.budget.item_origin import (
+    AVULSO_ORIGIN_LABEL,
+    build_kit_component_product_item,
+    build_kit_component_service_item,
+    build_origin_badge,
+    iter_kit_product_components,
+    iter_kit_service_components,
+    origin_badge_for_item,
+)
+from apps.budget.pdf_context import build_budget_pdf_context
+from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.services.workorder_emission import get_workorder_emission_ui_state
@@ -333,6 +345,80 @@ def _is_workorder_edit_locked(workorder: WorkOrder) -> bool:
     return bool(getattr(workorder, "is_status_locked", False))
 
 
+def _zero_brl() -> Money:
+    return Money(0, "BRL")
+
+
+def _annotate_workorder_resume_gestor_costs(*, workorder: WorkOrder, display_product_items: list[object], display_service_items: list[object]) -> dict[str, object]:
+    budget = getattr(workorder, "budget", None) if getattr(workorder, "budget_id", None) else None
+    if budget is not None:
+        setattr(budget, "_read_only_pricing_context", True)
+
+    for item in display_product_items:
+        quantity = int(getattr(item, "quantity", 0) or 0)
+        unit_cost = getattr(item, "product_cost_price", None) or _zero_brl()
+        is_customer_supplied = bool(getattr(item, "is_customer_supplied", False))
+        cost_total = _zero_brl() if is_customer_supplied else unit_cost * quantity
+        total_price = getattr(item, "total_price", None) or _zero_brl()
+        profit = total_price - cost_total
+        benefit = str(getattr(item, "item_benefit_type", "normal") or "normal")
+        if is_customer_supplied:
+            profit = _zero_brl()
+        elif benefit != "normal":
+            profit = -cost_total
+        item.gestor_cost_total = cost_total
+        item.gestor_profit = profit
+
+    for item in display_service_items:
+        quantity = int(getattr(item, "quantity", 0) or 0)
+        unit_fallback = getattr(item, "service_cost_price", None) or _zero_brl()
+        fallback_cost = unit_fallback * quantity if quantity else unit_fallback
+        service = getattr(item, "service", None)
+        is_third_party = bool(getattr(service, "is_third_party", False))
+        if budget is None or is_third_party:
+            mechanic_cost = fallback_cost
+        else:
+            mechanic_cost = calculate_mechanic_service_cost(
+                budget=budget,
+                duration=getattr(item, "duration", None),
+                quantity=quantity,
+                fallback_cost=fallback_cost,
+            )
+        total_price = getattr(item, "total_price", None) or _zero_brl()
+        profit = total_price - mechanic_cost
+        benefit = str(getattr(item, "item_benefit_type", "normal") or "normal")
+        if benefit != "normal":
+            profit = -mechanic_cost
+        item.gestor_cost_total = mechanic_cost
+        item.gestor_profit = profit
+
+    resume_pdf: dict[str, object] = {}
+    resume_pdf_urls: dict[str, object] = {}
+    if budget is not None:
+        resume_pdf = build_budget_pdf_context(budget=budget, presentation="selected_items")
+        can_toggle_signed_pdf = str(getattr(budget, "signature_request_status", "") or "") in {"sent", "approved"} and bool(
+            getattr(budget, "signature_external_id", None) or getattr(budget, "signature_document_id", None)
+        )
+        pdf_urls = resolve_budget_pdf_modal_urls(budget_id=budget.pk, can_toggle_signed_pdf=can_toggle_signed_pdf)
+        resume_pdf_urls = {
+            "can_toggle_signed_pdf": can_toggle_signed_pdf,
+            "initial_pdf_variant": pdf_urls.initial_pdf_variant,
+            "cliente_url": pdf_urls.default_pdf_url,
+            "cliente_download_url": pdf_urls.default_pdf_download_url,
+            "signed_pdf_url": pdf_urls.signed_pdf_url,
+            "base_pdf_url": pdf_urls.base_pdf_url,
+            "signed_download_url": pdf_urls.signed_pdf_download_url,
+            "base_download_url": pdf_urls.base_pdf_download_url,
+            "gestor_url": reverse("budget:visualizar_pdf_gestor", args=[budget.pk]),
+            "mecanico_url": reverse("budget:visualizar_pdf_mecanico", args=[budget.pk]),
+        }
+
+    return {
+        "resume_pdf": resume_pdf,
+        "resume_pdf_urls": resume_pdf_urls,
+    }
+
+
 def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:
     prefetched_items = getattr(workorder, "_prefetched_objects_cache", {}).get("items")
     if prefetched_items is not None:
@@ -354,14 +440,42 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     product_items: list[WorkOrderItem] = []
     service_items: list[WorkOrderItem] = []
     kit_items: list[WorkOrderItem] = []
+    display_product_items: list[object] = []
+    display_service_items: list[object] = []
+    avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
 
     for item in items:
         if item.product:
+            item.origin_label = AVULSO_ORIGIN_LABEL
+            item.origin_is_kit = False
+            item.origin_badge = avulso_badge
             product_items.append(item)
+            display_product_items.append(item)
         elif item.service:
+            item.origin_label = AVULSO_ORIGIN_LABEL
+            item.origin_is_kit = False
+            item.origin_badge = avulso_badge
             service_items.append(item)
+            display_service_items.append(item)
         elif item.kit:
             kit_items.append(item)
+            origin_label, origin_badge, _is_kit = origin_badge_for_item(item=item)
+            for override in iter_kit_product_components(item):
+                component = build_kit_component_product_item(kit_item=item, override=override)
+                if component is None:
+                    continue
+                component.origin_label = origin_label
+                component.origin_is_kit = True
+                component.origin_badge = origin_badge
+                display_product_items.append(component)
+            for override in iter_kit_service_components(item):
+                component = build_kit_component_service_item(kit_item=item, override=override)
+                if component is None:
+                    continue
+                component.origin_label = origin_label
+                component.origin_is_kit = True
+                component.origin_badge = origin_badge
+                display_service_items.append(component)
 
     pricing_snapshot = workorder.pricing_snapshot
     _ = workorder.product_issue_summary
@@ -460,18 +574,37 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         if eid and eid not in benefit_map:
             benefit_map[eid] = _item.item_benefit_type
 
+    product_issue_map: dict[int, str] = {}
+    for line in summary_product_items:
+        entity_id = getattr(line, "entity_id", None)
+        if entity_id and getattr(line, "has_product_issues", False):
+            product_issue_map[int(entity_id)] = str(getattr(line, "product_issue_tooltip", "") or "")
+
+    resume_cost_context = _annotate_workorder_resume_gestor_costs(
+        workorder=workorder,
+        display_product_items=display_product_items,
+        display_service_items=display_service_items,
+    )
+
     return {
         "workorder": workorder,
         "product_items": product_items,
         "service_items": service_items,
+        "display_product_items": display_product_items,
+        "display_service_items": display_service_items,
         "summary_product_items": summary_product_items,
         "summary_service_items": summary_service_items,
         "kit_items": kit_items,
         "benefit_map": benefit_map,
+        "product_issue_map": product_issue_map,
         "active_tab": _normalize_active_tab(active_tab),
         "discount_products": discount_products,
         "discount_services": discount_services,
         "discount_type": workorder.discount_type or "both",
+        "resume_total_shipping": workorder.total_products_shipping + workorder.total_services_shipping,
+        "warranty_items_count": sum(1 for item in items if item.item_benefit_type == "warranty"),
+        "courtesy_items_count": sum(1 for item in items if item.item_benefit_type == "courtesy"),
+        **resume_cost_context,
     }
 
 

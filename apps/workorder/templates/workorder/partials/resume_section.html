@@ -124,12 +124,7 @@
                                     </div>
                                 </td>
                                 <td class="text-center origin-cell">
-                                    <a
-                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
-                                        class="inline-flex justify-center hover:opacity-80"
-                                        data-allow-locked="1"
-                                        aria-label="Abrir orçamento">
-                                    </a>
+                                        {{ item.origin_badge|safe }}
                                 </td>
                                 <td class="budget-step4-application">
                                     <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
@@ -203,12 +198,7 @@
                                     </div>
                                 </td>
                                 <td class="text-center origin-cell">
-                                    <a
-                                        href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6"
-                                        class="inline-flex justify-center hover:opacity-80"
-                                        data-allow-locked="1"
-                                        aria-label="Abrir orçamento">
-                                    </a>
+                                        {{ item.origin_badge|safe }}
                                 </td>
                                 <td class="text-center">{{ item.quantity }}</td>
                                 <td class="text-right">{{ item.gestor_cost_total|money_br }}</td>
