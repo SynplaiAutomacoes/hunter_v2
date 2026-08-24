@@ -1,4 +1,6 @@
 # ruff: noqa: F403,F405
+from apps.budget.services.entry_km import BUDGET_KM_CADASTRO_MISMATCH_MESSAGE, budget_entry_km_mismatches_cadastro
+
 from .base import BudgetStepBaseForm
 from .common import *
 
@@ -140,7 +142,35 @@ class BudgetStep1Form(BudgetStepBaseForm):
             selected_vehicle = vehicle_queryset.filter(pk=selected_vehicle_id).first()
 
         is_locked = bool(getattr(self.instance, "is_status_locked", False))
-        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isLocked": is_locked})
+        registered_km_js = "null" if selected_vehicle is None or selected_vehicle.km is None else str(int(selected_vehicle.km))
+        km_mismatch_message = json.dumps(BUDGET_KM_CADASTRO_MISMATCH_MESSAGE)
+        customer_vehicle_x_data = f"""{{
+            customerId: {json.dumps(selected_customer_id)},
+            vehicleId: {json.dumps(selected_vehicle_id)},
+            isLocked: {json.dumps(is_locked)},
+            registeredKm: {registered_km_js},
+            kmMismatchMessage: {km_mismatch_message},
+            kmMismatchesCadastro() {{
+                const entered = parseBudgetEntryKm(document.getElementById('id_current_km')?.value);
+                if (entered === null || this.registeredKm === null || this.registeredKm === undefined) {{
+                    return false;
+                }}
+                return entered !== Number(this.registeredKm);
+            }},
+            maybeOpenKmCadastroModal() {{
+                if (this.isLocked) return false;
+                if (!this.kmMismatchesCadastro()) return false;
+                this.$refs.kmCadastroModal?.showModal();
+                return true;
+            }},
+            openVehicleKmCadastro() {{
+                this.$refs.kmCadastroModal?.close();
+                if (!this.vehicleId) return;
+                const url = `/customer/vehicle/quick-update/${{this.vehicleId}}/`;
+                htmx.ajax('GET', url, {{target: '#modal-container', swap: 'innerHTML'}});
+                document.getElementById('form_modal').showModal();
+            }}
+        }}"""
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -206,6 +236,53 @@ class BudgetStep1Form(BudgetStepBaseForm):
 
                     checkOpenBudget(selectedVehicleId);
                 }
+
+                function parseBudgetEntryKm(rawValue) {
+                    const digits = String(rawValue ?? '').replace(/\D/g, '');
+                    if (!digits) return null;
+                    return parseInt(digits, 10);
+                }
+
+                async function syncRegisteredKm(vehicleId, alpineData) {
+                    if (!alpineData) return;
+                    if (!vehicleId) {
+                        alpineData.registeredKm = null;
+                        return;
+                    }
+                    const customerId = document.querySelector('[name="customer"]')?.value;
+                    try {
+                        let url = `/budget/get-vehicles/?selected_vehicle=${encodeURIComponent(vehicleId)}`;
+                        if (customerId) {
+                            url += `&customer=${encodeURIComponent(customerId)}`;
+                        }
+                        const vehicles = await (await fetch(url)).json();
+                        const found = vehicles.find((item) => String(item.id) === String(vehicleId));
+                        alpineData.registeredKm = found && found.km != null ? Number(found.km) : null;
+                    } catch (error) {
+                        console.error("Erro ao carregar KM cadastrado:", error);
+                    }
+                }
+
+                function bindBudgetKmSubmitGuard() {
+                    const form = document.getElementById('budget-form');
+                    if (!form || form.dataset.kmCadastroGuardBound === '1') {
+                        return;
+                    }
+                    form.dataset.kmCadastroGuardBound = '1';
+                    form.addEventListener('submit', function (event) {
+                        const guard = document.querySelector('[data-budget-km-guard]');
+                        if (!guard || typeof Alpine === 'undefined') {
+                            return;
+                        }
+                        const alpineData = Alpine.$data(guard);
+                        if (alpineData && alpineData.maybeOpenKmCadastroModal && alpineData.maybeOpenKmCadastroModal()) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                        }
+                    }, true);
+                }
+
+                bindBudgetKmSubmitGuard();
 
                 async function checkOpenBudget(vehicleId) {
                     const container = document.getElementById('auto-link-container');
@@ -274,6 +351,10 @@ class BudgetStep1Form(BudgetStepBaseForm):
                         const vehicle = evt && evt.detail ? evt.detail : null;
                         if (!vehicle || !vehicle.id) return;
                         const customerId = vehicle.customer_id || document.querySelector('[name="customer"]')?.value;
+                        const guard = document.querySelector('[data-budget-km-guard]');
+                        if (guard && typeof Alpine !== 'undefined') {
+                            Alpine.$data(guard).registeredKm = vehicle.km == null || vehicle.km === '' ? null : Number(vehicle.km);
+                        }
                         updateVehicleList(customerId, String(vehicle.id));
                     });
                 }
@@ -355,7 +436,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
                         ),
                         css_class="mb-6 gap-4",
                     ),
-                    # Cliente
+                    # Cliente + KM de entrada (mesmo estado Alpine para o cadastro do veículo)
                     Div(
                         HTML('<h3 class="text-2xl font-bold mb-2">Cliente</h3>'),
                         Div(
@@ -384,34 +465,51 @@ class BudgetStep1Form(BudgetStepBaseForm):
                                 css_class="flex items-end gap-2 w-full",
                                 **{":class": "{ 'pointer-events-none': !customerId }"},
                             ),
-                            x_data=customer_vehicle_x_data,
-                            **{
-                            "@change": """
-                                    if (isLocked) {
-                                        return;
-                                    }
-                                    if ($event.target.name === 'customer') { 
-                                        customerId = $event.target.value; 
-                                        vehicleId = ''; // Reseta veículo se mudar cliente
-                                        updateVehicleList($event.target.value);
-                                    } else if ($event.target.name === 'vehicle') { 
-                                        vehicleId = $event.target.value; 
-                                        checkOpenBudget($event.target.value);
-                                    }
-                                """
-                            },
                             css_class="grid grid-cols-1 gap-2",
                         ),
-                        css_class="mb-6",
-                    ),
-                    Div(
-                        HTML('<h3 class="text-2xl font-bold mb-2">Veículo</h3>'),
+                        HTML('<h3 class="text-2xl font-bold mb-2 mt-6">Veículo</h3>'),
                         Div(
-                            Field("current_km", wrapper_class="col-span-12 lg:col-span-6"),
+                            Div(
+                                Field("current_km", wrapper_class="mb-0"),
+                                HTML("""
+                                    <dialog x-ref="kmCadastroModal" class="modal">
+                                        <div class="modal-box max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+                                            <h3 class="text-xl font-bold">KM cadastrado do cliente</h3>
+                                            <p class="mt-3 text-sm leading-relaxed text-base-content/80" x-text="kmMismatchMessage"></p>
+                                            <div class="modal-action flex-wrap gap-2">
+                                                <button type="button" class="btn btn-ghost" @click="$refs.kmCadastroModal.close()">Fechar</button>
+                                                <button type="button" class="btn btn-primary" :disabled="!vehicleId" @click="openVehicleKmCadastro()">Alterar KM no cadastro</button>
+                                            </div>
+                                        </div>
+                                        <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+                                    </dialog>
+                                """),
+                                css_class="col-span-12 lg:col-span-6",
+                                **{"@focusout": "maybeOpenKmCadastroModal()"},
+                            ),
                             Field("fuel_level", wrapper_class="col-span-12 lg:col-span-6"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
                         Div(id="auto-link-container"),
+                        **{
+                            "data-budget-km-guard": "1",
+                            "x-data": customer_vehicle_x_data,
+                            "@change": """
+                                if (isLocked) {
+                                    return;
+                                }
+                                if ($event.target.name === 'customer') {
+                                    customerId = $event.target.value;
+                                    vehicleId = '';
+                                    registeredKm = null;
+                                    updateVehicleList($event.target.value);
+                                } else if ($event.target.name === 'vehicle') {
+                                    vehicleId = $event.target.value;
+                                    checkOpenBudget($event.target.value);
+                                    syncRegisteredKm($event.target.value, $data);
+                                }
+                            """,
+                        },
                         css_class="mb-6 gap-4",
                     ),
                     css_class="col-span-12 lg:col-span-5",
@@ -440,9 +538,9 @@ class BudgetStep1Form(BudgetStepBaseForm):
         current_km = cleaned_data.get("current_km")
         vehicle = cleaned_data.get("vehicle")
 
-        if vehicle and current_km is not None and vehicle.km is not None and current_km < vehicle.km:
-            formatted_previous_km = f"{vehicle.km:,}".replace(",", ".")
-            self.add_error("current_km", f"O KM informado não pode ser menor que o KM cadastrado do cliente. Caso necessário, altere o KM no cadastro do cliente. ({formatted_previous_km}).")
+        registered_km = vehicle.km if vehicle is not None else None
+        if budget_entry_km_mismatches_cadastro(current_km=current_km, registered_km=registered_km):
+            self.add_error("current_km", BUDGET_KM_CADASTRO_MISMATCH_MESSAGE)
 
         cleaned_data["workshop"] = self.workshop
         if self.request and self.request.user:
