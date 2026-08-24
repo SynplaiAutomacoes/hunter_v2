@@ -554,10 +554,14 @@ def build_financial_indicator_report_data(*, indicator: str, month: int, year: i
 
 
 def _build_budget_report(*, indicator: str, report_title: str, periodo_label: str, items_label: str, items: list[Any]) -> FinancialIndicatorReportData:
-    total_value = sum(
-        (resolve_indicator_row_amount(item=item, indicator=indicator, is_budget_report=True) for item in items),
-        Decimal("0.00"),
-    )
+    # Preserve the exact amount used by the dashboard cards on each row.  The
+    # template must not recalculate/display ``display_total_budget_value``, as
+    # that may differ from the denormalized total used in the aggregate.
+    total_value = Decimal("0.00")
+    for item in items:
+        row_amount = resolve_indicator_row_amount(item=item, indicator=indicator, is_budget_report=True)
+        setattr(item, "dashboard_report_amount", row_amount)
+        total_value += row_amount
     value_column_label = "Valor exibido" if indicator == "reprovados" else "Valor total"
     return FinancialIndicatorReportData(
         indicator=indicator,
