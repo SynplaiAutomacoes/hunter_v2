@@ -9,6 +9,7 @@ from typing import Any
 from lxml.etree import QName, fromstring
 
 from apps.finance.models.payment_method import PaymentMethod
+from apps.stock.services.purchase_fiscal import PurchaseNfeValidationError, parse_and_validate_purchase_nfe
 from apps.suppliers.models import Supplier
 
 
@@ -91,6 +92,7 @@ class NFParser:
             if callable(reader):
                 xml_content = reader()
 
+            fiscal_snapshot = parse_and_validate_purchase_nfe(workshop=workshop, xml_content=xml_content)
             tree = fromstring(xml_content)
 
             # Tenta encontrar docZip (padrão distribuição SEFAZ) ou nfeProc (arquivo XML comum)
@@ -132,15 +134,19 @@ class NFParser:
 
             # --- Itens ---
             produtos = []
-            detalhes = nfe_tree.xpath("//ns:det", namespaces=SEFAZ_NFE_NAMESPACE)
-            for det in detalhes:
+            for product in fiscal_snapshot.get("products", []):
                 produtos.append(
                     {
-                        "ref": det.xpath("ns:prod/ns:cProd", namespaces=SEFAZ_NFE_NAMESPACE)[0].text,
-                        "desc": det.xpath("ns:prod/ns:xProd", namespaces=SEFAZ_NFE_NAMESPACE)[0].text,
-                        "qtd": str(det.xpath("ns:prod/ns:qCom", namespaces=SEFAZ_NFE_NAMESPACE)[0].text),
-                        "valor": str(det.xpath("ns:prod/ns:vUnCom", namespaces=SEFAZ_NFE_NAMESPACE)[0].text),
-                        "ncm": det.xpath("ns:prod/ns:NCM", namespaces=SEFAZ_NFE_NAMESPACE)[0].text,
+                        "nitem": product.get("sequence"),
+                        "ref": product.get("product_code"),
+                        "desc": product.get("description"),
+                        "qtd": str(product.get("quantity") or "0"),
+                        "unidade": product.get("unit"),
+                        "valor": str(product.get("unit_value") or "0"),
+                        "valor_total": str(product.get("total_value") or "0"),
+                        "ncm": product.get("ncm"),
+                        "cfop": product.get("cfop"),
+                        "tributos": product.get("taxes", {}),
                     }
                 )
 
@@ -177,7 +183,10 @@ class NFParser:
                         "payment_date": data_vencimento,
                     }
                 )
-            return {"nf_key": chave_acesso, "nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao}
+            return {"nf_key": chave_acesso, "nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao, "fiscal_snapshot": fiscal_snapshot}
+        except PurchaseNfeValidationError:
+            logger.exception("NF-e de compra rejeitada na validação fiscal")
+            return None
         except Exception:
             logger.exception("Erro no parsing do XML")
             return None

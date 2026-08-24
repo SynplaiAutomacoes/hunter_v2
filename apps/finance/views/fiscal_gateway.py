@@ -40,8 +40,8 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         ),
         FiscalOperationCard(
             value=FiscalOperation.RETURN,
-            label="NF-e Devolução",
-            description="Abre a Central de Notas para selecionar a NF-e e usar o fluxo existente de devolução ou estorno.",
+            label="Nota de Devolução",
+            description="Seleciona uma NF-e de entrada vinculada ao estoque e emite a devolução sem depender de Ordem de Serviço.",
             icon="assignment_return",
         ),
         FiscalOperationCard(
@@ -64,7 +64,6 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         ),
     )
     EXISTING_OPERATION_MESSAGES: ClassVar[dict[str, str]] = {
-        FiscalOperation.RETURN: "Selecione uma NF-e e abra seus detalhes para usar o atalho Devolução/Estorno.",
         FiscalOperation.CORRECTION: "Selecione uma NF-e e abra seus detalhes para usar o atalho Carta de Correção.",
         FiscalOperation.COMPLEMENTARY: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota Complementar.",
         FiscalOperation.ADJUSTMENT: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota de Ajuste.",
@@ -99,6 +98,8 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         if operation == FiscalOperation.NORMAL:
             query = urlencode({"reset": 1})
             return HttpResponseRedirect(f"{self._normal_wizard_url()}?{query}")
+        if operation == FiscalOperation.RETURN:
+            return HttpResponseRedirect(reverse("finance:purchase_return_create"))
 
         messages.info(self.request, self.EXISTING_OPERATION_MESSAGES[operation])
         query = urlencode({"tipo": "nfe", "operacao": operation})
