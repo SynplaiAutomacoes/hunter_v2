@@ -1,8 +1,8 @@
 {% load crispy_forms_tags %}
 
-<div class="card-body">
+<div class="space-y-4">
     {% if workorder.signature_decline_pending and not workorder.is_status_locked %}
-    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
+    <div class="alert alert-warning shadow-sm bg-opacity-20 border-warning">
         <div class="flex flex-col gap-1 text-warning">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Documento Recusado</span>
             <span class="text-lg text-gray-900">O documento foi recusado na plataforma de assinatura. Exclua os planos de pagamento antes de reprovar a O.S. manualmente.</span>
@@ -10,14 +10,14 @@
     </div>
     {% endif %}
     {% if workorder.status == 'cancelled' and workorder.cancellation_reason %}
-    <div class="alert alert-error shadow-sm mb-6 bg-opacity-20 border-error">
+    <div class="alert alert-error shadow-sm bg-opacity-20 border-error">
         <div class="flex flex-col gap-1 text-error">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo do Cancelamento</span>
             <span class="text-lg text-gray-900">{{ workorder.cancellation_reason }}</span>
         </div>
     </div>
     {% elif workorder.status == 'rejected' and workorder.rejection_reason %}
-    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
+    <div class="alert alert-warning shadow-sm bg-opacity-20 border-warning">
         <div class="flex flex-col gap-1 text-warning">
             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo da Reprovação</span>
             <span class="text-lg text-gray-900 ">{{ workorder.rejection_reason }}</span>
@@ -25,10 +25,16 @@
     </div>
     {% endif %}
 
-    <h3 class="font-bold text-2xl pb-2 mb-4">Entrega do Veículo e Encerramento da O.S.</h3>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Status</h4>
+        <div class="flex items-center justify-between">
+            <span class="font-bold text-sm uppercase tracking-wider">Status da O.S.</span>
+            <span class="badge {{ workorder.workorder_status_badge.class }} font-bold p-3">{{ workorder.workorder_status_badge.text }}</span>
+        </div>
+    </div>
 
-    <div class="mt-2 pb-4">
-        <h4 class="font-bold text-xl mb-3">KM de entrega e plano de revisão</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Dados de entrega</h4>
         <form
             id="approval-km-form"
             method="post"
@@ -46,8 +52,8 @@
         </form>
     </div>
 
-    <div class="mt-6">
-        <h4 class="font-bold text-xl mb-2">Anexos</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Anexos</h4>
 
         <form
             id="workorder-attachment-form"
@@ -91,60 +97,58 @@
         </div>
     </div>
 
-    <div class="mt-6 pt-4 border-t border-base-300">
-        <h4 class="font-bold text-xl mb-2 border-b">PDF</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">PDF</h4>
 
         <div class="flex flex-wrap gap-3">
-            <div class="flex flex-wrap gap-3">
-                <button type="button" class="btn btn-primary" data-allow-locked="1"
-                    onclick="(function() {
-                        const gate = window.workorderSignatureGate || {};
-                        const el = document.getElementById('id_km_final');
-                        const hasKm = Boolean(el && el.value.trim());
-                        const kmValid = hasKm && el.checkValidity();
-                        const canToggleSignedPdf = {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %};
-                        const isSignatureResend = {% if workorder.signature_request_status == 'sent' and workorder.signature_external_id %}true{% else %}false{% endif %};
-                        const signatureButtonLabel = isSignatureResend ? 'Reenviar Documento' : 'Enviar para Assinatura';
-                        const pdfViewUrl = '{% url 'workorder:visualizar_pdf' workorder.pk %}';
-                        const signedPdfUrl = pdfViewUrl + '?variant=signed';
-                        const basePdfUrl = pdfViewUrl + '?variant=base';
-                        const signedDownloadUrl = pdfViewUrl + '?download=1&variant=signed';
-                        const baseDownloadUrl = pdfViewUrl + '?download=1&variant=base';
-                        const initialPdfVariant = canToggleSignedPdf ? 'signed' : 'base';
-                        const initialPdfUrl = canToggleSignedPdf ? signedPdfUrl : basePdfUrl;
-                        const initialDownloadUrl = canToggleSignedPdf ? signedDownloadUrl : baseDownloadUrl;
-                        window.dispatchEvent(new CustomEvent('open-pdf-modal', {
-                            detail: {
-                                url: initialPdfUrl,
-                                downloadUrl: initialDownloadUrl,
-                                showSignatureBtn: true,
-                                signatureButtonLabel: signatureButtonLabel,
-                                isSignatureResend: isSignatureResend,
-                                isStatusLocked: {% if workorder.is_status_locked %}true{% else %}false{% endif %},
-                                signatureBlocked: Boolean(gate.hasSignatureBlockers),
-                                signatureBlockedReason: gate.signatureBlockersDisplay || '',
-                                kmBlocked: !kmValid,
-                                kmBlockedReason: !hasKm
-                                    ? 'É necessário inserir o Km Final para desbloquear o botão'
-                                    : (!kmValid ? (el.validationMessage || 'KM final inválido') : ''),
-                                showPdfVariantToggle: canToggleSignedPdf,
-                                pdfVariant: initialPdfVariant,
-                                signedPdfUrl: signedPdfUrl,
-                                basePdfUrl: basePdfUrl,
-                                signedDownloadUrl: signedDownloadUrl,
-                                baseDownloadUrl: baseDownloadUrl
-                            }
-                        }));
-                    })()">
-                    <span class="material-icons mr-2">visibility</span>
-                    Visualizar PDF
-                </button>
-            </div>
+            <button type="button" class="btn btn-primary" data-allow-locked="1"
+                onclick="(function() {
+                    const gate = window.workorderSignatureGate || {};
+                    const el = document.getElementById('id_km_final');
+                    const hasKm = Boolean(el && el.value.trim());
+                    const kmValid = hasKm && el.checkValidity();
+                    const canToggleSignedPdf = {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %};
+                    const isSignatureResend = {% if workorder.signature_request_status == 'sent' and workorder.signature_external_id %}true{% else %}false{% endif %};
+                    const signatureButtonLabel = isSignatureResend ? 'Reenviar Documento' : 'Enviar para Assinatura';
+                    const pdfViewUrl = '{% url 'workorder:visualizar_pdf' workorder.pk %}';
+                    const signedPdfUrl = pdfViewUrl + '?variant=signed';
+                    const basePdfUrl = pdfViewUrl + '?variant=base';
+                    const signedDownloadUrl = pdfViewUrl + '?download=1&variant=signed';
+                    const baseDownloadUrl = pdfViewUrl + '?download=1&variant=base';
+                    const initialPdfVariant = canToggleSignedPdf ? 'signed' : 'base';
+                    const initialPdfUrl = canToggleSignedPdf ? signedPdfUrl : basePdfUrl;
+                    const initialDownloadUrl = canToggleSignedPdf ? signedDownloadUrl : baseDownloadUrl;
+                    window.dispatchEvent(new CustomEvent('open-pdf-modal', {
+                        detail: {
+                            url: initialPdfUrl,
+                            downloadUrl: initialDownloadUrl,
+                            showSignatureBtn: true,
+                            signatureButtonLabel: signatureButtonLabel,
+                            isSignatureResend: isSignatureResend,
+                            isStatusLocked: {% if workorder.is_status_locked %}true{% else %}false{% endif %},
+                            signatureBlocked: Boolean(gate.hasSignatureBlockers),
+                            signatureBlockedReason: gate.signatureBlockersDisplay || '',
+                            kmBlocked: !kmValid,
+                            kmBlockedReason: !hasKm
+                                ? 'É necessário inserir o Km Final para desbloquear o botão'
+                                : (!kmValid ? (el.validationMessage || 'KM final inválido') : ''),
+                            showPdfVariantToggle: canToggleSignedPdf,
+                            pdfVariant: initialPdfVariant,
+                            signedPdfUrl: signedPdfUrl,
+                            basePdfUrl: basePdfUrl,
+                            signedDownloadUrl: signedDownloadUrl,
+                            baseDownloadUrl: baseDownloadUrl
+                        }
+                    }));
+                })()">
+                <span class="material-icons mr-2">visibility</span>
+                Visualizar PDF
+            </button>
         </div>
     </div>
 
-    <div class="mt-6 pt-4 border-t border-base-300">
-        <h4 class="font-bold text-xl mb-2 border-b">Observações</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Observações</h4>
         <form id="workorder-observation-form" data-autosave-url="{% url 'workorder:update_observation' workorder.pk %}">
             {% csrf_token %}
             <textarea
@@ -157,65 +161,70 @@
         </form>
     </div>
 
-    <div class="mt-6 pt-4 border-t border-base-300">
-        <h4 class="font-bold text-xl mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <h4 class="font-bold text-lg mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
 
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-row flex-wrap items-stretch gap-3">
             <span
-                class="inline-flex {% if workorder.is_status_locked or has_payments %}tooltip tooltip-top{% endif %}"
-                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de cancelar a O.S." title="Exclua os planos de pagamento antes de cancelar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de cancelar a O.S." tabindex="0"{% endif %}
-                {% if workorder.is_status_locked or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
+                class="inline-flex flex-1 min-w-[8rem] {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
+                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." data-blocked-toast="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de cancelar a O.S." title="Exclua os planos de pagamento antes de cancelar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de cancelar a O.S." tabindex="0"{% endif %}
+                {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
             >
                 <button
                     type="button"
-                    class="btn btn-error {% if workorder.is_status_locked or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
-                    {% if workorder.is_status_locked or has_payments %}disabled{% endif %}
-                    {% if not workorder.is_status_locked and not has_payments %}onclick="cancelWorkOrderModal.showModal()"{% endif %}
+                    class="btn w-full rounded-md {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
+                    {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}disabled{% endif %}
+                    {% if can_finalize_delivery and not has_payments %}onclick="cancelWorkOrderModal.showModal()"{% endif %}
                 >Cancelar</button>
             </span>
 
             <span
                 id="workorder-delivery-button-tooltip"
-                class="inline-flex {% if workorder.is_status_locked or workorder.has_completion_blockers or workorder.km_final is None %}tooltip tooltip-top{% endif %}"
-                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif workorder.km_final is None %}data-tip="É necessário inserir o Km Final para desbloquear o botão" title="É necessário inserir o Km Final para desbloquear o botão" tabindex="0"{% elif workorder.has_completion_blockers %}data-tip="{{ workorder.completion_blockers_display }}" title="{{ workorder.completion_blockers_display }}" tabindex="0"{% endif %}
+                class="inline-flex flex-1 min-w-[8rem] {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}tooltip tooltip-top{% endif %}"
+                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif workorder.km_final is None %}data-tip="É necessário inserir o Km Final para desbloquear o botão" title="É necessário inserir o Km Final para desbloquear o botão" tabindex="0"{% elif workorder.has_completion_blockers %}data-tip="{{ workorder.completion_blockers_display }}" title="{{ workorder.completion_blockers_display }}" tabindex="0"{% endif %}
             >
                 <button
                     type="button"
                     id="workorder-delivery-button"
-                    class="btn btn-success {% if workorder.is_status_locked or workorder.has_completion_blockers or workorder.km_final is None %}btn-disabled cursor-not-allowed{% endif %}"
+                    class="btn w-full rounded-md {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}btn-disabled cursor-not-allowed{% endif %}"
                     data-status-locked="{% if workorder.is_status_locked %}true{% else %}false{% endif %}"
+                    data-can-finalize-delivery="{% if can_finalize_delivery %}true{% else %}false{% endif %}"
                     data-has-completion-blockers="{% if workorder.has_completion_blockers %}true{% else %}false{% endif %}"
                     data-completion-blockers-display="{{ workorder.completion_blockers_display }}"
-                    {% if workorder.is_status_locked or workorder.has_completion_blockers or workorder.km_final is None %}disabled{% endif %}
-                    {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif workorder.km_final is None %}title="É necessário inserir o Km Final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
+                    {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}disabled{% endif %}
+                    {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif not can_finalize_delivery %}title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo."{% elif workorder.km_final is None %}title="É necessário inserir o Km Final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
                 >
                     Entregar veículo
                 </button>
             </span>
 
             <span
-                class="inline-flex {% if workorder.is_status_locked or has_payments %}tooltip tooltip-top{% endif %}"
-                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de reprovar a O.S." title="Exclua os planos de pagamento antes de reprovar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de reprovar a O.S." tabindex="0"{% endif %}
-                {% if workorder.is_status_locked or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
+                class="inline-flex flex-1 min-w-[8rem] {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}tooltip tooltip-top{% endif %}"
+                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." data-blocked-toast="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." data-blocked-toast="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif has_payments %}data-tip="Exclua os planos de pagamento antes de reprovar a O.S." title="Exclua os planos de pagamento antes de reprovar a O.S." data-blocked-toast="Exclua os planos de pagamento antes de reprovar a O.S." tabindex="0"{% endif %}
+                {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}onclick="showBlockedWorkorderStatusToast(this.dataset.blockedToast)"{% endif %}
             >
                 <button
                     type="button"
-                    class="btn btn-warning {% if workorder.is_status_locked or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
-                    {% if workorder.is_status_locked or has_payments %}disabled{% endif %}
-                    {% if not workorder.is_status_locked and not has_payments %}onclick="rejectWorkOrderModal.showModal()"{% endif %}
+                    class="btn w-full rounded-md {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}btn-disabled cursor-not-allowed{% endif %}"
+                    {% if workorder.is_status_locked or not can_finalize_delivery or has_payments %}disabled{% endif %}
+                    {% if can_finalize_delivery and not has_payments %}onclick="rejectWorkOrderModal.showModal()"{% endif %}
                 >Reprovar</button>
             </span>
 
             {% if workorder.can_reopen %}
-            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
+            <span class="inline-flex flex-1 min-w-[8rem]">
+                <button type="button" class="btn btn-outline w-full rounded-md" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
+            </span>
             {% endif %}
 
             {% if emission_ui %}
+            <span class="inline-flex flex-1 min-w-[8rem]">
                 {% if emission_ui.opens_modal %}
-                <button type="button" class="btn btn-primary" data-allow-locked="1" onclick="workorderEmissionModal.showModal()">{{ emission_ui.button_label }}</button>
+                <button type="button" class="btn btn-primary w-full rounded-md" data-allow-locked="1" onclick="workorderEmissionModal.showModal()">{{ emission_ui.button_label }}</button>
                 {% else %}
-                <a href="{{ emission_ui.direct_url }}" class="btn btn-primary" data-allow-locked="1">{{ emission_ui.button_label }}</a>
+                <a href="{{ emission_ui.direct_url }}" class="btn btn-primary w-full rounded-md" data-allow-locked="1">{{ emission_ui.button_label }}</a>
                 {% endif %}
+            </span>
             {% endif %}
         </div>
 
@@ -413,16 +422,20 @@
             });
         };
 
-        if (form && kmInput && statusEl && kmInput.dataset.kmAutosaveInitialized !== 'true') {
-            kmInput.dataset.kmAutosaveInitialized = 'true';
+        if (form && kmInput && statusEl && form.dataset.deliveryAutosaveInitialized !== 'true') {
+            form.dataset.deliveryAutosaveInitialized = 'true';
 
         const autosaveUrl = form.dataset.kmAutosaveUrl;
         const signatureApproved = form.dataset.signatureApproved === 'true';
         const hasUnsignedReasonError = form.dataset.hasUnsignedReasonError === 'true';
         const csrfToken = form.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
-        let saveTimeout = null;
         let requestController = null;
-        let lastSavedValue = kmInput.value;
+        const formSnapshot = () => {
+            const data = new FormData(form);
+            data.delete('csrfmiddlewaretoken');
+            return new URLSearchParams(data).toString();
+        };
+        let lastSavedSnapshot = formSnapshot();
         const kmFinalUnlockTooltip = 'É necessário inserir o Km Final para desbloquear o botão';
 
         const setDeliveryButtonTooltip = (button, message) => {
@@ -496,6 +509,13 @@
                 return;
             }
 
+            if (currentDeliveryButton.dataset.canFinalizeDelivery !== 'true') {
+                currentDeliveryButton.disabled = true;
+                currentDeliveryButton.classList.add('btn-disabled', 'cursor-not-allowed');
+                setDeliveryButtonTooltip(currentDeliveryButton, 'Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo.');
+                return;
+            }
+
             if (Object.prototype.hasOwnProperty.call(options, 'hasCompletionBlockers')) {
                 currentDeliveryButton.dataset.hasCompletionBlockers = options.hasCompletionBlockers ? 'true' : 'false';
             }
@@ -547,12 +567,22 @@
             }
         };
 
-        const persistKmFinal = async () => {
-            const currentValue = kmInput.value.trim();
+        const isAutosaveField = (el) => {
+            if (!el || !form.contains(el)) {
+                return false;
+            }
+            if (el.name === 'csrfmiddlewaretoken' || el.readOnly || el.disabled) {
+                return false;
+            }
+            const tag = el.tagName;
+            return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+        };
 
-            if (!currentValue || currentValue === lastSavedValue) {
-                if (!currentValue) {
-                    setStatus('');
+        const persistDeliveryDraft = async () => {
+            const currentSnapshot = formSnapshot();
+            if (currentSnapshot === lastSavedSnapshot) {
+                setStatus('');
+                if (kmInput) {
                     kmInput.setCustomValidity('');
                     window.updateWorkorderDeliveryButtonState();
                 }
@@ -565,12 +595,15 @@
 
             requestController = new AbortController();
             setStatus('');
-            kmInput.setCustomValidity('');
-            window.updateWorkorderDeliveryButtonState();
+            if (kmInput) {
+                kmInput.setCustomValidity('');
+                window.updateWorkorderDeliveryButtonState();
+            }
 
-            const formData = new FormData();
-            formData.append('csrfmiddlewaretoken', csrfToken);
-            formData.append('km_final', currentValue);
+            const formData = new FormData(form);
+            if (csrfToken && !formData.get('csrfmiddlewaretoken')) {
+                formData.append('csrfmiddlewaretoken', csrfToken);
+            }
 
             try {
                 const response = await fetch(autosaveUrl, {
@@ -582,15 +615,20 @@
                 const payload = await response.json();
 
                 if (!response.ok || !payload.ok) {
-                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Nao foi possivel salvar o KM final.';
-                    kmInput.setCustomValidity(errorMessage);
+                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Não foi possível salvar os dados de entrega.';
+                    const kmError = payload.field_errors && payload.field_errors.km_final && payload.field_errors.km_final[0];
+                    if (kmInput && kmError) {
+                        kmInput.setCustomValidity(kmError);
+                    }
                     window.updateWorkorderDeliveryButtonState();
                     setStatus(errorMessage, 'error');
                     return;
                 }
 
-                lastSavedValue = currentValue;
-                kmInput.setCustomValidity('');
+                lastSavedSnapshot = currentSnapshot;
+                if (kmInput) {
+                    kmInput.setCustomValidity('');
+                }
                 window.updateWorkorderDeliveryButtonState({
                     hasCompletionBlockers: Boolean(payload.has_completion_blockers),
                     completionBlockersDisplay: payload.completion_blockers_display || '',
@@ -600,10 +638,12 @@
                     signatureBlockersDisplay: payload.signature_blockers_display || '',
                 });
                 setStatus('');
+                const hasKmFinal = Boolean(kmInput && kmInput.value.trim());
+                const kmFinalIsValid = Boolean(kmInput && hasKmFinal && kmInput.checkValidity());
                 window.dispatchEvent(new CustomEvent('update-pdf-modal-state', {
                     detail: {
-                        kmBlocked: !lastSavedValue || !kmInput.checkValidity(),
-                        kmBlockedReason: !lastSavedValue
+                        kmBlocked: !kmFinalIsValid,
+                        kmBlockedReason: !hasKmFinal
                             ? 'É necessário inserir o Km Final para desbloquear o botão'
                             : (!kmInput.checkValidity() ? kmInput.validationMessage || 'KM final inválido' : ''),
                         signatureBlocked: Boolean(payload.has_signature_blockers),
@@ -614,22 +654,25 @@
                 if (error.name === 'AbortError') {
                     return;
                 }
-                setStatus('Nao foi possivel salvar o KM final.', 'error');
+                setStatus('Não foi possível salvar os dados de entrega.', 'error');
             }
         };
 
-        const schedulePersist = () => {
-            clearTimeout(saveTimeout);
-            setStatus('');
-            saveTimeout = window.setTimeout(persistKmFinal, 500);
-        };
-
-        kmInput.addEventListener('input', schedulePersist);
-        kmInput.addEventListener('input', () => window.updateWorkorderDeliveryButtonState());
-        kmInput.addEventListener('blur', () => {
-            clearTimeout(saveTimeout);
-            void persistKmFinal();
+        form.addEventListener('focusout', (event) => {
+            if (!isAutosaveField(event.target)) {
+                return;
+            }
+            void persistDeliveryDraft();
         });
+        form.addEventListener('change', (event) => {
+            if (!isAutosaveField(event.target)) {
+                return;
+            }
+            void persistDeliveryDraft();
+        });
+        if (kmInput) {
+            kmInput.addEventListener('input', () => window.updateWorkorderDeliveryButtonState());
+        }
 
         window.updateWorkorderDeliveryButtonState();
 

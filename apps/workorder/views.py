@@ -80,6 +80,8 @@ from apps.workorder.util import (
     _get_workorder_workshop_cost,
     _build_customer_approvement_context,
     _build_workorder_pdf_file_response,
+    apply_workorder_collaborators_continue,
+    build_workorder_collaborators_next_url,
     can_reopen_workorder,
     trigger_workorder_signature_send_if_needed,
     _normalize_active_tab,
@@ -87,6 +89,7 @@ from apps.workorder.util import (
     _get_workorder_from_signature_token,
     _is_workorder_edit_locked,
     LOCKED_WORKORDER_EDIT_MESSAGE,
+    workorder_stepper_context,
     _check_concurrent_edit_lock,
     _build_concurrent_lock_response,
 )
@@ -137,6 +140,8 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         allowed_values=frozenset(
             {
                 WorkOrderStatus.DRAFT,
+                WorkOrderStatus.WAITING_COLLABORATOR,
+                WorkOrderStatus.WAITING_DELIVERY,
                 WorkOrderStatus.APPROVED,
                 WorkOrderStatus.REJECTED,
                 WorkOrderStatus.CANCELLED,
@@ -172,6 +177,8 @@ WORKORDER_BUDGET_TYPE_CHOICES = tuple((budget_type.value, str(budget_type.label)
 WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "budget_type", "data_inicial", "data_final")
 WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
+    WorkOrderStatus.WAITING_COLLABORATOR: "badge-info min-w-sm",
+    WorkOrderStatus.WAITING_DELIVERY: "badge-warning min-w-sm",
     WorkOrderStatus.APPROVED: "badge-success min-w-sm",
     WorkOrderStatus.REJECTED: "badge-error min-w-sm",
     WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
@@ -578,6 +585,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
         context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
+        context.update(workorder_stepper_context(request=self.request, workorder=self.object))
 
         lock_info = get_lock_info(self.object)
         context["concurrent_lock_info"] = lock_info
@@ -623,6 +631,11 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
         if not _check_concurrent_edit_lock(request, workorder):
             return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
+            next_url = build_workorder_collaborators_next_url(workorder_pk=workorder.pk, raw_next=str(request.POST.get("next") or ""))
+            if next_url:
+                response = HttpResponse(status=204)
+                response["HX-Redirect"] = next_url
+                return response
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
@@ -632,10 +645,18 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
 
+        next_url = build_workorder_collaborators_next_url(workorder_pk=workorder.pk, raw_next=str(request.POST.get("next") or ""))
+        if next_url:
+            apply_workorder_collaborators_continue(workorder=workorder, next_url=next_url)
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = next_url
+            return response
+
         context = _build_edit_items_context(workorder)
         context["workorder"] = workorder
         context["collaborator_form"] = form
-        response = render(request, "workorder/partials/resume_section.html", context)
+        context.update(workorder_stepper_context(request=request, workorder=workorder))
+        response = render(request, "workorder/partials/collaborators_section.html", context)
         response["Cache-Control"] = "no-store"
         return response
 

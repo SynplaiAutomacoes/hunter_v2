@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.db import transaction
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -23,7 +26,7 @@ from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -36,6 +39,213 @@ from apps.workshops.util.workshops import has_workshop_perm
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 LOCKED_WORKORDER_EDIT_MESSAGE = "Reabra a O.S. antes de editar qualquer campo."
+WORKORDER_DETAIL_STEP_COUNT = 4
+WORKORDER_PAYMENTS_STEP = 3
+WORKORDER_DELIVERY_STEP = 4
+WORKORDER_PAYMENTS_TAB = "pagamento"
+WORKORDER_HISTORY_TAB = "historico"
+WORKORDER_DETAIL_STEPS: list[dict[str, object]] = [
+    {"number": 1, "title": "Resumo", "key": "resumo"},
+    {"number": 2, "title": "Colaboradores e comissões", "key": "colaboradores"},
+    {"number": 3, "title": "Pagamento", "key": "pagamento", "always_accessible": True, "always_success": True},
+    {"number": 4, "title": "Dados de entrega", "key": "entrega"},
+]
+_WORKORDER_NEXT_LINEAR_STEP = {1: 2, 2: 4}
+_WORKORDER_PREVIOUS_LINEAR_STEP = {2: 1, 4: 2}
+
+
+def build_workorder_collaborators_next_url(*, workorder_pk: int, raw_next: str) -> str | None:
+    raw_next = str(raw_next or "").strip()
+    if not raw_next:
+        return None
+
+    parsed = urlparse(raw_next if "://" in raw_next or raw_next.startswith("/") else f"https://local.invalid/{raw_next}")
+    query = parsed.query
+    if raw_next.startswith("?"):
+        query = raw_next[1:]
+    if not query:
+        return None
+
+    params = parse_qs(query)
+    step_values = params.get("step") or []
+    if not step_values:
+        return None
+    step = _clamp_workorder_step(step_values[0])
+    query_items: list[tuple[str, str]] = [("step", str(step))]
+    tab = str((params.get("tab") or [""])[0])
+    if tab in {WORKORDER_PAYMENTS_TAB, WORKORDER_HISTORY_TAB}:
+        query_items.append(("tab", tab))
+
+    return f"{reverse('workorder:workorder_detail', kwargs={'pk': workorder_pk})}?{urlencode(query_items)}"
+
+
+def apply_workorder_collaborators_continue(*, workorder, next_url: str | None) -> None:
+    if not next_url:
+        return
+    parsed = urlparse(next_url)
+    requested_step = _clamp_workorder_step((parse_qs(parsed.query).get("step") or ["1"])[0])
+    stored_step = _clamp_workorder_step(getattr(workorder, "current_step", 1))
+    if requested_step <= stored_step:
+        return
+    _advance_workorder_step(workorder=workorder, requested_step=requested_step, max_reached_step=stored_step)
+
+
+def _clamp_workorder_step(value: object, *, upper: int = WORKORDER_DETAIL_STEP_COUNT) -> int:
+    try:
+        step = int(value or 1)
+    except (TypeError, ValueError):
+        step = 1
+    return max(1, min(upper, step))
+
+
+def _next_linear_workorder_step(step: int) -> int | None:
+    return _WORKORDER_NEXT_LINEAR_STEP.get(step)
+
+
+def _previous_linear_workorder_step(step: int) -> int | None:
+    return _WORKORDER_PREVIOUS_LINEAR_STEP.get(step)
+
+
+def max_workorder_step_for_status(status: object) -> int:
+    normalized = str(status or WorkOrderStatus.DRAFT)
+    if normalized in {
+        WorkOrderStatus.WAITING_COLLABORATOR,
+        WorkOrderStatus.WAITING_DELIVERY,
+        WorkOrderStatus.APPROVED,
+        WorkOrderStatus.REJECTED,
+        WorkOrderStatus.CANCELLED,
+    }:
+        return WORKORDER_DELIVERY_STEP
+    return 1
+
+
+@dataclass(frozen=True)
+class WorkOrderDetailNavigation:
+    current_step: int
+    max_reached_step: int
+    previous_step: int | None
+    next_step: int | None
+    payments_open: bool
+    history_open: bool
+    can_advance: bool
+    continue_label: str
+
+
+def _workorder_can_advance(*, status: str, current_step: int, max_reached_step: int) -> bool:
+    next_step = _next_linear_workorder_step(current_step)
+    if next_step is None:
+        return False
+    if next_step <= max_reached_step:
+        return True
+    if current_step == 1 and status == WorkOrderStatus.DRAFT:
+        return True
+    if current_step == 2 and status == WorkOrderStatus.WAITING_COLLABORATOR:
+        return True
+    return False
+
+
+def _promote_waiting_delivery_if_collaborators_done(*, workorder) -> None:
+    if str(getattr(workorder, "status", "") or "") != WorkOrderStatus.WAITING_COLLABORATOR:
+        return
+    if _clamp_workorder_step(getattr(workorder, "current_step", 1)) < WORKORDER_DELIVERY_STEP:
+        return
+    workorder.status = WorkOrderStatus.WAITING_DELIVERY
+    if getattr(workorder, "pk", None):
+        workorder.save(update_fields=["status"])
+
+
+def _advance_workorder_step(*, workorder, requested_step: int, max_reached_step: int) -> int:
+    status = str(getattr(workorder, "status", WorkOrderStatus.DRAFT) or WorkOrderStatus.DRAFT)
+    update_fields: list[str] = []
+
+    if status == WorkOrderStatus.DRAFT and max_reached_step == 1 and requested_step == 2:
+        workorder.status = WorkOrderStatus.WAITING_COLLABORATOR
+        workorder.current_step = 2
+        update_fields = ["status", "current_step"]
+    elif status == WorkOrderStatus.WAITING_COLLABORATOR and requested_step == WORKORDER_DELIVERY_STEP:
+        workorder.status = WorkOrderStatus.WAITING_DELIVERY
+        workorder.current_step = WORKORDER_DELIVERY_STEP
+        update_fields = ["status", "current_step"]
+
+    if update_fields and getattr(workorder, "pk", None):
+        workorder.save(update_fields=update_fields)
+
+    if update_fields:
+        return _clamp_workorder_step(workorder.current_step)
+    return max_reached_step
+
+
+def resolve_workorder_detail_navigation(*, request, workorder=None) -> WorkOrderDetailNavigation:
+    status = WorkOrderStatus.DRAFT
+    max_reached_step = WORKORDER_DETAIL_STEP_COUNT
+    if workorder is not None:
+        _promote_waiting_delivery_if_collaborators_done(workorder=workorder)
+        status = str(getattr(workorder, "status", WorkOrderStatus.DRAFT) or WorkOrderStatus.DRAFT)
+        stored_step = _clamp_workorder_step(getattr(workorder, "current_step", 1))
+        max_reached_step = min(stored_step, max_workorder_step_for_status(status))
+
+    raw_step = str(getattr(request, "GET", {}).get("step") or "").strip()
+    if raw_step:
+        requested_step = _clamp_workorder_step(raw_step)
+    elif workorder is not None:
+        requested_step = max_reached_step
+    else:
+        requested_step = 1
+
+    raw_tab = str(getattr(request, "GET", {}).get("tab") or "").strip().lower()
+    history_open = raw_tab == WORKORDER_HISTORY_TAB
+    payments_requested = (raw_tab == WORKORDER_PAYMENTS_TAB or requested_step == WORKORDER_PAYMENTS_STEP) and not history_open
+
+    if workorder is not None and not payments_requested and requested_step == _next_linear_workorder_step(max_reached_step):
+        max_reached_step = _advance_workorder_step(workorder=workorder, requested_step=requested_step, max_reached_step=max_reached_step)
+
+    if payments_requested:
+        current_step = WORKORDER_PAYMENTS_STEP
+        payments_open = True
+    else:
+        current_step = min(requested_step, max_reached_step)
+        if current_step == WORKORDER_PAYMENTS_STEP:
+            current_step = max_reached_step
+        payments_open = False
+
+    resolved_status = status if workorder is None else str(getattr(workorder, "status", status) or status)
+    can_advance = False if payments_open or history_open else _workorder_can_advance(status=resolved_status, current_step=current_step, max_reached_step=max_reached_step)
+    if workorder is None and not payments_open and not history_open:
+        can_advance = _next_linear_workorder_step(current_step) is not None
+    return WorkOrderDetailNavigation(
+        current_step=current_step,
+        max_reached_step=max_reached_step,
+        previous_step=_previous_linear_workorder_step(current_step),
+        next_step=_next_linear_workorder_step(current_step),
+        payments_open=payments_open,
+        history_open=history_open,
+        can_advance=can_advance,
+        continue_label="Iniciar" if current_step == 1 else "Salvar e Continuar",
+    )
+
+
+def workorder_stepper_context(*, request, workorder: WorkOrder) -> dict[str, object]:
+    navigation = resolve_workorder_detail_navigation(request=request, workorder=workorder)
+    return {
+        "steps_config": WORKORDER_DETAIL_STEPS,
+        "current_step": navigation.current_step,
+        "max_reached_step": navigation.max_reached_step,
+        "previous_step": navigation.previous_step,
+        "next_step": navigation.next_step,
+        "min_accessible_step": 1,
+        "payments_open": navigation.payments_open,
+        "history_open": navigation.history_open,
+        "can_advance_step": navigation.can_advance,
+        "continue_button_label": navigation.continue_label,
+        "stepper_show_payments_tab": False,
+        "stepper_show_history_tab": True,
+        "stepper_include_pk": False,
+        "stepper_navigation": "links",
+        "can_finalize_delivery": workorder.status == WorkOrderStatus.WAITING_DELIVERY,
+        "commission_previews": [],
+        "commission_is_sale": workorder.budget_type == "sale",
+        "commission_consolidates": False,
+    }
 
 
 def _get_workorder_for_workshop(workshop, workorder_id: int) -> WorkOrder:
