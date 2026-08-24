@@ -5,6 +5,7 @@ from django.shortcuts import render, get_object_or_404
 from django.views import View
 from decimal import Decimal
 
+from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.models import FinancialMovement, MovementGroup
 from apps.finance.forms.movement_group import GroupMovementStep3Form
 from apps.suppliers.models import Supplier
@@ -126,7 +127,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Fetch objects
         fms = list(FinancialMovement.objects.filter(pk__in=fm_pks, workshop=self.workshop))
-        pms = list(WorkOrderPaymentMethod.objects.filter(pk__in=pm_pks, workorder__workshop=self.workshop))
+        pms = list(WorkOrderPaymentMethod.objects.filter(pk__in=pm_pks, workorder__workshop=self.workshop).select_related("workorder", "workorder__budget"))
 
         # Check if all requested items were found
         if len(fms) != len(fm_pks) or len(pms) != len(pm_pks):
@@ -143,7 +144,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         for pm in pms:
             if pm.movement_group_id is not None:
-                return render(request, "finance/reports/partials/group_error.html", {"error": f"O plano de pagamento da OS #{pm.workorder_id} já faz parte de um agrupamento."})
+                return render(request, "finance/reports/partials/group_error.html", {"error": f"O plano de pagamento da {format_workorder_reference(pm.workorder)} já faz parte de um agrupamento."})
 
         # Validate direction consistency
         directions = set()

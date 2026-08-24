@@ -23,13 +23,11 @@ from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.forms.layouts.step5_items_expand import build_step5_products_list_html, build_step5_services_list_html
-from apps.budget.forms.presenters.step5_context import build_step5_context
 from apps.budget.forms.shared import _get_budget_with_prefetched_items
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
-from apps.workorder.models import WorkOrderStatus
 from apps.core.infrastructure.services.dashboard_query_service import (
     _build_injected_pricing_context,
     _prepare_budget_for_dashboard_pricing,
@@ -49,16 +47,21 @@ from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateR
 from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
-from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus, WORKORDER_OPEN_STATUSES
+from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 from apps.collaborators.models import WorkshopCollaborator
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _budget_update_url, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
-from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle, linkable_budgets_q
+from ..services.budget_linking_service import (
+    LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
+    find_oldest_open_budget_for_vehicle,
+    is_budget_linkable,
+    linkable_budgets_q,
+)
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -246,6 +249,12 @@ def _parse_positive_int(raw_value: str | None) -> int | None:
     if parsed_value <= 0:
         return None
     return parsed_value
+
+
+def _parse_budget_pk(raw_value: str | None) -> int | None:
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    return _parse_positive_int(clean_id(raw_value))
 
 
 class BudgetStatusReportDataMixin:
@@ -640,7 +649,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = clean_id(self.kwargs.get("pk") or self.request.GET.get("pk"))
+        pk = _parse_budget_pk(self.kwargs.get("pk") or self.request.GET.get("pk"))
         if pk:
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return None
@@ -669,8 +678,6 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
         form_kwargs = self.get_form_kwargs()
-        form_kwargs.pop("data", None)
-        form_kwargs.pop("files", None)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object
@@ -747,8 +754,6 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
-        if form.instance.pk is None:
-            form.instance.created_by = self.request.user
 
         is_creating = form.instance.pk is None
 
@@ -858,7 +863,7 @@ class BudgetUpdateView(BudgetCreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = clean_id(self.kwargs.get("pk"))
+        pk = self.kwargs.get("pk")
         if pk:
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return super().get_object()
@@ -981,46 +986,6 @@ class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespon
     htmx_trigger = "budget-table-refresh"
 
 
-def _build_step5_pricing_update_html(budget: Budget) -> str:
-    """Build the out-of-band updates for the Step 5 pricing summary."""
-    context = build_step5_context(budget)
-    gross_parts_value = budget.display_total_products_by_slider
-    gross_labor_value = budget.display_total_services_by_slider - budget.display_total_third_party_by_slider
-    discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
-    has_discount = context.discount_amount > 0
-
-    parts_discount_hidden_class = "" if has_discount and discount_type == WorkOrderDiscountType.PRODUCTS else "hidden"
-    labor_discount_hidden_class = "" if has_discount and discount_type == WorkOrderDiscountType.SERVICES else "hidden"
-    general_discount_hidden_class = "" if has_discount and discount_type == WorkOrderDiscountType.BOTH else "hidden"
-
-    return f"""
-        <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap"
-              data-base-val="{context.venda_pecas.amount}" data-gross-val="{gross_parts_value.amount}"
-              data-cost-val="{context.custo_pecas.amount}" data-frete-val="{context.custo_frete_pecas.amount}">{context.venda_pecas}</span>
-        <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap">{context.venda_servico_terceiros}</span>
-        <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap"
-              data-base-val="{context.venda_mao_obra.amount}" data-gross-val="{gross_labor_value.amount}"
-              data-cost-val="{context.custo_total_mao_obra.amount}">{context.venda_mao_obra}</span>
-        <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">{budget.display_total_base_value}</span>
-        <span id="step5-discount-display" hx-swap-oob="true">{context.discount_display}</span>
-        <span id="valor-final-display" hx-swap-oob="true">{budget.display_total_budget_value}</span>
-        <span id="step5-budget-total-display" hx-swap-oob="true">{context.valor_orcamento}</span>
-        <span id="step5-lucro-operacional" hx-swap-oob="true" class="font-bold step5-accent-text whitespace-nowrap">{context.lucro_operacional}</span>
-        <span id="step5-rentabilidade" hx-swap-oob="true" class="font-bold {context.rentabilidade_class} {context.rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">{context.rentabilidade:.2f}% ({context.status_texto})</span>
-        <span id="step5-mlo" hx-swap-oob="true" class="font-semibold whitespace-nowrap">{context.mlo:.2f}</span>
-        <span id="step5-mlr" hx-swap-oob="true" class="font-semibold whitespace-nowrap">{context.mlr:.2f}</span>
-        <div id="step5-parts-discount-row" hx-swap-oob="true" class="flex justify-between gap-2 text-error {parts_discount_hidden_class}">
-            <span>Desconto</span><span class="font-semibold whitespace-nowrap">{context.discount_display}</span>
-        </div>
-        <div id="step5-labor-discount-row" hx-swap-oob="true" class="flex justify-between gap-2 text-error {labor_discount_hidden_class}">
-            <span>Desconto</span><span class="font-semibold whitespace-nowrap">{context.discount_display}</span>
-        </div>
-        <div id="step5-general-discount-row" hx-swap-oob="true" class="flex justify-between gap-2 text-error {general_discount_hidden_class}">
-            <span>Desconto geral</span><span class="font-semibold whitespace-nowrap">{context.discount_display}</span>
-        </div>
-    """
-
-
 class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
@@ -1056,7 +1021,7 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 },
             )
 
-        return HttpResponse(_build_step5_pricing_update_html(budget))
+        return HttpResponse(status=204)
 
 
 def _serialize_budget_state(budget):
@@ -1446,10 +1411,34 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.slider = int(slider_value)
             budget.save(update_fields=["slider"])
 
+        display_products_value = budget.display_total_products_by_slider
+        display_third_party_value = budget.display_total_third_party_by_slider
+        display_labor_value = budget.display_total_services_by_slider - display_third_party_value
         budget_for_lists = _get_budget_with_prefetched_items(budget)
         products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
         services_list_html = build_step5_services_list_html(budget=budget_for_lists, oob=True)
-        html = _build_step5_pricing_update_html(budget) + products_list_html + services_list_html
+        html = f"""
+                <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                    {display_products_value}
+                </span>
+                <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap">
+                    {display_third_party_value}
+                </span>
+                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                    {display_labor_value}
+                </span>
+                <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
+                    {budget.display_total_base_value}
+                </span>
+                <span id="step5-discount-display" hx-swap-oob="true">
+                    {budget.display_resolved_discount_value}
+                </span>
+                <span id="valor-final-display" hx-swap-oob="true">
+                    {budget.display_total_budget_value}
+                </span>
+                {products_list_html}
+                {services_list_html}
+                """
         return HttpResponse(html)
 
 
@@ -1508,7 +1497,7 @@ class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if budget is None:
             return HttpResponse("")
 
-        is_workorder = budget.workorders.filter(status__in=WORKORDER_OPEN_STATUSES).exists()
+        is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
         context = {
             "reference_budget_id": budget.pk,
             "reference_budget_number": budget.number,
@@ -1523,14 +1512,17 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, pk):
         budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        can_link = is_budget_linkable(budget)
         context = {
             "budget": budget,
+            "can_link": can_link,
+            "link_blocked_message": None if can_link else LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
         }
         return render(request, "budget/partials/budget_reference_modal.html", context)
 
     def post(self, request, pk):
         current_budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
-        relate = request.POST.get("relate_budget") == "yes"
+        relate = is_budget_linkable(current_budget) and request.POST.get("relate_budget") == "yes"
 
         try:
             with transaction.atomic():
@@ -1555,14 +1547,15 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 )
                 new_budget.save()
         except Exception as e:
+            logger.exception("budget_reference_copy_failed", extra={"source_budget_id": current_budget.pk})
             return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
 
-        # Redirect or trigger HTMX reload
-        response = HttpResponse("", status=200)
-        redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
-        triggers = {"showToast": {"message": "Orçamento criado com sucesso.", "type": "success"}, "redirectAfterToast": {"url": redirect_url, "delay": 500}}
-        response["HX-Trigger"] = json.dumps(triggers)
-        return response
+        redirect_url = _budget_update_url(new_budget.pk, 1)
+        if request.headers.get("HX-Request"):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = redirect_url
+            return response
+        return redirect(redirect_url)
 
 
 class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -1667,8 +1660,7 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if locked_budget.vehicle_id is not None and reference_budget.vehicle_id != locked_budget.vehicle_id:
                 return JsonResponse({"success": False, "error": "Só é possível vincular orçamentos do mesmo veículo."}, status=400)
 
-            is_linkable = Budget.objects.filter(linkable_budgets_q(), pk=reference_budget.pk).exists()
-            if not is_linkable:
+            if not is_budget_linkable(reference_budget):
                 return JsonResponse({"success": False, "error": "Só é possível vincular a orçamentos abertos ou com OS em andamento."}, status=400)
 
             locked_budget.reference_budget = reference_budget

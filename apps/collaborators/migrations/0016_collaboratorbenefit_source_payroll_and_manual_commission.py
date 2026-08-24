@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('collaborators', '0015_workshopcollaborator_transport_budget_plan'),
-        ('workorder', '0050_migrate_waiting_delivery_to_draft'),
+        ('workorder', '0044_migrate_waiting_delivery_to_draft'),
     ]
 
     operations = [

@@ -81,6 +81,25 @@ class AppointmentFormChoiceLoadingTests(TestCase):
         self.assertQuerySetEqual(form.fields["budget"].queryset.order_by("pk"), [self.budget], transform=lambda value: value)
         self.assertQuerySetEqual(form.fields["workorder"].queryset.order_by("pk"), [self.workorder], transform=lambda value: value)
 
+    def test_edit_form_with_linked_budget_does_not_filter_sliced_queryset(self) -> None:
+        starts = timezone.now()
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            vehicle=self.vehicle,
+            budget=self.budget,
+            workorder=self.workorder,
+            title="Revisao",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+        )
+
+        form = AppointmentForm(workshop=self.workshop, instance=appointment)
+
+        self.assertQuerySetEqual(form.fields["budget"].queryset.order_by("pk"), [self.budget], transform=lambda value: value)
+        self.assertQuerySetEqual(form.fields["workorder"].queryset.order_by("pk"), [self.workorder], transform=lambda value: value)
+
     def test_calendar_filter_form_does_not_eagerly_load_all_customers(self) -> None:
         form = AppointmentCalendarFilterForm(workshop=self.workshop)
         self.assertEqual(form.fields["customer"].queryset.count(), 0)

@@ -20,7 +20,6 @@ class Step5PricingContext:
     venda_mao_obra: Money
     metodo_precificacao: str
     lucro_operacional: Money
-    valor_orcamento: Money
     rentabilidade: Decimal
     rentabilidade_class: str
     rentabilidade_bg: str
@@ -84,13 +83,12 @@ def build_step5_context(budget) -> Step5PricingContext:
     duracao_em_horas = Decimal(total_td.total_seconds()) / Decimal(3600)
     custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
-    venda_servico_terceiros = dados.get("venda_servico_terceiro") or zerado
-    venda_pecas = dados.get("venda_pecas") or zerado
-    venda_mao_obra = dados.get("venda_mao_obra") or zerado
+    venda_servico_terceiros = budget.display_total_third_party_by_slider
+    venda_pecas = budget.display_total_products_by_slider
+    venda_mao_obra = budget.display_total_services_by_slider - venda_servico_terceiros
 
     metodo_precificacao = dados.get("method_name") or ""
     lucro_operacional = dados.get("lucro_operacional") or zerado
-    valor_orcamento = dados.get("valor_orcamento") or budget.display_total_budget_value
     rentabilidade = dados.get("rentabilidade") or Decimal("0")
     mlr = budget.get_mlr
     mlo = budget.get_mlo
@@ -129,7 +127,6 @@ def build_step5_context(budget) -> Step5PricingContext:
         venda_mao_obra=venda_mao_obra,
         metodo_precificacao=metodo_precificacao,
         lucro_operacional=lucro_operacional,
-        valor_orcamento=valor_orcamento,
         rentabilidade=rentabilidade,
         rentabilidade_class=rentabilidade_class,
         rentabilidade_bg=rentabilidade_bg,

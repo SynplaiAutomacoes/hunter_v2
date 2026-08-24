@@ -51,7 +51,7 @@ from .forms import (
     TransferStepReasonForm,
 )
 from .services.files import StockImportFileStorageError, delete_import_xml_file, read_import_xml_file
-from .financial_entries import calculate_import_totals, get_next_entry_id
+from .financial_entries import apply_card_fee_budget_plan, calculate_import_totals, get_next_entry_id, resolve_import_budget_plan
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
@@ -85,6 +85,7 @@ class StockHistoryRow:
     criado_em: object
     history_status_badge: dict[str, str]
     xml_file_key: str = ""
+    total_value: object = Decimal("0.00")
 
     @property
     def record_edit_url(self) -> str:
@@ -580,20 +581,28 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             return []
 
         imports = self.get_queryset().select_related("user")
-        return [
-            StockHistoryRow(
-                pk=stock_import.pk,
-                record_type="import",
-                id=stock_import.pk,
-                nf_number=stock_import.nf_number or stock_import.nf_number_display or "---",
-                supplier_name=stock_import.supplier_name or "---",
-                user=stock_import.user,
-                criado_em=stock_import.criado_em,
-                history_status_badge=stock_import.stockimport_status_badge,
-                xml_file_key=stock_import.xml_file_key or "",
+        rows = []
+        for stock_import in imports:
+            items = list(stock_import.items_data or [])
+            total = sum(
+                (Decimal(str(item.get("valor", 0) or 0)) * Decimal(str(item.get("qtd", 0) or 0)) for item in items),
+                start=Decimal("0.00"),
             )
-            for stock_import in imports
-        ]
+            rows.append(
+                StockHistoryRow(
+                    pk=stock_import.pk,
+                    record_type="import",
+                    id=stock_import.pk,
+                    nf_number=stock_import.nf_number or stock_import.nf_number_display or "---",
+                    supplier_name=stock_import.supplier_name or "---",
+                    user=stock_import.user,
+                    criado_em=stock_import.criado_em,
+                    history_status_badge=stock_import.stockimport_status_badge,
+                    xml_file_key=stock_import.xml_file_key or "",
+                    total_value=Money(total, "BRL"),
+                )
+            )
+        return rows
 
     def _build_transfer_history_rows(self) -> list[StockHistoryRow]:
         state = self._get_filter_state()
@@ -615,6 +624,11 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             else:
                 display_path = f"{transfer.source_workshop.name} -> ---"
 
+            transfer_items = list(transfer.items_data or [])
+            transfer_total = sum(
+                (Decimal(str(ti.get("unit_cost", 0) or 0)) * Decimal(str(ti.get("quantity", 0) or 0)) for ti in transfer_items),
+                start=Decimal("0.00"),
+            )
             transfers.append(
                 StockHistoryRow(
                     pk=transfer.pk,
@@ -625,6 +639,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
                     user=transfer.user,
                     criado_em=transfer.criado_em,
                     history_status_badge=transfer.stocktransfer_status_badge,
+                    total_value=Money(transfer_total, "BRL"),
                 )
             )
         return transfers
@@ -641,6 +656,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             TableColumn(StockImport.supplier_name.field.verbose_name, attr="supplier_name"),
             TableColumn(StockImport.user.field.verbose_name, attr="user"),
             TableColumn(StockImport.criado_em.field.verbose_name, attr="criado_em"),
+            TableColumn("Valor Total", attr="total_value", format="money_br"),
             TableColumn(StockImport.status.field.verbose_name, attr="history_status_badge", format="status_badge"),
         ]
         context["actions"] = [
@@ -675,10 +691,8 @@ class StockImportCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScope
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = clean_id(self.request.GET.get("pk") or self.kwargs.get("pk"))
+        pk = self.request.GET.get("pk") or self.kwargs.get("pk")
         if pk:
-            # Remove thousand separators that pt-BR locale may inject (e.g. "1.042" -> "1042")
-            pk = str(pk).replace(".", "").replace(",", "")
             return get_object_or_404(StockImport, id=pk, workshop=self.workshop)
         return None
 
@@ -794,7 +808,7 @@ class StockImportUpdateView(StockImportCreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = clean_id(self.kwargs.get("pk"))
+        pk = self.kwargs.get("pk")
         if pk:
             return StockImport.objects.get(pk=pk, workshop=self.workshop)
         return super().get_object()
@@ -1101,8 +1115,9 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         method_code = (request.POST.get("payment_method") or "").strip()
         payment_date = (request.POST.get("payment_date") or "").strip()
         first_amount_str = (request.POST.get("first_amount_0") or "").strip()
+        budget_plan_id = (request.POST.get("budget_plan") or "").strip()
 
-        if not all([method_code, payment_date, first_amount_str]):
+        if not all([method_code, payment_date, first_amount_str, budget_plan_id]):
             return self._htmx_payment_response("Preencha todos os campos do pagamento antes de incluir.", level="warning")
 
         try:
@@ -1113,6 +1128,10 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             method_obj = PaymentMethod.objects.filter(id=method_code, workshop=self.workshop, is_active=True).first()
             if not method_obj:
                 return self._htmx_payment_response("A forma de pagamento selecionada é inválida.", level="warning")
+
+            budget_plan = resolve_import_budget_plan(workshop=self.workshop, budget_plan_id=budget_plan_id)
+            if budget_plan is None:
+                return self._htmx_payment_response("Selecione o plano orçamentário.", level="warning")
 
             installments = max(int(method_obj.installments_count or 1), 1)
             total_paid = first_amount
@@ -1140,6 +1159,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 direction=FinancialMovement.MovementDirection.DEBIT,
                 description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
                 payment_method=method_obj,
+                budget_plan=budget_plan,
                 nf_number=obj.nf_number,
                 amount=Money(total_paid, "BRL"),
                 due_date=payment_date,
@@ -1162,6 +1182,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     due_date=payment_date,
                     is_paid=False,
                 )
+                apply_card_fee_budget_plan(fee_movement=fm_fee, fallback_plan=budget_plan)
 
             new_payment = {
                 "id": get_next_entry_id(payments),
@@ -1170,6 +1191,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "entry_type": "payment",
                 "method": method_obj.id,
                 "method_display": method_obj.description,
+                "budget_plan_id": budget_plan.pk,
                 "installments": str(installments),
                 "first_amount": str(first_amount),
                 "total_paid": str(total_paid),
@@ -1978,7 +2000,7 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = clean_id(self.request.GET.get("pk") or self.kwargs.get("pk"))
+        pk = self.request.GET.get("pk") or self.kwargs.get("pk")
         if pk:
             return get_object_or_404(StockTransfer, id=pk)
         return None
@@ -2054,7 +2076,7 @@ class StockTransferUpdateView(StockTransferCreateView):
         return super().get(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = clean_id(self.kwargs.get("pk") or self.request.GET.get("pk"))
+        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
         if pk:
             return get_object_or_404(StockTransfer, pk=pk)
         return None

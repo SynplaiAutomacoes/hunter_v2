@@ -1,20 +1,18 @@
 from django.db import migrations, models
 
+from . import _idempotent
 
-def migrate_existing_open_workorders(apps, schema_editor):
+
+def backfill_current_step(apps, schema_editor):
     WorkOrder = apps.get_model("workorder", "WorkOrder")
-    WorkOrder.objects.filter(status="draft").update(status="waiting_delivery", current_step=3)
-    WorkOrder.objects.filter(status="approved", current_step__gt=4).update(current_step=4)
-
-
-def reverse_existing_open_workorders(apps, schema_editor):
-    WorkOrder = apps.get_model("workorder", "WorkOrder")
-    WorkOrder.objects.filter(status__in=["waiting_collaborator", "waiting_delivery"]).update(status="draft")
+    WorkOrder.objects.filter(status="approved").update(current_step=4)
+    WorkOrder.objects.filter(status="waiting_delivery").update(current_step=4)
+    WorkOrder.objects.filter(status="waiting_collaborator").update(current_step=2)
 
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("workorder", "0044_workorder_current_step"),
+        ("workorder", "0044_migrate_waiting_delivery_to_draft"),
     ]
 
     operations = [
@@ -35,5 +33,10 @@ class Migration(migrations.Migration):
                 verbose_name="Status",
             ),
         ),
-        migrations.RunPython(migrate_existing_open_workorders, reverse_existing_open_workorders),
+        _idempotent.AddFieldIfMissing(
+            model_name="workorder",
+            name="current_step",
+            field=models.PositiveSmallIntegerField(default=1, verbose_name="Etapa atual"),
+        ),
+        migrations.RunPython(backfill_current_step, reverse_code=migrations.RunPython.noop),
     ]

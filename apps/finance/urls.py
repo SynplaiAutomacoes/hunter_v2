@@ -6,6 +6,7 @@ from apps.finance.views import (
     EmissionRequestCreateView,
     EmissionWorkOrderKitComponentUpdateView,
     EmissionWorkOrderItemUpdateView,
+    FiscalOperationGatewayView,
     CommissionReportView,
     CommissionReportPdfView,
     FinancialGroupBulkDeleteView,
@@ -17,6 +18,8 @@ from apps.finance.views import (
     IssuedDocumentsArchiveDownloadView,
     IssuedDocumentsListView,
     NfeCreateRedirectView,
+    NfeCorrectionDownloadView,
+    NfeCorrectionIssueView,
     NfeDocumentDownloadView,
     NfePreviewPdfView,
     NfeRequestCancelView,
@@ -25,6 +28,8 @@ from apps.finance.views import (
     NfeRequestListView,
     NfeRequestReconcileView,
     NfeRequestUpdateView,
+    NfeReturnDownloadView,
+    NfeReturnIssueView,
     NfseCreateRedirectView,
     NfseRequestCancelView,
     NfseDocumentDownloadView,
@@ -61,7 +66,7 @@ from apps.finance.views import (
     DreResultsView,
 )
 
-from apps.finance.views.cash_flow import CashFlowView
+from apps.finance.views.cash_flow import CashFlowView, CashFlowReportExcelView, CashFlowReportModalView, CashFlowReportPdfView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
 from apps.finance.views.emission import EmissionCheckWorkorderView
 from apps.finance.views.financial_movement import (
@@ -124,7 +129,8 @@ urlpatterns = [
     path("emissao/workorder/<int:workorder_pk>/item/<int:item_id>/edit/", EmissionWorkOrderItemUpdateView.as_view(), name="emission_workorder_item_edit"),
     path("emissao/workorder/<int:workorder_pk>/kit-item/<int:item_id>/<str:component_type>/<int:component_id>/edit/", EmissionWorkOrderKitComponentUpdateView.as_view(), name="emission_workorder_kit_component_edit"),
     path("emissao/check-workorder/", EmissionCheckWorkorderView.as_view(), name="emission_check_workorder"),
-    path("emissao/", EmissionRequestCreateView.as_view(), name="emission_create"),
+    path("emissao/normal/", EmissionRequestCreateView.as_view(), name="emission_normal"),
+    path("emissao/", FiscalOperationGatewayView.as_view(), name="emission_create"),
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
     path("nfe/list/", NfeRequestListView.as_view(), name="nfe_list"),
@@ -133,6 +139,10 @@ urlpatterns = [
     path("nfe/<int:pk>/reconciliar/", NfeRequestReconcileView.as_view(), name="nfe_reconcile"),
     path("nfe/<int:pk>/inutilizar/", NfeRequestInvalidateView.as_view(), name="nfe_invalidate"),
     path("nfe/<int:pk>/cancelar/", NfeRequestCancelView.as_view(), name="nfe_cancel"),
+    path("nfe/<int:pk>/carta-correcao/", NfeCorrectionIssueView.as_view(), name="nfe_correction_issue"),
+    path("nfe/<int:pk>/carta-correcao/<int:event_pk>/<str:document>/", NfeCorrectionDownloadView.as_view(), name="nfe_correction_download"),
+    path("nfe/<int:pk>/devolucao-estorno/", NfeReturnIssueView.as_view(), name="nfe_return_issue"),
+    path("nfe/<int:pk>/devolucao-estorno/<int:document_pk>/<str:document>/", NfeReturnDownloadView.as_view(), name="nfe_return_download"),
     path("nfe/<int:pk>/documentos/<str:document>/", NfeDocumentDownloadView.as_view(), name="nfe_document_download"),
     path("nfe/<int:pk>/previa/pdf/", NfePreviewPdfView.as_view(), name="nfe_preview_pdf"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
@@ -177,6 +187,9 @@ urlpatterns = [
     path("webmania/webhook/", WebhookView.as_view(), name="webhook"),
     # Fluxo de Contas
     path("fluxo-de-contas/", CashFlowView.as_view(), name="cash_flow"),
+    path("fluxo-de-contas/relatorio/", CashFlowReportModalView.as_view(), name="cash_flow_report_modal"),
+    path("fluxo-de-contas/relatorio/pdf/", CashFlowReportPdfView.as_view(), name="cash_flow_report_pdf"),
+    path("fluxo-de-contas/relatorio/excel/", CashFlowReportExcelView.as_view(), name="cash_flow_report_excel"),
     # DRE
     path("dre/", DreReportView.as_view(), name="dre_report"),
     path("dre/resultados/", DreResultsView.as_view(), name="dre_results"),

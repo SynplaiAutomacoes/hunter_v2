@@ -9,6 +9,7 @@ urlpatterns = [
     path("navbar-favorites/toggle/", views.FavoritePageToggleView.as_view(), name="favorite_page_toggle"),
     path("navbar-favorites/reorder/", views.FavoritePageReorderView.as_view(), name="favorite_page_reorder"),
     path("dashboard/financial-report/modal/", views.DashboardFinancialReportModalView.as_view(), name="dashboard_financial_report_modal"),
+    path("dashboard/financial-report/excel/", views.DashboardFinancialReportExcelView.as_view(), name="dashboard_financial_report_excel"),
     path("dashboard/financial-report/", views.DashboardFinancialReportView.as_view(), name="dashboard_financial_report"),
     path("lock/acquire/", views.AcquireLockView.as_view(), name="lock_acquire"),
     path("lock/release/", views.ReleaseLockView.as_view(), name="lock_release"),

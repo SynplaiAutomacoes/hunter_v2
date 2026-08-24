@@ -15,9 +15,9 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.infrastructure.services.signature_webhook import process_signature_webhook_payload
 from apps.customer.models import Customer, Vehicle
 from apps.customer.views import _build_customer_workorder_history_entry
-from apps.iam.models import WorkshopRole
+from apps.iam.utils import get_or_create_director_role
 from apps.workorder.forms import WorkOrderCustomerApprovalForm
-from apps.workorder.models import WorkOrder, WorkOrderStatus, WorkOrderWarrantyPlan
+from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus, WorkOrderWarrantyPlan
 from apps.workshops.models.workshops import Workshop
 
 
@@ -133,22 +133,6 @@ class WorkOrderWarrantyPlanFormTests(TestCase):
         )
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["warranty_plan"], WorkOrderWarrantyPlan.DAYS_180)
-
-    def test_courtesy_reason_fields_render_for_warranty_workorder(self) -> None:
-        workshop = _create_workshop(suffix=9)
-        workorder = _create_workorder(workshop=workshop, suffix=9)
-        workorder.budget.budget_type = "warranty"
-        workorder.budget.save(update_fields=["budget_type"])
-        workorder.budget_type = "warranty"
-        workorder.save(update_fields=["budget_type"])
-
-        form = WorkOrderCustomerApprovalForm(
-            workorder=workorder,
-            require_unsigned_delivery_reason=False,
-        )
-        self.assertTrue(form.is_courtesy_or_warranty)
-        self.assertFalse(form.fields["courtesy_reason_type"].disabled)
-        self.assertFalse(form.fields["previous_mechanic"].disabled)
 
     def test_km_final_update_skips_warranty_requirement(self) -> None:
         workshop = _create_workshop(suffix=7)
@@ -279,7 +263,7 @@ class WorkOrderDeliveryDraftAutosaveViewTests(TestCase):
             phone="+5511999999999",
             address="Rua Draft, 1",
         )
-        role = WorkshopRole.objects.create(account=account, name="Diretor")
+        role = get_or_create_director_role(account=account)
         WorkshopMember.objects.create(user=self.user, workshop=self.workshop, role=role, is_active=True)
         self.workorder = _create_workorder(workshop=self.workshop, suffix=12)
         self.client.force_login(self.user)
@@ -297,9 +281,43 @@ class WorkOrderDeliveryDraftAutosaveViewTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["ok"])
         self.assertIsNone(payload["km_final"])
+        self.assertEqual(payload["warranty_plan"], WorkOrderWarrantyPlan.DAYS_90)
+        self.assertFalse(payload["finalized"])
 
         self.workorder.refresh_from_db()
         self.assertEqual(self.workorder.warranty_plan, WorkOrderWarrantyPlan.DAYS_90)
         self.assertIsNone(self.workorder.km_final)
         self.assertIsNone(self.workorder.delivered_at)
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+
+    @patch("apps.messaging.application.services.satisfaction_survey.schedule_satisfaction_survey_for_workorder")
+    @patch("apps.workorder.views.sync_workorder_financial_movement")
+    @patch("apps.workorder.views.approve_workorder_with_stock")
+    def test_post_finalizes_when_signature_already_approved(
+        self,
+        approve_mock: Mock,
+        sync_finance_mock: Mock,
+        schedule_survey_mock: Mock,
+    ) -> None:
+        def _mark_approved(*, workorder, signature_approved=False, user=None):
+            workorder.status = WorkOrderStatus.APPROVED
+            workorder.save(update_fields=["status"])
+
+        approve_mock.side_effect = _mark_approved
+        self.workorder.budget.budget_type = "warranty"
+        self.workorder.budget.save(update_fields=["budget_type"])
+        self.workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        self.workorder.budget_type = "warranty"
+        self.workorder.save(update_fields=["signature_request_status", "budget_type"])
+
+        response = self.client.post(
+            self.url,
+            data={"warranty_plan": WorkOrderWarrantyPlan.DAYS_90, "km_final": ""},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["finalized"])
+        approve_mock.assert_called_once()
+        sync_finance_mock.assert_called_once()
+        schedule_survey_mock.assert_called_once()

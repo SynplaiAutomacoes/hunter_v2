@@ -17,6 +17,7 @@ from django.db import transaction
 from django.http import HttpRequest
 from django.urls import reverse
 
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfse_request_rps_number
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
@@ -46,7 +47,7 @@ def build_default_service_description_for_workorder(*, workorder: Any) -> str:
     if service_descriptions:
         return "; ".join(service_descriptions)
 
-    return f"Prestacao de servico referente a OS #{getattr(workorder, 'pk', '-')}"
+    return f"Prestacao de servico referente a OS #{resolve_workorder_number(workorder)}"
 
 
 def _is_debug_enabled() -> bool:

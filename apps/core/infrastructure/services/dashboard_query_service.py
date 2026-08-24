@@ -21,7 +21,7 @@ from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, budget_kit_overrides_prefetch, workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.finance.services.dre import COMP_COGS, COMP_COS, COMP_GROSS_REVENUE, build_dre_calculation
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus, WORKORDER_OPEN_STATUSES, WORKORDER_REVENUE_STATUSES
+from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
@@ -794,7 +794,6 @@ class DashboardQueryService:
             today_sales=today_sales,
             accumulated_profitability=approved_budget_metrics.accumulated_profitability,
             accumulated_markup=approved_budget_metrics.accumulated_markup,
-            accumulated_markup_target=workshop_cost.profitability_multiplier if workshop_cost is not None else None,
             accumulated_markup_progress=calculate_markup_progress(
                 approved_budget_metrics.accumulated_markup,
                 workshop_cost.profitability_multiplier if workshop_cost is not None else None,
@@ -803,6 +802,7 @@ class DashboardQueryService:
                 approved_budget_metrics.accumulated_markup,
                 workshop_cost.profitability_multiplier if workshop_cost is not None else None,
             ),
+            markup_target=workshop_cost.profitability_multiplier if workshop_cost is not None else None,
             warranty_return_rate=warranty_return_rate,
             approval_rate=approval_rate,
             total_pending_receivable=pending_receivable_metrics.total_general,
@@ -1096,7 +1096,7 @@ class DashboardQueryService:
         aggregates = (
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
-                status__in=WORKORDER_OPEN_STATUSES,
+                status=WorkOrderStatus.DRAFT,
                 budget__isnull=False,
             )
             .annotate(pending_amount=pending_expr)
@@ -1174,21 +1174,21 @@ class DashboardQueryService:
 _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     "a_receber_em_execucao": {
         "model": "workorder",
-        "filters": {"status__in": WORKORDER_OPEN_STATUSES},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_mes_atual": {
         "model": "workorder",
-        "filters": {"status__in": WORKORDER_OPEN_STATUSES},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_meses_anteriores": {
         "model": "workorder",
-        "filters": {"status__in": WORKORDER_OPEN_STATUSES},
+        "filters": {"status": WorkOrderStatus.DRAFT},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": True,

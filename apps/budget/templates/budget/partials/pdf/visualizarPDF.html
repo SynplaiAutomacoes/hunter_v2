@@ -261,17 +261,21 @@
             <div class="text-right w-[180px] flex-shrink-0">
                 <h4 class="font-bold">{{ document_title }}</h4>
                 <p class="text-2xl font-bold leading-none m-0">#{{ budget.number }}</p>
-                {% if workorder.delivered_at %}
-                    <p class="text-[11px]">Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }}</p>
+                {% if workorder %}
+                    {% if pdf_delivered_at %}
+                    <p class="text-[11px] mt-1">Entrega do veículo feita no dia</p>
+                    <p class="text-[11px]">{{ pdf_delivered_at|date:"d/m/Y" }} às {{ pdf_delivered_at|date:"H:i" }}</p>
                     {% if service_warranty_status_label %}
                     <p class="text-[11px] mt-1">
-                        Garantia: {{ service_warranty_plan_label }}
-                        {% if service_warranty_expires_at %} — válida até {{ service_warranty_expires_at|date:"d/m/Y" }}{% endif %}
-                        — <strong>{{ service_warranty_status_label }}</strong>
+                        Garantia: {{ service_warranty_plan_label }}{% if service_warranty_expires_at %} — válida até{% endif %}
+                    </p>
+                    <p class="text-[11px]">
+                        {% if service_warranty_expires_at %}{{ service_warranty_expires_at|date:"d/m/Y" }} — {% endif %}<strong>{{ service_warranty_status_label }}</strong>
                     </p>
                     {% endif %}
-                {% elif budget.customer_agreed_departure_at %}
-                    <p class="text-[11px] mt-1">Data prevista de entrega: {{ budget.customer_agreed_departure_at|date:"d/m/Y" }}</p>
+                    {% endif %}
+                {% elif expected_delivery_at %}
+                    <p class="text-[11px] mt-1">Data prevista de entrega: {{ expected_delivery_at|date:"d/m/Y" }}</p>
                     <small class="block text-[10px] text-gray-500 leading-tight mt-1">Essa data pode ser alterada caso haja algum imprevisto. O cliente será informado caso ocorra qualquer mudança.</small>
                 {% endif %}
 
@@ -495,8 +499,8 @@
 
         <div class="footer-section pt-3 border-t border-gray-200 text-[11px] text-gray-500">
             <p>Aberto por: {{ opened_by_name }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
-            {% if workorder and workorder.delivered_at %}
-            <p>Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }} hrs</p>
+            {% if workorder and pdf_delivered_at %}
+            <p>Entrega do veículo feita no dia {{ pdf_delivered_at|date:"d/m/Y" }} às {{ pdf_delivered_at|date:"H:i" }} hrs</p>
             {% if service_warranty_status_label %}
             <p>
                 Garantia: {{ service_warranty_plan_label }}

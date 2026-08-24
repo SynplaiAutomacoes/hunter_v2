@@ -246,8 +246,8 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             rows.append(
                 {
                     "collaborator_name": entry.collaborator.name,
-                    "workorder_id": entry.workorder.budget_id if entry.workorder_id else None,
-                    "workorder_url": reverse("workorder:workorder_detail", kwargs={"pk": entry.workorder_id}) if entry.workorder_id else "",
+                    "workorder_id": entry.workorder.get_id,
+                    "workorder_url": reverse("workorder:workorder_detail", kwargs={"pk": entry.workorder_id}),
                     "workorder_label": "Manual" if is_manual else "",
                     "customer_name": customer.name if customer is not None else "-",
                     "description": self._resolve_workorder_description(entry),

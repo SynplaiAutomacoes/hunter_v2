@@ -14,9 +14,10 @@ from django.db.models.functions import Coalesce
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
+from apps.core.workorder_numbers import resolve_budget_workorder_number, resolve_workorder_number
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WORKORDER_REVENUE_STATUSES
+from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.models.workshops import Workshop
 
 
@@ -167,7 +168,7 @@ def build_dre_calculation(
         taxa_maquininha_qs = taxa_maquininha_qs.filter(due_date__gte=start_date)
     if end_date is not None:
         taxa_maquininha_qs = taxa_maquininha_qs.filter(due_date__lte=end_date)
-    taxa_maquininha_os = list(taxa_maquininha_qs.select_related("workorder_payment", "workorder_payment__workorder"))
+    taxa_maquininha_os = list(taxa_maquininha_qs.select_related("workorder_payment", "workorder_payment__workorder", "workorder", "workorder__budget", "workorder__budget__customer"))
 
     delivered_fixed_workorders = _fetch_delivered_fixed_workorders(
         workshops=workshops,
@@ -681,7 +682,7 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool, workorder_pa
     if m.source_id:
         reference_parts.append(f"Origem: {m.source.name}")
     if m.workorder_id:
-        reference_parts.append(f"O.S #{getattr(budget, 'pk', workorder.pk if workorder else '-')}")
+        reference_parts.append(f"O.S #{resolve_budget_workorder_number(budget) if budget is not None else resolve_workorder_number(workorder)}")
     if m.nf_number:
         reference_parts.append(f"NF: {m.nf_number}")
 
@@ -723,9 +724,9 @@ def _agent_label(m: FinancialMovement) -> str:
     if m.workorder_id:
         budget = getattr(getattr(m, "workorder", None), "budget", None)
         customer = getattr(budget, "customer", None)
-        pk = getattr(budget, "pk", "-")
+        number = resolve_budget_workorder_number(budget)
         name = getattr(customer, "name", "-") or "-"
-        return f"O.S #{pk} - {name}"
+        return f"O.S #{number} - {name}"
     if m.collaborator_id:
         return str(m.collaborator.name)
     if m.supplier_id:
@@ -739,10 +740,10 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
     workorder = payment.workorder
     budget = getattr(workorder, "budget", None)
     customer = getattr(budget, "customer", None)
-    pk = getattr(budget, "pk", "-")
+    number = resolve_budget_workorder_number(budget)
     name = getattr(customer, "name", "-") or "-"
 
-    summary = f"O.S #{pk} - {name}"
+    summary = f"O.S #{number} - {name}"
     payment_method_name = getattr(getattr(payment, "payment_method", None), "description", "-") or "-"
     reference = f"Pagamento: {payment_method_name}"
 
@@ -769,11 +770,11 @@ def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool, b
 def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool, budget_plan: FinancialGroup | None = None) -> dict:
     budget = getattr(wo, "budget", None)
     customer = getattr(budget, "customer", None)
-    pk = getattr(budget, "pk", "-")
+    number = resolve_budget_workorder_number(budget)
     name = getattr(customer, "name", "-") or "-"
 
-    summary = f"Custo - O.S #{pk} - {name}"
-    reference = f"O.S #{pk}"
+    summary = f"Custo - O.S #{number} - {name}"
+    reference = f"O.S #{number}"
 
     if include_workshop_ref and wo.workshop_id:
         reference = f"Filial: {wo.workshop.name} | {reference}"
@@ -800,17 +801,17 @@ def _build_workorder_cost_component_detail(
 ) -> dict:
     budget = getattr(workorder, "budget", None)
     customer = getattr(budget, "customer", None)
-    pk = getattr(budget, "pk", "-")
+    number = resolve_budget_workorder_number(budget)
     name = getattr(customer, "name", "-") or "-"
 
-    reference = f"O.S #{pk}"
+    reference = f"O.S #{number}"
     if include_workshop_ref and workorder.workshop_id:
         reference = f"Filial: {workorder.workshop.name} | {reference}"
 
     return {
         "movement": None,
         "workorder_id": workorder.pk,
-        "summary": f"{component_label} - O.S #{pk} - {name}",
+        "summary": f"{component_label} - O.S #{number} - {name}",
         "reference": reference,
         "entry_date": getattr(workorder, "criado_em", None).date() if getattr(workorder, "criado_em", None) else None,
         "payment_date": getattr(workorder, "criado_em", None).date() if getattr(workorder, "criado_em", None) else None,

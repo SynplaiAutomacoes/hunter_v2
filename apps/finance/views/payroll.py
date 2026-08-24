@@ -55,7 +55,7 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.services.financial_movement import apply_payment_reconciliation_rules
+from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules
 from apps.finance.views.commissions import MONTH_CHOICES, _parse_int_param, build_paid_status_indicator
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import can_view_payroll_details, get_active_workshop_or_404
@@ -99,7 +99,8 @@ class PayrollPaymentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
-        self.fields["budget_plan"].required = False
+        self.fields["budget_plan"].required = True
+        self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["bank_account"].required = False
         self.fields["payment_method"].required = False
         if payroll is not None:
@@ -117,7 +118,7 @@ class PayrollPaymentForm(forms.ModelForm):
             self.fields["budget_plan"].queryset = groups
             self.fields["bank_account"].queryset = accounts
             self.fields["payment_method"].queryset = methods
-            self.fields["budget_plan"].widget.choices = [(item.pk, str(item)) for item in groups]
+            self.fields["budget_plan"].widget.choices = [("", "---------")] + [(item.pk, str(item)) for item in groups]
             self.fields["bank_account"].widget.choices = [(item.pk, str(item)) for item in accounts]
             self.fields["payment_method"].widget.choices = [(item.pk, str(item)) for item in methods]
 
@@ -127,6 +128,8 @@ class PayrollPaymentForm(forms.ModelForm):
             for field_name, field in self.fields.items():
                 if field_name not in self.PAID_EDITABLE_FIELDS:
                     field.disabled = True
+            # Campos desabilitados não vêm no POST; a instância paga sem plano ainda precisa poder ser desmarcada.
+            self.fields["budget_plan"].required = False
 
     @property
     def is_locked(self) -> bool:
@@ -999,12 +1002,16 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                     unmark_payroll_commissions_as_paid(payroll=payroll)
                 payroll.refresh_from_db()
 
-            response = HttpResponse()
-            response["HX-Refresh"] = "true"
+            response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=self._get_requested_tab())
             toast_message = "Folha atualizada com sucesso."
             if work_days_changed and not all_forms:
                 toast_message = "Dias úteis atualizados com sucesso."
-            response["HX-Trigger"] = json.dumps({"showToast": {"message": toast_message, "type": "success"}})
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {"message": toast_message, "type": "success"},
+                    "payrollListRefresh": True,
+                }
+            )
             return response
 
         return self._open_edit_modal(request=request, payroll=payroll)

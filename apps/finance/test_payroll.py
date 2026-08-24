@@ -374,6 +374,8 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertIn("Excluir", content)
+        self.assertIn('name="tab"', content)
+        self.assertIn(':value="activeTab"', content)
 
     def test_payroll_movements_store_named_agent_and_description(self) -> None:
         workshop = create_workshop(suffix=24)
@@ -531,9 +533,18 @@ class PayrollEditModalViewTests(TestCase):
     def test_submit_form_saves_reconciliation_status(self) -> None:
         workshop = create_workshop(suffix=5)
         collaborator = create_collaborator(workshop=workshop, suffix=5)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
+        bank_account = BankAccount.objects.create(
+            workshop=workshop,
+            bank_code="001",
+            bank_name="Banco Teste",
+            agency="1234",
+            account_number="98765-5",
+        )
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description="Folha",
             amount=Money(2000, "BRL"),
@@ -551,13 +562,18 @@ class PayrollEditModalViewTests(TestCase):
             salary_amount=Money(2000, "BRL"),
             total_amount=Money(2000, "BRL"),
         )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
             {
+                "tab": "SALARY",
                 "comp_SALARY-due_date": "2026-08-05",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
+                "comp_SALARY-bank_account": str(bank_account.pk),
                 "comp_SALARY-is_paid": "True",
                 "comp_SALARY-is_reconciled": "True",
             },
@@ -572,20 +588,139 @@ class PayrollEditModalViewTests(TestCase):
 
         movement.refresh_from_db()
         self.assertEqual(response.status_code, 200)
-        self.assertIn("HX-Refresh", response.headers)
+        self.assertNotIn("HX-Refresh", response.headers)
+        self.assertIn("payrollListRefresh", response.headers.get("HX-Trigger", ""))
+        self.assertIn("Editar Folha de Pagamento", response.content.decode())
         self.assertTrue(movement.is_paid)
         self.assertTrue(movement.is_reconciled)
 
-    def test_submit_form_updates_due_date_for_unpaid_payroll_without_sync_reverting_it(self) -> None:
-        workshop = create_workshop(suffix=6)
-        collaborator = create_collaborator(workshop=workshop, suffix=6)
+    def test_submit_form_keeps_modal_open_on_commission_tab(self) -> None:
+        workshop = create_workshop(suffix=51)
+        collaborator = create_collaborator(workshop=workshop, suffix=51)
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            commission_amount=Money(120, "BRL"),
+            total_amount=Money(2120, "BRL"),
+        )
+        salary_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.COMMISSION,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Comissao",
+            amount=Money(150, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payroll.financial_movement = salary_movement
+        payroll.save(update_fields=["financial_movement"])
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "tab": "COMMISSION",
+                "comp_COMMISSION-due_date": "2026-08-05",
+                "comp_COMMISSION-amount_0": "150.00",
+                "comp_COMMISSION-amount_1": "BRL",
+                "comp_COMMISSION-is_paid": "False",
+                "comp_COMMISSION-is_reconciled": "False",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("HX-Refresh", response.headers)
+        content = response.content.decode()
+        self.assertIn("activeTab: 'COMMISSION'", content)
+        self.assertIn("Editar Folha de Pagamento", content)
+
+    def test_submit_form_keeps_modal_open_on_collaborator_tab(self) -> None:
+        workshop = create_workshop(suffix=52)
+        collaborator = create_collaborator(workshop=workshop, suffix=52)
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description="Folha",
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+            work_days=20,
+        )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "tab": "collaborator",
+                "work_days": "22",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("HX-Refresh", response.headers)
+        self.assertIn("payrollListRefresh", response.headers.get("HX-Trigger", ""))
+        content = response.content.decode()
+        self.assertIn("activeTab: 'collaborator'", content)
+        self.assertIn("Editar Folha de Pagamento", content)
+        self.assertEqual(payroll.work_days, 22)
+
+    def test_submit_form_updates_due_date_for_unpaid_payroll_without_sync_reverting_it(self) -> None:
+        workshop = create_workshop(suffix=6)
+        collaborator = create_collaborator(workshop=workshop, suffix=6)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            budget_plan=budget_plan,
             is_paid=False,
             is_reconciled=False,
         )
@@ -599,6 +734,8 @@ class PayrollEditModalViewTests(TestCase):
             salary_amount=Money(2000, "BRL"),
             total_amount=Money(2000, "BRL"),
         )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -606,6 +743,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-12",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "False",
                 "comp_SALARY-is_reconciled": "False",
             },
@@ -627,13 +765,16 @@ class PayrollEditModalViewTests(TestCase):
     def test_submit_form_updates_due_date_for_paid_payroll(self) -> None:
         workshop = create_workshop(suffix=7)
         collaborator = create_collaborator(workshop=workshop, suffix=7)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description="Folha",
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
+            budget_plan=budget_plan,
             is_paid=False,
             is_reconciled=False,
         )
@@ -647,6 +788,8 @@ class PayrollEditModalViewTests(TestCase):
             salary_amount=Money(2000, "BRL"),
             total_amount=Money(2000, "BRL"),
         )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -654,6 +797,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-15",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "True",
                 "comp_SALARY-is_reconciled": "False",
             },
@@ -776,6 +920,9 @@ class PayrollEditModalViewTests(TestCase):
         )
         payroll.financial_movement = salary_movement
         payroll.save(update_fields=["financial_movement"])
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
+        salary_movement.budget_plan = budget_plan
+        salary_movement.save(update_fields=["budget_plan"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -783,6 +930,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-05",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "False",
                 "comp_SALARY-is_reconciled": "True",
             },
