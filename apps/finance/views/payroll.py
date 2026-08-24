@@ -623,6 +623,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                     "has_expected_value": expected,
                     "is_missing": expected and not movements,
                     "is_benefit_tab": component == FinancialMovement.PayrollComponent.BENEFIT,
+                    "is_commission_tab": component == FinancialMovement.PayrollComponent.COMMISSION,
                     "benefits_total": benefits_total,
                     "benefit_items": [],
                     "form": None,
@@ -1169,7 +1170,7 @@ class PayrollAddManualCommissionView(PayrollEditModalView):
             return self._open_edit_modal(
                 request=request,
                 payroll=payroll,
-                selected_tab="commissions_history",
+                selected_tab=FinancialMovement.PayrollComponent.COMMISSION,
                 force_selected_tab=True,
                 manual_commission_form=form,
                 show_manual_commission_form=True,
@@ -1187,7 +1188,7 @@ class PayrollAddManualCommissionView(PayrollEditModalView):
         response = self._open_edit_modal(
             request=request,
             payroll=payroll,
-            selected_tab="commissions_history",
+            selected_tab=FinancialMovement.PayrollComponent.COMMISSION,
             force_selected_tab=True,
             show_manual_commission_form=True,
         )
