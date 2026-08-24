@@ -1,6 +1,6 @@
 from django import forms
 from apps.core.presentation.widgets import CalendarDateInput, SearchableSelectInput, TextInput, TextareaInput
-from apps.finance.models import MovementGroup
+from apps.finance.models import FinancialMovement, MovementGroup, PaymentMethod
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 
@@ -34,12 +34,40 @@ class GroupMovementStep3Form(CoreModelForm):
         fields = ["name", "description", "due_date"]
         widgets = {
             "name": TextInput(),
-            "description": TextareaInput(attrs={"rows": 3}),
+            "description": TextareaInput(attrs={"rows": 2}),
             "due_date": CalendarDateInput(),
         }
 
     def __init__(self, *args, **kwargs):
+        workshop = kwargs.pop("workshop", None)
+        direction = kwargs.pop("direction", None)
         super().__init__(*args, **kwargs)
+
+        payment_methods = PaymentMethod.objects.none()
+        if workshop is not None:
+            payment_methods = PaymentMethod.objects.filter(workshop=workshop, is_active=True)
+            if direction == FinancialMovement.MovementDirection.CREDIT:
+                payment_methods = payment_methods.filter(
+                    payment_type__in=[PaymentMethod.PaymentType.CREDIT, PaymentMethod.PaymentType.BOTH]
+                )
+            elif direction == FinancialMovement.MovementDirection.DEBIT:
+                payment_methods = payment_methods.filter(
+                    payment_type__in=[PaymentMethod.PaymentType.DEBIT, PaymentMethod.PaymentType.BOTH]
+                )
+
+        self.fields["payment_method"] = forms.ModelChoiceField(
+            label="Forma de Pagamento",
+            queryset=payment_methods.order_by("description"),
+            required=True,
+            widget=SearchableSelectInput(),
+        )
+        self.fields["payment_method"].widget.choices = [
+            (payment_method.pk, str(payment_method)) for payment_method in payment_methods.order_by("description")
+        ]
+        self.payment_method_installments = {
+            str(payment_method.pk): max(int(payment_method.installments_count or 1), 1)
+            for payment_method in payment_methods
+        }
         self.fields["name"].required = True
         self.fields["due_date"].required = True
 

@@ -1,0 +1,32 @@
+{% load l10n %}
+<input type="checkbox" id="term-preview-modal" class="modal-toggle" checked />
+
+<div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-box h-[92vh] w-[98vw] max-w-7xl p-0 overflow-hidden">
+        <div class="flex items-center justify-between border-b border-base-200 px-6 py-4 bg-base-100">
+            <div>
+                <h3 class="text-lg font-bold text-base-content">{{ term.name }}</h3>
+                <p class="text-sm text-base-content/70">Visualizar termo</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button
+                    type="button"
+                    class="btn btn-sm btn-primary"
+                    onclick="const frame = document.getElementById('term-preview-iframe-{{ term.pk|unlocalize }}'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
+                >
+                    Imprimir
+                </button>
+                <label for="term-preview-modal" class="btn btn-sm btn-ghost">Fechar</label>
+            </div>
+        </div>
+        <div class="h-[calc(92vh-73px)] bg-[#2a2d31]">
+            <iframe
+                id="term-preview-iframe-{{ term.pk|unlocalize }}"
+                src="{{ preview_url }}"
+                class="h-full w-full bg-[#2a2d31]"
+                frameborder="0"
+            ></iframe>
+        </div>
+    </div>
+    <label class="modal-backdrop" for="term-preview-modal">Close</label>
+</div>

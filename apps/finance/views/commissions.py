@@ -129,6 +129,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         queryset = (
             CollaboratorCommissionEntry.objects.filter(
                 workshop=self.workshop,
+                workorder__isnull=False,
             )
             .filter(
                 Q(status=CollaboratorCommissionEntry.Status.PAID)
@@ -329,6 +330,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         queryset = (
             CollaboratorCommissionEntry.objects.filter(
                 workshop=self.workshop,
+                workorder__isnull=False,
             )
             .filter(
                 Q(status=CollaboratorCommissionEntry.Status.PAID)

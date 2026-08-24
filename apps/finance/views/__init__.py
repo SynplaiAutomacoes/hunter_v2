@@ -3,11 +3,22 @@ from __future__ import annotations
 from .financial_group import FinancialGroupBulkDeleteView, FinancialGroupCreateView, FinancialGroupDeleteView, FinancialGroupListView, FinancialGroupUpdateView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
+from .fiscal_gateway import FiscalOperationGatewayView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportPdfView, CommissionReportView
-from .nfe import NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
+from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
-from .payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollSyncComponentView
+from .payroll import (
+    PayrollAddManualBenefitView,
+    PayrollAddManualCommissionView,
+    PayrollBulkConciliateView,
+    PayrollBulkPayView,
+    PayrollBulkUnpayView,
+    PayrollDeleteManualCommissionView,
+    PayrollEditModalView,
+    PayrollListView,
+    PayrollSyncComponentView,
+)
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassDeleteView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -31,6 +42,7 @@ __all__ = [
     "DirectorWorkshopAccessMixin",
     "EmissionPreviewView",
     "EmissionRequestCreateView",
+    "FiscalOperationGatewayView",
     "EmissionWorkOrderKitComponentUpdateView",
     "EmissionWorkOrderItemUpdateView",
     "FinancialGroupCreateView",
@@ -40,9 +52,12 @@ __all__ = [
     "FinancialReportsHomeView",
     "ReportMovementEditView",
     "ReportMovementDeleteView",
+    "PayrollAddManualBenefitView",
+    "PayrollAddManualCommissionView",
     "PayrollBulkConciliateView",
     "PayrollBulkPayView",
     "PayrollBulkUnpayView",
+    "PayrollDeleteManualCommissionView",
     "PayrollEditModalView",
     "PayrollListView",
     "PayrollSyncComponentView",
@@ -52,6 +67,8 @@ __all__ = [
     "CommissionReportView",
     "CommissionReportPdfView",
     "NfeCreateRedirectView",
+    "NfeCorrectionDownloadView",
+    "NfeCorrectionIssueView",
     "NfeDocumentDownloadView",
     "NfePreviewPdfView",
     "NfeRequestCancelView",
@@ -61,6 +78,8 @@ __all__ = [
     "NfeRequestListView",
     "NfeRequestReconcileView",
     "NfeRequestUpdateView",
+    "NfeReturnDownloadView",
+    "NfeReturnIssueView",
     "NfseCreateRedirectView",
     "NfseRequestCancelView",
     "NfseDocumentDownloadView",

@@ -11,6 +11,7 @@ from apps.budget.item_origin import (
     build_origin_badge,
     iter_kit_product_components,
     iter_kit_service_components,
+    kit_component_winning_item_ids,
     origin_badge_for_item,
 )
 from apps.budget.review_display import build_budget_review_display
@@ -113,21 +114,13 @@ def _render_budget_items_rows(budget, step6=False):
     items = list(budget_for_render.items.all()) if budget_for_render and budget_for_render.pk else []
     if budget_for_render and budget_for_render.pk:
         for item in items:
-            if not item.kit:
+            if not item.kit_id:
                 continue
-
-            for kit_product in item._iter_kit_products():
-                override_maps = item._get_kit_override_maps()[0]
-                override = override_maps.get(kit_product.product_id)
-                quantity = override.quantity if override else kit_product.quantity
-                if quantity > 0:
-                    kit_product_ids.add(kit_product.product_id)
-
-            for kit_service in item._iter_kit_services():
-                override = item._get_kit_override_maps()[1].get(kit_service.service_id)
-                quantity = override.quantity if override else kit_service.quantity
-                if quantity > 0:
-                    kit_service_ids.add(kit_service.service_id)
+            for override in iter_kit_product_components(item):
+                kit_product_ids.add(override.product_id)
+            for override in iter_kit_service_components(item):
+                kit_service_ids.add(override.service_id)
+    winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(items)
 
     if budget_for_render.pk:
         avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
@@ -174,6 +167,8 @@ def _render_budget_items_rows(budget, step6=False):
                 _label, kit_badge, _is_kit = origin_badge_for_item(item=kit_item)
 
                 for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+                    if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                        continue
                     component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
                     rows["product"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_product_row.html",
@@ -189,6 +184,8 @@ def _render_budget_items_rows(budget, step6=False):
                     )
 
                 for exploded in _explode_kit_service_rows(budget=budget_for_render, kit_line=line, kit_item=kit_item):
+                    if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                        continue
                     component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
                     rows["service"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_service_row.html",
@@ -242,6 +239,8 @@ def _render_budget_items_rows(budget, step6=False):
                     )
                 elif item_type == "kit":
                     for override in iter_kit_product_components(item):
+                        if winning_kit_product_item_ids.get(override.product_id) not in {None, item.pk}:
+                            continue
                         component = build_kit_component_product_item(kit_item=item, override=override)
                         if component is None:
                             continue
@@ -254,6 +253,8 @@ def _render_budget_items_rows(budget, step6=False):
                             is_kit_component=True,
                         )
                     for override in iter_kit_service_components(item):
+                        if winning_kit_service_item_ids.get(override.service_id) not in {None, item.pk}:
+                            continue
                         component = build_kit_component_service_item(kit_item=item, override=override)
                         if component is None:
                             continue

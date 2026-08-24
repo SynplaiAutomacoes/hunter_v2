@@ -1,0 +1,6 @@
+<div class="flex gap-2 items-start" data-topic-item>
+    <textarea name="topic_item_{{ topic_key }}" rows="2" class="textarea textarea-bordered w-full" placeholder="Escreva o texto deste item">{{ item_text }}</textarea>
+    <button type="button" class="btn btn-ghost btn-sm text-error mt-1" onclick="this.closest('[data-topic-item]').remove()" aria-label="Remover texto">
+        <span class="material-icons text-sm">delete</span>
+    </button>
+</div>

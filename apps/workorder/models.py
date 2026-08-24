@@ -6,6 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any, Iterable
 
 from django.core.validators import MaxValueValidator, MinValueValidator
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import PositiveIntegerField
 from django.utils import timezone
@@ -64,6 +65,13 @@ WORKORDER_OPEN_STATUSES = frozenset(
 WORKORDER_REVENUE_STATUSES = WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED}
 
 
+def is_workorder_step_workflow_enabled() -> bool:
+    """O stepper da O.S. ainda não foi liberado em produção."""
+    from apps.core.infrastructure.runtime_environment import is_non_production_environment
+
+    return is_non_production_environment()
+
+
 class WorkOrderSignatureStatus(models.TextChoices):
     NOT_SENT = "not_sent", "Não Enviado"
     SENDING = "sending", "Enviando"
@@ -104,6 +112,7 @@ WARRANTY_PLAN_DAYS: dict[str, int | None] = {
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Criado por", on_delete=models.SET_NULL, related_name="created_workorders", null=True, blank=True)
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="workorders", blank=True)
     status = models.CharField(verbose_name="Status", max_length=32, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa atual", default=1)
@@ -210,7 +219,22 @@ class WorkOrder(TimeStampedModel):
             WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
         }
 
-        return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
+        # Status legados renomeados — mapear para o valor atual equivalente
+        LEGACY_STATUS_MAP = {
+            "waiting_delivery": WorkOrderStatus.DRAFT,
+        }
+
+        status_value = self.status
+        if status_value in LEGACY_STATUS_MAP:
+            status_value = LEGACY_STATUS_MAP[status_value].value
+
+        try:
+            status_enum = WorkOrderStatus(status_value)
+            label = str(status_enum.label)
+        except ValueError:
+            label = str(self.status).replace("_", " ").title()
+
+        return {"text": label, "class": status_color.get(status_value, "badge-ghost")}
 
     @property
     def type_badge(self):
@@ -263,17 +287,12 @@ class WorkOrder(TimeStampedModel):
                 total += item.duration * item.quantity
                 continue
 
-            if not item.kit:
+            if not item.kit_id:
                 continue
 
-            _, service_overrides = item._get_kit_override_maps()
-            for kit_service in item._iter_kit_services():
-                override = service_overrides.get(kit_service.service_id)
-                if override:
-                    if override.quantity > 0 and override.duration:
-                        total += override.duration * override.quantity * item.quantity
-                elif kit_service.quantity > 0 and kit_service.service.duration:
-                    total += kit_service.service.duration * kit_service.quantity * item.quantity
+            for override in item._iter_frozen_kit_service_overrides():
+                if override.quantity > 0 and override.duration:
+                    total += override.duration * override.quantity * item.quantity
         return total
 
     @property
@@ -441,7 +460,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def can_change_delivery_status(self) -> bool:
-        return self.status == WorkOrderStatus.WAITING_DELIVERY
+        return self.status in WORKORDER_OPEN_STATUSES
 
     @property
     def signature_blockers_display(self) -> str:
@@ -584,9 +603,13 @@ class WorkOrder(TimeStampedModel):
         if not self.can_reopen:
             raise WorkOrderError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
-        self.status = WorkOrderStatus.WAITING_DELIVERY
+        if is_workorder_step_workflow_enabled():
+            self.status = WorkOrderStatus.WAITING_DELIVERY
+            self.current_step = 4
+        else:
+            self.status = WorkOrderStatus.DRAFT
+            self.current_step = 1
         self.reopen_reason = reason
-        self.current_step = 4
 
         self.save(update_fields=["status", "delivered_at", "reopen_reason", "current_step"])
 

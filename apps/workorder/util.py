@@ -27,6 +27,7 @@ from apps.budget.item_origin import (
     build_origin_badge,
     iter_kit_product_components,
     iter_kit_service_components,
+    kit_component_winning_item_ids,
     origin_badge_for_item,
 )
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
@@ -38,7 +39,7 @@ from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType, WorkOrderStatus, is_workorder_step_workflow_enabled
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -92,7 +93,7 @@ def build_workorder_collaborators_next_url(*, workorder_pk: int, raw_next: str) 
 
 
 def apply_workorder_collaborators_continue(*, workorder, next_url: str | None) -> None:
-    if not next_url:
+    if not next_url or not is_workorder_step_workflow_enabled():
         return
     parsed = urlparse(next_url)
     requested_step = _clamp_workorder_step((parse_qs(parsed.query).get("step") or ["1"])[0])
@@ -191,7 +192,8 @@ def resolve_workorder_detail_navigation(*, request, workorder=None) -> WorkOrder
     status = WorkOrderStatus.DRAFT
     max_reached_step = WORKORDER_DETAIL_STEP_COUNT
     if workorder is not None:
-        _promote_waiting_delivery_if_collaborators_done(workorder=workorder)
+        if is_workorder_step_workflow_enabled():
+            _promote_waiting_delivery_if_collaborators_done(workorder=workorder)
         status = str(getattr(workorder, "status", WorkOrderStatus.DRAFT) or WorkOrderStatus.DRAFT)
         stored_step = _clamp_workorder_step(getattr(workorder, "current_step", 1))
         max_reached_step = min(stored_step, max_workorder_step_for_status(status))
@@ -208,7 +210,7 @@ def resolve_workorder_detail_navigation(*, request, workorder=None) -> WorkOrder
     history_open = raw_tab == WORKORDER_HISTORY_TAB
     payments_requested = (raw_tab == WORKORDER_PAYMENTS_TAB or requested_step == WORKORDER_PAYMENTS_STEP) and not history_open
 
-    if workorder is not None and not payments_requested and requested_step == _next_linear_workorder_step(max_reached_step):
+    if workorder is not None and is_workorder_step_workflow_enabled() and not payments_requested and requested_step == _next_linear_workorder_step(max_reached_step):
         max_reached_step = _advance_workorder_step(workorder=workorder, requested_step=requested_step, max_reached_step=max_reached_step)
 
     if payments_requested:
@@ -419,6 +421,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     display_product_items: list[object] = []
     display_service_items: list[object] = []
     avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
+    winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(items)
 
     for item in items:
         if item.product:
@@ -437,6 +440,8 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
             kit_items.append(item)
             origin_label, origin_badge, _is_kit = origin_badge_for_item(item=item)
             for override in iter_kit_product_components(item):
+                if winning_kit_product_item_ids.get(override.product_id) not in {None, item.pk}:
+                    continue
                 component = build_kit_component_product_item(kit_item=item, override=override)
                 if component is None:
                     continue
@@ -445,6 +450,8 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
                 component.origin_badge = origin_badge
                 display_product_items.append(component)
             for override in iter_kit_service_components(item):
+                if winning_kit_service_item_ids.get(override.service_id) not in {None, item.pk}:
+                    continue
                 component = build_kit_component_service_item(kit_item=item, override=override)
                 if component is None:
                     continue
@@ -668,7 +675,7 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "reject_form": WorkOrderStatusReasonForm(workorder=workorder, action="reject"),
         "reopen_form": WorkOrderReopenForm(workorder=workorder),
         "can_reopen_workorder": bool(request and can_reopen_workorder(request=request, workorder=workorder)),
-        "can_finalize_delivery": workorder.status == WorkOrderStatus.WAITING_DELIVERY and not workorder.is_status_locked,
+        "can_finalize_delivery": workorder.can_change_delivery_status,
         "has_payments": workorder.payments.exists(),
         "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
         "attachments": workorder.attachments.order_by("-criado_em"),
