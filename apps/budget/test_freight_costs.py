@@ -10,10 +10,29 @@ if not settings.configured:
 
 from djmoney.money import Money
 
+from apps.budget.models import Budget
 from apps.budget.pricing import build_pricing_snapshot
 
 
 class FreightCostPricingTests(SimpleTestCase):
+    def test_step_4_summary_does_not_subtract_freight_from_sales_twice(self):
+        budget = SimpleNamespace(
+            is_fixed_budget=False,
+            total_products_value=Money(Decimal("2412.90"), "BRL"),
+            total_products_shipping=Money(10, "BRL"),
+            total_services_value=Money(0, "BRL"),
+            total_services_shipping=Money(30, "BRL"),
+        )
+
+        self.assertEqual(
+            Budget.selected_items_total_products_without_shipping.fget(budget),
+            Money(Decimal("2412.90"), "BRL"),
+        )
+        self.assertEqual(
+            Budget.selected_items_total_services_value.fget(budget),
+            Money(0, "BRL"),
+        )
+
     def test_product_and_service_freight_reduce_margin_without_changing_sale_total(self):
         product = SimpleNamespace(id=1, code="P1", application="", location="", name="Peça")
         service = SimpleNamespace(id=2, name="Serviço", is_third_party=True)
