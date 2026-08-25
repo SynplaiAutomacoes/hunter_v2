@@ -329,6 +329,7 @@ def _persist_purchase_fiscal_foundation(
         "account": getattr(locked_import.workshop, "account", None),
         "origin": FiscalDocumentOrigin.EXTERNAL,
         "purpose": FiscalDocumentPurpose.NORMAL,
+        "complementary_type": "",
         "environment": str(document_snapshot.get("environment") or ""),
         "status": FiscalDocumentStatus.APPROVED,
         "remote_status": remote_status,
