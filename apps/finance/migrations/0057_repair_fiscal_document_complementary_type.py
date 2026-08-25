@@ -28,7 +28,7 @@ def repair_legacy_text_defaults(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("finance", "0055_repair_purchase_return_item_kind"),
+        ("finance", "0056_merge_nf_and_os_backfill"),
     ]
 
     operations = [
