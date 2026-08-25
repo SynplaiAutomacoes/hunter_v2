@@ -3,6 +3,8 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
+from . import _idempotent
+
 
 class Migration(migrations.Migration):
 
@@ -12,20 +14,20 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='purchasereturnrequestitem',
             name='source_item',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='purchase_return_items', to='stock.stockimportfiscalitem', verbose_name='Item fiscal de origem'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='purchasereturnrequest',
             index=models.Index(fields=['workshop', 'status'], name='purchase_ret_workshop_idx'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='purchasereturnrequest',
             index=models.Index(fields=['original_document', 'status'], name='purchase_ret_document_idx'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='purchasereturnrequestitem',
             constraint=models.UniqueConstraint(condition=models.Q(('source_item__isnull', False)), fields=('request', 'source_item'), name='unique_purchase_return_source_item'),
         ),
