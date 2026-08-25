@@ -339,6 +339,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertContains(response, "Dados fiscais da Nota de Devolução")
         self.assertContains(response, "Motor")
         self.assertContains(response, "R$ 1.500,50")
+        self.assertContains(response, "w-10 h-10")
 
         finalized = finalize_purchase_return_request(request=return_request)
         self.assertEqual(finalized.status, PurchaseReturnRequestStatus.READY)
