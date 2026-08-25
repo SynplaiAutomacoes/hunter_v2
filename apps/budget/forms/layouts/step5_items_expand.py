@@ -42,7 +42,7 @@ def build_step5_products_list_html(*, budget: Any, oob: bool = False) -> str:
         )
 
     for kit in review.kits:
-        kit_total = kit.allocated_product_base + kit.product_shipping
+        kit_total = kit.allocated_product_base
         if kit_total.amount <= 0 and not kit.products_summary:
             continue
         rows.append(

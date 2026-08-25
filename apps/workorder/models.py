@@ -244,21 +244,6 @@ class WorkOrder(TimeStampedModel):
 
         return self.payments.all()
 
-    def _raw_labor_duration(self) -> timedelta:
-        total = timedelta(0)
-        for item in self._iter_items():
-            if item.service and item.duration:
-                total += item.duration * item.quantity
-                continue
-
-            if not item.kit_id:
-                continue
-
-            for override in item._iter_frozen_kit_service_overrides():
-                if override.quantity > 0 and override.duration:
-                    total += override.duration * override.quantity * item.quantity
-        return total
-
     @property
     def mechanic_hour_cost_value(self) -> Money:
         pricing_context = self.budget.get_frozen_pricing_context()
@@ -278,8 +263,7 @@ class WorkOrder(TimeStampedModel):
         # Dashboard/list total-only paths: with slider==0, labor cost does not change total_budget_value.
         if getattr(self, "_skip_mechanic_labor_cost", False):
             return Money(0, "BRL")
-        duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
-        return self.mechanic_hour_cost_value * duracao_em_horas
+        return self.pricing_snapshot.total_labor_cost_value
 
     def _build_pricing_snapshot(self, labor_selling_value_override: Money | None = None) -> PricingSnapshot:
         return build_pricing_snapshot(
@@ -287,7 +271,7 @@ class WorkOrder(TimeStampedModel):
             slider=int(getattr(self.budget, "slider", 0) or 0),
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
-            labor_cost_value=self.total_labor_cost_value,
+            labor_hourly_cost_value=self.mechanic_hour_cost_value,
             labor_selling_value_override=labor_selling_value_override,
         )
 
@@ -298,7 +282,7 @@ class WorkOrder(TimeStampedModel):
             slider=int(getattr(self.budget, "slider", 0) or 0),
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
-            labor_cost_value=self.total_labor_cost_value,
+            labor_hourly_cost_value=self.mechanic_hour_cost_value,
             include_benefit_items=True,
         )
 
@@ -771,6 +755,7 @@ class WorkOrder(TimeStampedModel):
                 "total_duration_display": snapshot.total_duration,
                 "total_costs_products_value": snapshot.total_costs_products_value,
                 "total_products_shipping": snapshot.total_products_shipping,
+                "total_services_shipping": snapshot.total_services_shipping,
                 "total_third_party_services_cost": snapshot.total_third_party_services_cost,
                 "total_products_value": snapshot.total_products_value,
                 "total_third_party_services_selling": snapshot.total_third_party_services_selling,
@@ -781,6 +766,7 @@ class WorkOrder(TimeStampedModel):
             "total_duration_display": self.total_duration,
             "total_costs_products_value": self.total_costs_products_value,
             "total_products_shipping": self.total_products_shipping,
+            "total_services_shipping": self.total_services_shipping,
             "total_third_party_services_cost": self.total_third_party_services_cost,
             "total_products_value": self.total_products_value,
             "total_third_party_services_selling": self.total_third_party_services_selling,
@@ -802,16 +788,17 @@ class WorkOrder(TimeStampedModel):
 
         custo_pecas = v["total_costs_products_value"]
         custo_frete_pecas = v["total_products_shipping"]
+        custo_frete_servicos = v["total_services_shipping"]
         custo_servico_terceiro = v["total_third_party_services_cost"]
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
 
-        venda_pecas = v["total_products_value"] - custo_frete_pecas
+        venda_pecas = v["total_products_value"]
         venda_servico_terceiro = v["total_third_party_services_selling"]
 
-        divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
-        soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
-        subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro
+        divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra + custo_frete_servicos).amount
+        soma_base_orcamento = venda_pecas + venda_servico_terceiro
+        subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro + custo_frete_servicos
 
         trad_data = self._build_tradicional_method_data(
             pricing_context=pricing_context,
@@ -938,12 +925,13 @@ class WorkOrder(TimeStampedModel):
     def _fallback_pricing_data(self, v: dict[str, Any], duracao_display: str) -> dict[str, Any]:
         custo_pecas = v["total_costs_products_value"]
         custo_frete_pecas = v["total_products_shipping"]
+        custo_frete_servicos = v["total_services_shipping"]
         custo_servico_terceiro = v["total_third_party_services_cost"]
-        venda_pecas = v["total_products_value"] - custo_frete_pecas
+        venda_pecas = v["total_products_value"]
         venda_servico_terceiro = v["total_third_party_services_selling"]
         venda_mao_obra = v["total_services_value"] - venda_servico_terceiro
         valor_orcamento = v["total_products_value"] + v["total_services_value"]
-        lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_servico_terceiro)
+        lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_frete_servicos)
         rentabilidade = self._calc_rentabilidade(valor_orcamento, lucro_operacional)
         return {
             "method_name": "Base",
@@ -1203,13 +1191,13 @@ class WorkOrderItem(TimeStampedModel):
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
     is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
-    shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
+    shipping = MoneyField(verbose_name="Custo de Frete", max_digits=14, decimal_places=2, default=0)
     product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
     product_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
 
     service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
     service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
-    service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
+    service_shipping = MoneyField(verbose_name="Custo de Frete", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Kit snapshot frozen", default=False)
     item_benefit_type = models.CharField(
@@ -1502,8 +1490,7 @@ class WorkOrderItem(TimeStampedModel):
     def total_price(self):
         if self.kit:
             return self.get_kit_total_with_overrides()
-        shipping_total = self.shipping + self.service_shipping
-        return ((self.product_selling_price + self.service_selling_price) * self.quantity) + shipping_total
+        return (self.product_selling_price + self.service_selling_price) * self.quantity
 
     def get_kit_total_with_overrides(self):
         if not self.kit:
@@ -1513,7 +1500,7 @@ class WorkOrderItem(TimeStampedModel):
     def get_kit_products_total(self):
         if not self.kit:
             return Money(0, "BRL")
-        return sum((ov.product_selling_price * ov.quantity) + ov.shipping for ov in self._iter_frozen_kit_product_overrides()) * self.quantity
+        return sum(ov.product_selling_price * ov.quantity for ov in self._iter_frozen_kit_product_overrides()) * self.quantity
 
     def get_kit_services_total(self):
         if not self.kit:
