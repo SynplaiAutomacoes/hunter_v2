@@ -145,6 +145,10 @@ class FiscalDocumentPurpose(models.TextChoices):
     REVERSAL = "reversal", "Estorno"
 
 
+class FiscalDocumentComplementaryType(models.TextChoices):
+    PRICE_QUANTITY = "price_quantity", "Preço/quantidade"
+
+
 class FiscalDocumentLinkRole(models.TextChoices):
     RETURNS = "returns", "Devolve"
     REVERSES = "reverses", "Estorna"
@@ -774,6 +778,7 @@ class FiscalDocument(TimeStampedModel):
     document_type = models.CharField(max_length=12, choices=FiscalDocumentType.choices, default=FiscalDocumentType.NFE, db_index=True)
     origin = models.CharField(max_length=16, choices=FiscalDocumentOrigin.choices, default=FiscalDocumentOrigin.LOCAL, db_index=True)
     purpose = models.CharField(max_length=24, choices=FiscalDocumentPurpose.choices, default=FiscalDocumentPurpose.NORMAL, db_index=True)
+    complementary_type = models.CharField(max_length=32, choices=FiscalDocumentComplementaryType.choices, blank=True, default="", db_index=True)
     legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, null=True, blank=True, related_name="fiscal_document")
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
     access_key = models.CharField(max_length=80, blank=True, default="", db_index=True)
