@@ -982,25 +982,17 @@ class Budget(TimeStampedModel):
 
     @property
     def selected_items_total_products_without_shipping(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            total += item.summary_products_total_without_shipping
-        return total
+        # The pricing snapshot already excludes freight from the sale total.
+        return self.total_products_value
 
     @property
     def selected_items_total_services_value(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            total += item.summary_services_total
-        return total
+        # The pricing snapshot already excludes freight from the sale total.
+        return self.total_services_value
 
     @property
     def selected_items_total_shipping_value(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            total += item.summary_shipping_total
-        return total
-
+        return self.total_shipping
     @property
     def selected_items_total_base_value(self) -> Money:
         # Freight is shown separately as an internal cost and must not be charged to the customer.
