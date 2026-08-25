@@ -1266,7 +1266,7 @@ def _get_total_sold_workorders(*, workshop: Workshop, month: int, year: int) -> 
         row["workorder_id"]: row["total"] or Decimal("0.00")
         for row in WorkOrderPaymentMethod.objects.filter(
             workorder__workshop=workshop,
-            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__status__in=WORKORDER_REVENUE_STATUSES,
             workorder__budget_type="sale",
             due_date__month=month,
             due_date__year=year,
