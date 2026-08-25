@@ -242,6 +242,11 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                     elements.hiddenPercentage.dataset.discountSyncBound = 'true';
                                 }}
 
+                                if (parseDotDecimal(elements.hiddenMoney.value) > 0) {{
+                                    syncFromValue(elements);
+                                    return;
+                                }}
+
                                 if (parseDotDecimal(elements.hiddenPercentage.value) > 0) {{
                                     syncFromPercentage(elements);
                                     return;

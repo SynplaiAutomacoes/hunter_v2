@@ -5,7 +5,7 @@ from typing import Literal
 
 from django.urls import reverse
 
-from apps.finance.models.finance import NfeRequest, NfseRequest
+from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
@@ -44,8 +44,12 @@ def get_workorder_emission_ui_state(*, workorder: WorkOrder) -> WorkOrderEmissio
     if workorder.status != WorkOrderStatus.APPROVED:
         return None
 
-    nfe_request = NfeRequest.objects.filter(workorder=workorder).order_by("-pk").first()
-    nfse_request = NfseRequest.objects.filter(workorder=workorder).order_by("-pk").first()
+    # Notas canceladas/inutilizadas não devem bloquear nova emissão.
+    _NFE_INACTIVE_STATUSES = (NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED)
+    _NFSE_INACTIVE_STATUSES = (NfseRequestStatus.CANCELED,)
+
+    nfe_request = NfeRequest.objects.filter(workorder=workorder).exclude(status__in=_NFE_INACTIVE_STATUSES).order_by("-pk").first()
+    nfse_request = NfseRequest.objects.filter(workorder=workorder).exclude(status__in=_NFSE_INACTIVE_STATUSES).order_by("-pk").first()
     has_nfe = nfe_request is not None
     has_nfse = nfse_request is not None
     nfe_request_id = nfe_request.pk if nfe_request is not None else None

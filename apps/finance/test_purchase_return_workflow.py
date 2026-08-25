@@ -11,11 +11,12 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
+from apps.budget.models import Budget
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.finance.forms.purchase_return import PurchaseReturnItemsForm
 from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
-from apps.finance.models.finance import FiscalDocumentOrigin
+from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest
 from apps.finance.services.nfe_returns import confirm_nfe_return_document_from_payload
 from apps.finance.services.purchase_returns import (
     PurchaseReturnError,
@@ -23,6 +24,7 @@ from apps.finance.services.purchase_returns import (
     finalize_purchase_return_request,
     build_purchase_return_product_lines,
     find_purchase_by_access_key,
+    find_purchase_by_id,
     get_or_create_purchase_return_request,
     search_purchase_imports,
     save_purchase_return_items,
@@ -33,6 +35,7 @@ from apps.finance.services.purchase_returns import (
 from apps.finance.views.purchase_return import PurchaseReturnCreateView, PurchaseReturnWorkflowView
 from apps.stock.models import StockImport, StockImportFiscalItem, StockMovement, StockProduct
 from apps.workshops.models.workshops import Workshop
+from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
 ACCESS_KEY = "35" + ("7" * 42)
@@ -89,6 +92,7 @@ class PurchaseReturnWorkflowTests(TestCase):
             nf_key=ACCESS_KEY,
             supplier_name="Fornecedor Teste",
             supplier_cnpj="99888777000166",
+            status=StockImport.ImportStatus.COMPLETED,
             fiscal_document=self.document,
             fiscal_snapshot={"document": {"issued_at": "2026-08-02T10:00:00-03:00", "cancelled": False}},
             fiscal_issued_at=timezone.make_aware(datetime(2026, 8, 2, 10, 0)),
@@ -158,6 +162,65 @@ class PurchaseReturnWorkflowTests(TestCase):
 
         self.assertFalse(search_purchase_imports(workshop=self.workshop, filters={"product": "inexistente"}).exists())
         self.assertFalse(search_purchase_imports(workshop=self.other_workshop, filters={}).exists())
+
+    def test_search_excludes_generic_fiscal_documents_without_stock_import(self) -> None:
+        FiscalDocument.objects.create(
+            workshop=self.workshop,
+            origin=FiscalDocumentOrigin.EXTERNAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+            status=FiscalDocumentStatus.APPROVED,
+            access_key="35" + ("1" * 42),
+            request_payload={"products": [{"sequence": 1, "quantity": "1.0000"}]},
+        )
+
+        self.assertEqual(list(search_purchase_imports(workshop=self.workshop, filters={})), [self.stock_import])
+        with self.assertRaisesMessage(PurchaseReturnError, "Não encontramos uma NF-e de compra válida"):
+            find_purchase_by_access_key(workshop=self.workshop, access_key="35" + ("1" * 42))
+
+    def test_search_excludes_local_workorder_invoice_without_stock_import(self) -> None:
+        budget = Budget.objects.create(workshop=self.workshop, number=7001, entry_date=timezone.localdate())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        nfe_item = NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid=uuid4(),
+            status="aprovado",
+            access_key="35" + ("2" * 42),
+            number="7001",
+            series="1",
+            raw_payload={"produtos": [{"sequencial": 1, "quantidade": "1.0000"}]},
+        )
+        FiscalDocument.objects.create(
+            workshop=self.workshop,
+            origin=FiscalDocumentOrigin.LOCAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+            status=FiscalDocumentStatus.APPROVED,
+            access_key=nfe_item.access_key,
+            legacy_nfe_item=nfe_item,
+        )
+
+        self.assertEqual(list(search_purchase_imports(workshop=self.workshop, filters={})), [self.stock_import])
+        with self.assertRaisesMessage(PurchaseReturnError, "Não encontramos uma NF-e de compra válida"):
+            find_purchase_by_access_key(workshop=self.workshop, access_key=nfe_item.access_key)
+
+    def test_legacy_import_without_stock_link_is_not_eligible(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_number="655",
+            nf_key="35" + ("3" * 42),
+            supplier_name="Fornecedor Sem Estoque",
+            supplier_cnpj="88777666000155",
+            method=StockImport.ImportMethods.XML,
+            status=StockImport.ImportStatus.COMPLETED,
+            items_data=[{"nitem": 1, "ref": "SEM-ESTOQUE", "desc": "Item sem vínculo", "qtd": "1.0000", "valor": "10.00"}],
+        )
+
+        self.assertEqual(list(search_purchase_imports(workshop=self.workshop, filters={"number": "655"})), [])
+        with self.assertRaisesMessage(PurchaseReturnError, "não está autorizada"):
+            find_purchase_by_id(workshop=self.workshop, stock_import_id=stock_import.pk, requested_by=self.user)
 
     def test_search_includes_normalized_legacy_purchase_without_validation_flag_or_cancelled_key(self) -> None:
         self.stock_import.fiscal_snapshot = {"document": {"issued_at": "2026-08-02T10:00:00-03:00"}}

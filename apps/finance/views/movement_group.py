@@ -17,6 +17,7 @@ from apps.workorder.models import WorkOrderPaymentMethod
 class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = MovementGroup
     workshop_permission_codename = "add_financialmovement"
+    workshop_permission_model = "financialmovement"
 
     def get(self, request, *args, **kwargs):
         return HttpResponse("Método não permitido", status=405)
@@ -221,6 +222,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class GroupMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = MovementGroup
     workshop_permission_codename = "delete_financialmovement"
+    workshop_permission_model = "financialmovement"
 
     def post(self, request, pk, *args, **kwargs):
         group = get_object_or_404(MovementGroup, pk=pk, workshop=self.workshop)

@@ -453,7 +453,9 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
         if self.workshop:
             self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
-            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)]
+            bank_accounts = BankAccount.objects.filter(workshop=self.workshop, is_active=True).order_by("bank_name", "account_number", "id")
+            self.fields["bank_account"].queryset = bank_accounts
+            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in bank_accounts]
 
             payment_methods = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True)
             direction = self.instance.direction
@@ -801,7 +803,9 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
             self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_method_qs]
             self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
-            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)]
+            bank_account_qs = self._get_bank_account_queryset()
+            self.fields["bank_account"].queryset = bank_account_qs
+            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in bank_account_qs]
             self.payment_method_filter_data = {
                 "CREDIT": [str(payment_method.pk) for payment_method in payment_method_qs if payment_method.payment_type in [PaymentMethod.PaymentType.CREDIT, PaymentMethod.PaymentType.BOTH]],
                 "DEBIT": [str(payment_method.pk) for payment_method in payment_method_qs if payment_method.payment_type in [PaymentMethod.PaymentType.DEBIT, PaymentMethod.PaymentType.BOTH]],
@@ -940,6 +944,20 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
         return payment_methods.order_by("description").distinct()
 
+    def _get_bank_account_queryset(self):
+        bank_accounts = BankAccount.objects.filter(workshop=self.workshop, is_active=True)
+
+        pinned_bank_account_ids: set[int] = set()
+        if self.instance.pk and self.instance.bank_account_id:
+            pinned_bank_account_ids.add(int(self.instance.bank_account_id))
+
+        if pinned_bank_account_ids:
+            bank_accounts = BankAccount.objects.filter(workshop=self.workshop).filter(
+                Q(is_active=True) | Q(pk__in=pinned_bank_account_ids)
+            )
+
+        return bank_accounts.order_by("bank_name", "account_number", "id").distinct()
+
     @staticmethod
     def _payment_method_matches_direction(payment_method, direction):
         if direction == FinancialMovement.MovementDirection.CREDIT:
@@ -973,7 +991,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 self.add_error("supplier", self.ENTITY_REQUIRED_ERROR)
                 self.add_error("collaborator", self.ENTITY_REQUIRED_ERROR)
 
-        if self.instance.description != "Pagamento da taxa da maquininha" and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
+        if getattr(self.instance, "movement_kind", None) != FinancialMovement.MovementKind.WORKORDER_CARD_FEE and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
 
         for field, message in apply_payment_reconciliation_rules(cleaned_data):

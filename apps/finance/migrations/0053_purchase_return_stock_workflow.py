@@ -12,8 +12,7 @@ from . import _idempotent
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('finance', '0050_merge_20260810_1742'),
-        ('finance', '0094_merge_nbs_and_restore_columns'),
+        ('finance', '0052_taxclassnfse_codigo_nbs'),
         ('stock', '0017_stockmovement_reason'),
         ('workshops', '0044_outbound_business_weekdays_all_days'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

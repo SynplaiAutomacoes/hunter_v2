@@ -13,11 +13,12 @@ from apps.collaborators.services import sync_collaborator_payroll
 from apps.collaborators.test_commissions import create_financial_group_path, create_workorder
 from apps.core.presentation.navigation import get_navbar_menus
 from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.dre import _agent_label
 from apps.finance.services.payroll_visibility import PAYROLL_REDACTED_LABEL, resolve_payroll_movement_display
 from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementRemovePayrollLinkView
-from apps.finance.views.payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
+from apps.finance.views.payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView
 from apps.finance.views.reports import ReportMovementEditView
 from apps.workshops.models.workshops import Workshop
 
@@ -57,76 +58,6 @@ class PayrollListViewTests(TestCase):
         finance_menu = next(menu for menu in menus if menu["label"] == "Financeiro")
         labels = {item["label"] for item in finance_menu["children"]}
         self.assertNotIn("Folha de Pagamento", labels)
-
-    def test_list_queryset_does_not_trigger_monthly_sync_on_page_load(self) -> None:
-        workshop = create_workshop(suffix=19)
-        collaborator = create_collaborator(workshop=workshop, suffix=19)
-        CollaboratorPayroll.objects.create(
-            workshop=workshop,
-            collaborator=collaborator,
-            reference_year=2026,
-            reference_month=8,
-            due_date=date(2026, 8, 5),
-            salary_amount=Money(2000, "BRL"),
-            total_amount=Money(2000, "BRL"),
-        )
-
-        view = PayrollListView()
-        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 8, "ano": 2026})
-        view.workshop = workshop
-
-        with patch.object(view, "_sync_monthly_payrolls") as sync_mock:
-            list(view._get_queryset())
-
-        sync_mock.assert_not_called()
-
-    def test_monthly_sync_skips_collaborators_with_existing_payroll_and_financial_movement(self) -> None:
-        workshop = create_workshop(suffix=20)
-        synced_collaborator = create_collaborator(workshop=workshop, suffix=20)
-        collaborator_without_movement = create_collaborator(workshop=workshop, suffix=21)
-        missing_payroll_collaborator = create_collaborator(workshop=workshop, suffix=22)
-
-        synced_movement = FinancialMovement.objects.create(
-            workshop=workshop,
-            collaborator=synced_collaborator,
-            direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Folha sincronizada",
-            amount=Money(2000, "BRL"),
-            due_date=date(2026, 8, 5),
-            is_paid=False,
-        )
-        CollaboratorPayroll.objects.create(
-            workshop=workshop,
-            collaborator=synced_collaborator,
-            financial_movement=synced_movement,
-            reference_year=2026,
-            reference_month=8,
-            due_date=date(2026, 8, 5),
-            salary_amount=Money(2000, "BRL"),
-            total_amount=Money(2000, "BRL"),
-        )
-        CollaboratorPayroll.objects.create(
-            workshop=workshop,
-            collaborator=collaborator_without_movement,
-            reference_year=2026,
-            reference_month=8,
-            due_date=date(2026, 8, 5),
-            salary_amount=Money(2000, "BRL"),
-            total_amount=Money(2000, "BRL"),
-        )
-
-        view = PayrollListView()
-        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 8, "ano": 2026})
-        view.workshop = workshop
-
-        with patch("apps.finance.views.payroll.sync_collaborator_payrolls_batch") as sync_mock:
-            view._sync_monthly_payrolls(filters=view._get_filter_params())
-
-        sync_mock.assert_called_once()
-        synced_ids = {collaborator.pk for collaborator in sync_mock.call_args.kwargs["collaborators"]}
-        self.assertNotIn(synced_collaborator.pk, synced_ids)
-        self.assertIn(collaborator_without_movement.pk, synced_ids)
-        self.assertIn(missing_payroll_collaborator.pk, synced_ids)
 
     def test_list_includes_active_collaborator_without_created_payroll(self) -> None:
         workshop = create_workshop(suffix=19)
@@ -254,73 +185,6 @@ class PayrollListViewTests(TestCase):
         self.assertEqual(len(rows), 5)
         # Prefetch benefits + one commission batch + one WorkshopCost lookup ΓÇö not N per collaborator.
         self.assertLessEqual(len(ctx), 12)
-
-    def test_monthly_sync_includes_collaborators_with_existing_unpaid_payroll(self) -> None:
-        workshop = create_workshop(suffix=20)
-        synced_collaborator = create_collaborator(workshop=workshop, suffix=20)
-        collaborator_without_movement = create_collaborator(workshop=workshop, suffix=21)
-        missing_payroll_collaborator = create_collaborator(workshop=workshop, suffix=22)
-
-        synced_movement = FinancialMovement.objects.create(
-            workshop=workshop,
-            collaborator=synced_collaborator,
-            direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Folha sincronizada",
-            amount=Money(2000, "BRL"),
-            due_date=date(2026, 8, 5),
-            is_paid=False,
-        )
-        CollaboratorPayroll.objects.create(
-            workshop=workshop,
-            collaborator=synced_collaborator,
-            financial_movement=synced_movement,
-            reference_year=2026,
-            reference_month=8,
-            due_date=date(2026, 8, 5),
-            salary_amount=Money(2000, "BRL"),
-            total_amount=Money(2000, "BRL"),
-        )
-        CollaboratorPayroll.objects.create(
-            workshop=workshop,
-            collaborator=collaborator_without_movement,
-            reference_year=2026,
-            reference_month=8,
-            due_date=date(2026, 8, 5),
-            salary_amount=Money(2000, "BRL"),
-            total_amount=Money(2000, "BRL"),
-        )
-
-        view = PayrollListView()
-        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 8, "ano": 2026})
-        view.workshop = workshop
-
-        with patch("apps.finance.views.payroll.sync_collaborator_payrolls_batch") as sync_mock:
-            view._sync_monthly_payrolls(filters=view._get_filter_params())
-
-        sync_mock.assert_called_once()
-        synced_ids = {collaborator.pk for collaborator in sync_mock.call_args.kwargs["collaborators"]}
-        self.assertIn(synced_collaborator.pk, synced_ids)
-        self.assertIn(collaborator_without_movement.pk, synced_ids)
-        self.assertIn(missing_payroll_collaborator.pk, synced_ids)
-
-    def test_refresh_view_triggers_monthly_sync_and_preserves_filters(self) -> None:
-        workshop = create_workshop(suffix=23)
-        view = PayrollRefreshView()
-        request = RequestFactory().post(
-            "/finance/folha-pagamento/atualizar/",
-            {"mes": "8", "ano": "2026", "search": "Joao", "status": CollaboratorPayroll.Status.FORECAST},
-        )
-        request.user = SimpleNamespace(is_authenticated=False)
-        view.request = request
-        view.workshop = workshop
-
-        with patch.object(view, "_get_collaborators_to_sync", return_value=WorkshopCollaborator.objects.none()) as to_sync_mock, patch.object(view, "_sync_monthly_payrolls") as sync_mock:
-            response = view.post(request)
-
-        to_sync_mock.assert_called_once()
-        sync_mock.assert_not_called()
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, f"{reverse('finance:payroll_list')}?search=Joao&mes=8&ano=2026&status={CollaboratorPayroll.Status.FORECAST}")
 
     def test_paid_rows_keep_action_urls_available(self) -> None:
         workshop = create_workshop(suffix=1)
@@ -807,6 +671,70 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(payroll.due_date, date(2026, 8, 15))
         self.assertEqual(movement.due_date, date(2026, 8, 15))
         self.assertTrue(movement.is_paid)
+
+    def test_submit_form_persists_amount_and_budget_plan_when_work_days_are_posted(self) -> None:
+        workshop = create_workshop(suffix=81)
+        collaborator = create_collaborator(workshop=workshop, suffix=81)
+        original_plan = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 11],
+            names=["Despesas Trabalhistas", "Folha", "Salarios"],
+        )
+        new_plan = FinancialGroup.objects.create(workshop=workshop, parent=original_plan.parent, name="Salarios Extra")
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            budget_plan=original_plan,
+            is_paid=False,
+            is_reconciled=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            work_days=22,
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "work_days": "22",
+                "comp_SALARY-due_date": "2026-08-05",
+                "comp_SALARY-amount_0": "2750.00",
+                "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(new_plan.pk),
+                "comp_SALARY-is_paid": "False",
+                "comp_SALARY-is_reconciled": "False",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        movement.refresh_from_db()
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(movement.amount, Money(2750, "BRL"))
+        self.assertEqual(movement.budget_plan_id, new_plan.pk)
+        self.assertEqual(payroll.salary_amount, Money(2750, "BRL"))
+        self.assertEqual(payroll.total_amount, Money(2750, "BRL"))
+        self.assertEqual(FinancialMovement.objects.filter(payroll=payroll, payroll_component=FinancialMovement.PayrollComponent.SALARY).count(), 1)
 
     def test_submit_form_marking_payroll_as_unpaid_resets_all_split_movements_reconciliation(self) -> None:
         workshop = create_workshop(suffix=8)

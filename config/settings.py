@@ -328,6 +328,10 @@ TAILWIND_CLI_SRC_CSS = os.path.join(BASE_DIR, "static", "css", "main.css")
 TAILWIND_CLI_SRC_REPO = "dobicinaitis/tailwind-cli-extra"
 TAILWIND_CLI_USE_DAISY_UI = True
 TAILWIND_CLI_VERSION = "2.8.2"
+_TAILWIND_CLI_PATH = os.getenv("TAILWIND_CLI_PATH", "").strip()
+if _TAILWIND_CLI_PATH:
+    TAILWIND_CLI_PATH = _TAILWIND_CLI_PATH
+    TAILWIND_CLI_AUTOMATIC_DOWNLOAD = False
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

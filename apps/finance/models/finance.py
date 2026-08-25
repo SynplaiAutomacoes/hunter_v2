@@ -275,6 +275,7 @@ class TaxClassNfse(TimeStampedModel):
     exigibilidade_iss = models.CharField(verbose_name="Exigibilidade ISS", max_length=10, blank=True, default="")
     iss_retido = models.CharField(verbose_name="ISS retido", max_length=10, blank=True, default="")
     responsavel_retencao = models.CharField(verbose_name="Responsável retenção", max_length=10, blank=True, default="")
+    codigo_nbs = models.CharField(verbose_name="Código NBS", max_length=9, blank=True, default="", help_text="Código NBS da classe NFS-e (Padrão Nacional: 9 dígitos).")
     codigo_cnae = models.CharField(verbose_name="Código CNAE", max_length=20, blank=True, default="")
 
     iss = models.DecimalField(verbose_name="Alíquota ISS", max_digits=7, decimal_places=2, null=True, blank=True)

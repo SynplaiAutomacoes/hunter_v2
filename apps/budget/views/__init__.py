@@ -1,6 +1,6 @@
 from .customer_vehicle_views import CustomerDetailView, VehicleDetailView, VehicleListView
 from apps.core.infrastructure.services.signature_webhook import SignatureWebhookView, SuperSignWebhookView
-from .import_items_views import BudgetImportItemsSearchModalView, BudgetImportItemsSelectModalView, BudgetImportItemsProcessView
+from .import_items_views import BudgetImportBudgetSearchView, BudgetImportItemsSearchModalView, BudgetImportItemsSelectModalView, BudgetImportItemsProcessView
 from .item_views import (
     AddItemToBudgetView,
     AddItemsBatchToBudgetView,
@@ -103,4 +103,5 @@ __all__ = [
     "BudgetImportItemsSearchModalView",
     "BudgetImportItemsSelectModalView",
     "BudgetImportItemsProcessView",
+    "BudgetImportBudgetSearchView",
 ]
