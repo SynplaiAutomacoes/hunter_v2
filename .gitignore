@@ -121,7 +121,6 @@ node_modules/
 img.png
 
 # AI agent configuration (local tooling — not committed)
-.cursor/
 .opencode/
 .agents/
 AGENTS.md

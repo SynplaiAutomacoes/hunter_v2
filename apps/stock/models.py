@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -25,7 +27,7 @@ class StockProduct(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stock_products")
     product = models.OneToOneField("catalog.Product", on_delete=models.CASCADE, related_name="stock_products")
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True, related_name="stock_products")
-    current_quantity = models.IntegerField(default=0, verbose_name="Estoque Atual")
+    current_quantity = models.DecimalField(max_digits=15, decimal_places=4, default=Decimal("0"), verbose_name="Estoque Atual")
     minimum_quantity = models.IntegerField(default=0, verbose_name="Estoque Mínimo")
     restock_quantity = models.IntegerField(default=0, verbose_name="Estoque Reposição")
     last_nf = models.CharField(max_length=50, blank=True, null=True, verbose_name="Última NF")
@@ -64,16 +66,22 @@ class StockMovement(TimeStampedModel):
         APPROVED = "APROVADO", "Aprovado"
         REJECTED = "REJEITADO", "Rejeitado"
 
+    class MovementReason(models.TextChoices):
+        PURCHASE_RETURN = "PURCHASE_RETURN", "Nota de Devolução"
+
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="movements")
     stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça", related_name="movements")
     stock_transfer = models.ForeignKey("stock.StockTransfer", on_delete=models.SET_NULL, null=True, blank=True, related_name="movements")
     stock_product = models.ForeignKey(StockProduct, on_delete=models.CASCADE, verbose_name="Peça", related_name="movements")
+    source_import_item = models.ForeignKey("stock.StockImportFiscalItem", on_delete=models.PROTECT, null=True, blank=True, related_name="stock_movements", verbose_name="Item fiscal de origem")
+    fiscal_document = models.ForeignKey("finance.FiscalDocument", on_delete=models.PROTECT, null=True, blank=True, related_name="stock_movements", verbose_name="Documento fiscal")
+    purchase_return_item = models.OneToOneField("finance.PurchaseReturnRequestItem", on_delete=models.PROTECT, null=True, blank=True, related_name="stock_movement", verbose_name="Item da Nota de Devolução")
     type = models.CharField(max_length=10, choices=MovementType.choices, verbose_name="Tipo")
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, verbose_name="Fornecedor", null=True, blank=True, related_name="movements")
     transcation_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="movements", null=True)
     workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="stock_movements")
     reversal_of = models.OneToOneField("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reversal_entry")
-    quantity = models.IntegerField(default=1, verbose_name="Quantidade")
+    quantity = models.DecimalField(max_digits=15, decimal_places=4, default=Decimal("1"), verbose_name="Quantidade")
     reason = models.TextField(blank=True, default="", verbose_name="Motivo")
     status = models.CharField(max_length=10, choices=MovementStatus.choices, verbose_name="Status", default=MovementStatus.WAITING)
 
@@ -177,6 +185,11 @@ class StockImport(TimeStampedModel):
         KEY = "KEY", "Chave de Acesso"
         MANUAL = "MANUAL", "Importar Manualmente"
 
+    class FiscalValidationStatus(models.TextChoices):
+        UNVALIDATED = "unvalidated", "Não validado"
+        VALIDATED = "validated", "Validado"
+        INVALID = "invalid", "Inválido"
+
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por", on_delete=models.SET_NULL, null=True)
 
@@ -192,6 +205,11 @@ class StockImport(TimeStampedModel):
     payments_data = models.JSONField(default=list)
     method = models.CharField(verbose_name="Selecione o método de Importação de Itens", max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
     xml_file_key = models.CharField(max_length=1024, blank=True, default="", db_index=True, verbose_name="XML no Bucket")
+    fiscal_document = models.OneToOneField("finance.FiscalDocument", on_delete=models.PROTECT, null=True, blank=True, related_name="purchase_stock_import", verbose_name="Documento fiscal externo")
+    fiscal_snapshot = models.JSONField(default=dict, blank=True, verbose_name="Snapshot fiscal normalizado")
+    fiscal_issued_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name="Data de emissão fiscal")
+    fiscal_validation_status = models.CharField(max_length=16, choices=FiscalValidationStatus.choices, default=FiscalValidationStatus.UNVALIDATED, db_index=True, verbose_name="Validação fiscal")
+    fiscal_validated_at = models.DateTimeField(null=True, blank=True, verbose_name="Validado fiscalmente em")
     status = models.CharField(max_length=20, choices=ImportStatus.choices, default=ImportStatus.DRAFT)
 
     class Meta:
@@ -213,6 +231,40 @@ class StockImport(TimeStampedModel):
         }
 
         return {"text": self.get_status_display(), "class": status_color.get(self.status, "badge-ghost")}
+
+
+class StockImportFiscalItem(TimeStampedModel):
+    stock_import = models.ForeignKey(StockImport, on_delete=models.PROTECT, related_name="fiscal_items", verbose_name="Importação de estoque")
+    sequence = models.PositiveSmallIntegerField(verbose_name="Sequencial fiscal")
+    stock_product = models.ForeignKey(StockProduct, on_delete=models.PROTECT, null=True, blank=True, related_name="purchase_fiscal_items", verbose_name="Produto do estoque")
+    product_code = models.CharField(max_length=120, blank=True, default="", verbose_name="Código do produto")
+    description = models.CharField(max_length=255, verbose_name="Descrição")
+    quantity = models.DecimalField(max_digits=15, decimal_places=4, validators=[MinValueValidator(Decimal("0.0001"))], verbose_name="Quantidade comprada")
+    unit = models.CharField(max_length=12, blank=True, default="", verbose_name="Unidade")
+    unit_value = models.DecimalField(max_digits=15, decimal_places=4, validators=[MinValueValidator(Decimal("0"))], verbose_name="Valor unitário")
+    total_value = models.DecimalField(max_digits=15, decimal_places=2, validators=[MinValueValidator(Decimal("0"))], verbose_name="Valor total")
+    ncm = models.CharField(max_length=10, blank=True, default="", verbose_name="NCM")
+    cfop = models.CharField(max_length=8, blank=True, default="", verbose_name="CFOP")
+    tax_snapshot = models.JSONField(default=dict, blank=True, verbose_name="Snapshot tributário")
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Item fiscal da importação de estoque"
+        verbose_name_plural = "Itens fiscais da importação de estoque"
+        constraints = [
+            models.UniqueConstraint(fields=["stock_import", "sequence"], name="unique_fiscal_item_sequence_per_stock_import"),
+        ]
+        indexes = [
+            models.Index(fields=["stock_import", "sequence"], name="stock_import_item_sequence_idx"),
+            models.Index(fields=["stock_product"], name="stock_import_item_product_idx"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.stock_product_id and self.stock_product.workshop_id != self.stock_import.workshop_id:
+            raise ValidationError({"stock_product": "O produto de estoque pertence a outra oficina."})
+
+    def __str__(self) -> str:
+        return f"{self.stock_import.nf_number_display} item {self.sequence} - {self.description}"
 
 
 class StockTransfer(TimeStampedModel):

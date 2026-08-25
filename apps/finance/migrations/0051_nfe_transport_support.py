@@ -8,6 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("finance", "0050_nfe_return_support"),
+        ("finance", "0050_merge_20260810_1742"),
     ]
 
     operations = [

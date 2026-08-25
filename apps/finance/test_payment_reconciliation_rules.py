@@ -397,4 +397,3 @@ class PaymentReconciliationFormTests(TestCase):
         self.assertNotIn(inactive_account.pk, step3_bank_account_pks)
         self.assertEqual(step3_form.fields["budget_plan"].widget.choices[0], ("", "---------"))
         self.assertTrue(step3_form.fields["budget_plan"].required)
-

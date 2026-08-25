@@ -20,6 +20,8 @@ Existe uma representacao de empresa integrada com a Webmania, associada a oficin
 
 O sistema expoe gerencia de classes e presets, o que indica uma modelagem mais rica para emissao do que um payload fiscal fixo.
 
+Na Classe de Imposto de NFS-e, campos com conjunto fechado ja conhecido continuam como seletores pesquisaveis. Para `codigo_servico` e `codigo_nbs`, o projeto nao possui endpoint Webmania ou lista oficial local de referencia; por isso a interface oferece apenas sugestoes baseadas em valores de classes NFS-e ja cadastradas no Hunter, mantendo entrada livre e as validacoes existentes. O campo `regime_apuracao_sn` pertence atualmente a configuracao da empresa Webmania, nao ao payload/modelo da Classe de Imposto.
+
 ### Requisicoes de emissao
 
 As rotas em `apps/finance/urls.py` mostram suporte a:

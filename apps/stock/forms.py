@@ -52,6 +52,7 @@ from apps.core.text_normalization import name_case, sentence_case
 
 from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
 from apps.stock.services.files import StockImportFileStorageError, _extract_nfe_xml_from_sefaz_response, save_import_xml_file
+from apps.stock.services.purchase_fiscal import ensure_purchase_fiscal_foundation
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -165,6 +166,10 @@ class ImportStep1Form(CoreModelForm):
             obj.items_data = data.get("items", [])
             obj.payments_data = data.get("payments", [])
             obj.xml_file_key = data.get("xml_file_key", "")
+            obj.fiscal_snapshot = data.get("fiscal_snapshot", {})
+            if obj.fiscal_snapshot:
+                obj.fiscal_validation_status = StockImport.FiscalValidationStatus.VALIDATED
+                obj.fiscal_validated_at = timezone.now()
 
         if method in ["XML", "KEY"] and not obj.nf_key:
             raise ValueError("A chave da NF-e é obrigatória para este método de importação.")
@@ -934,10 +939,16 @@ class ImportStepSummaryForm(CoreModelForm):
         if instance.supplier_cnpj:
             supplier, _ = Supplier.objects.get_or_create(cnpj=instance.supplier_cnpj, workshop=workshop, defaults={"name": instance.supplier_name})
 
-        for item in instance.items_data:
+        fiscal_items = ensure_purchase_fiscal_foundation(stock_import=instance, requested_by=self.request.user)
+        for index, item in enumerate(instance.items_data, start=1):
             product_id = item.get("linked_product_id")
             product = Product.objects.get(id=product_id, workshop=workshop)
             stock_product, _created = StockProduct.objects.get_or_create(workshop=workshop, product=product, defaults={"supplier": supplier, "last_nf": resolved_nf_number})
+            item_sequence = int(item.get("nitem") or item.get("sequence") or index)
+            fiscal_item = fiscal_items.get(item_sequence)
+            if fiscal_item is not None and fiscal_item.stock_product_id != stock_product.pk:
+                fiscal_item.stock_product = stock_product
+                fiscal_item.save(update_fields=["stock_product", "atualizado_em"])
 
             quantity = Decimal(str(item.get("qtd", 0)))
             purchase_price = _money_from_value(item.get("valor"))
@@ -949,6 +960,7 @@ class ImportStepSummaryForm(CoreModelForm):
                 type=StockMovement.MovementType.ENTRY,
                 supplier=supplier,
                 transcation_by=self.request.user,
+                source_import_item=fiscal_item,
                 quantity=quantity,
                 status=StockMovement.MovementStatus.APPROVED,
             )
@@ -1177,6 +1189,10 @@ class ImportSefazListForm(CoreModelForm):
                 instance.items_data = nf_data["items"]
                 instance.payments_data = nf_data["payments"]
                 instance.xml_file_key = nf_data.get("xml_file_key", "")
+                instance.fiscal_snapshot = nf_data.get("fiscal_snapshot", {})
+                if instance.fiscal_snapshot:
+                    instance.fiscal_validation_status = StockImport.FiscalValidationStatus.VALIDATED
+                    instance.fiscal_validated_at = timezone.now()
                 instance.method = "SEFAZ"
 
                 SefazZipCache.objects.filter(workshop=self.workshop, key=instance.nf_key).update(

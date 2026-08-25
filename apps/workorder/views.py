@@ -49,6 +49,7 @@ from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock, workorder_can_finalize_after_signature
+from apps.workorder import util as workorder_util
 from apps.workorder.documents.provider import (
     build_workorder_pdf_render_request,
     build_workorder_status_report_pdf_render_request,
@@ -79,6 +80,7 @@ from apps.workorder.util import (
     _calculate_service_prices,
     _get_workorder_workshop_cost,
     _build_customer_approvement_context,
+    _build_workorder_emission_section_context,
     _build_workorder_pdf_file_response,
     workorder_can_toggle_signed_pdf,
     apply_workorder_collaborators_continue,
@@ -1451,6 +1453,31 @@ class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return response
 
         return HttpResponse(headers={"HX-Refresh": "true"})
+
+
+class WorkOrderEmissionContinueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "view_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not workorder_util.can_view_workorder_emission(request=request, workorder=workorder):
+            return HttpResponse(status=403)
+
+        context = _build_workorder_emission_section_context(workorder=workorder, request=request)
+        form = context.get("emission_form")
+        if form is None or not form.is_valid():
+            return render(request, "workorder/partials/nf_section.html", context)
+
+        from apps.finance.views.emission import EmissionRequestCreateView
+
+        view = EmissionRequestCreateView()
+        view.request = request
+        view.args = ()
+        view.kwargs = {}
+        view.workshop = self.workshop
+        view.seed_state_at_summary(workorder=workorder)
+        return view.apply_summary_and_note_mode(form=form, workorder=workorder, form_action="workorder_emission_continue")
 
 
 @xframe_options_exempt

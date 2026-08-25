@@ -19,6 +19,7 @@ from .payroll import (
     PayrollListView,
     PayrollSyncComponentView,
 )
+from .purchase_return import PurchaseReturnCreateView, PurchaseReturnPreviewPdfView, PurchaseReturnPreviewView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassDeleteView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -61,6 +62,11 @@ __all__ = [
     "PayrollEditModalView",
     "PayrollListView",
     "PayrollSyncComponentView",
+    "PurchaseReturnCreateView",
+    "PurchaseReturnPreviewPdfView",
+    "PurchaseReturnPreviewView",
+    "PurchaseReturnTransmitView",
+    "PurchaseReturnWorkflowView",
     "FinancialGroupUpdateView",
     "IssuedDocumentsArchiveDownloadView",
     "IssuedDocumentsListView",

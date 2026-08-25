@@ -1,0 +1,31 @@
+<div class="mt-6 space-y-5 rounded-xl border border-base-300 bg-base-200/30 p-5">
+    <dl class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+        <div><dt class="text-base-content/60">NF-e origem</dt><dd class="font-semibold">{{ document.number|default:source.nf_number_display }} / Série {{ document.series|default:"—" }}</dd></div>
+        <div><dt class="text-base-content/60">Fornecedor</dt><dd class="font-semibold">{{ source.supplier_name|default:"—" }}</dd></div>
+        <div class="md:col-span-2"><dt class="text-base-content/60">Chave</dt><dd class="break-all font-mono text-xs font-semibold">{{ document.access_key }}</dd></div>
+    </dl>
+    <div class="overflow-x-auto">
+        <table class="table table-sm">
+            <thead><tr><th>Tipo</th><th>Produto</th><th class="text-right">Quantidade</th><th class="text-right">Valor</th></tr></thead>
+            <tbody>
+                {% for selected in selected_stock_items %}
+                    <tr>
+                        <td><span class="badge badge-success">Estoque</span></td>
+                        <td>{{ selected.source_item.description }}</td>
+                        <td class="text-right">{{ selected.quantity|floatformat:4 }} {{ selected.source_item.unit }}</td>
+                        <td class="text-right">R$ {{ selected.total_value|floatformat:2 }}</td>
+                    </tr>
+                {% endfor %}
+                {% for selected in selected_manual_items %}
+                    <tr>
+                        <td><span class="badge badge-warning">Avulso</span></td>
+                        <td>{{ selected.description }}</td>
+                        <td class="text-right">{{ selected.quantity|floatformat:4 }} {{ selected.unit }}</td>
+                        <td class="text-right">R$ {{ selected.total_value|floatformat:2 }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot><tr><th colspan="2">Total</th><th class="text-right">{{ total_quantity|floatformat:4 }}</th><th class="text-right">R$ {{ total_value|floatformat:2 }}</th></tr></tfoot>
+        </table>
+    </div>
+</div>

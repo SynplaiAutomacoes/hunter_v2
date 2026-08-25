@@ -146,6 +146,10 @@ class FiscalDocumentPurpose(models.TextChoices):
     REVERSAL = "reversal", "Estorno"
 
 
+class FiscalDocumentComplementaryType(models.TextChoices):
+    PRICE_QUANTITY = "price_quantity", "Preço/quantidade"
+
+
 class FiscalDocumentLinkRole(models.TextChoices):
     RETURNS = "returns", "Devolve"
     REVERSES = "reverses", "Estorna"
@@ -276,6 +280,7 @@ class TaxClassNfse(TimeStampedModel):
     exigibilidade_iss = models.CharField(verbose_name="Exigibilidade ISS", max_length=10, blank=True, default="")
     iss_retido = models.CharField(verbose_name="ISS retido", max_length=10, blank=True, default="")
     responsavel_retencao = models.CharField(verbose_name="Responsável retenção", max_length=10, blank=True, default="")
+    codigo_nbs = models.CharField(verbose_name="Código NBS", max_length=9, blank=True, default="", help_text="Código NBS da classe NFS-e (Padrão Nacional: 9 dígitos).")
     codigo_cnae = models.CharField(verbose_name="Código CNAE", max_length=20, blank=True, default="")
 
     iss = models.DecimalField(verbose_name="Alíquota ISS", max_digits=7, decimal_places=2, null=True, blank=True)
@@ -775,6 +780,7 @@ class FiscalDocument(TimeStampedModel):
     document_type = models.CharField(max_length=12, choices=FiscalDocumentType.choices, default=FiscalDocumentType.NFE, db_index=True)
     origin = models.CharField(max_length=16, choices=FiscalDocumentOrigin.choices, default=FiscalDocumentOrigin.LOCAL, db_index=True)
     purpose = models.CharField(max_length=24, choices=FiscalDocumentPurpose.choices, default=FiscalDocumentPurpose.NORMAL, db_index=True)
+    complementary_type = models.CharField(max_length=32, choices=FiscalDocumentComplementaryType.choices, blank=True, default="", db_index=True)
     legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, null=True, blank=True, related_name="fiscal_document")
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
     access_key = models.CharField(max_length=80, blank=True, default="", db_index=True)
