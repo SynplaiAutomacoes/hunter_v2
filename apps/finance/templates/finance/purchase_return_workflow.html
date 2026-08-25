@@ -149,14 +149,8 @@
                 <form method="post" class="mt-6 space-y-5" novalidate>
                     {% csrf_token %}
                     {% if fiscal_form.non_field_errors %}<div class="alert alert-error">{{ fiscal_form.non_field_errors }}</div>{% endif %}
-                    <div class="rounded-xl border border-base-300 bg-base-200/30 p-5">
-                        <h3 class="mb-4 text-lg font-semibold">Dados fiscais da Nota de Devolução</h3>
-                        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            {{ fiscal_form.operation_nature|as_crispy_field }}
-                            {{ fiscal_form.cfop|as_crispy_field }}
-                            {{ fiscal_form.tax_class|as_crispy_field }}
-                            <div class="md:col-span-2">{{ fiscal_form.additional_information|as_crispy_field }}</div>
-                        </div>
+                    <div class="space-y-5">
+                        {% crispy fiscal_form %}
                     </div>
                     <div class="flex flex-wrap justify-between gap-3 border-t border-base-200 pt-5">
                         <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=2" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date
-from decimal import Decimal, InvalidOperation
+from collections.abc import Mapping
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
 
@@ -47,6 +48,7 @@ from apps.finance.services.nfe_events import ensure_fiscal_document_for_nfe_item
 from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 
 
 logger = logging.getLogger(__name__)
@@ -128,6 +130,139 @@ def _normalize_return_tax_class(value: str | None) -> str:
     if len(normalized) > 30:
         raise NfeReturnError("A referencia da classe de imposto deve possuir no maximo 30 caracteres.")
     return normalized
+
+
+def _format_return_money(value: object) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise NfeReturnError("Informe valores monetarios validos para a Nota de Devolucao.") from exc
+    if amount < 0:
+        raise NfeReturnError("Os valores de frete, desconto e despesas nao podem ser negativos.")
+    return f"{amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+
+
+def _return_datetime_text(value: object) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, datetime):
+        localized = timezone.localtime(value) if timezone.is_aware(value) else value
+        return localized.strftime("%Y-%m-%d %H:%M:%S")
+    return str(value).strip()
+
+
+def _return_date_text(value: object) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, datetime):
+        localized = timezone.localtime(value) if timezone.is_aware(value) else value
+        return localized.strftime("%Y-%m-%d")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    return str(value).strip()
+
+
+def _apply_return_emission_extras(payload: dict[str, Any], extras: Mapping[str, Any] | None) -> None:
+    if not extras:
+        return
+
+    pedido: dict[str, Any] = {}
+    try:
+        freight_mode = int(str(extras.get("freight_mode") if extras.get("freight_mode") not in (None, "") else 9))
+    except (TypeError, ValueError) as exc:
+        raise NfeReturnError("Selecione uma modalidade de frete valida.") from exc
+    if freight_mode not in {0, 1, 2, 3, 4, 9}:
+        raise NfeReturnError("Selecione uma modalidade de frete valida.")
+    if freight_mode != 9:
+        pedido["modalidade_frete"] = freight_mode
+
+    money_fields = (
+        ("freight_amount", "frete"),
+        ("discount_amount", "desconto"),
+        ("accessory_expenses", "despesas_acessorias"),
+        ("customs_expenses", "despesas_aduaneiras"),
+        ("total_override", "total"),
+    )
+    for extra_key, payload_key in money_fields:
+        formatted = _format_return_money(extras.get(extra_key))
+        if formatted:
+            pedido[payload_key] = formatted
+
+    presence = str(extras.get("presence") or "").strip()
+    if presence:
+        pedido["presenca"] = int(presence)
+    intermediary = str(extras.get("intermediary") or "").strip()
+    if intermediary:
+        pedido["intermediador"] = int(intermediary)
+    intermediary_cnpj = re.sub(r"\D", "", str(extras.get("intermediary_cnpj") or ""))
+    if intermediary_cnpj:
+        pedido["cnpj_intermediador"] = intermediary_cnpj
+    intermediary_id = str(extras.get("intermediary_id") or "").strip()
+    if intermediary_id:
+        pedido["id_intermediador"] = intermediary_id
+    purchase_order = str(extras.get("purchase_order") or "").strip()
+    if purchase_order:
+        pedido["pedido_compra"] = purchase_order
+    contract = str(extras.get("contract") or "").strip()
+    if contract:
+        pedido["contrato"] = contract
+    commitment_note = str(extras.get("commitment_note") or "").strip()
+    if commitment_note:
+        pedido["nota_empenho"] = commitment_note
+
+    payment_indicator = str(extras.get("payment_indicator") or "").strip()
+    if payment_indicator:
+        pedido["pagamento"] = int(payment_indicator)
+    payment_method = str(extras.get("payment_method") or "").strip()
+    if payment_method:
+        pedido["forma_pagamento"] = payment_method
+    payment_description = str(extras.get("payment_description") or "").strip()
+    if payment_description:
+        pedido["desc_pagamento"] = payment_description
+    payment_value = _format_return_money(extras.get("payment_value"))
+    if payment_value:
+        pedido["valor_pagamento"] = payment_value
+    payment_date = _return_date_text(extras.get("payment_date"))
+    if payment_date:
+        pedido["data_pagamento"] = payment_date
+
+    if "modalidade_frete" not in pedido and pedido:
+        pedido["modalidade_frete"] = freight_mode
+
+    if pedido:
+        payload["pedido"] = pedido
+
+    issue_at = _return_datetime_text(extras.get("issue_at"))
+    if issue_at:
+        payload["data_emissao"] = issue_at
+    departure_at = _return_datetime_text(extras.get("departure_at"))
+    if departure_at:
+        payload["data_entrada_saida"] = departure_at
+    delivery_forecast = _return_date_text(extras.get("delivery_forecast"))
+    if delivery_forecast:
+        payload["data_previsao_entrega"] = delivery_forecast
+
+    snapshot = extras.get("transport_snapshot") or {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    if freight_mode != 9 and not snapshot:
+        snapshot = {"modalidade": freight_mode, "transportador": {}, "volumes": {}}
+    try:
+        mode, transport_payload = build_webmania_transport_payload(freight_mode=freight_mode, snapshot=snapshot)
+    except NfeTransportValidationError as exc:
+        raise NfeReturnError(str(exc)) from exc
+    insurance = _format_return_money(extras.get("insurance_amount"))
+    if insurance:
+        transport_payload = dict(transport_payload)
+        transport_payload["seguro"] = insurance
+    if transport_payload:
+        payload["transporte"] = transport_payload
+    elif mode != 9:
+        pedido.setdefault("modalidade_frete", mode)
+        if pedido:
+            payload["pedido"] = pedido
 
 
 def _decimal(value: Any) -> Decimal:
@@ -468,6 +603,7 @@ def _build_return_payload(
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
+    extras: Mapping[str, Any] | None = None,
     request: HttpRequest | None = None,
 ) -> dict[str, Any]:
     requires_ibs_cbs = _return_requires_ibs_cbs(original_document=original_document)
@@ -505,6 +641,12 @@ def _build_return_payload(
         payload["informacoes_fisco"] = str(informacoes_fisco).strip()
     if informacoes_complementares:
         payload["informacoes_complementares"] = str(informacoes_complementares).strip()
+    _apply_return_emission_extras(payload, extras)
+    if "volume" not in payload:
+        transport_volume = (payload.get("transporte") or {}).get("volume") if isinstance(payload.get("transporte"), dict) else None
+        normalized_transport_volume = _normalize_return_volume(transport_volume)
+        if normalized_transport_volume:
+            payload["volume"] = normalized_transport_volume
     notification_url = build_webmania_webhook_url(request=request)
     if notification_url:
         payload["url_notificacao"] = notification_url
@@ -523,6 +665,7 @@ def create_nfe_return_draft(
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
+    extras: Mapping[str, Any] | None = None,
     request: HttpRequest | None = None,
 ) -> FiscalDocument:
     purpose = str(purpose or "").strip()
@@ -553,6 +696,7 @@ def create_nfe_return_draft(
             volume=volume,
             informacoes_fisco=informacoes_fisco,
             informacoes_complementares=informacoes_complementares,
+            extras=extras,
             request=request,
         )
         sanitized_payload = sanitize_fiscal_payload(payload)
@@ -590,6 +734,7 @@ def create_nfe_return_draft_from_item(
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
+    extras: Mapping[str, Any] | None = None,
     request: HttpRequest | None = None,
 ) -> FiscalDocument:
     if not is_local_nfe_eligible_for_return(item):
@@ -606,6 +751,7 @@ def create_nfe_return_draft_from_item(
         volume=volume,
         informacoes_fisco=informacoes_fisco,
         informacoes_complementares=informacoes_complementares,
+        extras=extras,
         request=request,
     )
 
@@ -624,6 +770,7 @@ def create_nfe_return_draft_from_external(
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
+    extras: Mapping[str, Any] | None = None,
     request: HttpRequest | None = None,
 ) -> FiscalDocument:
     original_document = ensure_external_original_document(workshop=workshop, access_key=access_key, requested_by=requested_by, confirmed_external=confirmed_external)
@@ -638,6 +785,7 @@ def create_nfe_return_draft_from_external(
         volume=volume,
         informacoes_fisco=informacoes_fisco,
         informacoes_complementares=informacoes_complementares,
+        extras=extras,
         request=request,
     )
 
@@ -660,6 +808,7 @@ def download_nfe_return_preview_document(
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
+    extras: Mapping[str, Any] | None = None,
     request: HttpRequest | None = None,
 ) -> DownloadedWebmaniaDocument:
     payload = _build_return_payload(
@@ -672,6 +821,7 @@ def download_nfe_return_preview_document(
         volume=volume,
         informacoes_fisco=informacoes_fisco,
         informacoes_complementares=informacoes_complementares,
+        extras=extras,
         request=request,
     )
     payload["previa_danfe"] = True

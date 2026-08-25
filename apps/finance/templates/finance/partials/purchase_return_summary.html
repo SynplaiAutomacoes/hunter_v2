@@ -28,4 +28,17 @@
             <tfoot><tr><th colspan="2">Total</th><th class="text-right">{{ total_quantity|floatformat:4 }}</th><th class="text-right">R$ {{ total_value|floatformat:2 }}</th></tr></tfoot>
         </table>
     </div>
+    <dl class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+        <div><dt class="text-base-content/60">Natureza da operação</dt><dd class="font-semibold">{{ return_request.operation_nature|default:"—" }}</dd></div>
+        <div><dt class="text-base-content/60">CFOP</dt><dd class="font-semibold">{{ return_request.cfop|default:"—" }}</dd></div>
+        <div><dt class="text-base-content/60">Classe de imposto</dt><dd class="font-semibold">{{ return_request.tax_class|default:"—" }}</dd></div>
+        <div><dt class="text-base-content/60">Volumes</dt><dd class="font-semibold">{{ return_request.volume|default:"—" }}</dd></div>
+        <div><dt class="text-base-content/60">Modalidade de frete</dt><dd class="font-semibold">{{ return_request.get_freight_mode_display }}</dd></div>
+        <div><dt class="text-base-content/60">Frete</dt><dd class="font-semibold">{% if return_request.freight_amount is not None %}R$ {{ return_request.freight_amount|floatformat:2 }}{% else %}—{% endif %}</dd></div>
+        <div><dt class="text-base-content/60">Desconto</dt><dd class="font-semibold">{% if return_request.discount_amount is not None %}R$ {{ return_request.discount_amount|floatformat:2 }}{% else %}—{% endif %}</dd></div>
+        <div><dt class="text-base-content/60">Despesas acessórias</dt><dd class="font-semibold">{% if return_request.accessory_expenses is not None %}R$ {{ return_request.accessory_expenses|floatformat:2 }}{% else %}—{% endif %}</dd></div>
+        <div><dt class="text-base-content/60">Seguro</dt><dd class="font-semibold">{% if return_request.insurance_amount is not None %}R$ {{ return_request.insurance_amount|floatformat:2 }}{% else %}—{% endif %}</dd></div>
+        {% if return_request.additional_information %}<div class="md:col-span-2"><dt class="text-base-content/60">Informações complementares</dt><dd>{{ return_request.additional_information }}</dd></div>{% endif %}
+        {% if return_request.fisco_information %}<div class="md:col-span-2"><dt class="text-base-content/60">Informações ao fisco</dt><dd>{{ return_request.fisco_information }}</dd></div>{% endif %}
+    </dl>
 </div>
