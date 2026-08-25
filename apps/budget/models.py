@@ -1031,13 +1031,15 @@ class Budget(TimeStampedModel):
         # Sale: pricing snapshot winner (kit vs kit / kit vs avulso). Fixed: catalog sum of every line.
         if self.is_fixed_budget:
             return self._raw_selected_items_total_products_without_shipping()
-        return self.total_products_value - self.total_products_shipping
+        # The pricing snapshot already excludes freight from the sale total.
+        return self.total_products_value
 
     @property
     def selected_items_total_services_value(self) -> Money:
         if self.is_fixed_budget:
             return self._raw_selected_items_total_services_value()
-        return self.total_services_value - self.total_services_shipping
+        # The pricing snapshot already excludes freight from the sale total.
+        return self.total_services_value
 
     @property
     def selected_items_total_shipping_value(self) -> Money:
