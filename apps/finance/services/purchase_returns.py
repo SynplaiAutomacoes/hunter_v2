@@ -463,6 +463,42 @@ def _selected_products(request: PurchaseReturnRequest) -> list[dict[str, Any]]:
     return products
 
 
+def build_purchase_return_emission_extras(*, request: PurchaseReturnRequest) -> dict[str, Any]:
+    return {
+        "freight_mode": request.freight_mode,
+        "freight_amount": request.freight_amount,
+        "discount_amount": request.discount_amount,
+        "accessory_expenses": request.accessory_expenses,
+        "insurance_amount": request.insurance_amount,
+        "customs_expenses": request.customs_expenses,
+        "total_override": request.total_override,
+        "presence": request.presence,
+        "intermediary": request.intermediary,
+        "intermediary_cnpj": request.intermediary_cnpj,
+        "intermediary_id": request.intermediary_id,
+        "purchase_order": request.purchase_order,
+        "contract": request.contract,
+        "commitment_note": request.commitment_note,
+        "payment_indicator": request.payment_indicator,
+        "payment_method": request.payment_method,
+        "payment_description": request.payment_description,
+        "payment_value": request.payment_value,
+        "payment_date": request.payment_date,
+        "issue_at": request.issue_at,
+        "departure_at": request.departure_at,
+        "delivery_forecast": request.delivery_forecast,
+        "transport_snapshot": request.transport_snapshot or {},
+    }
+
+
+def save_purchase_return_fiscal_data(*, request: PurchaseReturnRequest, cleaned_data: Mapping[str, Any]) -> PurchaseReturnRequest:
+    for field_name in PurchaseReturnRequest.FISCAL_CONFIGURATION_FIELDS:
+        if field_name in cleaned_data:
+            setattr(request, field_name, cleaned_data[field_name])
+    request.save(update_fields=[*PurchaseReturnRequest.FISCAL_CONFIGURATION_FIELDS, "atualizado_em"])
+    return request
+
+
 def preview_purchase_return(*, request_instance: PurchaseReturnRequest, http_request: Any | None = None) -> DownloadedWebmaniaDocument:
     if request_instance.status != PurchaseReturnRequestStatus.READY:
         raise PurchaseReturnError("Finalize a revisão antes de gerar a prévia fiscal.")
@@ -474,7 +510,10 @@ def preview_purchase_return(*, request_instance: PurchaseReturnRequest, http_req
             natureza_operacao=request_instance.operation_nature,
             codigo_cfop=request_instance.cfop,
             classe_imposto=request_instance.tax_class,
+            volume=request_instance.volume,
+            informacoes_fisco=request_instance.fisco_information,
             informacoes_complementares=request_instance.additional_information,
+            extras=build_purchase_return_emission_extras(request=request_instance),
             request=http_request,
         )
     except NfeReturnError as exc:
@@ -536,7 +575,10 @@ def transmit_purchase_return(*, request_instance: PurchaseReturnRequest, http_re
                     natureza_operacao=locked.operation_nature,
                     codigo_cfop=locked.cfop,
                     classe_imposto=locked.tax_class,
+                    volume=locked.volume,
+                    informacoes_fisco=locked.fisco_information,
                     informacoes_complementares=locked.additional_information,
+                    extras=build_purchase_return_emission_extras(request=locked),
                     request=http_request,
                 )
             except NfeReturnError as exc:

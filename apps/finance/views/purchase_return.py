@@ -23,6 +23,7 @@ from apps.finance.services.purchase_returns import (
     get_or_create_purchase_return_request,
     legacy_purchase_summary,
     search_purchase_imports,
+    save_purchase_return_fiscal_data,
     save_purchase_return_items,
     preview_purchase_return,
     sync_purchase_return_status,
@@ -132,12 +133,10 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
                 return self._render(return_request=return_request, step=2, items_form=form, available=available)
             return self._redirect(return_request, 3)
         if step == 3:
-            fiscal_form = PurchaseReturnFiscalForm(request.POST)
+            fiscal_form = PurchaseReturnFiscalForm(request.POST, instance=return_request)
             if not fiscal_form.is_valid():
                 return self._render(return_request=return_request, step=3, fiscal_form=fiscal_form)
-            for field_name, value in fiscal_form.cleaned_data.items():
-                setattr(return_request, field_name, value)
-            return_request.save(update_fields=[*fiscal_form.cleaned_data.keys(), "atualizado_em"])
+            save_purchase_return_fiscal_data(request=return_request, cleaned_data=fiscal_form.persistable_data())
             try:
                 return_request = finalize_purchase_return_request(request=return_request)
             except PurchaseReturnError as exc:
@@ -178,14 +177,7 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
         document_snapshot = snapshot.get("document") if isinstance(snapshot.get("document"), dict) else {}
         total_quantity = sum((item.quantity for item in selected_items), Decimal("0"))
         total_value = sum((item.total_value for item in selected_items), Decimal("0"))
-        fiscal_form = fiscal_form or PurchaseReturnFiscalForm(
-            initial={
-                "operation_nature": return_request.operation_nature,
-                "cfop": return_request.cfop,
-                "tax_class": return_request.tax_class,
-                "additional_information": return_request.additional_information,
-            }
-        )
+        fiscal_form = fiscal_form or PurchaseReturnFiscalForm(instance=return_request)
         fiscal_document = return_request.fiscal_document
         attempt = fiscal_document.emission_attempts.order_by("-pk").first() if fiscal_document else None
         context = {
