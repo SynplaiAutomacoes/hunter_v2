@@ -87,7 +87,6 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
     def test_reference_operations_redirect_to_nfe_central(self) -> None:
         operations = (
-            FiscalOperation.RETURN,
             FiscalOperation.CORRECTION,
             FiscalOperation.COMPLEMENTARY,
             FiscalOperation.ADJUSTMENT,
@@ -104,6 +103,16 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
                 expected_url = f"{reverse('finance:issued_documents_list')}?tipo=nfe&operacao={operation}"
                 self.assertRedirects(response, expected_url, fetch_redirect_response=False)
+
+    def test_return_operation_redirects_to_stock_purchase_return_workflow(self) -> None:
+        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.RETURN})
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        response = view.form_valid(form)
+
+        self.assertRedirects(response, reverse("finance:purchase_return_create"), fetch_redirect_response=False)
 
     def test_nfe_redirect_opens_gateway_while_nfse_keeps_existing_wizard(self) -> None:
         nfe_view = NfeCreateRedirectView()
