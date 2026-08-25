@@ -15,7 +15,7 @@ from django.utils.decorators import method_decorator
 
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.approval import approve_workorder_with_stock
-from apps.workorder.models import WorkOrder, WorkOrderError, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderError, WorkOrderStatus, WorkOrderWarrantyPlan
 
 
 logger = logging.getLogger(__name__)
@@ -352,9 +352,31 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
 
         if workorder is not None:
             can_finalize_workorder = workorder.is_fully_paid or workorder.budget_type in ("warranty", "courtesy")
-            has_warranty_plan = bool(workorder.warranty_plan)
-            if (can_finalize_workorder and has_warranty_plan) or workorder.status == WorkOrderStatus.APPROVED:
-                approve_workorder_with_stock(workorder=workorder, signature_approved=True)
+            if can_finalize_workorder or workorder.status == WorkOrderStatus.APPROVED:
+                # Garantir warranty_plan consistente antes de aprovar.
+                # Apenas define default quando a finalização será efetuada;
+                # WO que permanece pendente por pagamento não sofre mutação silenciosa.
+                if workorder.warranty_plan is None:
+                    workorder.warranty_plan = WorkOrderWarrantyPlan.DAYS_90
+                    workorder.save(update_fields=["warranty_plan"])
+                try:
+                    approve_workorder_with_stock(workorder=workorder, signature_approved=True)
+                except WorkOrderApprovalError as exc:
+                    logger.warning(
+                        "workorder_stock_approval_blocked",
+                        extra={"workorder_id": workorder.pk, "envelope_id": envelope_id, "error": str(exc)},
+                    )
+                    workorder.mark_signature_approved()
+                    logger.info(
+                        "signature_webhook_workorder_signature_approved_pending_completion",
+                        extra={
+                            "workorder_id": workorder.pk,
+                            "envelope_id": envelope_id,
+                            "missing_warranty_plan": workorder.warranty_plan is None,
+                        },
+                    )
+                    return HttpResponse(status=200)
+
                 sync_workorder_financial_movement(workorder=workorder)
                 from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
 
@@ -368,7 +390,7 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
                     extra={
                         "workorder_id": workorder.pk,
                         "envelope_id": envelope_id,
-                        "missing_warranty_plan": not has_warranty_plan,
+                        "missing_warranty_plan": workorder.warranty_plan is None,
                     },
                 )
     except Exception:
