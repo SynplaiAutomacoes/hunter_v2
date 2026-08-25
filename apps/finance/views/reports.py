@@ -21,6 +21,7 @@ from apps.accounts.models import User
 from apps.collaborators.models import WorkshopCollaborator
 from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements, sync_workorder_collaborator_payrolls
 from apps.core.presentation.widgets import SearchableSelectInput
+from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -439,7 +440,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "type_badge": payment_movement.report_direction_badge,
             "due_date": payment.due_date,
             "agent": agent,
-            "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
+            "origin": format_workorder_reference(workorder) if workorder is not None else "-",
             "description": self._resolve_workorder_description(workorder) if workorder is not None else description,
             "budget_plan": payment_movement.report_budget_plan_display,
             "account": payment_movement.report_bank_account_display,
@@ -589,7 +590,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "type_badge": movement.report_direction_badge,
             "due_date": due_date,
             "agent": agent,
-            "origin": movement.report_origin_display if not movement.workorder_id else f"OS #{movement.workorder_id}",
+            "origin": movement.report_origin_display if not movement.workorder_id else format_workorder_reference(movement.workorder),
             "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
@@ -1139,7 +1140,8 @@ class BatchConciliateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if movement.workorder_id:
             customer = getattr(getattr(movement.workorder, "budget", None), "customer", None)
             name = customer.name if customer else ""
-            return f"OS #{movement.workorder_id} — {name}" if name else f"OS #{movement.workorder_id}"
+            reference = format_workorder_reference(movement.workorder)
+            return f"{reference} — {name}" if name else reference
         return movement.description or f"Movimentação #{movement.pk}"
 
 

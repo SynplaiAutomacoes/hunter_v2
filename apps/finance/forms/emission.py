@@ -12,6 +12,7 @@ from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
+from apps.budget.pricing import ConsolidatedPricingLine
 from apps.core.presentation.forms import CoreForm
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, RadioButtonGroupInput, TextInput, TextareaInput, SearchableSelectInput
@@ -207,86 +208,82 @@ def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -
     return "".join(f"<div class='alert alert-warning'>{warning}</div>" for warning in warnings)
 
 
+def _build_summary_items_table_html(*, title: str, lines: list[ConsolidatedPricingLine], empty_message: str) -> str:
+    rows_html = "".join(
+        f"""
+        <tr>
+            <td class="py-2 font-medium text-base-content break-words">{escape(str(line.description))}</td>
+            <td class="py-2 text-center tabular-nums whitespace-nowrap">{line.quantity}</td>
+            <td class="py-2 text-right tabular-nums whitespace-nowrap">{format_money(line.adjusted_unit_price)}</td>
+            <td class="py-2 text-right font-semibold tabular-nums whitespace-nowrap">{format_money(line.total_price)}</td>
+        </tr>
+        """
+        for line in lines
+    )
+
+    if not rows_html:
+        rows_html = f"""
+        <tr>
+            <td colspan="4" class="py-6 text-center text-base-content/60">{escape(empty_message)}</td>
+        </tr>
+        """
+
+    total_display = format_money(sum((line.total_price for line in lines), Money(0, "BRL")))
+
+    return f"""
+        <div class="rounded-xl border border-base-300 bg-base-100">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 px-4 py-3">
+                <div class="flex items-center gap-2">
+                    <h4 class="text-lg font-bold text-base-content">{escape(title)}</h4>
+                    <span class="badge badge-outline badge-sm">{len(lines)}</span>
+                </div>
+                <p class="text-sm font-semibold tabular-nums whitespace-nowrap text-base-content/70">{total_display}</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="table table-zebra table-sm">
+                    <thead>
+                        <tr class="bg-base-200 text-xs uppercase tracking-wide text-base-content/70">
+                            <th class="w-1/2">Descrição</th>
+                            <th class="text-center">Qtd</th>
+                            <th class="text-right">Valor Unitário</th>
+                            <th class="text-right">Valor Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rows_html}</tbody>
+                    <tfoot>
+                        <tr class="bg-base-200/60 font-bold text-base-content">
+                            <th colspan="3" class="text-right">Total</th>
+                            <th class="text-right tabular-nums whitespace-nowrap">{total_display}</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    """
+
+
 def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -> str:
     snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=selected_slider)
-    product_rows_html = "".join(
-        f"""
-        <tr class="border-b border-base-300/60">
-            <td class="py-2">{escape(str(line.description))}</td>
-            <td class="py-2 text-center">{line.quantity}</td>
-            <td class="py-2 text-right">{format_money(line.adjusted_unit_price)}</td>
-            <td class="py-2 text-right font-semibold">{format_money(line.total_price)}</td>
-        </tr>
-        """
-        for line in snapshot.product_lines
+    products_table_html = _build_summary_items_table_html(
+        title="Produtos",
+        lines=list(snapshot.product_lines),
+        empty_message="Nenhum produto encontrado nesta OS.",
     )
-    service_rows_html = "".join(
-        f"""
-        <tr class="border-b border-base-300/60">
-            <td class="py-2">{escape(str(line.description))}</td>
-            <td class="py-2 text-center">{line.quantity}</td>
-            <td class="py-2 text-right">{format_money(line.adjusted_unit_price)}</td>
-            <td class="py-2 text-right font-semibold">{format_money(line.total_price)}</td>
-        </tr>
-        """
-        for line in snapshot.service_lines
+    services_table_html = _build_summary_items_table_html(
+        title="Serviços",
+        lines=list(snapshot.service_lines),
+        empty_message="Nenhum serviço encontrado nesta OS.",
     )
-
-    if not product_rows_html:
-        product_rows_html = """
-        <tr>
-            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum produto encontrado nesta OS.</td>
-        </tr>
-        """
-
-    if not service_rows_html:
-        service_rows_html = """
-        <tr>
-            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum servico encontrado nesta OS.</td>
-        </tr>
-        """
 
     return f"""
         <div class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm">
-            <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                    <h3 class="text-xl font-bold text-base-content">Itens consolidados da emissão</h3>
-                    <p class="text-sm text-base-content/70">Os valores abaixo refletem o slider aplicado no resumo.</p>
-                </div>
+            <div class="mb-4">
+                <h3 class="text-xl font-bold text-base-content">Itens consolidados da emissão</h3>
+                <p class="text-sm text-base-content/70">Os valores unitários e totais de cada item já refletem o slider aplicado no resumo.</p>
             </div>
-            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <div class="rounded-xl border border-base-300 bg-base-100 p-4">
-                    <h4 class="mb-3 text-lg font-bold text-base-content">Produtos</h4>
-                    <div class="overflow-x-auto">
-                        <table class="table table-zebra">
-                            <thead>
-                                <tr>
-                                    <th>Descricao</th>
-                                    <th class="text-center">Qtd</th>
-                                    <th class="text-right">Valor Unitario</th>
-                                    <th class="text-right">Valor Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>{product_rows_html}</tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="rounded-xl border border-base-300 bg-base-100 p-4">
-                    <h4 class="mb-3 text-lg font-bold text-base-content">Servicos</h4>
-                    <div class="overflow-x-auto">
-                        <table class="table table-zebra">
-                            <thead>
-                                <tr>
-                                    <th>Descricao</th>
-                                    <th class="text-center">Qtd</th>
-                                    <th class="text-right">Valor Unitario</th>
-                                    <th class="text-right">Valor Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>{service_rows_html}</tbody>
-                        </table>
-                    </div>
-                </div>
+            <div class="space-y-6">
+                {products_table_html}
+                {services_table_html}
             </div>
         </div>
     """
@@ -750,6 +747,7 @@ class EmissionStep4Form(CoreForm):
                 include_selector=form_selector,
                 target_selector="#emission-preview-block",
                 swap="none",
+                trigger="input changed delay:200ms",
                 sync_selector=f"{form_selector}:abort",
             )
         )
@@ -777,7 +775,9 @@ class EmissionStep4Form(CoreForm):
         self.preview_warning_html = warning_html
         self.preview_html = preview_html
         self.preview_panel_html = (
-            build_step5_preview_oob_html(prefix="emission", panel_data=panel_data, warning_html=warning_html, preview_html=preview_html) if panel_data is not None else f'<div id="emission-warning-block" hx-swap-oob="true">{warning_html}</div><div id="emission-preview-block" hx-swap-oob="true">{preview_html}</div>'
+            build_step5_preview_oob_html(prefix="emission", panel_data=panel_data, warning_html=warning_html, preview_html=preview_html, include_sale_spans=False)
+            if panel_data is not None
+            else f'<div id="emission-warning-block" hx-swap-oob="true">{warning_html}</div><div id="emission-preview-block" hx-swap-oob="true">{preview_html}</div>'
         )
         self._allowed_note_modes = allowed_note_modes
 

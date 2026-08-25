@@ -30,9 +30,22 @@ from apps.core.presentation.forms import address_layout, AddressFormMixin, CoreF
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.core.utils import alert_confirm_layout
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 
-from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type, sync_payment_entries_with_financial_movements
+from apps.stock.financial_entries import (
+    ADDITIONAL_CHARGE_ENTRY_TYPE,
+    MISSING_BUDGET_PLAN_MESSAGE,
+    PAYMENT_ENTRY_TYPE,
+    apply_budget_plan_to_payment_entries,
+    calculate_import_totals,
+    get_entry_amount,
+    get_entry_reason,
+    normalize_entry_type,
+    payment_entries_missing_budget_plan,
+    sync_payment_entries_if_budget_plans_ready,
+    sync_payment_entries_with_financial_movements,
+)
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
@@ -163,7 +176,7 @@ class ImportStep1Form(CoreModelForm):
 
         if commit:
             obj.save()
-            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+            synced_entries, payments_updated = sync_payment_entries_if_budget_plans_ready(
                 stock_import=obj,
                 entries=list(obj.payments_data or []),
                 user=self.request.user,
@@ -484,6 +497,7 @@ class ImportStepItemsForm(CoreModelForm):
 
 class ImportStepPaymentForm(CoreModelForm):
     payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SearchableSelectInput, required=False, empty_label="Selecione uma forma")
+    budget_plan = forms.ModelChoiceField(queryset=FinancialGroup.objects.none(), label="Plano Orçamentário", widget=SearchableSelectInput, required=False, empty_label="---------")
     installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=forms.HiddenInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
@@ -506,6 +520,7 @@ class ImportStepPaymentForm(CoreModelForm):
 
         if self.workshop:
             self.fields["payment_method"].queryset = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True).order_by("description")
+            self.fields["budget_plan"].queryset = FinancialGroup.objects.filter(workshop=self.workshop).order_by("name")
 
         totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
         valor_total = totals.total_value
@@ -531,6 +546,7 @@ class ImportStepPaymentForm(CoreModelForm):
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
+        self.fields["budget_plan"].label = mark_safe('Plano Orçamentário <span class="text-error">*</span>')
         self.fields["first_amount"].label = mark_safe('Valor a ser pago <span class="text-error">*</span>')
         self.fields["payment_date"].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
         self.fields["total_allocated_display"].label = "Valor Pago"
@@ -668,9 +684,10 @@ class ImportStepPaymentForm(CoreModelForm):
                 Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
                 #
                 Div(
-                    Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("payment_method", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("budget_plan", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("first_amount", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("payment_date", wrapper_class="col-span-12 lg:col-span-3"),
                     css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
                 ),
                 Div(
@@ -703,7 +720,28 @@ class ImportStepPaymentForm(CoreModelForm):
         totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
         if totals.pending_value > 0:
             self.add_error(None, f"Não é possível avançar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
+
+        missing_budget_plan_entries = payment_entries_missing_budget_plan(list(self.import_payments or []))
+        if missing_budget_plan_entries and not cleaned_data.get("budget_plan"):
+            self.add_error("budget_plan", "Selecione o plano orçamentário dos pagamentos importados da nota.")
         return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        budget_plan = self.cleaned_data.get("budget_plan")
+        if budget_plan is not None:
+            payments_data, payments_updated = apply_budget_plan_to_payment_entries(
+                entries=list(instance.payments_data or []),
+                budget_plan_id=budget_plan.pk,
+            )
+            if payments_updated:
+                instance.payments_data = payments_data
+                if commit:
+                    instance.save(update_fields=["payments_data"])
+                    return instance
+        if commit:
+            instance.save()
+        return instance
 
     def _generate_payments_table_html(self):
         rows = ""
@@ -983,6 +1021,9 @@ class ImportStepSummaryForm(CoreModelForm):
         if totals.pending_value > 0:
             self.add_error(None, f"Não é possível finalizar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
 
+        if payment_entries_missing_budget_plan(list(self.instance.payments_data or [])):
+            self.add_error(None, MISSING_BUDGET_PLAN_MESSAGE)
+
         return cleaned_data
 
 
@@ -1166,7 +1207,7 @@ class ImportSefazListForm(CoreModelForm):
 
         if commit:
             instance.save()
-            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+            synced_entries, payments_updated = sync_payment_entries_if_budget_plans_ready(
                 stock_import=instance,
                 entries=list(instance.payments_data or []),
                 user=self.request.user,

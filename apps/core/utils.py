@@ -22,9 +22,10 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
     <script>
         function {func_name}(customTitle, options = {{}}) {{
             return new Promise((resolve) => {{
-                const modal = document.getElementById('alert_confirm_modal');
-                const titleElem = document.getElementById('confirm-title');
-                const yesBtn = document.getElementById('confirm-yes');
+                const modals = Array.from(document.querySelectorAll('dialog#alert_confirm_modal'));
+                const modal = (modals.filter((item) => !item.closest('.hidden')).pop()) || null;
+                const titleElem = modal ? modal.querySelector('#confirm-title') : null;
+                const yesBtn = modal ? modal.querySelector('#confirm-yes') : null;
                 const cancelBtn = modal ? modal.querySelector('.modal-action .btn-ghost') : null;
 
                 const normalizedOptions = (typeof options === 'object' && options !== null) ? options : {{}};
@@ -32,7 +33,12 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
                 const confirmText = normalizedOptions.confirmText || 'Confirmar';
                 const cancelText = normalizedOptions.cancelText || 'Cancelar';
 
-                if (customTitle) titleElem.innerText = customTitle;
+                if (!modal || !yesBtn) {{
+                    resolve(!singleClose && window.confirm(customTitle || 'Deseja realmente prosseguir?'));
+                    return;
+                }}
+
+                if (customTitle && titleElem) titleElem.innerText = customTitle;
 
                 if (cancelBtn) {{
                     cancelBtn.textContent = cancelText;
@@ -47,7 +53,12 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
                     yesBtn.disabled = false;
                 }}
 
-                modal.showModal();
+                try {{
+                    modal.showModal();
+                }} catch (error) {{
+                    resolve(!singleClose && window.confirm(customTitle || 'Deseja realmente prosseguir?'));
+                    return;
+                }}
 
                 // Limpa eventos anteriores para não duplicar chamadas
                 const newYesBtn = yesBtn.cloneNode(true);
@@ -56,9 +67,9 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
                 let isResolved = false;
 
                 newYesBtn.addEventListener('click', () => {{
-                    modal.close();
                     isResolved = true;
                     resolve(!singleClose);
+                    modal.close();
                 }});
 
                 modal.addEventListener('close', () => {{
@@ -69,23 +80,21 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
                 }}, {{ once: true }});
             }});
         }}
-        
-        document.body.addEventListener('htmx:confirm', function(evt) {{
-            // Verifica se o elemento tem o nosso atributo de confirmação
-            const confirmMessage = evt.detail.elt.getAttribute('data-confirm');
-            if (!confirmMessage) return;
-    
-            // Impede o envio imediato do HTMX
-            evt.preventDefault();
-    
-            // Chama o nosso modal customizado
-            customConfirm(confirmMessage).then(function(confirmed) {{
-                if (confirmed) {{
-                    // Se confirmado, dispara a requisição HTMX originalmente interrompida
-                    evt.detail.issueRequest();
-                }}
+
+        if (!window.__hunterHtmxConfirmBound) {{
+            window.__hunterHtmxConfirmBound = true;
+            document.body.addEventListener('htmx:confirm', function(evt) {{
+                const confirmMessage = evt.detail.elt.getAttribute('data-confirm');
+                if (!confirmMessage) return;
+
+                evt.preventDefault();
+                {func_name}(confirmMessage).then(function(confirmed) {{
+                    if (confirmed) {{
+                        evt.detail.issueRequest(true);
+                    }}
+                }});
             }});
-        }});
+        }}
     </script>
     """)
 

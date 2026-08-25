@@ -21,7 +21,7 @@ from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, budget_kit_overrides_prefetch, workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.finance.services.dre import COMP_COGS, COMP_COS, COMP_GROSS_REVENUE, build_dre_calculation
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
@@ -211,7 +211,7 @@ def _aggregate_revenue(*, workshop_id: int, month: int, year: int) -> Decimal:
     result = (
         WorkOrderPaymentMethod.objects.filter(
             workorder__workshop_id=workshop_id,
-            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__status__in=WORKORDER_REVENUE_STATUSES,
             workorder__budget_type="sale",
             due_date__month=month,
             due_date__year=year,
@@ -231,7 +231,7 @@ def _get_workorder_ids_from_payments(*, workshop_id: int, month: int, year: int)
     return list(
         WorkOrderPaymentMethod.objects.filter(
             workorder__workshop_id=workshop_id,
-            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__status__in=WORKORDER_REVENUE_STATUSES,
             workorder__budget_type="sale",
             due_date__month=month,
             due_date__year=year,
@@ -802,6 +802,7 @@ class DashboardQueryService:
                 approved_budget_metrics.accumulated_markup,
                 workshop_cost.profitability_multiplier if workshop_cost is not None else None,
             ),
+            markup_target=workshop_cost.profitability_multiplier if workshop_cost is not None else None,
             warranty_return_rate=warranty_return_rate,
             approval_rate=approval_rate,
             total_pending_receivable=pending_receivable_metrics.total_general,
@@ -943,7 +944,7 @@ class DashboardQueryService:
         result = (
             WorkOrderPaymentMethod.objects.filter(
                 workorder__workshop_id=workshop_id,
-                workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+                workorder__status__in=WORKORDER_REVENUE_STATUSES,
                 workorder__budget_type="sale",
                 due_date__month=selected_month,
                 due_date__year=selected_year,
@@ -963,7 +964,7 @@ class DashboardQueryService:
         result = (
             WorkOrderPaymentMethod.objects.filter(
                 workorder__workshop_id=workshop_id,
-                workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+                workorder__status__in=WORKORDER_REVENUE_STATUSES,
                 workorder__budget_type="sale",
                 due_date=today,
             )
@@ -1249,7 +1250,7 @@ def _get_today_sales_workorders(workshop: Workshop) -> tuple[list[Any], bool, st
     workorder_ids = (
         WorkOrderPaymentMethod.objects.filter(
             workorder__workshop=workshop,
-            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__status__in=WORKORDER_REVENUE_STATUSES,
             workorder__budget_type="sale",
             due_date=today,
         )

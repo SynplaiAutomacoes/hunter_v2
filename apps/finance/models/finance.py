@@ -4,6 +4,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import format_workorder_reference
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,10 @@ class FiscalDocumentPurpose(models.TextChoices):
     NORMAL = "normal", "Normal"
     RETURN = "return", "Devolução"
     REVERSAL = "reversal", "Estorno"
+
+
+class FiscalDocumentComplementaryType(models.TextChoices):
+    PRICE_QUANTITY = "price_quantity", "Preço/quantidade"
 
 
 class FiscalDocumentLinkRole(models.TextChoices):
@@ -541,8 +546,8 @@ class NfseRequest(TimeStampedModel):
         return True
 
     def __str__(self):
-        workorder_pk = getattr(self, "workorder_id", None) or "-"
-        return f"NFS-e Request #{self.pk} - OS #{workorder_pk}"
+        workorder_reference = format_workorder_reference(self.workorder) if self.workorder_id else "OS #-"
+        return f"NFS-e Request #{self.pk} - {workorder_reference}"
 
     @property
     def rps_number_display(self) -> str:
@@ -656,8 +661,8 @@ class NfeRequest(TimeStampedModel):
         return True
 
     def __str__(self):
-        workorder_pk = getattr(self, "workorder_id", None) or "-"
-        return f"NF-e Request #{self.pk} - OS #{workorder_pk}"
+        workorder_reference = format_workorder_reference(self.workorder) if self.workorder_id else "OS #-"
+        return f"NF-e Request #{self.pk} - {workorder_reference}"
 
     @property
     def number_display(self) -> str:
@@ -775,6 +780,7 @@ class FiscalDocument(TimeStampedModel):
     document_type = models.CharField(max_length=12, choices=FiscalDocumentType.choices, default=FiscalDocumentType.NFE, db_index=True)
     origin = models.CharField(max_length=16, choices=FiscalDocumentOrigin.choices, default=FiscalDocumentOrigin.LOCAL, db_index=True)
     purpose = models.CharField(max_length=24, choices=FiscalDocumentPurpose.choices, default=FiscalDocumentPurpose.NORMAL, db_index=True)
+    complementary_type = models.CharField(max_length=32, choices=FiscalDocumentComplementaryType.choices, blank=True, default="", db_index=True)
     legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, null=True, blank=True, related_name="fiscal_document")
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
     access_key = models.CharField(max_length=80, blank=True, default="", db_index=True)

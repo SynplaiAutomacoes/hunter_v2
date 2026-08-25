@@ -43,7 +43,7 @@ class VehicleListView(View):
 
         vehicles = Vehicle.objects.filter(pk__in=vehicle_pks)
 
-        data = [{"id": v.id, "label": str(v)} for v in vehicles]
+        data = [{"id": v.id, "label": str(v), "km": v.km} for v in vehicles]
 
         return JsonResponse(data, safe=False)
 

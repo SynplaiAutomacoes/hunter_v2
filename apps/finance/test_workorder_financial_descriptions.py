@@ -39,12 +39,12 @@ class BuildWorkorderRevenueDescriptionTests(SimpleTestCase):
             "Receita proveniente de ordem de serviço Honda Civic - ABC1D23",
         )
 
-    def test_fallback_without_vehicle(self) -> None:
-        workorder = SimpleNamespace(pk=7, budget=SimpleNamespace(vehicle=None))
+    def test_fallback_without_vehicle_uses_public_number(self) -> None:
+        workorder = SimpleNamespace(pk=7, public_number=74, budget=SimpleNamespace(vehicle=None, public_number=74))
 
         self.assertEqual(
             build_workorder_revenue_description(workorder=workorder),  # type: ignore[arg-type]
-            "Receita proveniente de ordem de serviço OS Nº 7",
+            "Receita proveniente de ordem de serviço OS Nº 74",
         )
 
     def test_plate_only_when_brand_and_model_missing(self) -> None:
@@ -123,6 +123,6 @@ class SyncWorkorderFinancialMovementDescriptionTests(TestCase):
         movement.refresh_from_db()
         self.assertEqual(
             movement.description,
-            f"Receita proveniente de ordem de serviço OS Nº {workorder.pk}",
+            f"Receita proveniente de ordem de serviço OS Nº {budget.public_number}",
         )
         self.assertEqual(movement.movement_kind, FinancialMovement.MovementKind.WORKORDER_PARENT)

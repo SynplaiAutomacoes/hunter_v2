@@ -60,12 +60,12 @@
                 <tbody>
                     {% for entry in collaborator_data.entries %}
                     <tr class="border-t border-gray-200 align-top">
-                        <td class="px-2 py-2 font-semibold nowrap">#{{ entry.workorder_id }}</td>
+                        <td class="px-2 py-2 font-semibold nowrap">{% if entry.is_manual %}Manual{% else %}#{{ entry.workorder_id }}{% endif %}</td>
                         <td class="px-2 py-2">{{ entry.customer|default:"-" }}</td>
                         <td class="px-2 py-2 text-gray-600 nowrap">{{ entry.delivered_at|date:"d/m/Y"|default:"-" }}</td>
                         <td class="px-2 py-2">{{ entry.vehicle|default:"-" }}</td>
-                        <td class="px-2 py-2 text-right nowrap">{{ entry.base_amount }}</td>
-                        <td class="px-2 py-2 text-right nowrap">{{ entry.percentage|floatformat:2 }}%</td>
+                        <td class="px-2 py-2 text-right nowrap">{% if entry.is_manual %}—{% else %}{{ entry.base_amount }}{% endif %}</td>
+                        <td class="px-2 py-2 text-right nowrap">{% if entry.is_manual %}—{% else %}{{ entry.percentage|floatformat:2 }}%{% endif %}</td>
                         <td class="px-2 py-2 text-right font-semibold nowrap">{{ entry.commission_amount }}</td>
                     </tr>
                     {% endfor %}
