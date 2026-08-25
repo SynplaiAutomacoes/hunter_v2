@@ -10,6 +10,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.sources.models import Source
+from apps.suppliers.models import Supplier
 
 
 PAYMENT_ENTRY_TYPE = "payment"
@@ -97,13 +98,34 @@ def sync_payment_entries_with_financial_movements(*, stock_import: Any, entries:
     source_cnpj = stock_import.supplier_cnpj or ""
     source, _ = Source.objects.get_or_create(workshop=workshop, name=source_name, defaults={"cnpj": source_cnpj})
 
+    # The stock import stores supplier data as plain NF fields.  Financial grouping,
+    # however, relies on the canonical Supplier relation, so resolve it in the same
+    # workshop while preserving the existing Source relation for compatibility.
+    supplier = None
+    if source_cnpj:
+        supplier, _ = Supplier.objects.get_or_create(
+            workshop=workshop,
+            cnpj=source_cnpj,
+            defaults={"name": source_name},
+        )
+
     for entry in normalized_entries:
         if normalize_entry_type(entry) != PAYMENT_ENTRY_TYPE:
             continue
 
         financial_movement_id = entry.get("financial_movement_id")
-        if financial_movement_id and FinancialMovement.objects.filter(pk=financial_movement_id, workshop=workshop).exists():
-            continue
+        if financial_movement_id:
+            financial_movement = FinancialMovement.objects.filter(
+                pk=financial_movement_id,
+                workshop=workshop,
+            ).first()
+            if financial_movement is not None:
+                # Do not replace a supplier selected manually. This also repairs
+                # movements created in an earlier import step before finalization.
+                if supplier is not None and financial_movement.supplier_id is None:
+                    financial_movement.supplier = supplier
+                    financial_movement.save(update_fields=["supplier"])
+                continue
 
         payment_method = PaymentMethod.objects.filter(pk=entry.get("method"), workshop=workshop).first()
         if payment_method is None:
@@ -117,6 +139,7 @@ def sync_payment_entries_with_financial_movements(*, stock_import: Any, entries:
             workshop=workshop,
             user=user,
             source=source,
+            supplier=supplier,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
             payment_method=payment_method,
