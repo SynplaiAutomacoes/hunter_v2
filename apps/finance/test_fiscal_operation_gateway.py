@@ -51,7 +51,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         )
         self.assertEqual(
             {value for value, _label in FISCAL_OPERATION_CHOICES},
-            {"normal", "return", "correction", "complementary", "adjustment"},
+            {"normal", "standalone", "return", "correction", "complementary", "adjustment"},
         )
 
     def test_normal_operation_redirects_to_existing_wizard_with_reset(self) -> None:
@@ -113,6 +113,16 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         response = view.form_valid(form)
 
         self.assertRedirects(response, reverse("finance:purchase_return_create"), fetch_redirect_response=False)
+
+    def test_standalone_operation_redirects_to_avulsa_wizard(self) -> None:
+        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.STANDALONE})
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        response = view.form_valid(form)
+
+        self.assertRedirects(response, f"{reverse('finance:standalone_emission')}?reset=1", fetch_redirect_response=False)
 
     def test_nfe_redirect_opens_gateway_while_nfse_keeps_existing_wizard(self) -> None:
         nfe_view = NfeCreateRedirectView()

@@ -7,6 +7,7 @@ from apps.finance.views import (
     EmissionWorkOrderKitComponentUpdateView,
     EmissionWorkOrderItemUpdateView,
     FiscalOperationGatewayView,
+    StandaloneEmissionCreateView,
     CommissionReportView,
     CommissionReportPdfView,
     FinancialGroupBulkDeleteView,
@@ -135,6 +136,7 @@ urlpatterns = [
     path("emissao/workorder/<int:workorder_pk>/kit-item/<int:item_id>/<str:component_type>/<int:component_id>/edit/", EmissionWorkOrderKitComponentUpdateView.as_view(), name="emission_workorder_kit_component_edit"),
     path("emissao/check-workorder/", EmissionCheckWorkorderView.as_view(), name="emission_check_workorder"),
     path("emissao/normal/", EmissionRequestCreateView.as_view(), name="emission_normal"),
+    path("emissao/avulsa/", StandaloneEmissionCreateView.as_view(), name="standalone_emission"),
     path("emissao/", FiscalOperationGatewayView.as_view(), name="emission_create"),
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),

@@ -1,0 +1,108 @@
+{% load crispy_forms_tags %}
+{% include 'navbar/stepper.html' %}
+
+<div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
+    {% if previous_step %}
+        <button type="button"
+                hx-get="{% url 'finance:standalone_emission' %}?step={{ previous_step }}"
+                hx-target="#step-container"
+                hx-push-url="true"
+                class="btn btn-outline">
+            <span class="material-icons">arrow_back</span> Voltar
+        </button>
+    {% else %}
+        <div></div>
+    {% endif %}
+
+    <div class="flex items-center gap-3 flex-wrap justify-end">
+        <a href="{{ close_emission_url }}" class="btn btn-ghost">Fechar emissão</a>
+        <button type="submit" form="standalone-emission-form" class="btn btn-primary" id="standalone-submit-btn" {% if submit_button_intent %}name="intent" value="{{ submit_button_intent }}"{% endif %}>
+            <span class="loading loading-spinner loading-sm hidden" id="standalone-submit-spinner"></span>
+            <span id="standalone-submit-label">{{ submit_button_label }}</span>
+        </button>
+    </div>
+</div>
+
+<div id="form-container">
+    <form id="standalone-emission-form"
+          hx-post="{{ request.path }}?step={{ current_step }}"
+          hx-target="#step-container"
+          hx-indicator="#standalone-submit-spinner"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        {% crispy form %}
+    </form>
+</div>
+
+{% if current_step_key == 'items' %}
+    <div class="divider my-8">Adicionar itens</div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {% if note_mode == 'nfe' or note_mode == 'both' %}
+            <div class="rounded-2xl border border-base-300 p-5 space-y-4">
+                <h3 class="font-semibold">Produto do catálogo</h3>
+                <form method="post" action="{% url 'finance:standalone_emission' %}?step={{ current_step }}">
+                    {% csrf_token %}
+                    {% crispy add_product_form %}
+                    <button type="submit" name="add_catalog_product" value="1" class="btn btn-outline btn-sm mt-3">Adicionar produto</button>
+                </form>
+                <div class="divider my-2">ou produto avulso</div>
+                <form method="post" action="{% url 'finance:standalone_emission' %}?step={{ current_step }}">
+                    {% csrf_token %}
+                    {% crispy manual_product_form %}
+                    <button type="submit" name="add_manual_product" value="1" class="btn btn-outline btn-sm mt-3">Adicionar produto avulso</button>
+                </form>
+            </div>
+        {% endif %}
+
+        {% if note_mode == 'nfse' or note_mode == 'both' %}
+            <div class="rounded-2xl border border-base-300 p-5 space-y-4">
+                <h3 class="font-semibold">Serviço do catálogo</h3>
+                <form method="post" action="{% url 'finance:standalone_emission' %}?step={{ current_step }}">
+                    {% csrf_token %}
+                    {% crispy add_service_form %}
+                    <button type="submit" name="add_catalog_service" value="1" class="btn btn-outline btn-sm mt-3">Adicionar serviço</button>
+                </form>
+                <div class="divider my-2">ou serviço avulso</div>
+                <form method="post" action="{% url 'finance:standalone_emission' %}?step={{ current_step }}">
+                    {% csrf_token %}
+                    {% crispy manual_service_form %}
+                    <button type="submit" name="add_manual_service" value="1" class="btn btn-outline btn-sm mt-3">Adicionar serviço avulso</button>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+{% endif %}
+
+<script>
+    (function () {
+        const form = document.getElementById('standalone-emission-form');
+        if (!form || form.dataset.submitLoadingBound === '1') {
+            return;
+        }
+        form.dataset.submitLoadingBound = '1';
+        const submitBtn = document.getElementById('standalone-submit-btn');
+        const submitLabel = document.getElementById('standalone-submit-label');
+        const submitSpinner = document.getElementById('standalone-submit-spinner');
+        if (!submitBtn || !submitLabel) {
+            return;
+        }
+        const defaultLabel = submitLabel.textContent;
+        const startLoading = function () {
+            submitBtn.disabled = true;
+            submitLabel.textContent = 'Enviando...';
+            if (submitSpinner) {
+                submitSpinner.classList.remove('hidden');
+            }
+        };
+        const stopLoading = function () {
+            submitBtn.disabled = false;
+            submitLabel.textContent = defaultLabel;
+            if (submitSpinner) {
+                submitSpinner.classList.add('hidden');
+            }
+        };
+        form.addEventListener('htmx:beforeRequest', startLoading);
+        form.addEventListener('htmx:afterRequest', stopLoading);
+        form.addEventListener('htmx:responseError', stopLoading);
+    })();
+</script>

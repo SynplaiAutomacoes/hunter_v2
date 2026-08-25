@@ -199,8 +199,8 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         context["fields"] = [
             TableColumn("ID", attr="id"),
             TableColumn("RPS", attr="rps_number_display_listing", search_by="reserved_rps_number"),
-            TableColumn("Ordem de Serviço", attr="workorder", search_by="workorder__id"),
-            TableColumn("Cliente", attr="customer_name", search_by="workorder__budget__customer__name"),
+            TableColumn("Ordem de Serviço", attr="workorder_reference", search_by="workorder__id"),
+            TableColumn("Cliente", attr="customer_name", search_by=("recipient_name", "workorder__budget__customer__name")),
             TableColumn("Criado em", attr=NfseRequest.criado_em.field.name),
             TableColumn("Status", attr="nfse_request_status_badge", search_by="status", format="status_badge"),
         ]
@@ -250,7 +250,7 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                 "can_cancel": can_cancel,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
-                    _build_field("Ordem de serviço", self.object.workorder),
+                    _build_field("Ordem de serviço", self.object.workorder_reference),
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),
                     _build_field("Código NBS", self.object.codigo_nbs),
