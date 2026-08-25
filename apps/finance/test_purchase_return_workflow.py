@@ -300,6 +300,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertIsNotNone(legacy_import.fiscal_document_id)
         self.assertEqual(legacy_import.fiscal_document.origin, FiscalDocumentOrigin.EXTERNAL)
         self.assertEqual(legacy_import.fiscal_document.status, FiscalDocumentStatus.APPROVED)
+        self.assertEqual(legacy_import.fiscal_document.complementary_type, "")
         legacy_item = legacy_import.fiscal_items.get()
         self.assertEqual(legacy_item.description, "Motor histórico")
         self.assertEqual(legacy_item.stock_product, self.motor_stock)
