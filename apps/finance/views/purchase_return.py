@@ -76,6 +76,8 @@ class PurchaseReturnCreateView(PurchaseReturnPermissionMixin, View):
             "current_step": 1,
             "max_reached_step": 1,
             "steps": _steps(),
+            "steps_config": _steps_config(),
+            "min_accessible_step": 1,
             "return_request": None,
             "page_obj": page_obj,
             "filter_query": query_params.urlencode(),
@@ -194,6 +196,9 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
             "current_step": step,
             "max_reached_step": return_request.current_step,
             "steps": _steps(),
+            "steps_config": _steps_config(),
+            "object": return_request,
+            "min_accessible_step": 4 if return_request.status != PurchaseReturnRequestStatus.DRAFT else 1,
             "items_form": items_form,
             "fiscal_form": fiscal_form,
             "item_rows": item_rows,
@@ -265,3 +270,7 @@ class PurchaseReturnTransmitView(PurchaseReturnPermissionMixin, View):
 
 def _steps() -> tuple[tuple[int, str], ...]:
     return ((1, "NF-e origem"), (2, "Produtos"), (3, "Revisar Nota de Devolução"), (4, "Emitir"))
+
+
+def _steps_config() -> list[dict[str, int | str]]:
+    return [{"number": number, "title": title} for number, title in _steps()]

@@ -9,25 +9,7 @@
         <p class="mt-1 text-base-content/70">Localize a nota recebida, selecione os produtos e emita a Nota de Devolução.</p>
     </div>
 
-    <ol class="grid grid-cols-1 gap-3 md:grid-cols-4" aria-label="Etapas da Nota de Devolução">
-        {% for number, title in steps %}
-            <li>
-                {% if return_request and number <= max_reached_step and not is_ready %}
-                    <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step={{ number }}"
-                {% else %}
-                    <div
-                {% endif %}
-                    class="block w-full rounded-xl border p-4 {% if number < current_step %}border-success bg-success/10 text-success{% elif number == current_step %}border-warning bg-warning/10{% else %}border-base-300 text-base-content/55{% endif %}"
-                    {% if number == current_step %}aria-current="step"{% endif %}>
-                    <span class="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide">
-                        {% if number < current_step %}<span class="material-icons text-sm">check_circle</span>{% endif %}
-                        Etapa {{ number }}
-                    </span>
-                    <span class="mt-1 block font-semibold">{{ title }}</span>
-                {% if return_request and number <= max_reached_step and not is_ready %}</a>{% else %}</div>{% endif %}
-            </li>
-        {% endfor %}
-    </ol>
+    {% include 'navbar/stepper.html' %}
 
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8">
