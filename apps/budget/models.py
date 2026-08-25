@@ -531,10 +531,10 @@ class Budget(TimeStampedModel):
         # Venda
         venda_servico_terceiro = self.total_third_party_services_selling
         venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
-        venda_pecas = self.total_products_value - custo_frete_pecas
+        venda_pecas = self.total_products_value
 
         #
-        soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
+        soma_base_orcamento = venda_pecas + venda_servico_terceiro
         valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
         divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra + custo_frete_servico).amount
 
@@ -561,10 +561,10 @@ class Budget(TimeStampedModel):
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
 
         # Valores de Venda
-        venda_pecas = self.total_products_value - custo_frete_pecas
+        venda_pecas = self.total_products_value
         venda_servico_terceiro = self.total_third_party_services_selling
 
-        soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
+        soma_base_orcamento = venda_pecas + venda_servico_terceiro
         subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro + custo_frete_servicos
 
         # MÉTOD0 TRADICIONAL
@@ -636,7 +636,7 @@ class Budget(TimeStampedModel):
         custo_hora_mecanico = Money(0, "BRL")
         custo_total_mao_obra = Money(0, "BRL")
 
-        venda_pecas = self.total_products_value - custo_frete_pecas
+        venda_pecas = self.total_products_value
         venda_servico_terceiro = self.total_third_party_services_selling
         venda_mao_obra = self.total_services_value - venda_servico_terceiro
         valor_orcamento = self.total_products_value + self.total_services_value
@@ -758,26 +758,6 @@ class Budget(TimeStampedModel):
             .all()
         )
 
-    def _raw_labor_duration(self) -> timedelta:
-        total = timedelta(0)
-        for item in self._iter_items():
-            if (item.service or self._is_local_service_item(item)) and item.duration:
-                total += item.duration * item.quantity
-                continue
-
-            if not item.kit:
-                continue
-
-            _, service_overrides = item._get_kit_override_maps()
-            for kit_service in item._iter_kit_services():
-                override = service_overrides.get(kit_service.service_id)
-                if override:
-                    if override.quantity > 0 and override.duration:
-                        total += override.duration * override.quantity * item.quantity
-                elif kit_service.quantity > 0 and kit_service.duration:
-                    total += kit_service.duration * kit_service.quantity * item.quantity
-        return total
-
     @property
     def mechanic_hour_cost_value(self) -> Money:
         pricing_context = self.get_frozen_pricing_context()
@@ -793,8 +773,7 @@ class Budget(TimeStampedModel):
         # Dashboard/list total-only paths: with slider==0, labor cost does not change total_budget_value.
         if getattr(self, "_skip_mechanic_labor_cost", False):
             return Money(0, "BRL")
-        duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
-        return self.mechanic_hour_cost_value * duracao_em_horas
+        return self.pricing_snapshot.total_labor_cost_value
 
     @property
     def pricing_snapshot(self) -> PricingSnapshot:
@@ -808,7 +787,7 @@ class Budget(TimeStampedModel):
                     slider=int(self.slider or 0),
                     discount_value=self.discount_value,
                     discount_percentage=self.discount_percentage,
-                    labor_cost_value=self.total_labor_cost_value,
+                    labor_hourly_cost_value=self.mechanic_hour_cost_value,
                     is_local_product_item=self._is_local_product_item,
                     is_local_service_item=self._is_local_service_item,
                 )
@@ -1005,7 +984,8 @@ class Budget(TimeStampedModel):
 
     @property
     def selected_items_total_base_value(self) -> Money:
-        return self.selected_items_total_products_without_shipping + self.selected_items_total_services_value + self.selected_items_total_shipping_value
+        # Freight is shown separately as an internal cost and must not be charged to the customer.
+        return self.selected_items_total_products_without_shipping + self.selected_items_total_services_value
 
     @property
     def selected_items_total_budget_value(self) -> Money:
@@ -1146,7 +1126,8 @@ class Budget(TimeStampedModel):
 
     @property
     def get_total_products_by_slider_without_shipping(self):
-        return self.get_total_products_by_slider - self.total_products_shipping
+        # Kept for compatibility with existing callers. Freight is no longer part of sale totals.
+        return self.get_total_products_by_slider
 
     @property
     def get_total_services_by_slider(self):
@@ -1213,14 +1194,14 @@ class BudgetItem(TimeStampedModel):
     is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     ## Produto
-    shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
+    shipping = MoneyField(verbose_name="Custo de Frete", max_digits=14, decimal_places=2, default=0)
     product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
     product_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
 
     ## Serviço
     service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
     service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
-    service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
+    service_shipping = MoneyField(verbose_name="Custo de Frete", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Snapshot do kit congelado", default=False)
     item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20, choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
@@ -1538,7 +1519,7 @@ class BudgetItem(TimeStampedModel):
         if self.is_customer_supplied:
             return Money(0, "BRL")
         if self.kit:
-            return self.get_kit_products_total() - self.get_kit_products_shipping_total()
+            return self.get_kit_products_total()
         return self.product_selling_price * self.quantity
 
     @property
@@ -1560,8 +1541,7 @@ class BudgetItem(TimeStampedModel):
         # Se for kit, calcular com base nos overrides
         if self.kit:
             return self.get_kit_total_with_overrides()
-        shipping_total = self.shipping + (self.service_shipping * self.quantity)
-        return ((self.product_selling_price + self.service_selling_price) * self.quantity) + shipping_total
+        return (self.product_selling_price + self.service_selling_price) * self.quantity
 
     @property
     def display_product_selling_price(self) -> Money:
@@ -1630,7 +1610,7 @@ class BudgetItem(TimeStampedModel):
         """Calcula o total do kit considerando os overrides
 
         Total = (Soma total de produtos) + (Soma total de serviços)
-        Produto total = (preço * quantidade do produto) + frete
+        Produto total = preço * quantidade do produto
         Serviço total = preço * quantidade do serviço
 
         Depois multiplica pela quantidade de kits no orçamento
@@ -1641,12 +1621,12 @@ class BudgetItem(TimeStampedModel):
         total_produtos = Money(0, "BRL")
         total_servicos = Money(0, "BRL")
 
-        # Calcular total dos produtos: (preço * qtd) + frete para cada produto
+        # Frete é custo interno e não compõe o valor cobrado do cliente.
         for override in self._iter_frozen_kit_product_overrides():
             if override.quantity <= 0:
                 produto_subtotal = Money(0, "BRL")
             else:
-                produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
+                produto_subtotal = override.product_selling_price * override.quantity
             total_produtos += produto_subtotal
 
         # Calcular total dos serviços: preço * qtd para cada serviço
@@ -1673,7 +1653,7 @@ class BudgetItem(TimeStampedModel):
             if override.quantity <= 0:
                 produto_subtotal = Money(0, "BRL")
             else:
-                produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
+                produto_subtotal = override.product_selling_price * override.quantity
             total_produtos += produto_subtotal
 
         return total_produtos * self.quantity

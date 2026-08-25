@@ -157,7 +157,7 @@ def configure_budget_step6_form(form):
                                       <th class="w-[6%] text-center">QTD.</th>
                                       <th class="w-[10%]">CUSTO</th>
                                       <th class="w-[12%]">VALOR</th>
-                                      <th class="w-[8%]">FRETE</th>
+                                      <th class="w-[8%]">CUSTO DE FRETE</th>
                                       <th class="w-[10%]">TOTAL</th>
                                     </tr>
                                   </thead>
@@ -195,7 +195,7 @@ def configure_budget_step6_form(form):
                                                 </th>
 
                                                 <th class="w-[10%] whitespace-nowrap text-right">
-                                                    FRETE
+                                                    CUSTO DE FRETE
                                                 </th>
                                                 
                                                 <th class="w-[10%] whitespace-nowrap text-center">

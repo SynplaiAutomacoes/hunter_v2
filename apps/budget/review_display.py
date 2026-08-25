@@ -134,7 +134,7 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
         product_shipping=item.get_kit_products_shipping_total(),
         product_cost_total=item.get_kit_products_cost_total(),
     )
-    contribution.product_base = item.get_kit_products_total() - contribution.product_shipping
+    contribution.product_base = item.get_kit_products_total()
 
     _, service_overrides = item._get_kit_override_maps()
     for kit_service in item._iter_kit_services():
@@ -163,6 +163,18 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
             contribution.labor_duration += override.duration * total_quantity
         elif kit_service.duration:
             contribution.labor_duration += kit_service.duration * total_quantity
+
+    # The kit stores the quoted service total on its parent item. Child service
+    # prices can differ by a few cents after historical rounding, so preserve
+    # the parent total used by Step 5 and distribute any residual downstream.
+    quoted_services_total = item.service_selling_price * quantity
+    detailed_services_total = contribution.labor_raw_total + contribution.third_party_raw_total
+    residual = quoted_services_total - detailed_services_total
+    if residual.amount:
+        if contribution.labor_raw_total.amount > 0:
+            contribution.labor_raw_total += residual
+        elif contribution.third_party_raw_total.amount > 0:
+            contribution.third_party_raw_total += residual
 
     return contribution
 
@@ -212,9 +224,8 @@ def _allocate_third_party_totals(*, budget: Any, contributions: list[_SelectedIt
     if not third_party_entries:
         return
 
-    # Target includes shipping already present on direct service contributions.
     target_total = budget.get_total_third_party_by_slider
-    base_values = [contribution.third_party_raw_total + contribution.service_shipping for contribution in third_party_entries]
+    base_values = [contribution.third_party_raw_total for contribution in third_party_entries]
     allocated_totals = _distribute_totals(base_values=base_values, target_total=target_total)
     for contribution, allocated_total in zip(third_party_entries, allocated_totals, strict=False):
         contribution.allocated_third_party_total = allocated_total
@@ -261,7 +272,7 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
             contribution.allocated_labor_cost = contribution.labor_raw_total
             contribution.allocated_labor_total = contribution.labor_raw_total
         if contribution.third_party_raw_total.amount > 0:
-            contribution.allocated_third_party_total = contribution.third_party_raw_total + contribution.service_shipping
+            contribution.allocated_third_party_total = contribution.third_party_raw_total
 
     for contribution in customer_supplied_contributions:
         if contribution.is_direct_product:
@@ -270,7 +281,7 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
             contribution.allocated_labor_cost = contribution.labor_raw_total
             contribution.allocated_labor_total = contribution.labor_raw_total
         if contribution.third_party_raw_total.amount > 0:
-            contribution.allocated_third_party_total = contribution.third_party_raw_total + contribution.service_shipping
+            contribution.allocated_third_party_total = contribution.third_party_raw_total
 
     direct_products: list[BudgetReviewDirectProductLine] = []
     direct_services: list[BudgetReviewDirectServiceLine] = []
@@ -285,7 +296,7 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
                 BudgetReviewDirectProductLine(
                     item=contribution.item,
                     unit_price=money_div(contribution.allocated_product_base, quantity),
-                    total_price=contribution.allocated_product_base + contribution.product_shipping,
+                    total_price=contribution.allocated_product_base,
                     warranty_total_price=contribution.product_cost_total + contribution.product_shipping,
                 )
             )
@@ -293,7 +304,7 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
 
         if contribution.is_direct_service:
             is_third_party = contribution.third_party_raw_total.amount > 0
-            labor_total = contribution.allocated_labor_total + contribution.service_shipping
+            labor_total = contribution.allocated_labor_total
             total_price = contribution.allocated_third_party_total if is_third_party else labor_total
             warranty_total_price = contribution.third_party_cost_total if is_third_party else contribution.allocated_labor_cost
             direct_services.append(
