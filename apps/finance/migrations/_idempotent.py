@@ -18,28 +18,21 @@ def _column_names(schema_editor: Any, table: str) -> set[str]:
 
 
 def _index_exists(schema_editor: Any, index_name: str) -> bool:
+    connection = schema_editor.connection
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = %s",
-            [index_name],
-        )
-        return cursor.fetchone() is not None
+        for table in _table_names(schema_editor):
+            if index_name in connection.introspection.get_constraints(cursor, table):
+                return True
+    return False
 
 
 def _constraint_exists(schema_editor: Any, constraint_name: str) -> bool:
-    if _index_exists(schema_editor, constraint_name):
-        return True
+    connection = schema_editor.connection
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT 1
-            FROM pg_constraint constraint
-            JOIN pg_namespace namespace ON namespace.oid = constraint.connamespace
-            WHERE namespace.nspname = current_schema() AND constraint.conname = %s
-            """,
-            [constraint_name],
-        )
-        return cursor.fetchone() is not None
+        for table in _table_names(schema_editor):
+            if constraint_name in connection.introspection.get_constraints(cursor, table):
+                return True
+    return False
 
 
 class CreateModelIfMissing(migrations.CreateModel):
