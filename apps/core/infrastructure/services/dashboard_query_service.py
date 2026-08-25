@@ -23,8 +23,10 @@ from apps.core.observability import build_business_metric_attributes, record_bus
 from apps.finance.services.dre import COMP_COGS, COMP_COS, COMP_GROSS_REVENUE, build_dre_calculation
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus, WORKORDER_OPEN_STATUSES, WORKORDER_REVENUE_STATUSES
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
+from apps.workshops.util.monthly_costs import get_productive_salary_total_including_transport
 
 logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
@@ -263,11 +265,10 @@ def _build_injected_pricing_context(*, workshop: Workshop, workshop_cost: Worksh
         hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
         profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
         minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
-        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=workshop)
-        if mechanic_salary_obj is not None:
-            salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
-            if salary_item is not None:
-                productive_salary_total = salary_item.amount
+        productive_salary_total = get_productive_salary_total_including_transport(
+            workshop=workshop,
+            workshop_cost=workshop_cost,
+        )
 
     return SimpleNamespace(
         minimum_hourly_cost=minimum_hourly_cost,
