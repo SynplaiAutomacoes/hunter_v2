@@ -1,0 +1,97 @@
+---
+description: Setup, build, lint, type-check, and test commands for hunter_v2
+alwaysApply: true
+---
+
+# hunter_v2 — Commands
+
+Run from repo root.
+
+## Execution environment
+
+- The project runs inside Ubuntu on WSL2 (Windows host). Any shell command from an agent must be run through `zsh` to pick up the expected `PATH`, `uv`, and Docker CLI wiring — do not assume `sh`/`bash` defaults behave the same.
+- Docker Desktop's daemon is exposed to WSL via `/var/run/docker.sock`. If a sandboxed tool call cannot reach the Docker socket (`Cannot connect to the Docker daemon...`), retry the same command requesting full/unsandboxed permissions instead of concluding Docker is down — check with `docker ps` first.
+- The local Postgres container (`hunter_v2-postgres-1`) is normally already running via `docker compose up -d postgres`; prefer `docker ps` over re-running `docker compose up` to confirm state before assuming you must start it.
+- The local database is regularly refreshed as a full copy of production (see `scripts/sync_local_db_from_prod.py`), so real workshop/account IDs and data volumes are present locally. Treat local data as real production data for safety purposes (no destructive testing against specific real records without care), even though it lives in the local container.
+
+## Environment setup
+
+```bash
+uv sync
+npm ci
+docker compose up -d postgres
+uv run python manage.py migrate
+uv run python manage.py runserver
+```
+
+Optional development seed:
+
+```bash
+uv run python manage.py seed_demo_data
+```
+
+The project assumes PostgreSQL. SQLite is not part of the normal supported workflow.
+
+## Build and asset commands
+
+```bash
+uv run python manage.py tailwind build
+uv run python manage.py tailwind build --force
+uv run python manage.py collectstatic --noinput
+uv run playwright install --with-deps chromium
+```
+
+Operational commands:
+
+```bash
+uv run python manage.py makemigrations
+uv run python manage.py migrate
+uv run python manage.py webhook
+uv run python manage.py reconcile_webmania_documents
+```
+
+## Lint, format, and type-check
+
+```bash
+uv run ruff check .
+uv run ruff format .
+uv run mypy .
+```
+
+Tooling facts from `pyproject.toml`:
+
+- Ruff line length: `320`
+- Mypy plugin: `mypy_django_plugin.main`
+- Django stubs settings module: `config.settings`
+- Strict options are enabled, even though several error codes are temporarily disabled during migration
+
+Minimum validation after Python changes:
+
+- run at least one focused test target for the touched behavior
+- run `uv run ruff check .`
+- run `uv run mypy .` when you changed typed Python code or signatures
+
+## Test commands
+
+```bash
+uv run python manage.py test
+uv run python manage.py test apps.finance
+uv run python manage.py test apps.customer
+uv run python manage.py test apps.workorder
+uv run python manage.py test apps.finance.test_tax_classes
+uv run python manage.py test apps.customer.test_list_filters
+uv run python manage.py test apps.stock.test_financial_entries
+uv run python manage.py test apps.finance.test_tax_classes.TaxClassServiceTests
+uv run python manage.py test apps.customer.test_list_filters.CustomerListViewFilterTests
+uv run python manage.py test apps.finance.test_tax_classes.TaxClassServiceTests.test_sync_tax_classes_persists_remote_payload_locally
+uv run python manage.py test apps.customer.test_list_filters.CustomerListViewFilterTests.test_customer_list_search_matches_without_accents_and_case
+uv run python manage.py test --keepdb
+uv run python manage.py test --verbosity 2
+```
+
+Important testing reality:
+
+- Many tests live as top-level app files like `apps/finance/test_tax_classes.py` instead of `tests/` packages.
+- Do not assume `apps.<app>.tests...` paths exist.
+- First inspect the actual filename before choosing the single-test target.
+- If a prior run was interrupted or used `--keepdb`, the `test_<DB_NAME>` database may already exist and `manage.py test` will prompt interactively to delete it. In a non-interactive agent shell, add `--noinput` to auto-recreate it instead of hanging on stdin.
