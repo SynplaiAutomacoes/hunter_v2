@@ -136,7 +136,9 @@ def build_financial_overview(
             queryset = queryset.filter(search_query)
         return queryset
 
-    movements = _apply_common_filters(FinancialMovement.objects.filter(workshop=workshop))
+    movements = _apply_common_filters(FinancialMovement.objects.filter(workshop=workshop)).filter(
+        Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
+    )
     non_parent = movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
 
     credit_qs = non_parent.filter(direction=FinancialMovement.MovementDirection.CREDIT)
@@ -375,7 +377,9 @@ def build_financial_overview_with_open_workorder_credits(
         "reconciliation_status": reconciliation_status,
     }
 
-    movements = _apply_report_common_filters(FinancialMovement.objects.filter(workshop=workshop), **common_kwargs)
+    movements = _apply_report_common_filters(
+        FinancialMovement.objects.filter(workshop=workshop), **common_kwargs
+    ).filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
     non_parent = movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
 
     credit_qs = non_parent.filter(direction=FinancialMovement.MovementDirection.CREDIT)

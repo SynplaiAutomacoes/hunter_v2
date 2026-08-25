@@ -35,6 +35,9 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             pm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("pm_")]
             fms = FinancialMovement.objects.filter(id__in=fm_ids, workshop=self.workshop)
             pms = WorkOrderPaymentMethod.objects.filter(id__in=pm_ids, workorder__workshop=self.workshop)
+            total_amount = sum((Decimal(str(movement.amount.amount)) for movement in fms), Decimal("0.00")) + sum(
+                (Decimal(str(payment.total_paid.amount)) for payment in pms), Decimal("0.00")
+            )
 
             direction = FinancialMovement.MovementDirection.DEBIT
             first_movement = fms.first()
@@ -43,7 +46,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             elif pms.exists():
                 direction = FinancialMovement.MovementDirection.CREDIT
 
-            form = GroupMovementStep3Form(request.POST, workshop=self.workshop, direction=direction)
+            form = GroupMovementStep3Form(request.POST, workshop=self.workshop, direction=direction, total_amount=total_amount)
 
             # We need to fetch the entity name to display it on form validation error
             entity_name = ""
@@ -88,22 +91,27 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             total_amount += Decimal(str(pm.total_paid.amount))
                             pm.save()
 
-                    # Create Parent Movement
-                    FinancialMovement.objects.create(
-                        workshop=self.workshop,
-                        user=request.user,
-                        movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
-                        movement_group=group,
-                        description=f"Agrupamento - {group.name}",
-                        financial_observation=group.description,
-                        due_date=group.due_date,
-                        amount=total_amount,
-                        direction=first_direction,
-                        payment_method=form.cleaned_data["payment_method"],
-                        supplier_id=group.supplier_id,
-                        collaborator_id=group.collaborator_id,
-                        is_paid=False,
-                    )
+                    payment_method = form.cleaned_data["payment_method"]
+                    installments = form.cleaned_data["installment_schedule"]
+                    for installment in installments:
+                        installment_label = ""
+                        if installment.total > 1:
+                            installment_label = f" - Parcela {installment.number}/{installment.total}"
+                        FinancialMovement.objects.create(
+                            workshop=self.workshop,
+                            user=request.user,
+                            movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
+                            movement_group=group,
+                            description=f"Agrupamento - {group.name}{installment_label}",
+                            financial_observation=group.description,
+                            due_date=installment.due_date,
+                            amount=installment.amount,
+                            direction=first_direction,
+                            payment_method=payment_method,
+                            supplier_id=group.supplier_id,
+                            collaborator_id=group.collaborator_id,
+                            is_paid=False,
+                        )
 
                 response = HttpResponse()
                 response["HX-Refresh"] = "true"
@@ -114,7 +122,10 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "movement_ids": movement_ids,
                 "entity_type": entity_type,
                 "entity_id": entity_id,
-                "entity_name": entity_name
+                "entity_name": entity_name,
+                "total_amount": total_amount,
+                "payment_method_installments": form.payment_method_installments,
+                "initial_installments": form.installment_schedule_payload(),
             })
 
         # No step - entry point from reports_home.html checkbox selection
@@ -219,7 +230,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
         normalized_movement_ids = [f"fm_{fm.id}" for fm in fms] + [f"pm_{pm.id}" for pm in pms]
 
         direction = next(iter(directions), FinancialMovement.MovementDirection.DEBIT)
-        form = GroupMovementStep3Form(workshop=self.workshop, direction=direction)
+        form = GroupMovementStep3Form(workshop=self.workshop, direction=direction, total_amount=total_amount)
         return render(request, "finance/reports/partials/group_step3.html", {
             "form": form,
             "movement_ids": normalized_movement_ids,
@@ -227,6 +238,8 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "entity_id": entity_id,
             "total_amount": total_amount,
             "entity_name": entity_name,
+            "payment_method_installments": form.payment_method_installments,
+            "initial_installments": form.installment_schedule_payload(),
         })
 
 
@@ -237,6 +250,15 @@ class GroupMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, *args, **kwargs):
         group = get_object_or_404(MovementGroup, pk=pk, workshop=self.workshop)
+
+        if group.financial_movements.filter(
+            movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
+            is_paid=True,
+        ).exists():
+            response = HttpResponse()
+            response["HX-Reswap"] = "none"
+            response["HX-Trigger"] = '{"showToast":{"message":"Não é possível desagrupar: existe uma parcela já paga.","type":"warning"}}'
+            return response
 
         with transaction.atomic():
             # Detach original children so they are not deleted
