@@ -7,6 +7,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import resolve_budget_workorder_number
 from apps.finance.models.payment_method import PaymentMethod
 from apps.suppliers.models import Supplier
 from djmoney.models.fields import MoneyField
@@ -129,10 +130,9 @@ class StockMovement(TimeStampedModel):
     def workorder_reference(self):
         if self.workorder_id:
             budget = getattr(self.workorder, "budget", None)
-            if budget is not None and getattr(budget, "number", None) is not None:
-                return f"OS #{budget.number}"
-            budget_id = getattr(self.workorder, "budget_id", None)
-            return f"OS #{budget_id}" if budget_id else f"OS (WO #{self.workorder_id})"
+            if budget is None:
+                return f"OS (WO #{self.workorder_id})"
+            return f"OS #{resolve_budget_workorder_number(budget)}"
         return None
 
 

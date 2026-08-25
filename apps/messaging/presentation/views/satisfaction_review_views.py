@@ -15,6 +15,7 @@ from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.presentation.tables import TableActionDefaults
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.core.templatetags.table_tags import TableColumn
 from apps.messaging.models import SatisfactionReview
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -138,7 +139,7 @@ class SatisfactionReviewListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTe
     workshop_permission_model = "messagetemplate"
 
     def get_queryset(self) -> QuerySet[SatisfactionReview]:
-        queryset = super().get_queryset().select_related("customer", "workorder", "workshop")
+        queryset = super().get_queryset().select_related("customer", "workorder", "workorder__budget", "workshop")
 
         search_query = str(self.request.GET.get("q") or "").strip()
         if search_query:
@@ -172,7 +173,7 @@ class SatisfactionReviewListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTe
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn("Cliente", attr=lambda review: review.customer.name),
-            TableColumn("O.S.", attr=lambda review: str(review.workorder_id)),
+            TableColumn("O.S.", attr=lambda review: str(resolve_workorder_number(review.workorder))),
             TableColumn("Nota", attr="rating_display", searchable=False),
             TableColumn("Status", attr=lambda review: review.get_status_display(), searchable=False),
             TableColumn("Respondida em", attr="submitted_at_display", searchable=False),
@@ -199,7 +200,7 @@ class SatisfactionReviewDetailModalView(LoginRequiredMixin, WorkshopScopedMixin,
 
     def get(self, request: HttpRequest, pk: int) -> HttpResponse:
         review = get_object_or_404(
-            SatisfactionReview.objects.select_related("customer", "workorder", "workshop"),
+            SatisfactionReview.objects.select_related("customer", "workorder", "workorder__budget", "workshop"),
             pk=pk,
             workshop=self.workshop,
         )

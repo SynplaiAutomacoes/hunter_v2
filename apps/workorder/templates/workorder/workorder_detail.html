@@ -85,26 +85,46 @@
 
     function customConfirm(customTitle) {
         return new Promise((resolve) => {
-            const modal = document.getElementById('alert_confirm_modal');
-            const titleElem = document.getElementById('confirm-title');
-            const yesBtn = document.getElementById('confirm-yes');
+            const modals = Array.from(document.querySelectorAll('dialog#alert_confirm_modal'));
+            const modal = (modals.filter((item) => !item.closest('.hidden')).pop()) || null;
+            const titleElem = modal ? modal.querySelector('#confirm-title') : null;
+            const yesBtn = modal ? modal.querySelector('#confirm-yes') : null;
             if (!modal || !yesBtn) {
                 resolve(window.confirm(customTitle || 'Deseja realmente prosseguir?'));
                 return;
             }
             if (customTitle && titleElem) titleElem.innerText = customTitle;
-            modal.showModal();
+            try {
+                modal.showModal();
+            } catch (error) {
+                resolve(window.confirm(customTitle || 'Deseja realmente prosseguir?'));
+                return;
+            }
             const newYesBtn = yesBtn.cloneNode(true);
             yesBtn.parentNode.replaceChild(newYesBtn, yesBtn);
             let isResolved = false;
             newYesBtn.addEventListener('click', () => {
-                modal.close();
                 isResolved = true;
                 resolve(true);
+                modal.close();
             });
             modal.addEventListener('close', () => {
                 if (!isResolved) resolve(false);
             }, { once: true });
+        });
+    }
+
+    if (!window.__hunterHtmxConfirmBound) {
+        window.__hunterHtmxConfirmBound = true;
+        document.body.addEventListener('htmx:confirm', function(evt) {
+            const confirmMessage = evt.detail.elt.getAttribute('data-confirm');
+            if (!confirmMessage) return;
+            evt.preventDefault();
+            customConfirm(confirmMessage).then(function(confirmed) {
+                if (confirmed) {
+                    evt.detail.issueRequest(true);
+                }
+            });
         });
     }
 

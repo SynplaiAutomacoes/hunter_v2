@@ -41,6 +41,9 @@ from apps.finance.views import (
     PayrollBulkConciliateView,
     PayrollBulkPayView,
     PayrollBulkUnpayView,
+    PayrollAddManualBenefitView,
+    PayrollAddManualCommissionView,
+    PayrollDeleteManualCommissionView,
     PayrollEditModalView,
     PayrollListView,
     PayrollSyncComponentView,
@@ -68,7 +71,7 @@ from apps.finance.views import (
     DreResultsView,
 )
 
-from apps.finance.views.cash_flow import CashFlowView
+from apps.finance.views.cash_flow import CashFlowView, CashFlowReportExcelView, CashFlowReportModalView, CashFlowReportPdfView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
 from apps.finance.views.emission import EmissionCheckWorkorderView
 from apps.finance.views.financial_movement import (
@@ -108,6 +111,9 @@ urlpatterns = [
     path("folha-pagamento/bulk-unpay/", PayrollBulkUnpayView.as_view(), name="payroll_bulk_unpay"),
     path("folha-pagamento/<int:pk>/edit/", PayrollEditModalView.as_view(), name="payroll_edit_modal"),
     path("folha-pagamento/<int:pk>/sync/<str:component>/", PayrollSyncComponentView.as_view(), name="payroll_sync_component"),
+    path("folha-pagamento/<int:pk>/lancar-beneficio/", PayrollAddManualBenefitView.as_view(), name="payroll_add_manual_benefit"),
+    path("folha-pagamento/<int:pk>/lancar-comissao/", PayrollAddManualCommissionView.as_view(), name="payroll_add_manual_commission"),
+    path("folha-pagamento/<int:pk>/comissao-manual/<int:entry_pk>/delete/", PayrollDeleteManualCommissionView.as_view(), name="payroll_delete_manual_commission"),
     path("folha-pagamento/collaborator/<int:collaborator_pk>/edit/", PayrollEditModalView.as_view(), name="payroll_edit_modal_for_collaborator"),
     path("comissoes/", CommissionReportView.as_view(), name="commission_report"),
     path("comissoes/pdf/", CommissionReportPdfView.as_view(), name="commission_report_pdf"),
@@ -191,6 +197,9 @@ urlpatterns = [
     path("webmania/webhook/", WebhookView.as_view(), name="webhook"),
     # Fluxo de Contas
     path("fluxo-de-contas/", CashFlowView.as_view(), name="cash_flow"),
+    path("fluxo-de-contas/relatorio/", CashFlowReportModalView.as_view(), name="cash_flow_report_modal"),
+    path("fluxo-de-contas/relatorio/pdf/", CashFlowReportPdfView.as_view(), name="cash_flow_report_pdf"),
+    path("fluxo-de-contas/relatorio/excel/", CashFlowReportExcelView.as_view(), name="cash_flow_report_excel"),
     # DRE
     path("dre/", DreReportView.as_view(), name="dre_report"),
     path("dre/resultados/", DreResultsView.as_view(), name="dre_results"),

@@ -4,6 +4,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import format_workorder_reference
 
 logger = logging.getLogger(__name__)
 
@@ -541,8 +542,8 @@ class NfseRequest(TimeStampedModel):
         return True
 
     def __str__(self):
-        workorder_pk = getattr(self, "workorder_id", None) or "-"
-        return f"NFS-e Request #{self.pk} - OS #{workorder_pk}"
+        workorder_reference = format_workorder_reference(self.workorder) if self.workorder_id else "OS #-"
+        return f"NFS-e Request #{self.pk} - {workorder_reference}"
 
     @property
     def rps_number_display(self) -> str:
@@ -656,8 +657,8 @@ class NfeRequest(TimeStampedModel):
         return True
 
     def __str__(self):
-        workorder_pk = getattr(self, "workorder_id", None) or "-"
-        return f"NF-e Request #{self.pk} - OS #{workorder_pk}"
+        workorder_reference = format_workorder_reference(self.workorder) if self.workorder_id else "OS #-"
+        return f"NF-e Request #{self.pk} - {workorder_reference}"
 
     @property
     def number_display(self) -> str:

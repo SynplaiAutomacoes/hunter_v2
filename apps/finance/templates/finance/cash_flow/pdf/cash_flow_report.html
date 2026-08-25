@@ -1,0 +1,58 @@
+{% load format_tags %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <title>{{ report_title }}</title>
+    <style>
+        @page { size: A4 landscape; margin: 10mm; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #111827; margin: 0; }
+        h1 { font-size: 18px; margin: 0 0 4px; }
+        p { margin: 0 0 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; }
+        th { background: #1e3a8a; color: #fff; font-size: 10px; text-transform: uppercase; }
+        td.right { text-align: right; }
+        .muted { color: #6b7280; }
+    </style>
+</head>
+<body>
+    <h1>{{ report_title }}</h1>
+    <p class="muted">{{ workshop.name|default:"-" }} / {{ period_label }}</p>
+    <p><strong>Registros:</strong> {{ record_count }} &nbsp;|&nbsp; <strong>Total:</strong> {{ total_value }}</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Tipo</th>
+                <th>Data</th>
+                <th>Agente</th>
+                <th>Origem</th>
+                <th>Descrição</th>
+                <th>Plano</th>
+                <th>Conta</th>
+                <th>Pagamento</th>
+                <th>Valor</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in financial_movement_report_rows %}
+                <tr>
+                    <td>{{ row.type_badge.text }}</td>
+                    <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
+                    <td>{{ row.agent }}</td>
+                    <td>{{ row.origin }}</td>
+                    <td>{{ row.description }}</td>
+                    <td>{{ row.budget_plan }}</td>
+                    <td>{{ row.account }}</td>
+                    <td>{{ row.payment_type }}</td>
+                    <td class="right">{{ row.total.text }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="9">Nenhuma movimentação encontrada para esta conta.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
