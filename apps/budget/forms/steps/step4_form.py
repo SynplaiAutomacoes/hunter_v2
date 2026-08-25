@@ -115,7 +115,7 @@ class BudgetStep4Form(BudgetStepBaseForm):
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
                                             <th class="w-[10%] text-right">VALOR VENDA</th>
-                                            <th class="w-[10%] text-right">FRETE</th>
+                                            <th class="w-[10%] text-right">CUSTO DE FRETE</th>
                                             <th class="w-[10%] text-right">TOTAL</th>
                                             <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
@@ -171,7 +171,7 @@ class BudgetStep4Form(BudgetStepBaseForm):
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
                                             <th class="w-[12%] text-right">VALOR VENDA</th>
-                                            <th class="w-[12%] text-right">FRETE</th>
+                                            <th class="w-[12%] text-right">CUSTO DE FRETE</th>
                                             <th class="w-[12%] text-center">TEMPO</th>
                                             <th class="w-[12%] text-right">TOTAL</th>
                                             <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
