@@ -7,6 +7,7 @@ from apps.core.presentation.forms import CoreForm
 
 class FiscalOperation:
     NORMAL = "normal"
+    STANDALONE = "standalone"
     RETURN = "return"
     CORRECTION = "correction"
     COMPLEMENTARY = "complementary"
@@ -15,6 +16,7 @@ class FiscalOperation:
 
 FISCAL_OPERATION_CHOICES: tuple[tuple[str, str], ...] = (
     (FiscalOperation.NORMAL, "NF-e Normal"),
+    (FiscalOperation.STANDALONE, "Emissão avulsa"),
     (FiscalOperation.RETURN, "Nota de Devolução"),
     (FiscalOperation.CORRECTION, "Carta de Correção"),
     (FiscalOperation.COMPLEMENTARY, "Nota Complementar"),

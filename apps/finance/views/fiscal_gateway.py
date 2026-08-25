@@ -39,6 +39,12 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             icon="receipt_long",
         ),
         FiscalOperationCard(
+            value=FiscalOperation.STANDALONE,
+            label="Emissão avulsa",
+            description="Emite NF-e e/ou NFS-e sem OS e sem cadastrar o cliente informado como destinatário.",
+            icon="person_add",
+        ),
+        FiscalOperationCard(
             value=FiscalOperation.RETURN,
             label="Nota de Devolução",
             description="Seleciona uma NF-e de entrada vinculada ao estoque e emite a devolução sem depender de Ordem de Serviço.",
@@ -98,6 +104,9 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         if operation == FiscalOperation.NORMAL:
             query = urlencode({"reset": 1})
             return HttpResponseRedirect(f"{self._normal_wizard_url()}?{query}")
+        if operation == FiscalOperation.STANDALONE:
+            query = urlencode({"reset": 1})
+            return HttpResponseRedirect(f"{reverse('finance:standalone_emission')}?{query}")
         if operation == FiscalOperation.RETURN:
             return HttpResponseRedirect(reverse("finance:purchase_return_create"))
 
