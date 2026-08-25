@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('workorder', '0044_custo_de_frete'),
-        ('workorder', '0050_migrate_waiting_delivery_to_draft'),
+        ('workorder', '0044_migrate_waiting_delivery_to_draft'),
     ]
 
     operations = [
