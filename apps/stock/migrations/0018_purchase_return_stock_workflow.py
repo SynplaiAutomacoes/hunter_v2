@@ -5,6 +5,8 @@ import django.db.models.deletion
 from decimal import Decimal
 from django.db import migrations, models
 
+from apps.finance.migrations import _idempotent
+
 
 class Migration(migrations.Migration):
 
@@ -14,37 +16,37 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='stockimport',
             name='fiscal_document',
             field=models.OneToOneField(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='purchase_stock_import', to='finance.fiscaldocument', verbose_name='Documento fiscal externo'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='stockimport',
             name='fiscal_issued_at',
             field=models.DateTimeField(blank=True, db_index=True, null=True, verbose_name='Data de emissão fiscal'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='stockimport',
             name='fiscal_snapshot',
             field=models.JSONField(blank=True, default=dict, verbose_name='Snapshot fiscal normalizado'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='stockimport',
             name='fiscal_validated_at',
             field=models.DateTimeField(blank=True, null=True, verbose_name='Validado fiscalmente em'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='stockimport',
             name='fiscal_validation_status',
             field=models.CharField(choices=[('unvalidated', 'Não validado'), ('validated', 'Validado'), ('invalid', 'Inválido')], db_index=True, default='unvalidated', max_length=16, verbose_name='Validação fiscal'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='stockmovement',
             name='fiscal_document',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='stock_movements', to='finance.fiscaldocument', verbose_name='Documento fiscal'),
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='stockmovement',
             name='purchase_return_item',
             field=models.OneToOneField(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='stock_movement', to='finance.purchasereturnrequestitem', verbose_name='Item da Nota de Devolução'),
@@ -59,7 +61,7 @@ class Migration(migrations.Migration):
             name='current_quantity',
             field=models.DecimalField(decimal_places=4, default=Decimal('0'), max_digits=15, verbose_name='Estoque Atual'),
         ),
-        migrations.CreateModel(
+        _idempotent.CreateModelIfMissing(
             name='StockImportFiscalItem',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
@@ -84,20 +86,20 @@ class Migration(migrations.Migration):
                 'abstract': False,
             },
         ),
-        migrations.AddField(
+        _idempotent.AddFieldIfMissing(
             model_name='stockmovement',
             name='source_import_item',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='stock_movements', to='stock.stockimportfiscalitem', verbose_name='Item fiscal de origem'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='stockimportfiscalitem',
             index=models.Index(fields=['stock_import', 'sequence'], name='stock_import_item_sequence_idx'),
         ),
-        migrations.AddIndex(
+        _idempotent.AddIndexIfMissing(
             model_name='stockimportfiscalitem',
             index=models.Index(fields=['stock_product'], name='stock_import_item_product_idx'),
         ),
-        migrations.AddConstraint(
+        _idempotent.AddConstraintIfMissing(
             model_name='stockimportfiscalitem',
             constraint=models.UniqueConstraint(fields=('stock_import', 'sequence'), name='unique_fiscal_item_sequence_per_stock_import'),
         ),
