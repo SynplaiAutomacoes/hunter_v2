@@ -29,7 +29,7 @@ from apps.core.infrastructure.services.dashboard_snapshot_service import get_das
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.utils import clean_id
 from apps.workshops.util.workshops import get_active_workshop_or_404
-from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrderPaymentMethod
+from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrderPaymentMethod, WorkOrderStatus
 
 external_calls_logger = logging.getLogger("performance.external")
 logger = logging.getLogger(__name__)
@@ -219,7 +219,9 @@ class DashboardFinancialReportView(View):
                 WorkOrderPaymentMethod.objects.filter(
                     workorder__workshop=workshop,
                     workorder__budget_type="sale",
-                    workorder__status__in=WORKORDER_REVENUE_STATUSES,
+                    workorder__status=WorkOrderStatus.APPROVED,
+                    workorder__delivered_at__month=mes,
+                    workorder__delivered_at__year=ano,
                     due_date__month=mes,
                     due_date__year=ano,
                 )
@@ -266,6 +268,7 @@ class DashboardFinancialReportView(View):
             "courtesy_count": courtesy_count,
             "summary_count_label": (
                 "Quantidade de Veículos" if indicador in ("carros_mes", "garantia_cortesia_mes")
+                else "Quantidade de veículos/grupos de O.S." if indicador == "total_vendido"
                 else "Quantidade de Registros"
             ),
         }
