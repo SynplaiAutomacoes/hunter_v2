@@ -15,7 +15,7 @@ from apps.budget.models import Budget
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.finance.forms.purchase_return import PurchaseReturnItemsForm
-from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
+from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
 from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest
 from apps.finance.services.nfe_returns import confirm_nfe_return_document_from_payload
 from apps.finance.services.purchase_returns import (
@@ -626,3 +626,23 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertContains(response, "2 itens")
         self.assertContains(response, 'name="access_key"', html=False)
         self.assertNotContains(response, "Digite os 44 dígitos da chave")
+
+    def test_schema_repair_is_idempotent_on_current_purchase_return_tables(self) -> None:
+        from importlib.util import module_from_spec, spec_from_file_location
+        from pathlib import Path
+
+        from django.apps import apps
+        from django.db import connection
+
+        migration_path = Path(apps.get_app_config("finance").path) / "migrations" / "0058_repair_purchase_return_item_columns.py"
+        spec = spec_from_file_location("repair_purchase_return_item_columns", migration_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with connection.schema_editor() as schema_editor:
+            module.repair_purchase_return_schema(apps, schema_editor)
+
+        item_fields = {field.column for field in PurchaseReturnRequestItem._meta.local_concrete_fields}
+        self.assertIn("manual_snapshot", item_fields)
+        self.assertIn("kind", item_fields)
