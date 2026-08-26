@@ -163,11 +163,13 @@ def find_duplicate_service_conflicts(budget: Budget) -> list[DuplicateServiceCon
             service = override.service
             names[service_id] = getattr(service, "name", "") or f"Serviço #{service_id}"
             kit_name = item.description or getattr(item.kit, "name", "") or f"Kit #{item.kit_id}"
-            item_total = item.display_total_price or zero_money()
-            after_debit_amount = (item_total.amount or Decimal("0")) - (total.amount or Decimal("0"))
+            # Preview uses kit services subtotal (not products + services).
+            unit_services = item.service_selling_price or zero_money()
+            services_total = unit_services * kit_quantity
+            after_debit_amount = (services_total.amount or Decimal("0")) - (total.amount or Decimal("0"))
             if after_debit_amount < 0:
                 after_debit_amount = Decimal("0")
-            item_total_after_debit = Money(after_debit_amount, item_total.currency)
+            services_total_after_debit = Money(after_debit_amount, services_total.currency)
             by_service.setdefault(service_id, []).append(
                 DuplicateServiceSource(
                     kind="kit",
@@ -181,9 +183,9 @@ def find_duplicate_service_conflicts(budget: Budget) -> list[DuplicateServiceCon
                     source_key=_source_key(kind="kit", budget_item_id=int(item.pk)),
                     duration_display=format_duration_display(duration_total),
                     selling_total_display=_money_display(total),
-                    item_total=item_total,
-                    item_total_display=_money_display(item_total),
-                    item_total_after_debit_display=_money_display(item_total_after_debit),
+                    item_total=services_total,
+                    item_total_display=_money_display(services_total),
+                    item_total_after_debit_display=_money_display(services_total_after_debit),
                 )
             )
 

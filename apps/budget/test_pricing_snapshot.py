@@ -321,6 +321,7 @@ class PricingSnapshotKitWinnerTests(SimpleTestCase):
         self.assertEqual(line.raw_total, _money("10.00"))
         self.assertTrue(line.has_direct_source)
         self.assertFalse(line.has_kit_source)
+        self.assertEqual(snapshot.total_services_value, _money("60.00"))
 
 
 class KitComponentWinningItemIdsTests(SimpleTestCase):
