@@ -661,9 +661,9 @@ def _apply_work_days_to_transport_component(*, payroll: CollaboratorPayroll, wor
         )
     )
     for movement in unpaid_transport_movements:
-        if movement.amount != transport_amount:
-            movement.amount = transport_amount
-            movement.save(update_fields=["amount"])
+        if movement.gross_amount != transport_amount:
+            movement.gross_amount = transport_amount
+            movement.save(update_fields=["gross_amount", "gross_amount_currency", "amount", "amount_currency"])
     if unpaid_transport_movements:
         return recalculate_payroll_from_linked_movements(payroll=payroll)
 
@@ -1488,10 +1488,10 @@ def ensure_payroll_single_benefit_synced(*, payroll: CollaboratorPayroll, moveme
         matched_spec = benefit_specs[0]
 
     if matched_spec is not None:
-        movement.amount = matched_spec["amount"]
+        movement.gross_amount = matched_spec["amount"]
         movement.description = str(matched_spec["description"])
         movement.budget_plan = matched_spec["budget_plan"]
-        movement.save(update_fields=["amount", "description", "budget_plan"])
+        movement.save(update_fields=["gross_amount", "gross_amount_currency", "amount", "amount_currency", "description", "budget_plan"])
 
     return recalculate_payroll_from_linked_movements(payroll=payroll)
 
@@ -1789,7 +1789,7 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         # Skip overwriting financial data on movements that are already paid.
         if not (movement.pk and movement.is_paid):
             movement.description = str(spec["description"])
-            movement.amount = spec["amount"]
+            movement.gross_amount = spec["amount"]
             movement.due_date = payroll.due_date
             movement.budget_plan = budget_plan
         if is_new_movement:
