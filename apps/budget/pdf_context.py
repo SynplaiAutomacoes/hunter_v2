@@ -272,6 +272,8 @@ def _explode_kit_service_rows(*, budget: Any, kit_line, kit_item) -> list[dict[s
     third_party_entries: list[tuple[Any, int]] = []
 
     for override in kit_item._iter_frozen_kit_service_overrides():
+        if getattr(override, "excluded_from_composition", False):
+            continue
         total_quantity = int(override.quantity or 0) * int(kit_quantity or 0)
         if total_quantity <= 0:
             continue

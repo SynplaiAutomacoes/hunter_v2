@@ -26,6 +26,7 @@ from apps.core.presentation.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.budget.utils import HtmxResponseHelper
 
+from .duplicate_service_views import maybe_render_duplicate_service_queue_after_add
 from .shared import (
     LOCKED_BUDGET_EDIT_MESSAGE,
     _build_locked_budget_response,
@@ -301,6 +302,15 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
         sync_linked_workorder_from_budget(budget)
+
+        if created and kwargs["item_type"] in {"kit", "service"}:
+            duplicate_response = maybe_render_duplicate_service_queue_after_add(
+                request,
+                budget=budget,
+                created_item_ids=[item.pk],
+            )
+            if duplicate_response is not None:
+                return duplicate_response
 
         return _step_redirect_response(request, budget, fallback_step=4)
 
@@ -776,6 +786,8 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         try:
             budget._skip_stored_total_refresh = True
+            created_items: list[int] = []
+            newly_created_item_ids: list[int] = []
             try:
                 if item_type == "kit":
                     incompatible_kits = _get_incompatible_budget_kits(workshop=self.workshop, budget=budget, selected_ids=selected_ids)
@@ -789,18 +801,28 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             icon="error",
                         )
 
+                    created_kit_item_ids: list[int] = []
                     for item_id in selected_ids:
                         item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
                         if not created:
                             item.quantity += 1
                             item.save()
+                        else:
+                            created_kit_item_ids.append(item.pk)
 
                     # Reset etapas 5 e 6 após modificar a etapa 4
                     reset_steps_after_step_4(budget)
 
+                    duplicate_response = maybe_render_duplicate_service_queue_after_add(
+                        request,
+                        budget=budget,
+                        created_item_ids=created_kit_item_ids,
+                    )
+                    if duplicate_response is not None:
+                        return duplicate_response
+
                     return _step_redirect_response(request, budget, fallback_step=4)
 
-                created_items = []
                 for item_id in selected_ids:
                     item_filter = {f"{item_type}_id": item_id}
 
@@ -808,6 +830,8 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     if not created:
                         budget_item.quantity += 1
                         budget_item.save()
+                    else:
+                        newly_created_item_ids.append(budget_item.pk)
 
                     created_items.append(budget_item.pk)
             finally:
@@ -857,6 +881,16 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
+
+        if item_type == "service" and newly_created_item_ids:
+            duplicate_response = maybe_render_duplicate_service_queue_after_add(
+                request,
+                budget=budget,
+                created_item_ids=newly_created_item_ids,
+                close_parent=modal_context == "child",
+            )
+            if duplicate_response is not None:
+                return duplicate_response
 
         current_step = _get_current_step_from_referer(request, budget.current_step)
 
