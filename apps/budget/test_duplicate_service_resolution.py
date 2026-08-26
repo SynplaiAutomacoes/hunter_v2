@@ -194,6 +194,8 @@ class DuplicateServiceResolutionTests(TestCase):
         self.assertEqual(line.raw_total, _money("90.00"))
         self.assertFalse(line.has_direct_source)
         self.assertTrue(line.has_kit_source)
+        # keep_price retains the losing kit service money in the budget total.
+        self.assertEqual(snapshot.total_services_value, _money("170.00"))
 
     def test_avulso_vs_kit_keep_avulso_debits_kit(self) -> None:
         kit_item = self._add_kit_with_service(kit_name="Kit X", selling="80.00", duration=timedelta(hours=1))
@@ -324,7 +326,7 @@ class DuplicateServiceModalViewTests(TestCase):
         self.assertIn("aparece em mais de um kit", content)
         self.assertIn("Escolha como proceder", content)
         self.assertIn(sentence_case("Kit Alinhamento A"), content)
-        self.assertIn("Valor do kit", content)
+        self.assertIn("Total de serviços", content)
         self.assertIn("data-kit-preview", content)
         self.assertIn("Remover e manter o valor original do kit", content)
         self.assertIn("Remover e debitar o valor do serviço do kit", content)
