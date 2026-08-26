@@ -96,6 +96,37 @@ class PayrollPaymentForm(forms.ModelForm):
 
     def __init__(self, *args: Any, workshop=None, **kwargs: Any) -> None:
         payroll: CollaboratorPayroll | None = kwargs.pop("payroll", None)
+        data = args[0] if args else kwargs.get("data")
+        prefix = str(kwargs.get("prefix") or "")
+        if data is not None:
+            field_prefix = f"{prefix}-" if prefix else ""
+            legacy_amount = f"{field_prefix}amount_0"
+            legacy_currency = f"{field_prefix}amount_1"
+            gross_amount = f"{field_prefix}gross_amount_0"
+            gross_currency = f"{field_prefix}gross_amount_1"
+            discount_mode = f"{field_prefix}discount_mode"
+
+            # Payroll edits submitted before Ticket 240 still post ``amount``.
+            # Preserve that contract while persisting the new gross/net fields.
+            needs_legacy_mapping = bool(data.get(legacy_amount) and not data.get(gross_amount))
+            needs_discount_default = bool(
+                (data.get(gross_amount) or data.get(legacy_amount)) and not data.get(discount_mode)
+            )
+            if needs_legacy_mapping or needs_discount_default:
+                data = data.copy()
+
+            if needs_legacy_mapping:
+                data[gross_amount] = data[legacy_amount]
+                if data.get(legacy_currency):
+                    data[gross_currency] = data[legacy_currency]
+
+            if needs_discount_default:
+                data[discount_mode] = FinancialMovement.DiscountMode.NONE
+
+            if args:
+                args = (data, *args[1:])
+            else:
+                kwargs["data"] = data
         super().__init__(*args, **kwargs)
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False

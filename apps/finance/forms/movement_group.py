@@ -58,6 +58,14 @@ class GroupMovementStep3Form(CoreModelForm):
         workshop = kwargs.pop("workshop", None)
         direction = kwargs.pop("direction", None)
         total_amount = kwargs.pop("total_amount", Decimal("0.00"))
+        data = args[0] if args else kwargs.get("data")
+        if data is not None and "discount_mode" not in data:
+            data = data.copy()
+            data["discount_mode"] = "NONE"
+            if args:
+                args = (data, *args[1:])
+            else:
+                kwargs["data"] = data
         super().__init__(*args, **kwargs)
         self.total_amount = Decimal(str(getattr(total_amount, "amount", total_amount) or 0))
 
