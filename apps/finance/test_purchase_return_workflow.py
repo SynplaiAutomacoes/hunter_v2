@@ -14,7 +14,7 @@ from djmoney.money import Money
 from apps.budget.models import Budget
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
-from apps.finance.forms.purchase_return import PurchaseReturnItemsForm
+from apps.finance.forms.purchase_return import PurchaseReturnFiscalForm, PurchaseReturnItemsForm
 from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
 from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest
 from apps.finance.services.nfe_returns import confirm_nfe_return_document_from_payload
@@ -27,6 +27,7 @@ from apps.finance.services.purchase_returns import (
     find_purchase_by_id,
     get_or_create_purchase_return_request,
     search_purchase_imports,
+    save_purchase_return_fiscal_data,
     save_purchase_return_items,
     preview_purchase_return,
     sync_purchase_return_status,
@@ -338,14 +339,128 @@ class PurchaseReturnWorkflowTests(TestCase):
 
         self.assertContains(response, "Revisar Nota de Devolução")
         self.assertContains(response, "Dados fiscais da Nota de Devolução")
+        self.assertContains(response, "Valores do pedido")
+        self.assertContains(response, "Despesas acessórias")
+        self.assertContains(response, "Transporte")
         self.assertContains(response, "Motor")
         self.assertContains(response, "R$ 1.500,50")
         self.assertContains(response, "w-10 h-10")
+
+        minimal_form = PurchaseReturnFiscalForm({"operation_nature": "Devolução de mercadoria", "cfop": "5202"}, instance=return_request)
+        self.assertTrue(minimal_form.is_valid(), minimal_form.errors)
+        self.assertEqual(minimal_form.cleaned_data["freight_mode"], 9)
 
         finalized = finalize_purchase_return_request(request=return_request)
         self.assertEqual(finalized.status, PurchaseReturnRequestStatus.READY)
         self.assertIsNone(finalized.fiscal_document)
         self.assertEqual(FiscalDocument.objects.count(), 1)
+
+    def test_review_persists_optional_order_fields_and_sends_them_on_emission(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        invalid_intermediary = PurchaseReturnFiscalForm(
+            {"operation_nature": "Devolução de mercadoria", "cfop": "5202", "intermediary": "1"},
+            instance=return_request,
+        )
+        self.assertFalse(invalid_intermediary.is_valid())
+        self.assertIn("intermediary_cnpj", invalid_intermediary.errors)
+
+        request = self.factory.post(
+            f"/finance/emissao/devolucao-compra/{return_request.pk}/?step=3",
+            {
+                "operation_nature": "Devolução de compra",
+                "cfop": "5202",
+                "tax_class": "REF-DEV",
+                "additional_information": "Devolução parcial ao fornecedor",
+                "fisco_information": "Informação ao fisco",
+                "volume": "2",
+                "freight_mode": "1",
+                "freight_amount": "35.50",
+                "discount_amount": "10.00",
+                "accessory_expenses": "4.25",
+                "insurance_amount": "1.10",
+                "presence": "1",
+                "payment_method": "90",
+                "transport_volume_quantity": "2",
+                "transport_volume_species": "CAIXA",
+            },
+        )
+        request.user = self.user
+        view = PurchaseReturnWorkflowView()
+        view.setup(request, pk=return_request.pk)
+        view.workshop = self.workshop
+
+        response = view.post(request, pk=return_request.pk)
+
+        if response.status_code != 302:
+            self.fail(response.content.decode("utf-8", errors="replace")[:4000])
+        return_request.refresh_from_db()
+        self.assertEqual(return_request.status, PurchaseReturnRequestStatus.READY)
+        self.assertEqual(return_request.operation_nature, "Devolução de compra")
+        self.assertEqual(return_request.freight_mode, 1)
+        self.assertEqual(return_request.freight_amount, Decimal("35.50"))
+        self.assertEqual(return_request.discount_amount, Decimal("10.00"))
+        self.assertEqual(return_request.accessory_expenses, Decimal("4.25"))
+        self.assertEqual(return_request.insurance_amount, Decimal("1.10"))
+        self.assertEqual(return_request.volume, 2)
+        self.assertEqual(return_request.payment_method, "90")
+        self.assertEqual(return_request.transport_snapshot["volumes"]["volume"], 2)
+        self.assertEqual(return_request.transport_snapshot["volumes"]["especie"].upper(), "CAIXA")
+
+        emit_response = MagicMock()
+        emit_response.headers = {"Content-Type": "application/json"}
+        emit_response.raise_for_status.return_value = None
+        emit_response.json.return_value = {
+            "status": "aprovado",
+            "modelo": "nfe",
+            "uuid": str(uuid4()),
+            "chave": "35" + ("6" * 42),
+            "nfe": "4321",
+            "serie": "1",
+        }
+        with patch("apps.finance.services.nfe_returns._build_headers", return_value={}), patch("apps.finance.services.nfe_returns.requests.post", return_value=emit_response) as post_mock:
+            transmitted = transmit_purchase_return(request_instance=return_request)
+
+        payload = post_mock.call_args.kwargs["json"]
+        self.assertEqual(transmitted.fiscal_document.request_payload["pedido"]["frete"], "35.50")
+        self.assertEqual(payload["pedido"]["desconto"], "10.00")
+        self.assertEqual(payload["pedido"]["despesas_acessorias"], "4.25")
+        self.assertEqual(payload["pedido"]["modalidade_frete"], 1)
+        self.assertEqual(payload["pedido"]["presenca"], 1)
+        self.assertEqual(payload["pedido"]["forma_pagamento"], "90")
+        self.assertEqual(payload["transporte"]["seguro"], "1.10")
+        self.assertEqual(payload["transporte"]["volume"], 2)
+        self.assertEqual(payload["transporte"]["especie"].upper(), "CAIXA")
+        self.assertEqual(payload["volume"], "2")
+        self.assertEqual(payload["informacoes_fisco"], "Informação ao fisco")
+
+    def test_empty_optional_fiscal_fields_are_omitted_from_return_payload(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        save_purchase_return_fiscal_data(
+            request=return_request,
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "freight_mode": 9, "transport_snapshot": {}},
+        )
+        return_request = finalize_purchase_return_request(request=return_request)
+        response = MagicMock()
+        response.headers = {"Content-Type": "application/json"}
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "status": "aprovado",
+            "modelo": "nfe",
+            "uuid": str(uuid4()),
+            "chave": "35" + ("5" * 42),
+            "nfe": "4322",
+            "serie": "1",
+        }
+        with patch("apps.finance.services.nfe_returns._build_headers", return_value={}), patch("apps.finance.services.nfe_returns.requests.post", return_value=response) as post_mock:
+            transmit_purchase_return(request_instance=return_request)
+
+        payload = post_mock.call_args.kwargs["json"]
+        self.assertNotIn("pedido", payload)
+        self.assertNotIn("transporte", payload)
+        self.assertNotIn("volume", payload)
+        self.assertNotIn("informacoes_fisco", payload)
 
     def test_adapter_preserves_selected_partial_item_snapshot(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)

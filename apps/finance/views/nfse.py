@@ -28,7 +28,7 @@ from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfse
-from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
+from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url, build_issued_documents_list_url
 from apps.finance.views.request_workflow import (
     SharedEmissionRequestCreateBaseView,
     SharedEmissionRequestUpdateBaseView,
@@ -199,8 +199,8 @@ class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         context["fields"] = [
             TableColumn("ID", attr="id"),
             TableColumn("RPS", attr="rps_number_display_listing", search_by="reserved_rps_number"),
-            TableColumn("Ordem de Serviço", attr="workorder", search_by="workorder__id"),
-            TableColumn("Cliente", attr="customer_name", search_by="workorder__budget__customer__name"),
+            TableColumn("Ordem de Serviço", attr="workorder_reference", search_by="workorder__id"),
+            TableColumn("Cliente", attr="customer_name", search_by=("recipient_name", "workorder__budget__customer__name")),
             TableColumn("Criado em", attr=NfseRequest.criado_em.field.name),
             TableColumn("Status", attr="nfse_request_status_badge", search_by="status", format="status_badge"),
         ]
@@ -241,7 +241,7 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
         latest_item = self.object.items.order_by("-id").first()
         latest_batch = self.object.batches.order_by("-id").first()
         can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "agendado", "contingencia"})
-        fallback_back_url = reverse("finance:nfse_list")
+        fallback_back_url = build_issued_documents_list_url(note_type="nfse")
         context.update(
             {
                 "back_url": build_issued_documents_back_url(query_params=self.request.GET, fallback_url=fallback_back_url),
@@ -250,7 +250,7 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                 "can_cancel": can_cancel,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
-                    _build_field("Ordem de serviço", self.object.workorder),
+                    _build_field("Ordem de serviço", self.object.workorder_reference),
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),
                     _build_field("Código NBS", self.object.codigo_nbs),
@@ -312,7 +312,7 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         nfse_request.set_status(NfseRequestStatus.CANCELED)
         messages.success(request, "Nota Fiscal de Serviço cancelada com sucesso.")
-        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+        return redirect(build_issued_documents_back_url(query_params=request.GET, fallback_url=build_issued_documents_list_url(note_type="nfse")))
 
 
 class NfseRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -409,7 +409,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     preview_initial_fields = ("pricing_slider", "tax_class", "codigo_nbs", "service_description", "additional_information")
     tax_class_kind = "nfse"
     tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal de Serviço: {error}"
-    success_redirect_name = "finance:nfse_list"
+    success_redirect_name = "finance:issued_documents_list"
     status_by_step = {
         1: NfseRequestStatus.CHECKING_CLIENT,
         2: NfseRequestStatus.CHECKING_SERVICES,
@@ -463,4 +463,4 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
 
 class NfseRequestUpdateView(SharedEmissionRequestUpdateBaseView, NfseRequestCreateView):
     update_url_name = "finance:nfse_update"
-    missing_update_redirect_name = "finance:nfse_list"
+    missing_update_redirect_name = "finance:issued_documents_list"

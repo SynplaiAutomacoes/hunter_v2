@@ -1,12 +1,14 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
+from apps.finance.views.navigation import IssuedDocumentsRedirectView
 from apps.finance.views import (
     EmissionPreviewView,
     EmissionRequestCreateView,
     EmissionWorkOrderKitComponentUpdateView,
     EmissionWorkOrderItemUpdateView,
     FiscalOperationGatewayView,
+    StandaloneEmissionCreateView,
     CommissionReportView,
     CommissionReportPdfView,
     FinancialGroupBulkDeleteView,
@@ -25,7 +27,6 @@ from apps.finance.views import (
     NfeRequestCancelView,
     NfeRequestDetailView,
     NfeRequestInvalidateView,
-    NfeRequestListView,
     NfeRequestReconcileView,
     NfeRequestUpdateView,
     NfeReturnDownloadView,
@@ -35,7 +36,6 @@ from apps.finance.views import (
     NfseDocumentDownloadView,
     NfsePreviewPdfView,
     NfseRequestDetailView,
-    NfseRequestListView,
     NfseRequestReconcileView,
     NfseRequestUpdateView,
     PayrollBulkConciliateView,
@@ -135,10 +135,11 @@ urlpatterns = [
     path("emissao/workorder/<int:workorder_pk>/kit-item/<int:item_id>/<str:component_type>/<int:component_id>/edit/", EmissionWorkOrderKitComponentUpdateView.as_view(), name="emission_workorder_kit_component_edit"),
     path("emissao/check-workorder/", EmissionCheckWorkorderView.as_view(), name="emission_check_workorder"),
     path("emissao/normal/", EmissionRequestCreateView.as_view(), name="emission_normal"),
+    path("emissao/avulsa/", StandaloneEmissionCreateView.as_view(), name="standalone_emission"),
     path("emissao/", FiscalOperationGatewayView.as_view(), name="emission_create"),
-    # NFE
-    path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
-    path("nfe/list/", NfeRequestListView.as_view(), name="nfe_list"),
+    # NFE — legacy lists redirect to Central de Notas
+    path("nfe/", IssuedDocumentsRedirectView.as_view(note_type="nfe"), name="nfe_emit"),
+    path("nfe/list/", IssuedDocumentsRedirectView.as_view(note_type="nfe"), name="nfe_list"),
     path("nfe/create/", NfeCreateRedirectView.as_view(), name="nfe_create"),
     path("nfe/<int:pk>/", NfeRequestDetailView.as_view(), name="nfe_detail"),
     path("nfe/<int:pk>/reconciliar/", NfeRequestReconcileView.as_view(), name="nfe_reconcile"),
@@ -178,8 +179,8 @@ urlpatterns = [
     path("financial-movement/<int:pk>/remove-payroll-link/", FinancialMovementRemovePayrollLinkView.as_view(), name="financial_movement_remove_payroll_link"),
     path("entities", EntityListView.as_view(), name="entities"),
     path("entity_details", EntityDetailView.as_view(), name="entity_details"),
-    # NFS-e
-    path("nfse/", NfseRequestListView.as_view(), name="nfse_list"),
+    # NFS-e — legacy list redirects to Central de Notas
+    path("nfse/", IssuedDocumentsRedirectView.as_view(note_type="nfse"), name="nfse_list"),
     path("nfse/create/", NfseCreateRedirectView.as_view(), name="nfse_create"),
     path("nfse/<int:pk>/", NfseRequestDetailView.as_view(), name="nfse_detail"),
     path("nfse/<int:pk>/reconciliar/", NfseRequestReconcileView.as_view(), name="nfse_reconcile"),
