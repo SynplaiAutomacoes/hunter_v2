@@ -65,6 +65,34 @@
                 </span>
             </div>
 
+            <div id="kit-loser-actions-container" class="space-y-3">
+                {% for source in conflict.sources %}
+                {% if source.kind == "kit" %}
+                <div class="kit-loser-actions hidden rounded-box border border-base-300 bg-base-200/60 p-4 space-y-3"
+                     data-for-source="{{ source.source_key }}">
+                    <p class="text-xs font-semibold uppercase text-base-content/60">Ao remover do kit</p>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <label class="flex items-start gap-2 cursor-pointer flex-1 rounded-lg border border-base-300 bg-base-100 p-3 hover:border-warning">
+                            <input type="radio"
+                                   class="radio radio-sm radio-warning mt-0.5"
+                                   name="kit_action_{{ source.source_key }}"
+                                   value="debit"
+                                   checked>
+                            <span class="text-sm">Remover e <strong>debitar</strong> do valor do kit</span>
+                        </label>
+                        <label class="flex items-start gap-2 cursor-pointer flex-1 rounded-lg border border-base-300 bg-base-100 p-3 hover:border-accent">
+                            <input type="radio"
+                                   class="radio radio-sm radio-accent mt-0.5"
+                                   name="kit_action_{{ source.source_key }}"
+                                   value="keep_price">
+                            <span class="text-sm">Remover e <strong>não debitar</strong> (mantém valor do kit)</span>
+                        </label>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {% for source in conflict.sources %}
                 <label class="card bg-base-100 border-2 border-base-300 hover:border-primary cursor-pointer transition-colors has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/30"
@@ -81,11 +109,8 @@
                                        onchange="window.duplicateServiceQueue && window.duplicateServiceQueue.refreshLoserActions()">
                                 <div>
                                     <p class="font-bold text-base">
-                                        {% if source.kind == "direct" %}Avulso{% else %}Kit{% endif %}
+                                        {% if source.kind == "direct" %}Avulso{% else %}{{ source.kit_name|default:"Kit" }}{% endif %}
                                     </p>
-                                    {% if source.kit_name %}
-                                    <p class="text-sm text-base-content/70">{{ source.kit_name }}</p>
-                                    {% endif %}
                                 </div>
                             </div>
                             {% if source.source_key == conflict.recommended_source_key %}
@@ -118,28 +143,6 @@
                                 <div class="stat-value text-lg">{{ source.quantity }}</div>
                             </div>
                         </div>
-
-                        {% if source.kind == "kit" %}
-                        <div class="kit-loser-actions hidden space-y-2 border-t border-base-300 pt-3"
-                             data-for-source="{{ source.source_key }}">
-                            <p class="text-xs font-semibold uppercase text-base-content/60">Ao remover deste kit</p>
-                            <label class="flex items-start gap-2 cursor-pointer">
-                                <input type="radio"
-                                       class="radio radio-sm radio-warning mt-0.5"
-                                       name="kit_action_{{ source.source_key }}"
-                                       value="debit"
-                                       checked>
-                                <span class="text-sm">Remover e <strong>debitar</strong> do valor do kit</span>
-                            </label>
-                            <label class="flex items-start gap-2 cursor-pointer">
-                                <input type="radio"
-                                       class="radio radio-sm radio-accent mt-0.5"
-                                       name="kit_action_{{ source.source_key }}"
-                                       value="keep_price">
-                                <span class="text-sm">Remover e <strong>não debitar</strong> (mantém valor do kit)</span>
-                            </label>
-                        </div>
-                        {% endif %}
                     </div>
                 </label>
                 {% endfor %}
