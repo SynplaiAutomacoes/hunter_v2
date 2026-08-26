@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from django.template.loader import render_to_string
 from django.test import TestCase
 from django.utils import timezone
+from djmoney.money import Money
 
 from apps.budget.models import Budget
+from apps.catalog.models.services import Service
 from apps.customer.models import Customer, Vehicle
-from apps.workorder.models import WorkOrder, WorkOrderWarrantyPlan
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderWarrantyPlan
 from apps.workorder.pdf_context import build_workorder_pdf_context
 from apps.workshops.models.workshops import Workshop
 
@@ -102,3 +104,44 @@ class WorkOrderPdfContextTests(TestCase):
         self.assertEqual(context["document_title"], "ORDEM DE SERVIÇO")
         self.assertIn("ORDEM DE SERVIÇO", html)
         self.assertNotIn(">ORÇAMENTO<", html)
+
+    def test_os_pdf_lists_zero_priced_services(self) -> None:
+        workorder = _create_workorder(suffix=4)
+        free_service = Service.objects.create(
+            workshop=workorder.workshop,
+            name="Servico Cortesia Zerado",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("0.00", "BRL"),
+            selling_price=Money("0.00", "BRL"),
+        )
+        paid_service = Service.objects.create(
+            workshop=workorder.workshop,
+            name="Servico Pago",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("40.00", "BRL"),
+            selling_price=Money("80.00", "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=workorder.workshop,
+            workorder=workorder,
+            service=free_service,
+            quantity=1,
+            service_cost_price=Money("0.00", "BRL"),
+            service_selling_price=Money("0.00", "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=workorder.workshop,
+            workorder=workorder,
+            service=paid_service,
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("80.00", "BRL"),
+        )
+
+        context = build_workorder_pdf_context(workorder=workorder)
+        service_names = {row["description"] for row in context["servicos"]}
+
+        self.assertIn(free_service.name, service_names)
+        self.assertIn(paid_service.name, service_names)
+        free_row = next(row for row in context["servicos"] if row["description"] == free_service.name)
+        self.assertEqual(free_row["total_price"], Money("0.00", "BRL"))

@@ -28,14 +28,11 @@ _TWO_DECIMAL_PLACES = Decimal("0.01")
 
 
 def is_visible_pdf_pricing_line(line: Any) -> bool:
-    """Treat a zero-quantity or zero-priced budget line as removed from every PDF."""
-    if line.quantity <= 0:
-        return False
-    if line.kind == "product":
-        line_value = line.raw_total - line.shipping
-    else:
-        line_value = line.raw_total + line.shipping
-    return line_value.amount > _ZERO_DECIMAL
+    """Treat a zero-quantity budget line as removed from every PDF.
+
+    Zero-priced lines with quantity > 0 remain visible (free / courtesy-priced items).
+    """
+    return line.quantity > 0
 
 
 def _build_pdf_pages(produtos: list[dict], servicos: list[dict], kits: list[dict]) -> list[dict]:
