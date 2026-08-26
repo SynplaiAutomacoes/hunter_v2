@@ -50,7 +50,7 @@ from apps.collaborators.services import (
     unmark_payroll_commissions_as_paid,
     update_payroll_work_days,
 )
-from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CalendarDateInput, DecimalInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -62,6 +62,15 @@ from apps.workshops.util.workshops import can_view_payroll_details, get_active_w
 
 
 class PayrollPaymentForm(forms.ModelForm):
+    discount_percentage = forms.DecimalField(
+        label="Desconto (%)",
+        required=False,
+        min_value=Decimal("0.00"),
+        max_value=Decimal("100.00"),
+        max_digits=5,
+        decimal_places=2,
+        widget=DecimalInput(min_value=0, max_value=100, decimal_places=2),
+    )
     is_paid = forms.TypedChoiceField(
         label="Pago",
         required=True,
@@ -80,10 +89,25 @@ class PayrollPaymentForm(forms.ModelForm):
 
     class Meta:
         model = FinancialMovement
-        fields = ["due_date", "amount", "budget_plan", "bank_account", "payment_method", "is_paid", "is_reconciled", "nf_number", "financial_observation"]
+        fields = [
+            "due_date",
+            "gross_amount",
+            "discount_mode",
+            "discount_value",
+            "discount_percentage",
+            "budget_plan",
+            "bank_account",
+            "payment_method",
+            "is_paid",
+            "is_reconciled",
+            "nf_number",
+            "financial_observation",
+        ]
         widgets = {
             "due_date": CalendarDateInput(),
-            "amount": MoneyInput(),
+            "gross_amount": MoneyInput(),
+            "discount_mode": SearchableSelectInput(),
+            "discount_value": MoneyInput(),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),
             "payment_method": SearchableSelectInput(),
@@ -134,9 +158,16 @@ class PayrollPaymentForm(forms.ModelForm):
         self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["bank_account"].required = False
         self.fields["payment_method"].required = False
+        self.fields["gross_amount"].required = True
+        self.fields["discount_mode"].label = "Tipo de desconto"
+        self.fields["discount_mode"].required = True
+        self.fields["discount_value"].required = False
+        self.fields["discount_percentage"].required = False
+        if self.instance.pk:
+            self.initial["discount_percentage"] = Decimal(str(self.instance.discount_percentage or 0)).quantize(Decimal("0.01"))
         if payroll is not None:
             self.fields["due_date"].initial = self.instance.due_date or payroll.due_date
-            self.fields["amount"].initial = self.instance.amount or payroll.total_amount
+            self.fields["gross_amount"].initial = self.instance.gross_amount or self.instance.amount
         if workshop is not None:
             groups = FinancialGroup.objects.filter(workshop=workshop).order_by("name")
             accounts = BankAccount.objects.filter(workshop=workshop, is_active=True)
@@ -169,6 +200,32 @@ class PayrollPaymentForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
+        gross_amount = cleaned_data.get("gross_amount")
+        discount_mode = cleaned_data.get("discount_mode")
+        discount_value = cleaned_data.get("discount_value")
+        discount_percentage = cleaned_data.get("discount_percentage") or Decimal("0.00")
+
+        if gross_amount is not None:
+            gross_value = Decimal(str(gross_amount.amount or 0))
+            if discount_mode == FinancialMovement.DiscountMode.AMOUNT:
+                resolved_discount = Decimal(str(discount_value.amount if discount_value else 0))
+                if resolved_discount <= 0:
+                    self.add_error("discount_value", "Informe o valor do desconto.")
+                elif resolved_discount > gross_value:
+                    self.add_error("discount_value", "O desconto não pode ser maior que o valor bruto.")
+                cleaned_data["discount_percentage"] = Decimal("0.00")
+            elif discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
+                if discount_percentage <= 0:
+                    self.add_error("discount_percentage", "Informe o percentual do desconto.")
+                elif discount_percentage > Decimal("100"):
+                    self.add_error("discount_percentage", "O desconto percentual não pode ser maior que 100%.")
+                cleaned_data["discount_value"] = Money(Decimal("0.00"), gross_amount.currency)
+            elif discount_mode == FinancialMovement.DiscountMode.NONE:
+                cleaned_data["discount_value"] = Money(Decimal("0.00"), gross_amount.currency)
+                cleaned_data["discount_percentage"] = Decimal("0.00")
+            else:
+                self.add_error("discount_mode", "Informe se esta movimentação possui desconto.")
+
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
         return cleaned_data
