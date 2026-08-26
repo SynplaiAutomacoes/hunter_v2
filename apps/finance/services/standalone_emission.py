@@ -7,8 +7,34 @@ from django.db import transaction
 
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.product_issues import normalize_ncm
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus, StandaloneNfeLine, StandaloneNfseLine
 from apps.finance.services.fiscal_recipient import recipient_name_from_snapshot, recipient_snapshot_from_form_data
+
+
+def refresh_standalone_nfe_lines_from_catalog(*, lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Re-read NCM/CEST/unit/origin from catalog products so edits apply without re-adding lines."""
+    product_ids = [int(line["product_id"]) for line in lines if line.get("product_id")]
+    products_by_id = Product.objects.in_bulk(product_ids) if product_ids else {}
+    refreshed: list[dict[str, Any]] = []
+    for line in lines:
+        updated = dict(line)
+        product_id = line.get("product_id")
+        if product_id:
+            product = products_by_id.get(int(product_id))
+            if product is not None:
+                updated["description"] = product.name
+                updated["product_code"] = product.code
+                updated["ncm"] = product.ncm
+                updated["cest"] = product.cest or ""
+                updated["unit"] = product.unit
+                updated["origin"] = int(product.origin_cst or 0)
+        refreshed.append(updated)
+    return refreshed
+
+
+def line_has_valid_ncm(*, line: dict[str, Any]) -> bool:
+    return len(normalize_ncm(line.get("ncm"))) == 8
 
 
 def default_standalone_state() -> dict[str, Any]:
@@ -141,7 +167,9 @@ def get_or_create_standalone_nfe_request(*, workshop: Any, state: dict[str, Any]
     nfe_request.discount_type_override = ""
     nfe_request.save()
 
-    persist_nfe_lines(nfe_request=nfe_request, lines=list(state.get("nfe_lines") or []))
+    refreshed_lines = refresh_standalone_nfe_lines_from_catalog(lines=list(state.get("nfe_lines") or []))
+    state["nfe_lines"] = refreshed_lines
+    persist_nfe_lines(nfe_request=nfe_request, lines=refreshed_lines)
     state["nfe_request_id"] = nfe_request.pk
     return nfe_request
 

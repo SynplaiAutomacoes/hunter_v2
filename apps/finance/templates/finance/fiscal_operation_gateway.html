@@ -5,8 +5,10 @@
         <div>
             <h1 class="text-3xl font-bold text-base-content">Emitir Nota</h1>
             <p class="mt-1 text-base-content/70">
-                {% if gateway_step == 'linkage' %}
-                    Escolha o fluxo de emissão para {{ selected_document_label }}.
+                {% if gateway_step == 'document' %}
+                    Escolha se a nota será de produto ou de serviço.
+                {% elif gateway_step == 'linkage' %}
+                    Escolha o fluxo de emissão da Nota Fiscal.
                 {% else %}
                     Escolha a operação fiscal que deseja realizar.
                 {% endif %}
@@ -16,16 +18,68 @@
 
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8">
-            {% if gateway_step == 'linkage' %}
+            {% if gateway_step == 'document' %}
                 <div>
-                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 2 de 2</p>
-                    <h2 class="mt-1 text-2xl font-bold text-base-content">Como deseja emitir a {{ selected_document_label }}?</h2>
+                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 3 de 3</p>
+                    <h2 class="mt-1 text-2xl font-bold text-base-content">Tipo de documento</h2>
+                    <p class="mt-2 text-base-content/70">
+                        Fluxo selecionado: {{ selected_linkage_label }}. Agora escolha se a emissão será de produto (NF-e) ou serviço (NFS-e).
+                    </p>
+                </div>
+
+                <form method="post" class="mt-6 space-y-6">
+                    {% csrf_token %}
+                    <input type="hidden" name="operation" value="emission">
+                    <input type="hidden" name="linkage" value="{{ selected_linkage }}">
+                    <input type="hidden" name="gateway_step" value="document">
+
+                    {% if form.note_document.errors %}
+                        <div class="alert alert-error">
+                            {% for error in form.note_document.errors %}<span>{{ error }}</span>{% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        {% for card in document_cards %}
+                            <label class="group flex cursor-pointer items-start gap-4 rounded-2xl border border-base-300 bg-base-100 p-5 transition hover:border-primary/60 hover:shadow-md has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+                                <input
+                                    type="radio"
+                                    name="{{ form.note_document.html_name }}"
+                                    value="{{ card.value }}"
+                                    class="radio radio-primary mt-1 shrink-0"
+                                    {% if form.note_document.value == card.value %}checked{% endif %}
+                                    required
+                                >
+                                <span class="material-icons rounded-xl bg-base-200 p-3 text-primary transition group-hover:bg-primary/10">{{ card.icon }}</span>
+                                <span>
+                                    <span class="block text-lg font-semibold text-base-content">{{ card.label }}</span>
+                                    <span class="mt-1 block text-sm leading-relaxed text-base-content/70">{{ card.description }}</span>
+                                </span>
+                            </label>
+                        {% endfor %}
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-t border-base-200 pt-5">
+                        <a href="{{ linkage_step_url }}" class="btn btn-outline gap-2">
+                            <span class="material-icons text-sm">arrow_back</span>
+                            Voltar
+                        </a>
+                        <button type="submit" class="btn btn-primary gap-2">
+                            Continuar
+                            <span class="material-icons text-sm">arrow_forward</span>
+                        </button>
+                    </div>
+                </form>
+            {% elif gateway_step == 'linkage' %}
+                <div>
+                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 2 de 3</p>
+                    <h2 class="mt-1 text-2xl font-bold text-base-content">Como deseja emitir a Nota Fiscal?</h2>
                     <p class="mt-2 text-base-content/70">Selecione se a nota será vinculada a uma Ordem de Serviço ou emitida de forma avulsa.</p>
                 </div>
 
                 <form method="post" class="mt-6 space-y-6">
                     {% csrf_token %}
-                    <input type="hidden" name="operation" value="{{ selected_document }}">
+                    <input type="hidden" name="operation" value="emission">
                     <input type="hidden" name="gateway_step" value="linkage">
 
                     {% if form.linkage.errors %}
@@ -67,7 +121,7 @@
                 </form>
             {% else %}
                 <div>
-                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 1 de 2</p>
+                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 1 de 3</p>
                     <h2 class="mt-1 text-2xl font-bold text-base-content">Tipo de operação</h2>
                     <p class="mt-2 text-base-content/70">Selecione uma opção para continuar com a emissão ou operação fiscal.</p>
                 </div>

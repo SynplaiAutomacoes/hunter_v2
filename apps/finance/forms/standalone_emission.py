@@ -9,6 +9,7 @@ from django import forms
 
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.product_issues import normalize_ncm
 from apps.core.presentation.forms import AddressFormMixin, CoreForm, address_layout
 from apps.core.presentation.widgets import (
     CPForCNPJInput,
@@ -395,7 +396,7 @@ class StandaloneAddServiceForm(CoreForm):
 class StandaloneManualProductForm(CoreForm):
     description = forms.CharField(label="Descrição", max_length=255, widget=TextInput())
     product_code = forms.CharField(label="Código", max_length=120, widget=TextInput())
-    ncm = forms.CharField(label="NCM", max_length=10, widget=TextInput())
+    ncm = forms.CharField(label="NCM", max_length=10, required=False, widget=TextInput())
     unit = forms.CharField(label="Unidade", max_length=12, initial="UN", widget=TextInput())
     quantity = forms.IntegerField(
         label="Quantidade",
@@ -440,6 +441,9 @@ class StandaloneManualProductForm(CoreForm):
                 css_class="grid grid-cols-1 sm:grid-cols-12 gap-3",
             )
         )
+
+    def clean_ncm(self):
+        return normalize_ncm(self.cleaned_data.get("ncm"))
 
 
 class StandaloneManualServiceForm(CoreForm):
@@ -542,6 +546,22 @@ def _format_decimal(value: object) -> str:
         return str(value or "0,00")
 
 
+def _line_has_invalid_ncm(line: dict[str, object]) -> bool:
+    return len(normalize_ncm(line.get("ncm"))) != 8
+
+
+def _ncm_warning_html(*, description: str) -> str:
+    tip = escape("Produto com NCM invalido.")
+    return (
+        f'<span class="inline-flex items-center gap-2 min-w-0">'
+        f'<span class="break-words whitespace-normal leading-snug">{escape(description)}</span>'
+        f'<span class="tooltip tooltip-right shrink-0" data-tip="{tip}">'
+        f'<span class="material-icons text-warning" style="font-size: 18px;">warning</span>'
+        f"</span>"
+        f"</span>"
+    )
+
+
 def _render_product_lines_html(lines: list[dict[str, object]]) -> str:
     if not lines:
         return (
@@ -557,10 +577,12 @@ def _render_product_lines_html(lines: list[dict[str, object]]) -> str:
         if total == 0:
             total = Decimal(str(line.get("quantity") or "0")) * Decimal(str(line.get("unit_value") or "0"))
         grand_total += total
+        description = str(line.get("description") or "")
+        description_html = _ncm_warning_html(description=description) if _line_has_invalid_ncm(line) else escape(description)
         rows.append(
             f"""
             <tr>
-                <td class="py-2">{escape(str(line.get('description') or ''))}</td>
+                <td class="py-2">{description_html}</td>
                 <td class="py-2 text-center">{line.get('quantity')}</td>
                 <td class="py-2 text-right">{_format_decimal(line.get('cost_value'))}</td>
                 <td class="py-2 text-right">{_format_decimal(line.get('unit_value'))}</td>

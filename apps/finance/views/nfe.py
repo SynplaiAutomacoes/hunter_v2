@@ -7,7 +7,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.urls import reverse
@@ -36,7 +36,7 @@ from apps.core.infrastructure.services.webmania.webmania_documents import Webman
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
-from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
+from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url, build_issued_documents_list_url
 from apps.finance.views.request_workflow import (
     SharedEmissionRequestCreateBaseView,
     SharedEmissionRequestUpdateBaseView,
@@ -227,7 +227,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 .distinct()
                 .order_by("criado_em")
             )
-        fallback_back_url = reverse("finance:nfe_list")
+        fallback_back_url = build_issued_documents_list_url(note_type="nfe")
         context.update(
             {
                 "back_url": build_issued_documents_back_url(query_params=self.request.GET, fallback_url=fallback_back_url),
@@ -380,7 +380,7 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         nfe_request.set_status(NfeRequestStatus.CANCELED)
         messages.success(request, "Nota Fiscal de Produto cancelada com sucesso.")
-        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+        return redirect(build_issued_documents_back_url(query_params=request.GET, fallback_url=build_issued_documents_list_url(note_type="nfe")))
 
 
 class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -586,7 +586,17 @@ class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "nfe_preview_download_failed",
                 extra={"nfe_request_id": nfe_request.pk, "workshop_id": self.workshop.pk},
             )
-            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+            response = render(
+                request,
+                "finance/partials/preview_error.html",
+                {
+                    "title": "Não foi possível gerar a prévia da NF-e",
+                    "message": str(exc),
+                },
+            )
+            response["Cache-Control"] = "no-store"
+            response.status_code = 422
+            return response
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         response["Content-Disposition"] = self._build_content_disposition(nfe_request=nfe_request)
@@ -611,7 +621,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
     preview_initial_fields = ("pricing_slider", "tax_class", "additional_information")
     tax_class_kind = "nfe"
     tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal de Produto: {error}"
-    success_redirect_name = "finance:nfe_emit"
+    success_redirect_name = "finance:issued_documents_list"
     status_by_step = {
         1: NfeRequestStatus.CHECKING_CLIENT,
         2: NfeRequestStatus.CHECKING_PRODUCTS,
@@ -672,4 +682,4 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
 
 class NfeRequestUpdateView(SharedEmissionRequestUpdateBaseView, NfeRequestCreateView):
     update_url_name = "finance:nfe_update"
-    missing_update_redirect_name = "finance:nfe_emit"
+    missing_update_redirect_name = "finance:issued_documents_list"

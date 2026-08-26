@@ -245,11 +245,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         return actions
 
     def _resolve_close_redirect(self, *, state: dict[str, Any]) -> str:
-        if state.get("nfse_request_id") and not state.get("nfse_done"):
-            return reverse("finance:nfse_list")
-        if state.get("nfe_request_id") and not state.get("nfe_done"):
-            return reverse("finance:nfe_emit")
-        return reverse("workshops:emission_history")
+        from apps.finance.views.navigation import build_issued_documents_list_url
+
+        if state.get("nfse_request_id") and not state.get("nfse_done") and not state.get("nfe_request_id"):
+            return build_issued_documents_list_url(note_type="nfse")
+        if state.get("nfe_request_id") and not state.get("nfe_done") and not state.get("nfse_request_id"):
+            return build_issued_documents_list_url(note_type="nfe")
+        return build_issued_documents_list_url()
 
     def _close_wizard(self):
         state = self._load_state() if self._has_saved_state() else self._default_state()
@@ -259,7 +261,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         self._clear_state()
 
         if has_created_requests:
-            messages.info(self.request, "Emissao fechada. Voce pode ajustar as notas criadas pelas listagens.")
+            messages.info(self.request, "Emissao fechada. Voce pode acompanhar as notas na Central de Notas.")
         else:
             messages.info(self.request, "Emissao fechada. Voce pode iniciar uma nova quando quiser.")
 
@@ -641,12 +643,14 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         cache.delete(self._submission_lock_key(state=state, note_key=note_key))
 
     def _redirect_to_success(self, *, note_mode: str):
-        if note_mode == "both":
-            target_url = reverse("workshops:emission_history")
+        from apps.finance.views.navigation import build_issued_documents_list_url
+
+        if note_mode == "nfse":
+            target_url = build_issued_documents_list_url(note_type="nfse")
         elif note_mode == "nfe":
-            target_url = reverse("finance:nfe_emit")
+            target_url = build_issued_documents_list_url(note_type="nfe")
         else:
-            target_url = reverse("finance:nfse_list")
+            target_url = build_issued_documents_list_url()
 
         if getattr(self.request, "htmx", False):
             response = HttpResponse()
