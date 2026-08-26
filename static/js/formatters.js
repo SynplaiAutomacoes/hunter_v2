@@ -445,10 +445,15 @@
                 },
             };
         },
-        docInput(raw, docMode) {
+        docInput(raw, docMode, duplicateCheckUrl = '', customerId = '') {
             return {
                 rawValue: raw ?? '',
                 docMode: (docMode || 'both').toString(),
+                duplicateCheckUrl,
+                customerId,
+                duplicateState: '',
+                duplicateMessage: '',
+                duplicateTimer: null,
                 mode() {
                     return (this.docMode || 'both').toLowerCase();
                 },
@@ -478,6 +483,59 @@
                     if (digits.length > maxDigits) digits = digits.slice(0, maxDigits);
                     this.$refs.value.value = digits;
                     e.target.value = this.format(digits);
+                    this.scheduleDuplicateCheck(digits);
+                },
+                scheduleDuplicateCheck(digits) {
+                    if (this.duplicateTimer) window.clearTimeout(this.duplicateTimer);
+                    this.duplicateState = '';
+                    this.duplicateMessage = '';
+                    if (!this.duplicateCheckUrl || ![11, 14].includes(digits.length)) return;
+                    if (!this.isValidDocument(digits)) {
+                        this.duplicateState = 'invalid';
+                        this.duplicateMessage = digits.length === 11 ? 'Informe um CPF válido.' : 'Informe um CNPJ válido.';
+                        return;
+                    }
+
+                    this.duplicateTimer = window.setTimeout(() => this.checkDuplicate(digits), 350);
+                },
+                isValidDocument(digits) {
+                    if (/^(\d)\1+$/.test(digits)) return false;
+                    if (digits.length === 11) {
+                        const first = Array.from(digits.slice(0, 9)).reduce((sum, digit, index) => sum + Number(digit) * (10 - index), 0);
+                        const firstCheck = (first * 10 % 11) % 10;
+                        const second = Array.from(digits.slice(0, 10)).reduce((sum, digit, index) => sum + Number(digit) * (11 - index), 0);
+                        const secondCheck = (second * 10 % 11) % 10;
+                        return digits.slice(-2) === `${firstCheck}${secondCheck}`;
+                    }
+                    if (digits.length === 14) {
+                        const calculate = (value, weights) => {
+                            const total = Array.from(value).reduce((sum, digit, index) => sum + Number(digit) * weights[index], 0);
+                            const remainder = total % 11;
+                            return remainder < 2 ? '0' : String(11 - remainder);
+                        };
+                        const firstCheck = calculate(digits.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+                        const secondCheck = calculate(digits.slice(0, 12) + firstCheck, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+                        return digits.slice(-2) === firstCheck + secondCheck;
+                    }
+                    return false;
+                },
+                async checkDuplicate(digits) {
+                    const params = new URLSearchParams({ document: digits });
+                    if (this.customerId) params.set('exclude_customer_id', this.customerId);
+                    try {
+                        const response = await fetch(`${this.duplicateCheckUrl}?${params.toString()}`, {
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        });
+                        if (!response.ok) return;
+                        const data = await response.json();
+                        this.duplicateState = data.exists ? 'exists' : 'available';
+                        this.duplicateMessage = data.exists
+                            ? 'Já existe um cliente cadastrado com este documento nesta oficina.'
+                            : 'Documento disponível para cadastro.';
+                    } catch (_) {
+                        this.duplicateState = '';
+                        this.duplicateMessage = '';
+                    }
                 },
             };
         },

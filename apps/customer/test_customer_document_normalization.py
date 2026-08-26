@@ -1,7 +1,10 @@
 from django.test import TestCase
+from django.test import RequestFactory
+from unittest.mock import patch
 
 from apps.customer.forms import CustomerForm, QuickCustomerForm
 from apps.customer.models import Customer
+from apps.customer.views import api_check_customer_document
 from apps.workshops.models.workshops import Workshop
 
 
@@ -56,3 +59,13 @@ class CustomerDocumentNormalizationTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("Já existe um cliente cadastrado", str(form.errors["cpf_or_cnpj"]))
+
+    @patch("apps.customer.views.get_active_workshop_or_404")
+    def test_document_check_endpoint_finds_legacy_masked_document(self, active_workshop) -> None:
+        self._create_legacy_masked_customer()
+        active_workshop.return_value = self.workshop
+
+        response = api_check_customer_document(RequestFactory().get("/customer/check-document/", {"document": "04252011000110"}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"exists": True})
