@@ -278,6 +278,12 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
         self.fields["customer_type"].initial = initial_customer_type
         self.initial["customer_type"] = initial_customer_type
         self.fields["cpf_or_cnpj"].widget.mode = "cnpj" if initial_customer_type == "PJ" else "cpf"
+        self.fields["cpf_or_cnpj"].widget.attrs.update(
+            {
+                "data-document-duplicate-url": reverse("customer:check-document"),
+                "data-customer-id": str(self.instance.pk or ""),
+            }
+        )
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
@@ -589,6 +595,12 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
         self.fields["customer_type"].initial = initial_customer_type
         self.initial["customer_type"] = initial_customer_type
         self.fields["cpf_or_cnpj"].widget.mode = "cnpj" if initial_customer_type == "PJ" else "cpf"
+        self.fields["cpf_or_cnpj"].widget.attrs.update(
+            {
+                "data-document-duplicate-url": reverse("customer:check-document"),
+                "data-customer-id": str(self.instance.pk or ""),
+            }
+        )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
