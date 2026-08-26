@@ -31,18 +31,13 @@
             </thead>
 
             <tbody>
-                {% for payment in payment_rows|default:workorder.payments.all %}
+                {% for payment in workorder.payments.all %}
                     <tr>
                         <td>{% if forloop.first %}{{ payment.total_paid }}{% else %}-{% endif %}</td>
                         <td>{% if forloop.first %}-{% else %}{{ payment.total_paid }}{% endif %}</td>
                         <td>{{ payment.payment_method.description }}</td>
                         <td>{{ payment.due_date|date:"d/m/Y" }}</td>
-                        <td>
-                            <div class="flex items-center gap-2">
-                                <span>{{ payment.total_paid }}</span>
-                                <span class="badge {{ payment.status_badge_class|default:'badge-warning' }} badge-sm badge-outline">{{ payment.status_badge_label|default:'Pendente' }}</span>
-                            </div>
-                        </td>
+                        <td>{{ payment.total_paid }}</td>
 
                         <td class="text-center">
                             <button type="button" class="btn btn-ghost btn-xs text-error"

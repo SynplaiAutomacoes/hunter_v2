@@ -12,12 +12,13 @@ from django.utils import timezone
 from apps.accounts.models import Account
 from apps.budget.models import Budget
 from apps.collaborators.models import WorkshopMember
+from apps.collaborators.test_commissions import create_collaborator
 from apps.core.infrastructure.services.signature_webhook import process_signature_webhook_payload
 from apps.customer.models import Customer, Vehicle
 from apps.customer.views import _build_customer_workorder_history_entry
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.forms import WorkOrderCustomerApprovalForm
-from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus, WorkOrderWarrantyPlan
+from apps.workorder.models import WorkOrder, WorkOrderCourtesyReasonType, WorkOrderSignatureStatus, WorkOrderStatus, WorkOrderWarrantyPlan
 from apps.workshops.models.workshops import Workshop
 
 
@@ -175,6 +176,77 @@ class WorkOrderWarrantyPlanFormTests(TestCase):
         self.assertIsNone(workorder.km_final)
         self.assertNotEqual(workorder.status, WorkOrderStatus.APPROVED)
         self.assertIsNone(workorder.delivered_at)
+
+    def test_courtesy_reason_fields_render_for_warranty_workorder(self) -> None:
+        workshop = _create_workshop(suffix=13)
+        workorder = _create_workorder(workshop=workshop, suffix=13)
+        workorder.budget.budget_type = "warranty"
+        workorder.budget.save(update_fields=["budget_type"])
+        workorder.budget_type = "warranty"
+        workorder.save(update_fields=["budget_type"])
+
+        form = WorkOrderCustomerApprovalForm(
+            workorder=workorder,
+            require_unsigned_delivery_reason=False,
+        )
+        self.assertTrue(form.is_courtesy_or_warranty)
+        self.assertFalse(form.fields["courtesy_reason_type"].disabled)
+        self.assertFalse(form.fields["previous_mechanic"].disabled)
+
+    def test_courtesy_reason_fields_disabled_for_sale_workorder(self) -> None:
+        workshop = _create_workshop(suffix=14)
+        workorder = _create_workorder(workshop=workshop, suffix=14)
+
+        form = WorkOrderCustomerApprovalForm(
+            workorder=workorder,
+            require_unsigned_delivery_reason=False,
+        )
+        self.assertFalse(form.is_courtesy_or_warranty)
+        self.assertTrue(form.fields["previous_mechanic"].disabled)
+        self.assertTrue(form.fields["courtesy_reason_type"].disabled)
+        self.assertTrue(form.fields["courtesy_reason_description"].disabled)
+
+    def test_save_delivery_draft_persists_courtesy_fields(self) -> None:
+        workshop = _create_workshop(suffix=15)
+        workorder = _create_workorder(workshop=workshop, suffix=15)
+        workorder.budget_type = "warranty"
+        workorder.save(update_fields=["budget_type"])
+        mechanic = create_collaborator(workshop=workshop, suffix=15)
+
+        workorder.save_delivery_draft(
+            cleaned_data={
+                "previous_mechanic": mechanic,
+                "courtesy_reason_type": WorkOrderCourtesyReasonType.LABOR_FAILURE,
+                "courtesy_reason_description": "Serviço refeito em garantia.",
+            },
+            posted_fields={"previous_mechanic", "courtesy_reason_type", "courtesy_reason_description"},
+        )
+        workorder.refresh_from_db()
+
+        self.assertEqual(workorder.previous_mechanic_id, mechanic.pk)
+        self.assertEqual(workorder.courtesy_reason_type, WorkOrderCourtesyReasonType.LABOR_FAILURE)
+        self.assertEqual(workorder.courtesy_reason_description, "Serviço refeito em garantia.")
+
+    def test_complete_delivery_persists_courtesy_fields(self) -> None:
+        workshop = _create_workshop(suffix=16)
+        workorder = _create_workorder(workshop=workshop, suffix=16)
+        workorder.budget_type = "warranty"
+        workorder.save(update_fields=["budget_type"])
+        mechanic = create_collaborator(workshop=workshop, suffix=16)
+
+        workorder.complete_delivery(
+            km_final=12_000,
+            warranty_plan=WorkOrderWarrantyPlan.DAYS_90,
+            previous_mechanic_id=mechanic.pk,
+            courtesy_reason_type=WorkOrderCourtesyReasonType.PART_DEFECT,
+            courtesy_reason_description="Peça com defeito de fábrica.",
+            update_courtesy_fields=True,
+        )
+        workorder.refresh_from_db()
+
+        self.assertEqual(workorder.previous_mechanic_id, mechanic.pk)
+        self.assertEqual(workorder.courtesy_reason_type, WorkOrderCourtesyReasonType.PART_DEFECT)
+        self.assertEqual(workorder.courtesy_reason_description, "Peça com defeito de fábrica.")
 
 
 class WorkOrderWarrantyHistoryEntryTests(TestCase):
