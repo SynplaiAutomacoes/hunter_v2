@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
+from crispy_forms.layout import Field
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, SimpleTestCase
 from django.urls import reverse
@@ -10,10 +11,11 @@ from django.urls import reverse
 from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, _build_taker_payload, calculate_nfse_service_total
 from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, _build_customer_payload, _build_nfe_products_payload
 from apps.finance.forms.fiscal_gateway import FiscalOperation, FiscalOperationGatewayForm
-from apps.finance.forms.standalone_emission import StandaloneRecipientForm
+from apps.finance.forms.standalone_emission import StandaloneRecipientForm, build_standalone_items_form
 from apps.finance.models.finance import NfeRequest
 from apps.finance.services.fiscal_recipient import validate_recipient_snapshot
 from apps.finance.views.fiscal_gateway import FiscalOperationGatewayView
+from apps.finance.views.standalone_emission import StandaloneEmissionCreateView
 
 
 RECIPIENT_SNAPSHOT = {
@@ -79,6 +81,31 @@ class StandaloneRecipientValidationTests(SimpleTestCase):
         self.assertTrue(form.fields["estado"].choices)
         self.assertIn("MG", {value for value, _label in form.fields["estado"].choices})
 
+    def test_recipient_form_cep_field_wires_viacep_lookup(self) -> None:
+        form = StandaloneRecipientForm()
+        cep_lookup_url = reverse("core:cep_lookup")
+
+        def walk(node: object) -> Field | None:
+            if isinstance(node, Field) and list(getattr(node, "fields", [])) == ["cep"]:
+                return node
+            children = getattr(node, "fields", None)
+            if not isinstance(children, list):
+                return None
+            for child in children:
+                found = walk(child)
+                if found is not None:
+                    return found
+            return None
+
+        cep_field = walk(form.helper.layout)
+        self.assertIsNotNone(cep_field)
+        assert cep_field is not None
+
+        self.assertEqual(cep_field.attrs.get("hx-get"), cep_lookup_url)
+        self.assertEqual(cep_field.attrs.get("hx-trigger"), "blur")
+        self.assertIn("cep", str(cep_field.attrs.get("hx-include")))
+        self.assertEqual(cep_field.attrs.get("hx-indicator"), "#cep-loader")
+
     def test_recipient_form_accepts_minimal_pf_payload(self) -> None:
         form = StandaloneRecipientForm(
             {
@@ -97,6 +124,44 @@ class StandaloneRecipientValidationTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["recipient_snapshot"]["estado"], "MG")
         self.assertEqual(form.cleaned_data["recipient_snapshot"]["cpf_or_cnpj"], "39053344705")
+
+
+class StandaloneItemsFormTests(SimpleTestCase):
+    def test_build_standalone_items_form_returns_callable_form_class(self) -> None:
+        form_class = build_standalone_items_form(note_mode="nfe", nfe_lines=[], nfse_lines=[])
+
+        self.assertTrue(callable(form_class))
+        form = form_class({})
+        self.assertTrue(form.is_valid())
+        self.assertTrue(hasattr(form, "helper"))
+
+    def test_items_step_get_form_class_is_callable(self) -> None:
+        factory = RequestFactory()
+        request = factory.get("/finance/emissao/avulsa/?step=2")
+        request.user = SimpleNamespace(pk=10, is_authenticated=True)
+        request.session = {
+            "finance.standalone_emission:1:10": {
+                "note_mode": "nfe",
+                "current_step": 2,
+                "max_reached_step": 2,
+                "recipient": RECIPIENT_SNAPSHOT,
+                "nfe_lines": [],
+                "nfse_lines": [],
+            }
+        }
+        setattr(request, "_messages", FallbackStorage(request))
+
+        view = StandaloneEmissionCreateView()
+        view.request = request
+        view.workshop = SimpleNamespace(pk=1)
+        view.args = ()
+        view.kwargs = {}
+
+        form_class = view.get_form_class()
+        self.assertTrue(callable(form_class))
+        form = form_class({})
+        self.assertTrue(form.is_valid())
+        self.assertTrue(hasattr(form, "helper"))
 
 
 class StandaloneNfePayloadTests(SimpleTestCase):
@@ -179,11 +244,22 @@ class StandaloneGatewayTests(SimpleTestCase):
         return view
 
     def test_standalone_operation_redirects_to_avulsa_wizard(self) -> None:
-        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.STANDALONE})
+        request = self.factory.post(
+            "/finance/emissao/?fluxo=nfe",
+            {
+                "operation": FiscalOperation.NFE,
+                "linkage": "standalone",
+                "gateway_step": "linkage",
+            },
+        )
         view = self._build_view(request)
         form = FiscalOperationGatewayForm(request.POST)
         self.assertTrue(form.is_valid(), form.errors)
 
         response = view.form_valid(form)
 
-        self.assertRedirects(response, f"{reverse('finance:standalone_emission')}?reset=1", fetch_redirect_response=False)
+        self.assertRedirects(
+            response,
+            f"{reverse('finance:standalone_emission')}?reset=1&note_mode=nfe",
+            fetch_redirect_response=False,
+        )

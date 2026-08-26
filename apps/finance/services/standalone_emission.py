@@ -35,8 +35,16 @@ def normalize_note_mode(value: object) -> str:
     return ""
 
 
-def product_line_from_catalog(*, product: Product, quantity: Decimal, unit_value: Decimal | None = None) -> dict[str, Any]:
+def product_line_from_catalog(
+    *,
+    product: Product,
+    quantity: Decimal,
+    unit_value: Decimal | None = None,
+    cost_value: Decimal | None = None,
+) -> dict[str, Any]:
     resolved_unit_value = unit_value if unit_value is not None else Decimal(str(product.selling_price.amount))
+    resolved_cost = cost_value if cost_value is not None else Decimal(str(getattr(product.cost_price, "amount", 0) or 0))
+    total_value = (quantity * resolved_unit_value).quantize(Decimal("0.01"))
     return {
         "product_id": product.pk,
         "description": product.name,
@@ -45,18 +53,35 @@ def product_line_from_catalog(*, product: Product, quantity: Decimal, unit_value
         "cest": product.cest or "",
         "unit": product.unit,
         "origin": int(product.origin_cst or 0),
-        "quantity": str(quantity),
+        "quantity": str(int(quantity)),
+        "cost_value": str(resolved_cost),
         "unit_value": str(resolved_unit_value),
+        "total_value": str(total_value),
     }
 
 
-def service_line_from_catalog(*, service: Service, quantity: Decimal, unit_value: Decimal | None = None) -> dict[str, Any]:
+def service_line_from_catalog(
+    *,
+    service: Service,
+    quantity: Decimal,
+    unit_value: Decimal | None = None,
+    cost_value: Decimal | None = None,
+) -> dict[str, Any]:
     resolved_unit_value = unit_value if unit_value is not None else Decimal(str(service.selling_price.amount))
+    if cost_value is not None:
+        resolved_cost = cost_value
+    elif service.suggested_cost is not None:
+        resolved_cost = Decimal(str(service.suggested_cost.amount))
+    else:
+        resolved_cost = Decimal("0")
+    total_value = (quantity * resolved_unit_value).quantize(Decimal("0.01"))
     return {
         "service_id": service.pk,
         "description": service.name,
-        "quantity": str(quantity),
+        "quantity": str(int(quantity)),
+        "cost_value": str(resolved_cost),
         "unit_value": str(resolved_unit_value),
+        "total_value": str(total_value),
     }
 
 
