@@ -4,10 +4,12 @@ from collections.abc import Mapping
 from urllib.parse import urlencode
 
 from django.urls import reverse
+from django.views.generic import RedirectView
 
 
 ISSUED_DOCUMENTS_ORIGIN = "issued_documents"
 ISSUED_DOCUMENTS_NOTE_TYPES = {"all", "nfe", "nfse"}
+ISSUED_DOCUMENTS_FISCAL_OPERATIONS = {"return", "correction", "complementary", "adjustment"}
 
 
 def _normalize_query_value(value: object) -> str:
@@ -21,7 +23,7 @@ def append_query_params(*, url: str, params: Mapping[str, object]) -> str:
     return f"{url}?{urlencode(normalized_params)}"
 
 
-def build_issued_documents_origin_params(*, data_inicial: object, data_final: object, tipo: object, search: object = "") -> dict[str, str]:
+def build_issued_documents_origin_params(*, data_inicial: object, data_final: object, tipo: object, search: object = "", operacao: object = "") -> dict[str, str]:
     note_type = _normalize_query_value(tipo).lower() or "all"
     if note_type not in ISSUED_DOCUMENTS_NOTE_TYPES:
         note_type = "all"
@@ -40,6 +42,9 @@ def build_issued_documents_origin_params(*, data_inicial: object, data_final: ob
     search_value = _normalize_query_value(search)
     if search_value:
         params["search"] = search_value
+    operation = _normalize_query_value(operacao).lower()
+    if operation in ISSUED_DOCUMENTS_FISCAL_OPERATIONS:
+        params["operacao"] = operation
     return params
 
 
@@ -51,7 +56,28 @@ def extract_issued_documents_origin_params(query_params: Mapping[str, object]) -
         data_inicial=query_params.get("data_inicial"),
         data_final=query_params.get("data_final"),
         tipo=query_params.get("tipo"),
+        search=query_params.get("search"),
+        operacao=query_params.get("operacao"),
     )
+
+
+def build_issued_documents_list_url(*, note_type: str = "") -> str:
+    """Canonical destination after emit/cancel — replaces legacy nfe/nfse list and emission history screens."""
+    normalized = _normalize_query_value(note_type).lower()
+    params: dict[str, str] = {}
+    if normalized in {"nfe", "nfse"}:
+        params["tipo"] = normalized
+    return append_query_params(url=reverse("finance:issued_documents_list"), params=params)
+
+
+class IssuedDocumentsRedirectView(RedirectView):
+    """Legacy nfe/nfse list URLs redirect to Central de Notas."""
+
+    permanent = False
+    note_type = ""
+
+    def get_redirect_url(self, *args, **kwargs) -> str:
+        return build_issued_documents_list_url(note_type=self.note_type)
 
 
 def build_issued_documents_back_url(*, query_params: Mapping[str, object], fallback_url: str) -> str:

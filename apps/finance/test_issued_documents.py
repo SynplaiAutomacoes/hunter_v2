@@ -6,7 +6,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+from django.template import Context
+from django.template.loader import get_template
 from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.urls import reverse
 
 from apps.budget.models import BudgetType
 from apps.collaborators.test_commissions import create_workorder, create_workshop
@@ -56,6 +59,169 @@ class IssuedDocumentsArchiveConcurrencyTests(SimpleTestCase):
         thread_pool_executor_mock.assert_called_once_with(max_workers=5)
         self.assertEqual(len(futures), 8)
         self.assertEqual(len(result), 8)
+
+
+class IssuedDocumentsNavigationTemplateTests(SimpleTestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+
+    def _render_central(
+        self,
+        *,
+        operation: str = "",
+        operation_label: str = "",
+        rows: list[dict[str, object]] | None = None,
+        selected_fiscal_nfe: dict[str, object] | None = None,
+    ) -> str:
+        request = self.factory.get("/finance/notas-emitidas/")
+        request.user = SimpleNamespace(is_authenticated=True)
+        template = get_template("finance/issued_documents_list.html").template
+        context = Context(
+            {
+                "request": request,
+                "filter_state": {
+                    "has_selected_period": False,
+                    "selected_note_type": "nfe" if operation else "all",
+                    "search_raw": "",
+                    "start_raw": "",
+                    "end_raw": "",
+                },
+                "note_type_choices": (("all", "Todas"), ("nfe", "Nota Fiscal de Produto")),
+                "issued_note_rows": rows or [],
+                "issued_notes_total": len(rows or []),
+                "issued_nfe_total": len(rows or []),
+                "issued_nfse_total": 0,
+                "download_xml_url": "/finance/notas-emitidas/download/xml/",
+                "download_pdfs_url": "/finance/notas-emitidas/download/pdfs/",
+                "fiscal_operation": operation,
+                "fiscal_operation_label": operation_label,
+                "fiscal_operation_continuation_label": {
+                    "return": "a devolução",
+                    "correction": "a Carta de Correção",
+                    "complementary": "a Nota Complementar",
+                    "adjustment": "a Nota de Ajuste",
+                }.get(operation, ""),
+                "selected_fiscal_nfe": selected_fiscal_nfe,
+                "fiscal_selection_reset_url": "/finance/notas-emitidas/?tipo=nfe&operacao=return" if operation else "",
+            }
+        )
+        return str(template.render(context))
+
+    def test_central_distinguishes_consultation_from_new_emission(self) -> None:
+        html = self._render_central()
+
+        self.assertIn("Central de Notas", html)
+        self.assertIn("Para criar um novo documento, use Emitir Nota.", html)
+        self.assertIn(f'href="{reverse("finance:emission_create")}"', html)
+        self.assertIn("Emitir Nota", html)
+        self.assertIn('id="issued-documents-download-xml"', html)
+        self.assertIn('id="issued-documents-download-pdfs"', html)
+
+    def test_reference_selection_can_return_to_operation_gateway(self) -> None:
+        html = self._render_central(operation="return", operation_label="Devolução")
+
+        self.assertIn("Selecionar NF-e de referência", html)
+        self.assertIn("Escolha a nota fiscal que será utilizada nesta operação.", html)
+        self.assertIn("Operação atual: Devolução", html)
+        self.assertIn(f'href="{reverse("finance:emission_create")}"', html)
+        self.assertIn("Trocar operação", html)
+        self.assertNotIn('id="issued-documents-download-xml"', html)
+        self.assertNotIn('id="issued-documents-download-pdfs"', html)
+
+    def test_reference_selection_uses_primary_action_and_explicit_confirmation(self) -> None:
+        row: dict[str, object] = {
+            "note_type": "nfe",
+            "note_type_label": "Nota Fiscal de Produto",
+            "note_type_badge_class": "badge-info",
+            "request_id": 42,
+            "selection_key": "nfe:42",
+            "number": "1234",
+            "reference": "Série 1",
+            "workorder_id": "Manual",
+            "customer_name": "Cliente Teste",
+            "created_at": None,
+            "status_badge": {"class": "badge-success", "text": "Aprovado"},
+            "available_documents": ["XML", "DANFE"],
+            "selection_url": "/finance/notas-emitidas/?tipo=nfe&operacao=return&selected_nfe=42",
+            "detail_url": "/finance/nfe/42/?origin=issued_documents&tipo=nfe&operacao=return",
+            "action_label": "Selecionar esta NF-e",
+        }
+
+        html = self._render_central(
+            operation="return",
+            operation_label="Devolução",
+            rows=[row],
+            selected_fiscal_nfe=row,
+        )
+
+        self.assertIn("✓ NF-e 1234 selecionada com sucesso", html)
+        self.assertIn("A NF-e 1234 foi selecionada. Clique em continuar para prosseguir com a devolução.", html)
+        self.assertIn("Continuar com NF-e 1234", html)
+        self.assertIn("✓ NF-e selecionada", html)
+        self.assertIn('aria-selected="true"', html)
+        self.assertIn('aria-current="true"', html)
+        self.assertIn('<tr class="!bg-success/10" aria-selected="true">', html)
+        self.assertNotIn('<tr class="bg-success/15 ring-2 ring-inset ring-success/60"', html)
+        self.assertNotIn(">Selecionar esta NF-e</a>", html)
+        self.assertNotIn('name="note_selection"', html)
+        self.assertNotIn(">Documentos</th>", html)
+
+    def test_reference_selection_keeps_unselected_rows_available(self) -> None:
+        selected_row: dict[str, object] = {
+            "note_type": "nfe",
+            "request_id": 42,
+            "number": "1234",
+            "customer_name": "Cliente Selecionado",
+            "created_at": None,
+            "detail_url": "/finance/nfe/42/",
+            "selection_url": "/finance/notas-emitidas/?operacao=return&selected_nfe=42",
+            "action_label": "Selecionar esta NF-e",
+        }
+        available_row: dict[str, object] = {
+            **selected_row,
+            "request_id": 43,
+            "number": "1235",
+            "customer_name": "Outro Cliente",
+            "selection_url": "/finance/notas-emitidas/?operacao=return&selected_nfe=43",
+        }
+
+        html = self._render_central(
+            operation="return",
+            operation_label="Devolução",
+            rows=[selected_row, available_row],
+            selected_fiscal_nfe=selected_row,
+        )
+
+        self.assertEqual(html.count("✓ NF-e selecionada"), 1)
+        self.assertEqual(html.count("Selecionar esta NF-e"), 1)
+        self.assertIn('selected_nfe=43', html)
+
+    def test_selected_state_is_consistent_for_all_reference_operations(self) -> None:
+        row: dict[str, object] = {
+            "note_type": "nfe",
+            "request_id": 42,
+            "number": "1234",
+            "customer_name": "Cliente Teste",
+            "created_at": None,
+            "detail_url": "/finance/nfe/42/",
+            "selection_url": "/finance/notas-emitidas/?selected_nfe=42",
+            "action_label": "Selecionar esta NF-e",
+        }
+        operations = {
+            "return": ("Devolução", "a devolução"),
+            "correction": ("Carta de Correção", "a Carta de Correção"),
+            "complementary": ("Nota Complementar", "a Nota Complementar"),
+            "adjustment": ("Nota de Ajuste", "a Nota de Ajuste"),
+        }
+
+        for operation, (label, continuation_label) in operations.items():
+            with self.subTest(operation=operation):
+                html = self._render_central(operation=operation, operation_label=label, rows=[row], selected_fiscal_nfe=row)
+
+                self.assertIn(label, html)
+                self.assertIn("✓ NF-e selecionada", html)
+                self.assertIn("Continuar com NF-e 1234", html)
+                self.assertIn(f"Clique em continuar para prosseguir com {continuation_label}.", html)
 
 
 class IssuedDocumentsArchiveDownloadViewTests(TestCase):
@@ -198,3 +364,81 @@ class IssuedDocumentsArchiveDownloadViewTests(TestCase):
         self.assertTrue(nfse_row["has_pdf"])
         self.assertIn("/finance/notas-emitidas/download/xml/", context["download_xml_url"])
         self.assertIn("/finance/notas-emitidas/download/pdfs/", context["download_pdfs_url"])
+
+    def test_gateway_operation_is_preserved_when_selecting_reference_nfe(self) -> None:
+        nfe_request = self._create_nfe_with_xml(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            number="302",
+            xml_url="https://example.com/gateway.xml",
+        )
+        view = IssuedDocumentsListView()
+        view.workshop = self.workshop
+        view.request = self.factory.get("/finance/notas-emitidas/", {"tipo": "nfe", "operacao": "return"})
+
+        context = view.get_context_data()
+        row = next(row for row in context["issued_note_rows"] if row["request_id"] == nfe_request.pk)
+
+        self.assertEqual(context["fiscal_operation"], "return")
+        self.assertEqual(context["fiscal_operation_label"], "Devolução")
+        self.assertEqual(row["action_label"], "Selecionar esta NF-e")
+        self.assertIn(f"selected_nfe={nfe_request.pk}", row["selection_url"])
+        self.assertIn("origin=issued_documents", row["detail_url"])
+        self.assertIn("operacao=return", row["detail_url"])
+
+    def test_fiscal_selection_mode_is_restricted_to_nfe_and_confirms_selection(self) -> None:
+        nfe_request = self._create_nfe_with_xml(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            number="303",
+            xml_url="https://example.com/selected-reference.xml",
+        )
+        self._create_nfse_with_xml(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            number="304",
+            xml_url="https://example.com/not-a-reference.xml",
+        )
+        view = IssuedDocumentsListView()
+        view.workshop = self.workshop
+        view.request = self.factory.get(
+            "/finance/notas-emitidas/",
+            {"tipo": "all", "operacao": "return", "selected_nfe": str(nfe_request.pk)},
+        )
+
+        context = view.get_context_data()
+
+        self.assertEqual(context["filter_state"]["selected_note_type"], "nfe")
+        self.assertEqual(context["issued_nfse_total"], 0)
+        self.assertTrue(all(row["note_type"] == "nfe" for row in context["issued_note_rows"]))
+        self.assertEqual(context["selected_fiscal_nfe"]["request_id"], nfe_request.pk)
+        self.assertIn("operacao=return", context["selected_fiscal_nfe"]["detail_url"])
+        self.assertNotIn("selected_nfe", context["fiscal_selection_reset_url"])
+
+
+class IssuedDocumentsStandaloneRowTests(SimpleTestCase):
+    def test_build_nfe_row_supports_missing_workorder(self) -> None:
+        view = IssuedDocumentsListView()
+        request_obj = SimpleNamespace(
+            pk=99,
+            workorder_id=None,
+            workorder=None,
+            number_display_listing="123",
+            reserved_series=1,
+            criado_em=None,
+            customer_name="Destinatario Avulso",
+            nfe_request_status_badge={"class": "badge-success", "text": "Aprovado"},
+        )
+        with (
+            patch.object(IssuedDocumentsListView, "_get_latest_prefetched_item", return_value=None),
+            patch.object(IssuedDocumentsListView, "_build_available_document_labels", return_value=[]),
+            patch.object(IssuedDocumentsListView, "_item_has_document_group", return_value=False),
+            patch.object(IssuedDocumentsListView, "_build_detail_url", return_value="/finance/nfe/99/"),
+            patch.object(IssuedDocumentsListView, "_build_selection_url", return_value=""),
+        ):
+            row = view._build_nfe_row(
+                request_obj,
+                state={"fiscal_operation": "", "search_raw": "", "note_type": "nfe", "status": "", "date_from": "", "date_to": ""},
+            )
+
+        self.assertEqual(row["workorder_id"], "Avulsa")

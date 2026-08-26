@@ -11,7 +11,7 @@ from apps.core.presentation.widgets import SearchableSelectInput, TextInput, Tex
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.finance.services.financial_movement import apply_payment_reconciliation_rules, generate_card_fee_movement
+from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreModelForm
@@ -437,6 +437,8 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["due_date"].required = True
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
+        self.fields["budget_plan"].required = True
+        self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
 
@@ -444,7 +446,12 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
         self.fields["repeat_count"].label = "Repetir este lançamento"
 
-        repeat_choices = [("mensal", "Mensal")]
+        repeat_choices = [
+            ("mensal", "Mensal"),
+            ("quinzenal", "Quinzenal"),
+            ("semanal", "Semanal"),
+            ("diario", "Diário"),
+        ]
         has_collab = getattr(self.instance, "collaborator_id", None)
         if has_collab:
             repeat_choices.append(("5_dia_util", "5º dia útil"))
@@ -452,8 +459,10 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["repeat_type"] = forms.ChoiceField(choices=repeat_choices, initial="mensal", required=False)
 
         if self.workshop:
-            self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
-            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)]
+            self.fields["budget_plan"].widget.choices = [("", "---------")] + [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
+            bank_accounts = BankAccount.objects.filter(workshop=self.workshop, is_active=True).order_by("bank_name", "account_number", "id")
+            self.fields["bank_account"].queryset = bank_accounts
+            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in bank_accounts]
 
             payment_methods = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True)
             direction = self.instance.direction
@@ -466,10 +475,14 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
             self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_methods]
 
-        top_btn = '<input class="join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary" type="radio" name="repeat_type" value="mensal" aria-label="Mensal" checked />'
-        bot_btn = '<input class="join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary" type="radio" name="repeat_type" value="5_dia_util" aria-label="5º dia útil" />'
+        btn_class = "join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary"
+        btn_mensal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="mensal" aria-label="Mensal" checked />'
+        btn_quinzenal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="quinzenal" aria-label="Quinzenal" />'
+        btn_semanal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="semanal" aria-label="Semanal" />'
+        btn_diario = f'<input class="{btn_class}" type="radio" name="repeat_type" value="diario" aria-label="Diário" />'
+        btn_5_dia_util = f'<input class="{btn_class}" type="radio" name="repeat_type" value="5_dia_util" aria-label="5º dia útil" />'
 
-        repeat_html = f'<div class="join">{top_btn}{bot_btn if has_collab else ""}</div>'
+        repeat_html = f'<div class="join">{btn_mensal}{btn_quinzenal}{btn_semanal}{btn_diario}{btn_5_dia_util if has_collab else ""}</div>'
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -676,6 +689,12 @@ class MovementStep4Form(FinancialMovementBaseForm):
 
             if r_type == "mensal":
                 new_instance.due_date = add_months(instance.due_date, i)
+            elif r_type == "quinzenal":
+                new_instance.due_date = instance.due_date + datetime.timedelta(days=15 * i)
+            elif r_type == "semanal":
+                new_instance.due_date = instance.due_date + datetime.timedelta(weeks=i)
+            elif r_type == "diario":
+                new_instance.due_date = instance.due_date + datetime.timedelta(days=i)
             elif r_type == "5_dia_util":
                 target_date = add_months(instance.due_date, i)
                 new_instance.due_date = get_5th_business_day(target_date.year, target_date.month)
@@ -757,7 +776,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["direction"].required = True
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
-        self.fields["budget_plan"].required = getattr(self.instance, "workorder_id", None) is not None
+        self.fields["budget_plan"].required = True
+        self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["bank_account"].required = False
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(getattr(self.instance, "is_reconciled", False)) if self.instance.pk else False
@@ -800,8 +820,10 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             self.fields["payment_method"].queryset = payment_method_qs
 
             self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_method_qs]
-            self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
-            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in BankAccount.objects.filter(workshop=self.workshop)]
+            self.fields["budget_plan"].widget.choices = [("", "---------")] + [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
+            bank_account_qs = self._get_bank_account_queryset()
+            self.fields["bank_account"].queryset = bank_account_qs
+            self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in bank_account_qs]
             self.payment_method_filter_data = {
                 "CREDIT": [str(payment_method.pk) for payment_method in payment_method_qs if payment_method.payment_type in [PaymentMethod.PaymentType.CREDIT, PaymentMethod.PaymentType.BOTH]],
                 "DEBIT": [str(payment_method.pk) for payment_method in payment_method_qs if payment_method.payment_type in [PaymentMethod.PaymentType.DEBIT, PaymentMethod.PaymentType.BOTH]],
@@ -940,6 +962,20 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
         return payment_methods.order_by("description").distinct()
 
+    def _get_bank_account_queryset(self):
+        bank_accounts = BankAccount.objects.filter(workshop=self.workshop, is_active=True)
+
+        pinned_bank_account_ids: set[int] = set()
+        if self.instance.pk and self.instance.bank_account_id:
+            pinned_bank_account_ids.add(int(self.instance.bank_account_id))
+
+        if pinned_bank_account_ids:
+            bank_accounts = BankAccount.objects.filter(workshop=self.workshop).filter(
+                Q(is_active=True) | Q(pk__in=pinned_bank_account_ids)
+            )
+
+        return bank_accounts.order_by("bank_name", "account_number", "id").distinct()
+
     @staticmethod
     def _payment_method_matches_direction(payment_method, direction):
         if direction == FinancialMovement.MovementDirection.CREDIT:
@@ -973,7 +1009,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 self.add_error("supplier", self.ENTITY_REQUIRED_ERROR)
                 self.add_error("collaborator", self.ENTITY_REQUIRED_ERROR)
 
-        if self.instance.description != "Pagamento da taxa da maquininha" and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
+        if getattr(self.instance, "movement_kind", None) != FinancialMovement.MovementKind.WORKORDER_CARD_FEE and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
 
         for field, message in apply_payment_reconciliation_rules(cleaned_data):

@@ -26,7 +26,8 @@ class ProductMovementTemplateTests(SimpleTestCase):
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
         self.assertIn("Sistema", html)
-        self.assertIn("Motivo", html)
+        self.assertNotIn("Motivo", html)
+        self.assertNotIn("Fornecedor", html)
         self.assertIn("—", html)
 
     def test_renders_reason_when_present(self) -> None:
@@ -45,4 +46,5 @@ class ProductMovementTemplateTests(SimpleTestCase):
 
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
-        self.assertIn("Inventário físico", html)
+        self.assertNotIn("Inventário físico", html)
+        self.assertNotIn("Fornecedor", html)

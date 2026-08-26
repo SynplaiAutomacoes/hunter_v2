@@ -2,7 +2,7 @@ import json
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.template.loader import render_to_string
@@ -14,6 +14,31 @@ from apps.budget.utils import HtmxResponseHelper
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _local_item_kind, _parse_duration_from_string, reset_steps_after_step_4, _is_budget_edit_locked, LOCKED_BUDGET_EDIT_MESSAGE, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
+
+QUICK_CREATE_TITLES = {
+    "product": "Cadastrar Novo Produto",
+    "service": "Cadastrar Novo Serviço",
+}
+QUICK_CREATE_LABELS = {
+    "product": "Produto",
+    "service": "Serviço",
+}
+
+
+def _build_quick_create_form(item_type: str, *, workshop, data=None):
+    from apps.budget.forms import QuickProductForm, QuickServiceForm
+
+    form_kwargs = {"workshop": workshop}
+    if item_type == "product":
+        form_class = QuickProductForm
+    elif item_type == "service":
+        form_class = QuickServiceForm
+    else:
+        return None
+
+    if data is None:
+        return form_class(**form_kwargs)
+    return form_class(data, **form_kwargs)
 
 
 class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -267,40 +292,31 @@ class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 
 class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    """Cadastro rápido de produto com atualização automática da lista"""
+    """Cadastro rápido de produto, serviço ou kit com atualização automática da lista"""
 
     model = Budget
     workshop_permission_codename = "add_budget"
 
     def get(self, request, budget_id, item_type):
-        from apps.budget.forms import QuickProductForm, QuickServiceForm
-
         _get_budget_for_workshop(self.workshop, budget_id)
         modal_context = request.GET.get("modal_context", "parent")
         modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
 
-        if item_type == "product":
-            form = QuickProductForm(workshop=self.workshop)
-            title = "Cadastrar Novo Produto"
-        elif item_type == "service":
-            form = QuickServiceForm(workshop=self.workshop)
-            title = "Cadastrar Novo Serviço"
-        else:
+        form = _build_quick_create_form(item_type, workshop=self.workshop)
+        if form is None:
             return HttpResponse("Tipo inválido", status=400)
 
         context = {
             "form": form,
             "budget_id": budget_id,
             "item_type": item_type,
-            "title": title,
+            "title": QUICK_CREATE_TITLES[item_type],
             "modal_context": modal_context,
             "modal_target": modal_target,
         }
         return render(request, "budget/partials/modals/modal_quick_create.html", context)
 
     def post(self, request, budget_id, item_type):
-        from apps.budget.forms import QuickProductForm, QuickServiceForm
-
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         if not _check_concurrent_budget_lock(request, budget):
             return _build_concurrent_budget_lock_response(request, budget)
@@ -310,18 +326,16 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
         modal_context = request.POST.get("modal_context", "parent")
         modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
 
-        if item_type == "product":
-            form = QuickProductForm(request.POST, workshop=self.workshop)
-        elif item_type == "service":
-            form = QuickServiceForm(request.POST, workshop=self.workshop)
-        else:
+        form = _build_quick_create_form(item_type, workshop=self.workshop, data=request.POST)
+        if form is None:
             return HttpResponse("Tipo inválido", status=400)
 
         if form.is_valid():
             catalog_item = form.save(commit=False)
             catalog_item.workshop = self.workshop
             try:
-                catalog_item.save()
+                with transaction.atomic():
+                    catalog_item.save()
             except IntegrityError:
                 if item_type == "product":
                     form.add_error("code", "Já existe um produto cadastrado com este código.")
@@ -329,7 +343,7 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     form.add_error("name", "Já existe um serviço com este nome.")
             else:
                 if modal_context == "child":
-                    item_label = "Produto" if item_type == "product" else "Serviço"
+                    item_label = QUICK_CREATE_LABELS[item_type]
                     return HtmxResponseHelper.success(
                         f"{item_label} cadastrado com sucesso!",
                         close_modal=True,
@@ -377,18 +391,17 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     context,
                     {
                         "showToast": {
-                            "message": f"{'Produto' if item_type == 'product' else 'Serviço'} cadastrado e adicionado ao orçamento!",
+                            "message": f"{QUICK_CREATE_LABELS[item_type]} cadastrado e adicionado ao orçamento!",
                             "type": "success",
                         }
                     },
                 )
 
-        # Se form inválido
         context = {
             "form": form,
             "budget_id": budget_id,
             "item_type": item_type,
-            "title": f"Cadastrar Novo {'Produto' if item_type == 'product' else 'Serviço'}",
+            "title": QUICK_CREATE_TITLES.get(item_type, "Cadastrar Novo Item"),
             "modal_context": modal_context,
             "modal_target": modal_target,
         }

@@ -1,0 +1,118 @@
+{% load format_tags %}
+<div class="card-body">
+    <h3 class="font-bold text-2xl pb-2 mb-2">Colaboradores e comissões</h3>
+    <p class="text-base-content/70 mb-6">Vincule os colaboradores responsáveis por esta O.S. A previsão de comissão usa o total de serviços; a consolidação acontece na entrega do veículo em orçamentos de venda.</p>
+
+    <div class="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <form
+            id="workorder-collaborators-form"
+            method="post"
+            hx-post="{% url 'workorder:update_collaborators' workorder.pk %}"
+            hx-target="#collaborators-section"
+            hx-swap="innerHTML"
+            hx-trigger="submit, collaborator-list-changed"
+            hx-include="this"
+            hx-sync="this:replace"
+            data-collaborators-autosave="1"
+            data-status-locked="{% if workorder.is_status_locked %}1{% else %}0{% endif %}"
+            class="w-full lg:max-w-lg rounded-xl border border-base-300 bg-base-100 p-4"
+        >
+            {% csrf_token %}
+            {% include "budget/partials/components/collaborator_field.html" with field=collaborator_form.collaborators initial_collaborators_json=collaborator_form.initial_collaborators_json form=collaborator_form object=workorder %}
+            <p class="mt-2 text-xs text-base-content/60">{{ collaborator_form.collaborators.help_text }}</p>
+        </form>
+
+        <div class="w-full rounded-xl border border-base-300 bg-base-100 p-4">
+            <h4 class="font-bold text-lg mb-1">Previsão de comissão</h4>
+            {% if commission_is_sale and not commission_consolidates %}
+            <p class="text-sm text-base-content/70 mb-4">Os valores abaixo são uma previsão. A comissão só é consolidada após a entrega do veículo.</p>
+            {% elif not commission_is_sale %}
+            <p class="text-sm text-base-content/70 mb-4">Comissão não se aplica a orçamentos de garantia ou cortesia.</p>
+            {% else %}
+            <p class="text-sm text-base-content/70 mb-4">Comissão consolidada a partir desta O.S. entregue.</p>
+            {% endif %}
+
+            <div class="overflow-x-auto">
+                <table class="table table-zebra w-full">
+                    <thead>
+                        <tr>
+                            <th>Colaborador</th>
+                            <th>%</th>
+                            <th>Base (serviços)</th>
+                            <th>Previsão</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for preview in commission_previews %}
+                            <tr>
+                                <td>
+                                    <div class="flex flex-col">
+                                        <span>{{ preview.name }}</span>
+                                        {% if preview.unavailable_reason %}
+                                        <span class="text-xs text-base-content/60">{{ preview.unavailable_reason }}</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td>{{ preview.percentage_display }}</td>
+                                <td>{{ preview.base_amount }}</td>
+                                <td class="font-semibold">{{ preview.commission_amount }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-center text-base-content/60 italic py-4">Nenhum colaborador vinculado.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    (function () {
+        if (window.__workorderCollaboratorsStepperGuard) {
+            return;
+        }
+        window.__workorderCollaboratorsStepperGuard = true;
+
+        const sectionIsVisible = () => {
+            const section = document.getElementById('collaborators-section');
+            return Boolean(section && !section.classList.contains('hidden'));
+        };
+
+        document.addEventListener('click', (event) => {
+            if (!sectionIsVisible()) {
+                return;
+            }
+            const form = document.getElementById('workorder-collaborators-form');
+            if (!form) {
+                return;
+            }
+            const stepperTarget = event.target.closest('[onclick*="window.location.href"]');
+            if (!stepperTarget) {
+                return;
+            }
+            const onclick = stepperTarget.getAttribute('onclick') || '';
+            const match = onclick.match(/window\.location\.href='([^']+)'/);
+            if (!match) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            if (form.getAttribute('data-status-locked') === '1') {
+                window.location.href = match[1];
+                return;
+            }
+            let input = form.querySelector('input[name="next"][data-stepper-next="1"]');
+            if (!input) {
+                input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'next';
+                input.setAttribute('data-stepper-next', '1');
+                form.appendChild(input);
+            }
+            input.value = match[1];
+            form.dispatchEvent(new Event('collaborator-list-changed', { bubbles: true }));
+        }, true);
+    })();
+</script>

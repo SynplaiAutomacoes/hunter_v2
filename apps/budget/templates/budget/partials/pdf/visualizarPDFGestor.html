@@ -106,7 +106,7 @@
           </div>
         </div>
         <div class="text-right">
-          <h4 class="font-bold">ORDEM DE SERVIÇO</h4>
+          <h4 class="font-bold">{{ document_title }}</h4>
           <p class="text-2xl font-bold leading-none m-0">#{{ budget.number|default:"-" }}</p>
           {% if is_warranty_or_courtesy %}
           <div
@@ -206,7 +206,7 @@
                 Fornecido pelo cliente?
               </th>
               <th class="p-1 font-semibold text-center">Valor Unitário</th>
-              <th class="p-1 font-semibold text-center">Frete</th>
+              <th class="p-1 font-semibold text-center">Custo de Frete</th>
               <th class="p-1 font-semibold text-center">Total</th>
               <th class="p-1 font-semibold text-center">Custo</th>
               <th class="p-1 font-semibold text-center">Lucro</th>
@@ -237,7 +237,7 @@
         </table>
         <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
           <div class="font-bold">
-            Total Custos: {{ budget.total_costs_products_value|money_br }}
+            Total Custos: {{ total_products_effective_cost_value|money_br }}
           </div>
           <div class="font-bold">
             Total Lucro: {{ total_profit_product_value|money_br }}
@@ -268,7 +268,7 @@
                 Valor de Venda
               </th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
-                Frete
+                Custo de Frete
               </th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
                 Valor Total
@@ -319,7 +319,7 @@
         </table>
         <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
           <div class="font-bold">
-            Total Custos: {{ total_services_mechanic_cost_value|money_br }}
+            Total Custos: {{ total_services_effective_cost_value|money_br }}
           </div>
           <div class="font-bold">
             Total Lucro: {{ total_profit_service_value|money_br }}
@@ -424,7 +424,7 @@
         class="text-center text-[11px] text-gray-500 pt-4 mt-4 border-t border-gray-200"
       >
         <p>
-          Aberto por: {{ request.user.get_full_name }} em: {{
+          Aberto por: {{ opened_by_name }} em: {{
           budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}
         </p>
         <p>
