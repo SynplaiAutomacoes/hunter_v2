@@ -38,7 +38,8 @@ from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choic
 from ..core.presentation import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from ..core.text_normalization import plate_case
-from .forms import CustomerForm, VehicleFormSet
+from .forms import CustomerForm, VehicleFormSet, _customers_with_normalized_document
+from .cpf_cnpj_validator import normalize_cpf_or_cnpj
 from .models import Customer, Vehicle
 
 
@@ -302,6 +303,27 @@ def api_check_plate_duplicate(request, plate):
             "customer_id": vehicle.customer.pk if vehicle.customer else None,
         })
     return JsonResponse({"exists": False})
+
+
+def api_check_customer_document(request):
+    try:
+        workshop = get_active_workshop_or_404(request)
+    except Exception:
+        return JsonResponse({"exists": False})
+
+    document = normalize_cpf_or_cnpj(request.GET.get("document"))
+    if len(document) not in {11, 14}:
+        return JsonResponse({"exists": False})
+
+    customers = _customers_with_normalized_document(workshop=workshop, document=document)
+    excluded_customer_id = str(request.GET.get("exclude_customer_id") or "").strip()
+    if excluded_customer_id.isdigit():
+        customers = customers.exclude(pk=int(excluded_customer_id))
+
+    customer = customers.first()
+    if customer is None:
+        return JsonResponse({"exists": False})
+    return JsonResponse({"exists": True})
 
 
 def api_vehicle_catalog_brands(request):
