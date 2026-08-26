@@ -483,7 +483,15 @@
                     if (digits.length > maxDigits) digits = digits.slice(0, maxDigits);
                     this.$refs.value.value = digits;
                     e.target.value = this.format(digits);
+                    this.clearServerErrors();
                     this.scheduleDuplicateCheck(digits);
+                },
+                clearServerErrors() {
+                    const fieldId = this.$refs.value?.id;
+                    const wrapper = fieldId ? document.getElementById(`div_${fieldId}`) : null;
+                    if (!wrapper) return;
+
+                    wrapper.querySelectorAll('[id^="error_"]').forEach((error) => error.remove());
                 },
                 scheduleDuplicateCheck(digits) {
                     if (this.duplicateTimer) window.clearTimeout(this.duplicateTimer);
