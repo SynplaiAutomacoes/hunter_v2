@@ -61,6 +61,25 @@ def _parse_id_list(raw_value: str | list[str] | None) -> list[int]:
     return list(dict.fromkeys(result))
 
 
+def _auto_resolve_direct_only_conflicts(*, budget: Budget, service_ids: list[int]) -> list[int]:
+    """Remove avulso losers when no kit debit choice is needed; return remaining service ids."""
+    remaining: list[int] = []
+    for service_id in service_ids:
+        conflict = get_conflict_for_service(budget, service_id=service_id)
+        if conflict is None:
+            continue
+        if conflict.requires_kit_action:
+            remaining.append(service_id)
+            continue
+        apply_duplicate_service_resolution(
+            budget=budget,
+            service_id=service_id,
+            keep_source_key=conflict.recommended_source_key,
+            kit_action=None,
+        )
+    return remaining
+
+
 def render_duplicate_service_queue(
     request,
     *,
@@ -72,20 +91,25 @@ def render_duplicate_service_queue(
     htmx_target: str = "#modal-container",
     error_message: str | None = None,
 ) -> HttpResponse:
-    if not service_ids:
+    remaining_ids = _auto_resolve_direct_only_conflicts(budget=budget, service_ids=service_ids)
+    if not remaining_ids:
+        reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
         return _redirect_to_step4(request, budget)
 
-    index = max(0, min(int(current_index), len(service_ids) - 1))
-    service_id = service_ids[index]
+    index = max(0, min(int(current_index), len(remaining_ids) - 1))
+    service_id = remaining_ids[index]
     conflict = get_conflict_for_service(budget, service_id=service_id)
-    if conflict is None:
-        remaining = [sid for sid in service_ids if sid != service_id]
-        if not remaining:
+    if conflict is None or not conflict.requires_kit_action:
+        next_ids = [sid for sid in remaining_ids if sid != service_id]
+        if not next_ids:
+            reset_steps_after_step_4(budget)
+            sync_linked_workorder_from_budget(budget)
             return _redirect_to_step4(request, budget)
         return render_duplicate_service_queue(
             request,
             budget=budget,
-            service_ids=remaining,
+            service_ids=next_ids,
             rollback_item_ids=rollback_item_ids,
             current_index=0,
             close_parent=close_parent,
@@ -97,11 +121,11 @@ def render_duplicate_service_queue(
     context = {
         "budget": budget,
         "conflict": conflict,
-        "service_ids": service_ids,
+        "service_ids": remaining_ids,
         "rollback_item_ids": rollback_item_ids,
         "current_index": index,
-        "total_items": len(service_ids),
-        "remaining_after_current": max(len(service_ids) - index - 1, 0),
+        "total_items": len(remaining_ids),
+        "remaining_after_current": max(len(remaining_ids) - index - 1, 0),
         "current_step": current_step,
         "htmx_target": htmx_target,
         "error_message": error_message,
@@ -163,14 +187,24 @@ class ResolveDuplicateServiceStepView(LoginRequiredMixin, WorkshopScopedMixin, V
             service_id = 0
 
         keep_source_key = str(request.POST.get("keep_source_key") or "").strip()
+        kit_action = str(request.POST.get("kit_action") or "").strip()
         htmx_target = str(request.POST.get("htmx_target") or "#modal-container").strip() or "#modal-container"
-        kit_loser_actions: dict[str, str] = {}
-        for key, value in request.POST.items():
-            if key.startswith("kit_action_"):
-                source_key = key.removeprefix("kit_action_")
-                kit_loser_actions[source_key] = str(value)
 
-        if not service_id or not keep_source_key:
+        conflict = get_conflict_for_service(budget, service_id=service_id) if service_id else None
+        if conflict is None:
+            return render_duplicate_service_queue(
+                request,
+                budget=budget,
+                service_ids=service_ids,
+                rollback_item_ids=rollback_item_ids,
+                current_index=0,
+                htmx_target=htmx_target,
+            )
+
+        if not keep_source_key:
+            keep_source_key = conflict.recommended_source_key
+
+        if conflict.requires_kit_action and not kit_action:
             return render_duplicate_service_queue(
                 request,
                 budget=budget,
@@ -178,7 +212,7 @@ class ResolveDuplicateServiceStepView(LoginRequiredMixin, WorkshopScopedMixin, V
                 rollback_item_ids=rollback_item_ids,
                 current_index=current_index,
                 htmx_target=htmx_target,
-                error_message="Selecione qual ocorrência do serviço deve ser mantida.",
+                error_message="Escolha se o serviço removido do kit deve debitar ou manter o valor.",
             )
 
         try:
@@ -186,7 +220,7 @@ class ResolveDuplicateServiceStepView(LoginRequiredMixin, WorkshopScopedMixin, V
                 budget=budget,
                 service_id=service_id,
                 keep_source_key=keep_source_key,
-                kit_loser_actions=kit_loser_actions,
+                kit_action=kit_action or None,
             )
         except ValueError as exc:
             return render_duplicate_service_queue(
@@ -203,7 +237,6 @@ class ResolveDuplicateServiceStepView(LoginRequiredMixin, WorkshopScopedMixin, V
         sync_linked_workorder_from_budget(budget)
 
         remaining = [sid for sid in service_ids if sid != service_id]
-        # Re-scan in case earlier resolution cleared later conflicts.
         still_conflicting = {
             conflict.service_id
             for conflict in filter_conflicts_touching_items(
