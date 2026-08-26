@@ -255,6 +255,28 @@ class WorkOrderResumeStalePrefetchTests(TestCase):
         self.assertEqual(product_rows[0].origin_label, KIT_ORIGIN_LABEL)
         self.assertIn(self.kit.name, product_rows[0].origin_badge)
 
+    def test_detail_prefetch_then_edit_context_does_not_duplicate_kit_overrides(self) -> None:
+        """WorkOrderDetailView prefetches items with kit_overrides; edit context reloads items."""
+        from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
+
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            kit=self.kit,
+            quantity=1,
+        )
+        workorder = (
+            WorkOrder.objects.filter(pk=self.workorder.pk)
+            .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
+            .get()
+        )
+        _ = list(workorder.items.all())
+
+        context = _build_edit_items_context(workorder)
+        product_rows = list(context["display_product_items"])
+        self.assertEqual(len(product_rows), 1)
+        self.assertEqual(product_rows[0].origin_label, KIT_ORIGIN_LABEL)
+
 
 class WorkOrderAddKitBatchViewTests(TestCase):
     def setUp(self) -> None:
