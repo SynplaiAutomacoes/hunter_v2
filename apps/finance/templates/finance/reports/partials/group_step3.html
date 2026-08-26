@@ -20,10 +20,25 @@
         firstDueDate: '{{ form.due_date.value|date:"Y-m-d"|default_if_none:"" }}',
         installmentsByMethod: JSON.parse(document.getElementById('group-payment-method-installments').textContent),
         totalAmount: Number('{{ total_amount|unlocalize }}'),
+        discountMode: '{{ form.discount_mode.value|default_if_none:"" }}',
+        discountValue: 0,
+        discountPercentage: 0,
+        parseNumber(raw) {
+            const text = String(raw || '').trim();
+            const normalized = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text;
+            const value = Number(normalized);
+            return Number.isFinite(value) ? value : 0;
+        },
+        get discountAmount() {
+            if (this.discountMode === 'AMOUNT') return Math.min(Math.max(this.discountValue, 0), this.totalAmount);
+            if (this.discountMode === 'PERCENTAGE') return this.totalAmount * Math.min(Math.max(this.discountPercentage, 0), 100) / 100;
+            return 0;
+        },
+        get netTotal() { return Math.max(this.totalAmount - this.discountAmount, 0); },
         get installmentsCount() { return Number(this.installmentsByMethod[this.paymentMethodId] || 0); },
         get schedule() {
             if (!this.installmentsCount || !this.firstDueDate) return [];
-            const totalCents = Math.round(this.totalAmount * 100);
+            const totalCents = Math.round(this.netTotal * 100);
             const amountPerInstallment = Math.floor(totalCents / this.installmentsCount);
             const remainingCents = totalCents % this.installmentsCount;
             const [year, month, day] = this.firstDueDate.split('-').map(Number);
@@ -35,7 +50,9 @@
             });
         }
     }"
-    @searchable-change.window="if ($event.detail.name === 'payment_method') paymentMethodId = $event.detail.value"
+    x-init="$nextTick(() => { discountValue = parseNumber(document.getElementById('id_discount_value_0')?.value); discountPercentage = parseNumber(document.getElementById('id_discount_percentage')?.value); })"
+    @searchable-change.window="if ($event.detail.name === 'payment_method') paymentMethodId = $event.detail.value; if ($event.detail.name === 'discount_mode') discountMode = $event.detail.value"
+    @input="if ($event.target.id === 'id_discount_value_0_display') discountValue = parseNumber($event.target.value); if ($event.target.id === 'id_discount_percentage') discountPercentage = parseNumber($event.target.value)"
     @change="if ($event.target.name === 'due_date') firstDueDate = $event.target.value"
 >
     <input type="hidden" name="step" value="3">
@@ -49,7 +66,7 @@
         <div class="max-w-3xl mx-auto flex flex-col gap-4">
             <div class="bg-gradient-to-r from-primary to-primary/80 text-primary-content p-4 rounded-2xl shadow-md flex items-center justify-between">
                 <div>
-                    <h4 class="text-sm font-medium opacity-80 uppercase tracking-wide">Total a ser agrupado</h4>
+                    <h4 class="text-sm font-medium opacity-80 uppercase tracking-wide">Total bruto a ser agrupado</h4>
                     <p class="text-sm opacity-90 mt-1">{{ movement_ids|length }} lançamento(s) selecionado(s)</p>
                 </div>
                 <div class="text-right">
@@ -63,6 +80,18 @@
                     <div class="md:col-span-2">{{ form.description|as_crispy_field }}</div>
                     <div>{{ form.payment_method|as_crispy_field }}</div>
                     <div>{{ form.due_date|as_crispy_field }}</div>
+                    <div class="md:col-span-2 mt-2 border-t border-base-300 pt-4">
+                        <h4 class="font-semibold text-base-content">Desconto do agrupamento</h4>
+                        <p class="mt-1 mb-2 text-sm text-base-content/60">O desconto será aplicado ao total antes da geração das parcelas.</p>
+                    </div>
+                    <div>{{ form.discount_mode|as_crispy_field }}</div>
+                    <div x-show="discountMode === 'AMOUNT'" x-cloak>{{ form.discount_value|as_crispy_field }}</div>
+                    <div x-show="discountMode === 'PERCENTAGE'" x-cloak>{{ form.discount_percentage|as_crispy_field }}</div>
+                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-3" x-show="discountMode" x-cloak>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-base-content/55">Valor líquido</p>
+                        <p class="mt-1 text-xl font-black text-success" x-text="netTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })"></p>
+                        <p class="mt-1 text-xs text-base-content/60" x-show="discountAmount > 0" x-text="`Desconto aplicado: ${discountAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`"></p>
+                    </div>
                 </div>
                 <div class="alert alert-info mt-3 text-sm py-3" x-show="!installmentsCount" x-cloak>
                     <span class="material-icons text-base">info</span>
@@ -71,7 +100,7 @@
                 <section class="mt-3 rounded-xl border border-primary/25 bg-primary/5 p-3" x-show="schedule.length" x-cloak>
                     <div class="flex items-center justify-between gap-3">
                         <h4 class="font-semibold text-base-content">Parcelas geradas</h4>
-                        <span class="badge badge-primary badge-outline" x-text="`${installmentsCount}x de ${(Math.round(totalAmount * 100 / installmentsCount) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`"></span>
+                        <span class="badge badge-primary badge-outline" x-text="`${installmentsCount}x de ${(Math.round(netTotal * 100 / installmentsCount) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`"></span>
                     </div>
                     <div class="mt-2 overflow-x-auto">
                         <table class="table table-sm">

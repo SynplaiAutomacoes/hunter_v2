@@ -43,7 +43,13 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             elif pms.exists():
                 direction = FinancialMovement.MovementDirection.CREDIT
 
-            form = GroupMovementStep3Form(request.POST, workshop=self.workshop, direction=direction)
+            total_amount = sum((Decimal(str(movement.amount.amount)) for movement in fms), Decimal("0.00")) + sum((Decimal(str(payment.total_paid.amount)) for payment in pms), Decimal("0.00"))
+            form = GroupMovementStep3Form(
+                request.POST,
+                workshop=self.workshop,
+                direction=direction,
+                total_amount=total_amount,
+            )
 
             # We need to fetch the entity name to display it on form validation error
             entity_name = ""
@@ -68,7 +74,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                     group.save()
 
-                    total_amount = Decimal("0.00")
                     first_direction = FinancialMovement.MovementDirection.DEBIT
                     
                     if fm_ids:
@@ -77,7 +82,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             first_direction = first_mv.direction
                         for mv in fms:
                             mv.movement_group = group
-                            total_amount += Decimal(str(mv.amount.amount))
                             mv.save()
                     
                     if pm_ids:
@@ -85,12 +89,11 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             first_direction = FinancialMovement.MovementDirection.CREDIT
                         for pm in pms:
                             pm.movement_group = group
-                            total_amount += Decimal(str(pm.total_paid.amount))
                             pm.save()
 
                     payment_method = form.cleaned_data["payment_method"]
                     installments = build_group_installments(
-                        total_amount=total_amount,
+                        total_amount=Decimal(str(group.net_amount.amount)),
                         first_due_date=group.due_date,
                         installments_count=payment_method.installments_count,
                     )
@@ -107,6 +110,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             financial_observation=group.description,
                             due_date=installment.due_date,
                             amount=installment.amount,
+                            gross_amount=installment.amount,
                             direction=first_direction,
                             payment_method=payment_method,
                             supplier_id=group.supplier_id,
@@ -124,7 +128,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "entity_type": entity_type,
                 "entity_id": entity_id,
                 "entity_name": entity_name,
-                "total_amount": sum((Decimal(str(movement.amount.amount)) for movement in fms), Decimal("0.00")) + sum((Decimal(str(payment.total_paid.amount)) for payment in pms), Decimal("0.00")),
+                "total_amount": total_amount,
                 "payment_method_installments": form.payment_method_installments,
             })
 
@@ -230,7 +234,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
         normalized_movement_ids = [f"fm_{fm.id}" for fm in fms] + [f"pm_{pm.id}" for pm in pms]
 
         direction = next(iter(directions), FinancialMovement.MovementDirection.DEBIT)
-        form = GroupMovementStep3Form(workshop=self.workshop, direction=direction)
+        form = GroupMovementStep3Form(workshop=self.workshop, direction=direction, total_amount=total_amount)
         return render(request, "finance/reports/partials/group_step3.html", {
             "form": form,
             "movement_ids": normalized_movement_ids,
