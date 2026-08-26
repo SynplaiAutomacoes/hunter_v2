@@ -1,0 +1,202 @@
+{% load l10n %}
+<div class="modal-box w-11/12 max-w-3xl bg-base-100 p-0 overflow-hidden relative"
+     id="duplicate-service-queue-modal"
+     data-budget-id="{{ budget.id|unlocalize }}"
+     data-current-step="{{ current_step }}">
+
+    <button type="button"
+            class="btn btn-sm btn-circle btn-ghost absolute top-2 right-2 z-20 text-primary-content hover:bg-primary-content/20"
+            onclick="window.duplicateServiceQueue && window.duplicateServiceQueue.cancel()">
+        ✕
+    </button>
+
+    <div class="bg-gradient-to-r from-primary to-primary-focus p-6 text-primary-content">
+        <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <span class="material-icons text-3xl">content_copy</span>
+                <div>
+                    <h3 class="text-2xl font-bold">Serviço duplicado</h3>
+                    <p class="text-sm opacity-90 mt-1">Escolha como proceder</p>
+                </div>
+            </div>
+            <div class="badge badge-lg badge-accent gap-2">
+                <span class="material-icons text-sm">layers</span>
+                <span>{{ current_index|add:1 }}</span> / {{ total_items }}
+            </div>
+        </div>
+    </div>
+
+    <div class="px-6 pt-4 pb-2 bg-base-50">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold text-base-content/70">
+                Restam <span class="text-primary font-bold">{{ remaining_after_current }}</span> serviço(s)
+            </span>
+            <span class="text-xs text-base-content/50">{{ conflict.service_name }}</span>
+        </div>
+        <progress class="progress progress-primary w-full h-3" value="{{ current_index|add:1 }}" max="{{ total_items }}"></progress>
+    </div>
+
+    <div class="divider m-0"></div>
+
+    <form id="duplicate-service-resolve-form"
+          hx-post="{% url 'budget:resolve_duplicate_service' budget.id %}"
+          hx-target="{{ htmx_target|default:'#modal-container' }}"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        <input type="hidden" name="service_id" value="{{ conflict.service_id|unlocalize }}">
+        <input type="hidden" name="current_index" value="{{ current_index }}">
+        <input type="hidden" name="htmx_target" value="{{ htmx_target|default:'#modal-container' }}">
+        <input type="hidden" name="keep_source_key" value="{{ conflict.recommended_source_key }}">
+        <input type="hidden" name="service_ids" value="{% for sid in service_ids %}{{ sid|unlocalize }}{% if not forloop.last %},{% endif %}{% endfor %}">
+        <input type="hidden" name="rollback_item_ids" value="{% for iid in rollback_item_ids %}{{ iid|unlocalize }}{% if not forloop.last %},{% endif %}{% endfor %}">
+
+        <div class="p-6 min-h-[240px] max-h-[60vh] overflow-y-auto space-y-4">
+            {% if error_message %}
+            <div role="alert" class="alert alert-error">
+                <span class="material-icons">error</span>
+                <span>{{ error_message }}</span>
+            </div>
+            {% endif %}
+
+            <div class="alert alert-info">
+                <span class="material-icons">info</span>
+                <span>
+                    O serviço <strong>{{ conflict.service_name }}</strong> aparece em mais de um kit.
+                    Escolha como proceder.
+                </span>
+            </div>
+
+            <div class="space-y-3">
+                {% for loser in conflict.kit_losers %}
+                <div class="card bg-base-100 border-2 border-base-300 transition-colors"
+                     data-kit-preview
+                     data-keep-display="{{ loser.item_total_display }}"
+                     data-debit-display="{{ loser.item_total_after_debit_display }}">
+                    <div class="card-body p-4 gap-3">
+                        <div class="flex items-start justify-between gap-2">
+                            <div>
+                                <p class="text-xs font-semibold uppercase text-base-content/60">Kit a ajustar</p>
+                                <p class="font-bold text-base mt-0.5">{{ loser.kit_name|default:"Kit" }}</p>
+                            </div>
+                            <span class="badge badge-ghost badge-sm gap-1">
+                                <span class="material-icons text-xs">inventory_2</span>
+                                Remoção
+                            </span>
+                        </div>
+                        <div class="stats stats-vertical sm:stats-horizontal shadow-sm bg-base-200 w-full">
+                            <div class="stat py-2 px-3">
+                                <div class="stat-title text-xs">Valor do kit</div>
+                                <div class="stat-value text-lg transition-all duration-200" data-kit-value>{{ loser.item_total_display }}</div>
+                                <div class="stat-desc" data-kit-value-hint>Mantendo o valor original</div>
+                            </div>
+                            <div class="stat py-2 px-3">
+                                <div class="stat-title text-xs">Serviço removido</div>
+                                <div class="stat-value text-lg">{{ loser.selling_total_display }}</div>
+                                <div class="stat-desc">{{ conflict.service_name }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="rounded-box border border-base-300 bg-base-200/60 p-4 space-y-3">
+                <div>
+                    <p class="text-xs font-semibold uppercase text-base-content/60">Ao remover do kit</p>
+                    <p class="text-base font-medium text-base-content mt-1">
+                        {{ conflict.removal_kit_names_display }}
+                    </p>
+                </div>
+                <div class="flex flex-col gap-3">
+                    <label class="flex items-start gap-2 cursor-pointer rounded-lg border border-base-300 bg-base-100 p-3 hover:border-accent has-[:checked]:border-accent has-[:checked]:ring-2 has-[:checked]:ring-accent/30">
+                        <input type="radio"
+                               class="radio radio-sm radio-accent mt-0.5"
+                               name="kit_action"
+                               value="keep_price"
+                               checked
+                               onchange="window.duplicateServiceQueue && window.duplicateServiceQueue.refreshKitPreview()">
+                        <span class="text-sm">Remover e manter o valor original do kit</span>
+                    </label>
+                    <label class="flex items-start gap-2 cursor-pointer rounded-lg border border-base-300 bg-base-100 p-3 hover:border-warning has-[:checked]:border-warning has-[:checked]:ring-2 has-[:checked]:ring-warning/30">
+                        <input type="radio"
+                               class="radio radio-sm radio-warning mt-0.5"
+                               name="kit_action"
+                               value="debit"
+                               onchange="window.duplicateServiceQueue && window.duplicateServiceQueue.refreshKitPreview()">
+                        <span class="text-sm">Remover e debitar o valor do serviço do kit</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="divider m-0"></div>
+
+        <div class="p-6 bg-base-50 flex justify-between items-center gap-3">
+            <button type="button"
+                    class="btn btn-ghost gap-2"
+                    onclick="window.duplicateServiceQueue && window.duplicateServiceQueue.cancel()">
+                <span class="material-icons">undo</span>
+                Cancelar adição
+            </button>
+            <button type="submit" class="btn btn-primary gap-2">
+                <span class="material-icons">check</span>
+                {% if current_index|add:1 >= total_items %}Confirmar e finalizar{% else %}Confirmar e próximo{% endif %}
+            </button>
+        </div>
+    </form>
+
+    <form id="duplicate-service-cancel-form"
+          class="hidden"
+          hx-post="{% url 'budget:cancel_duplicate_service_queue' budget.id %}"
+          hx-target="{{ htmx_target|default:'#modal-container' }}"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        <input type="hidden" name="rollback_item_ids" value="{% for iid in rollback_item_ids %}{{ iid|unlocalize }}{% if not forloop.last %},{% endif %}{% endfor %}">
+    </form>
+</div>
+
+<script>
+(function () {
+    function refreshKitPreview() {
+        const form = document.getElementById('duplicate-service-resolve-form');
+        if (!form) return;
+        const selected = form.querySelector('input[name="kit_action"]:checked');
+        const action = selected ? selected.value : 'keep_price';
+        const isDebit = action === 'debit';
+
+        form.querySelectorAll('[data-kit-preview]').forEach((card) => {
+            const valueEl = card.querySelector('[data-kit-value]');
+            const hintEl = card.querySelector('[data-kit-value-hint]');
+            if (valueEl) {
+                valueEl.textContent = isDebit
+                    ? (card.getAttribute('data-debit-display') || '')
+                    : (card.getAttribute('data-keep-display') || '');
+                valueEl.classList.toggle('text-warning', isDebit);
+                valueEl.classList.toggle('text-success', !isDebit);
+            }
+            if (hintEl) {
+                hintEl.textContent = isDebit
+                    ? 'Após debitar o serviço'
+                    : 'Mantendo o valor original';
+            }
+            card.classList.toggle('border-warning', isDebit);
+            card.classList.toggle('border-accent', !isDebit);
+        });
+    }
+
+    window.duplicateServiceQueue = {
+        refreshKitPreview,
+        cancel() {
+            const form = document.getElementById('duplicate-service-cancel-form');
+            if (!form) return;
+            if (window.htmx) {
+                window.htmx.trigger(form, 'submit');
+            } else {
+                form.submit();
+            }
+        }
+    };
+
+    refreshKitPreview();
+})();
+</script>

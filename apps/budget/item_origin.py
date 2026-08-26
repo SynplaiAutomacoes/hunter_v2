@@ -111,13 +111,19 @@ def iter_kit_product_components(item: Any) -> list[Any]:
 def iter_kit_service_components(item: Any) -> list[Any]:
     frozen = list(item._iter_frozen_kit_service_overrides())
     if frozen:
-        return frozen
+        return [
+            override
+            for override in frozen
+            if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False)
+        ]
 
     _product_overrides, service_overrides = item._get_kit_override_maps()
     components: list[Any] = []
     for kit_service in item._iter_kit_services():
         override = service_overrides.get(kit_service.service_id)
         if override is not None:
+            if int(getattr(override, "quantity", 0) or 0) <= 0 or getattr(override, "excluded_from_composition", False):
+                continue
             components.append(override)
             continue
         service = kit_service.service
@@ -129,6 +135,7 @@ def iter_kit_service_components(item: Any) -> list[Any]:
                 service_cost_price=getattr(service, "suggested_cost", None) or zero_money(),
                 service_selling_price=getattr(kit_service, "resolved_selling_price", None) or getattr(service, "selling_price", zero_money()),
                 duration=getattr(kit_service, "duration", None) or getattr(service, "duration", None),
+                excluded_from_composition=False,
             )
         )
     return components
@@ -172,6 +179,8 @@ def build_kit_component_product_item(*, kit_item: Any, override: Any) -> SimpleN
 
 
 def build_kit_component_service_item(*, kit_item: Any, override: Any) -> SimpleNamespace | None:
+    if getattr(override, "excluded_from_composition", False):
+        return None
     per_kit_quantity = int(getattr(override, "quantity", 0) or 0)
     kit_quantity = _effective_kit_quantity(kit_item)
     total_quantity = per_kit_quantity * kit_quantity

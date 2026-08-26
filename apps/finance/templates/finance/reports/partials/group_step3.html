@@ -23,6 +23,21 @@
         installmentsByMethod: JSON.parse(document.getElementById('group-payment-method-installments').textContent),
         schedule: JSON.parse(document.getElementById('group-initial-installments').textContent || '[]'),
         totalAmount: Number('{{ total_amount|unlocalize }}'),
+        discountMode: '{{ form.discount_mode.value|default_if_none:"" }}',
+        discountValue: 0,
+        discountPercentage: 0,
+        parseNumber(raw) {
+            const text = String(raw || '').trim();
+            const normalized = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text;
+            const value = Number(normalized);
+            return Number.isFinite(value) ? value : 0;
+        },
+        get discountAmount() {
+            if (this.discountMode === 'AMOUNT') return Math.min(Math.max(this.discountValue, 0), this.totalAmount);
+            if (this.discountMode === 'PERCENTAGE') return this.totalAmount * Math.min(Math.max(this.discountPercentage, 0), 100) / 100;
+            return 0;
+        },
+        get netTotal() { return Math.max(this.totalAmount - this.discountAmount, 0); },
         addMonths(isoDate, months) {
             const [year, month, day] = isoDate.split('-').map(Number);
             const next = new Date(year, month - 1 + months, 1);
@@ -42,7 +57,7 @@
                 this.schedule = [];
                 return;
             }
-            const totalCents = Math.round(this.totalAmount * 100);
+            const totalCents = Math.round(this.netTotal * 100);
             const amountPerInstallment = Math.floor(totalCents / count);
             const remainingCents = totalCents % count;
             this.schedule = Array.from({ length: count }, (_, index) => ({
@@ -60,10 +75,16 @@
             return this.schedule.reduce((sum, item) => sum + Number(item.amount || 0), 0);
         },
         init() {
+            this.discountValue = this.parseNumber(document.getElementById('id_discount_value_0')?.value);
+            this.discountPercentage = this.parseNumber(document.getElementById('id_discount_percentage')?.value);
+            this.$watch('discountMode', () => this.generateSchedule());
+            this.$watch('discountValue', () => this.generateSchedule());
+            this.$watch('discountPercentage', () => this.generateSchedule());
             if (!this.schedule.length) this.generateSchedule();
         }
     }"
-    @searchable-change.window="if ($event.detail.name === 'payment_method') { paymentMethodId = $event.detail.value; applyPaymentMethodSuggestion(); }"
+    @searchable-change.window="if ($event.detail.name === 'payment_method') { paymentMethodId = $event.detail.value; applyPaymentMethodSuggestion(); } if ($event.detail.name === 'discount_mode') discountMode = $event.detail.value"
+    @input="if ($event.target.id === 'id_discount_value_0_display') discountValue = parseNumber($event.target.value); if ($event.target.id === 'id_discount_percentage') discountPercentage = parseNumber($event.target.value)"
     @change="if ($event.target.name === 'due_date') { firstDueDate = $event.target.value; generateSchedule(); }"
 >
     <input type="hidden" name="step" value="3">
@@ -77,7 +98,7 @@
         <div class="max-w-3xl mx-auto flex flex-col gap-4">
             <div class="bg-gradient-to-r from-primary to-primary/80 text-primary-content p-4 rounded-2xl shadow-md flex items-center justify-between">
                 <div>
-                    <h4 class="text-sm font-medium opacity-80 uppercase tracking-wide">Total a ser agrupado</h4>
+                    <h4 class="text-sm font-medium opacity-80 uppercase tracking-wide">Total bruto a ser agrupado</h4>
                     <p class="text-sm opacity-90 mt-1">{{ movement_ids|length }} lançamento(s) selecionado(s)</p>
                 </div>
                 <div class="text-right">
@@ -103,6 +124,18 @@
                             <span class="material-icons text-base mr-1">auto_fix_high</span>
                             Gerar automaticamente
                         </button>
+                    </div>
+                    <div class="md:col-span-2 mt-2 border-t border-base-300 pt-4">
+                        <h4 class="font-semibold text-base-content">Desconto do agrupamento</h4>
+                        <p class="mt-1 mb-2 text-sm text-base-content/60">O desconto será aplicado ao total antes da geração das parcelas.</p>
+                    </div>
+                    <div>{{ form.discount_mode|as_crispy_field }}</div>
+                    <div x-show="discountMode === 'AMOUNT'" x-cloak>{{ form.discount_value|as_crispy_field }}</div>
+                    <div x-show="discountMode === 'PERCENTAGE'" x-cloak>{{ form.discount_percentage|as_crispy_field }}</div>
+                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-3" x-show="discountMode" x-cloak>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-base-content/55">Valor líquido</p>
+                        <p class="mt-1 text-xl font-black text-success" x-text="netTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })"></p>
+                        <p class="mt-1 text-xs text-base-content/60" x-show="discountAmount > 0" x-text="`Desconto aplicado: ${discountAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`"></p>
                     </div>
                 </div>
                 <div class="alert alert-info mt-3 text-sm py-3" x-show="!schedule.length" x-cloak>

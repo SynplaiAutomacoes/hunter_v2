@@ -71,7 +71,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                     group.save()
 
-                    total_amount = Decimal("0.00")
                     first_direction = FinancialMovement.MovementDirection.DEBIT
                     
                     if fm_ids:
@@ -80,7 +79,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             first_direction = first_mv.direction
                         for mv in fms:
                             mv.movement_group = group
-                            total_amount += Decimal(str(mv.amount.amount))
                             mv.save()
                     
                     if pm_ids:
@@ -88,7 +86,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             first_direction = FinancialMovement.MovementDirection.CREDIT
                         for pm in pms:
                             pm.movement_group = group
-                            total_amount += Decimal(str(pm.total_paid.amount))
                             pm.save()
 
                     payment_method = form.cleaned_data["payment_method"]
@@ -106,6 +103,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             financial_observation=group.description,
                             due_date=installment.due_date,
                             amount=installment.amount,
+                            gross_amount=installment.amount,
                             direction=first_direction,
                             payment_method=payment_method,
                             supplier_id=group.supplier_id,
