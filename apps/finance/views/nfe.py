@@ -35,7 +35,11 @@ from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
-from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
+from apps.finance.views.ncm_validation import (
+    build_invalid_ncm_modal_context_for_nfe_request,
+    pop_invalid_ncm_modal_context,
+    store_invalid_ncm_modal_context,
+)
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url, build_issued_documents_list_url
 from apps.finance.views.request_workflow import (
     SharedEmissionRequestCreateBaseView,
@@ -639,7 +643,10 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
         return context
 
     def _finalize_emission(self) -> bool:
-        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        invalid_ncm_modal = build_invalid_ncm_modal_context_for_nfe_request(
+            nfe_request=self.object,
+            return_url=self.request.get_full_path(),
+        )
         if invalid_ncm_modal is not None:
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             return False
@@ -660,7 +667,10 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
             return False
 
     def _build_preview_response(self, *, form) -> HttpResponse:
-        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        invalid_ncm_modal = build_invalid_ncm_modal_context_for_nfe_request(
+            nfe_request=self.object,
+            return_url=self.request.get_full_path(),
+        )
         if invalid_ncm_modal is not None:
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             step_url = self._step_url(step=self.get_current_step())
