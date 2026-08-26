@@ -4,6 +4,7 @@ from django.http import HttpResponse
 from django.shortcuts import render, get_object_or_404
 from django.views import View
 from decimal import Decimal
+import re
 
 from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.models import FinancialMovement, MovementGroup
@@ -22,6 +23,35 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, *args, **kwargs):
         return HttpResponse("Método não permitido", status=405)
+
+    @staticmethod
+    def _normalize_document(value: object) -> str:
+        return re.sub(r"\D", "", str(value or ""))
+
+    def _resolve_suppliers_from_sources(self, movements: list[FinancialMovement]) -> dict[int, Supplier]:
+        """Resolve suppliers for legacy movements that only have a Source link.
+
+        Sources are matched to suppliers by normalized CNPJ and always within the
+        active workshop. A movement with a manually selected supplier is ignored.
+        """
+        source_documents = {
+            movement.source_id: self._normalize_document(movement.source.cnpj)
+            for movement in movements
+            if movement.supplier_id is None and movement.source_id and self._normalize_document(movement.source.cnpj)
+        }
+        if not source_documents:
+            return {}
+
+        suppliers_by_document = {
+            self._normalize_document(supplier.cnpj): supplier
+            for supplier in Supplier.objects.filter(workshop=self.workshop)
+            if self._normalize_document(supplier.cnpj)
+        }
+        return {
+            movement.pk: suppliers_by_document[document]
+            for movement in movements
+            if movement.source_id and (document := source_documents.get(movement.source_id)) in suppliers_by_document
+        }
 
     def post(self, request, *args, **kwargs):
         step = request.POST.get("step")
@@ -144,7 +174,11 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 pm_pks.append(int(cid.split("_")[1]))
 
         # Fetch objects
-        fms = list(FinancialMovement.objects.filter(pk__in=fm_pks, workshop=self.workshop))
+        fms = list(
+            FinancialMovement.objects.filter(pk__in=fm_pks, workshop=self.workshop).select_related(
+                "source", "supplier", "collaborator", "workorder__budget__customer"
+            )
+        )
         pms = list(WorkOrderPaymentMethod.objects.filter(pk__in=pm_pks, workorder__workshop=self.workshop).select_related("workorder", "workorder__budget"))
 
         # Check if all requested items were found
@@ -175,12 +209,18 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if len(directions) > 1:
             return render(request, "finance/reports/partials/group_error.html", {"error": "Todos os lançamentos selecionados devem ser do mesmo tipo (Crédito ou Débito)."})
 
+        # Legacy imported movements may have only the automatic Source relation.
+        # Resolve the already registered supplier by CNPJ so the user does not need
+        # to edit each movement before grouping.
+        resolved_suppliers = self._resolve_suppliers_from_sources(fms)
+
         # Validate entity consistency
         candidate_entities = []
         for fm in fms:
             item_candidates = set()
-            if fm.supplier_id:
-                item_candidates.add(("supplier", fm.supplier_id, fm.supplier.name))
+            supplier = fm.supplier if fm.supplier_id else resolved_suppliers.get(fm.pk)
+            if supplier is not None:
+                item_candidates.add(("supplier", supplier.id, supplier.name))
             if fm.collaborator_id:
                 item_candidates.add(("collaborator", fm.collaborator_id, str(fm.collaborator)))
             if fm.workorder_id and fm.workorder.budget_id and fm.workorder.budget.customer_id:
@@ -203,6 +243,14 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if not common_keys:
             return render(request, "finance/reports/partials/group_error.html", {"error": "Todos os lançamentos selecionados devem pertencer ao mesmo Fornecedor, Colaborador ou Cliente."})
+
+        # Persist only the safe, CNPJ-based matches that allowed this grouping.
+        # Existing manual supplier links are intentionally never changed.
+        for fm in fms:
+            supplier = resolved_suppliers.get(fm.pk)
+            if supplier is not None and fm.supplier_id is None:
+                fm.supplier = supplier
+                fm.save(update_fields=["supplier"])
 
         # Pick a common key
         selected_key = list(common_keys)[0]

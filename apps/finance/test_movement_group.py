@@ -2,7 +2,8 @@ from datetime import date
 from decimal import Decimal
 
 from django.http import QueryDict
-from django.test import TestCase
+from django.contrib.auth.models import AnonymousUser
+from django.test import RequestFactory, TestCase
 from djmoney.money import Money
 
 from apps.finance.forms.movement_group import GroupMovementStep3Form
@@ -10,6 +11,9 @@ from apps.finance.models import FinancialMovement, MovementGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.movement_grouping import InstallmentScheduleError, parse_group_installment_schedule
 from apps.finance.services.reports import build_financial_overview_with_open_workorder_credits, open_credits
+from apps.finance.views.movement_group import GroupMovementWizardView
+from apps.sources.models import Source
+from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 
 
@@ -202,3 +206,50 @@ class GroupedMovementsOverviewTests(TestCase):
         )
 
         self.assertEqual(open_credits(overview), Money(3, "BRL"))
+
+
+class LegacySourceGroupingTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(
+            name="Oficina Origem Legada",
+            cnpj="15.215.323/0001-68",
+            phone="+5511966666666",
+            address="Rua da Origem, 50",
+        )
+        self.supplier = Supplier.objects.create(
+            workshop=self.workshop,
+            name="Fornecedor da Origem",
+            cnpj="04.252.011/0001-10",
+        )
+        self.source = Source.objects.create(
+            workshop=self.workshop,
+            name="Fornecedor da Origem",
+            cnpj="04252011000110",
+        )
+        self.movements = [
+            FinancialMovement.objects.create(
+                workshop=self.workshop,
+                source=self.source,
+                direction=FinancialMovement.MovementDirection.DEBIT,
+                description=f"Compra legada {index}",
+                amount=Money("100.00", "BRL"),
+            )
+            for index in range(2)
+        ]
+
+    def test_grouping_links_legacy_movements_using_source_cnpj(self) -> None:
+        request = RequestFactory().post(
+            "/finance/reports/group/wizard/",
+            {"movement_ids": [f"financial-movement-{movement.pk}" for movement in self.movements]},
+        )
+        request.user = AnonymousUser()
+        view = GroupMovementWizardView()
+        view.workshop = self.workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.supplier.name)
+        for movement in self.movements:
+            movement.refresh_from_db()
+            self.assertEqual(movement.supplier_id, self.supplier.pk)
