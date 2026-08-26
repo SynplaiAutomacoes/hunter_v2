@@ -21,7 +21,11 @@ from apps.finance.models.finance import NfeRequest
 from apps.finance.services.fiscal_recipient import validate_recipient_snapshot
 from apps.finance.views.fiscal_gateway import FiscalOperationGatewayView
 from apps.finance.views.navigation import IssuedDocumentsRedirectView, build_issued_documents_list_url
-from apps.finance.views.ncm_validation import find_first_standalone_line_with_invalid_ncm
+from apps.finance.views.ncm_validation import (
+    build_invalid_ncm_modal_context,
+    build_invalid_ncm_modal_context_for_nfe_request,
+    find_first_standalone_line_with_invalid_ncm,
+)
 from apps.finance.views.standalone_emission import StandaloneEmissionCreateView
 
 
@@ -227,6 +231,27 @@ class StandaloneNcmValidationTests(SimpleTestCase):
         self.assertIsNotNone(invalid)
         assert invalid is not None
         self.assertEqual(invalid["description"], "ABRACADEIRA 19X27MM")
+
+    def test_build_invalid_ncm_modal_context_tolerates_missing_workorder(self) -> None:
+        self.assertIsNone(build_invalid_ncm_modal_context(workorder=None, return_url="/finance/nfe/1/edit/"))
+
+    def test_build_invalid_ncm_modal_context_for_standalone_nfe_request(self) -> None:
+        line = SimpleNamespace(description="ABRACADEIRA 19X27MM", ncm="", product_id=77)
+        nfe_request = SimpleNamespace(
+            workorder=None,
+            standalone_lines=SimpleNamespace(order_by=lambda *_args, **_kwargs: [line]),
+        )
+
+        modal = build_invalid_ncm_modal_context_for_nfe_request(
+            nfe_request=nfe_request,
+            return_url="/finance/nfe/355/edit/?step=3",
+        )
+
+        self.assertIsNotNone(modal)
+        assert modal is not None
+        self.assertEqual(modal["title"], "NCM Inválido")
+        self.assertIn("ABRACADEIRA 19X27MM", modal["subtitle"])
+        self.assertIn("/catalog/", modal["action_url"])
 
 
 class StandaloneNfePayloadTests(SimpleTestCase):

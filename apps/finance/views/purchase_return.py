@@ -35,8 +35,8 @@ from apps.workshops.mixin import WorkshopScopedMixin
 
 class PurchaseReturnPermissionMixin(LoginRequiredMixin, WorkshopScopedMixin):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "fiscaldocument"
-    workshop_permission_codename = "issue_nfe_return"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
 
 
 class PurchaseReturnCreateView(PurchaseReturnPermissionMixin, View):

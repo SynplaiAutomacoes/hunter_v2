@@ -14,7 +14,10 @@ NFE_INVALID_NCM_MODAL_ERROR = "__nfe_invalid_ncm_modal__"
 NFE_INVALID_NCM_MODAL_SESSION_KEY = "finance.nfe_invalid_ncm_modal"
 
 
-def build_invalid_ncm_modal_context(*, workorder: WorkOrder, return_url: str = "") -> dict[str, str] | None:
+def build_invalid_ncm_modal_context(*, workorder: WorkOrder | None, return_url: str = "") -> dict[str, str] | None:
+    if workorder is None:
+        return None
+
     invalid_issue = next(iter(workorder.product_issue_summary.invalid_ncm_issues), None)
     if invalid_issue is None:
         return None
@@ -29,6 +32,28 @@ def build_invalid_ncm_modal_context(*, workorder: WorkOrder, return_url: str = "
             params={"next": return_url},
         ),
     }
+
+
+def build_invalid_ncm_modal_context_for_nfe_request(*, nfe_request: Any, return_url: str = "") -> dict[str, str] | None:
+    workorder = getattr(nfe_request, "workorder", None)
+    if workorder is not None:
+        return build_invalid_ncm_modal_context(workorder=workorder, return_url=return_url)
+
+    standalone_lines = getattr(nfe_request, "standalone_lines", None)
+    if standalone_lines is None:
+        return None
+
+    lines = list(standalone_lines.order_by("sort_order", "id"))
+    for line in lines:
+        line_payload = {
+            "description": getattr(line, "description", ""),
+            "ncm": getattr(line, "ncm", ""),
+            "product_id": getattr(line, "product_id", None),
+        }
+        if len(normalize_ncm(line_payload.get("ncm"))) == 8:
+            continue
+        return build_standalone_invalid_ncm_modal_context(line=line_payload, return_url=return_url)
+    return None
 
 
 def find_first_standalone_line_with_invalid_ncm(*, lines: list[dict[str, Any]]) -> dict[str, Any] | None:

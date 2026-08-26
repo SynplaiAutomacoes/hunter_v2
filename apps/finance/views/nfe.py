@@ -35,7 +35,11 @@ from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
-from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
+from apps.finance.views.ncm_validation import (
+    build_invalid_ncm_modal_context_for_nfe_request,
+    pop_invalid_ncm_modal_context,
+    store_invalid_ncm_modal_context,
+)
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url, build_issued_documents_list_url
 from apps.finance.views.request_workflow import (
     SharedEmissionRequestCreateBaseView,
@@ -159,37 +163,28 @@ def _build_field(label: str, value: object) -> dict[str, str]:
     return {"label": label, "value": normalized}
 
 
-def _user_can_issue_cce(*, user, workshop, request) -> bool:
+def _user_can_manage_fiscal_emission(*, user, workshop, request) -> bool:
+    """Same gate as Emitir Nota / NF-e detail: no per-operation special permission."""
     return has_workshop_perm(
         user=user,
         workshop=workshop,
         app_label="finance",
-        model="fiscaldocumentevent",
-        codename="issue_nfe_correction",
+        model="nfserequest",
+        codename="view_nfserequest",
         request=request,
     )
+
+
+def _user_can_issue_cce(*, user, workshop, request) -> bool:
+    return _user_can_manage_fiscal_emission(user=user, workshop=workshop, request=request)
 
 
 def _user_can_issue_return(*, user, workshop, request) -> bool:
-    return has_workshop_perm(
-        user=user,
-        workshop=workshop,
-        app_label="finance",
-        model="fiscaldocument",
-        codename="issue_nfe_return",
-        request=request,
-    )
+    return _user_can_manage_fiscal_emission(user=user, workshop=workshop, request=request)
 
 
 def _user_can_issue_reversal(*, user, workshop, request) -> bool:
-    return has_workshop_perm(
-        user=user,
-        workshop=workshop,
-        app_label="finance",
-        model="fiscaldocument",
-        codename="issue_nfe_reversal",
-        request=request,
-    )
+    return _user_can_manage_fiscal_emission(user=user, workshop=workshop, request=request)
 
 
 class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
@@ -259,8 +254,8 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
 
 class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "fiscaldocumentevent"
-    workshop_permission_codename = "issue_nfe_correction"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
 
     def post(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -498,8 +493,8 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "fiscaldocumentevent"
-    workshop_permission_codename = "download_nfe_correction"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
 
     document_fields = {
         "xml": ("xml_url", "xml"),
@@ -535,8 +530,8 @@ class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class NfeReturnDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "fiscaldocument"
-    workshop_permission_codename = "download_nfe_return"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
 
     document_fields = {
         "xml": ("xml_url", "xml"),
@@ -639,7 +634,10 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
         return context
 
     def _finalize_emission(self) -> bool:
-        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        invalid_ncm_modal = build_invalid_ncm_modal_context_for_nfe_request(
+            nfe_request=self.object,
+            return_url=self.request.get_full_path(),
+        )
         if invalid_ncm_modal is not None:
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             return False
@@ -660,7 +658,10 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
             return False
 
     def _build_preview_response(self, *, form) -> HttpResponse:
-        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        invalid_ncm_modal = build_invalid_ncm_modal_context_for_nfe_request(
+            nfe_request=self.object,
+            return_url=self.request.get_full_path(),
+        )
         if invalid_ncm_modal is not None:
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             step_url = self._step_url(step=self.get_current_step())
