@@ -281,7 +281,7 @@
                                                 <input type="hidden" name="tab_{{ tab.key }}_movement_id_{{ item.movement_id|unlocalize }}" value="{{ item.movement_id|unlocalize }}">
                                                 <div class="grid grid-cols-12 gap-4 pt-2{% if item.form.is_locked %} payroll-locked-fields{% endif %}">
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.due_date|as_crispy_field }}</div>
-                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.amount|as_crispy_field }}</div>
+                                                    {% include "finance/payroll/partials/discount_fields.html" with payment_form=item.form %}
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_paid|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_reconciled|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.payment_method|as_crispy_field }}</div>
@@ -321,7 +321,7 @@
                                 <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id|unlocalize }}">
                                 <div class="grid grid-cols-12 gap-4{% if tab.form.is_locked %} payroll-locked-fields{% endif %}">
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
-                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>
+                                    {% include "finance/payroll/partials/discount_fields.html" with payment_form=tab.form %}
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_paid|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_reconciled|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.payment_method|as_crispy_field }}</div>
