@@ -10,6 +10,7 @@ from django.urls import reverse
 from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, _build_taker_payload, calculate_nfse_service_total
 from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, _build_customer_payload, _build_nfe_products_payload
 from apps.finance.forms.fiscal_gateway import FiscalOperation, FiscalOperationGatewayForm
+from apps.finance.forms.standalone_emission import StandaloneRecipientForm
 from apps.finance.models.finance import NfeRequest
 from apps.finance.services.fiscal_recipient import validate_recipient_snapshot
 from apps.finance.views.fiscal_gateway import FiscalOperationGatewayView
@@ -70,6 +71,32 @@ class StandaloneRecipientValidationTests(SimpleTestCase):
     def test_missing_name_fails(self) -> None:
         snapshot = {**RECIPIENT_SNAPSHOT, "name": ""}
         self.assertIn("name", validate_recipient_snapshot(snapshot))
+
+    def test_recipient_form_renders_without_address_mixin_kwargs(self) -> None:
+        form = StandaloneRecipientForm()
+
+        self.assertIn("estado", form.fields)
+        self.assertTrue(form.fields["estado"].choices)
+        self.assertIn("MG", {value for value, _label in form.fields["estado"].choices})
+
+    def test_recipient_form_accepts_minimal_pf_payload(self) -> None:
+        form = StandaloneRecipientForm(
+            {
+                "customer_type": "PF",
+                "cpf_or_cnpj": "39053344705",
+                "name": "Destinatario Avulso",
+                "cep": "32600000",
+                "logradouro": "Rua Teste",
+                "numero": "100",
+                "bairro": "Centro",
+                "cidade": "Betim",
+                "estado": "MG",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["recipient_snapshot"]["estado"], "MG")
+        self.assertEqual(form.cleaned_data["recipient_snapshot"]["cpf_or_cnpj"], "39053344705")
 
 
 class StandaloneNfePayloadTests(SimpleTestCase):
