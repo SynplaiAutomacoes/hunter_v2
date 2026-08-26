@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -8,6 +8,8 @@ class PermissionInfo:
     visible: bool = True
     auto_grant: bool = False
     description: str = ""
+    # When set, only these permission codenames are shown in the IAM UI for this model.
+    visible_codenames: frozenset[str] | None = field(default=None)
 
 
 REGISTRY: dict[tuple[str, str], PermissionInfo] = {
@@ -156,7 +158,15 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
     ("finance", "nfsebatch"): PermissionInfo(visible=False, auto_grant=True),
     ("finance", "nfseitem"): PermissionInfo(visible=False, auto_grant=True),
     ("finance", "nfeitem"): PermissionInfo(visible=False, auto_grant=True),
+    ("finance", "standalonenfeline"): PermissionInfo(visible=False, auto_grant=True),
+    ("finance", "standalonenfseline"): PermissionInfo(visible=False, auto_grant=True),
     ("finance", "webmaniawebhookevent"): PermissionInfo(visible=False, auto_grant=True),
+    ("finance", "fiscaldocument"): PermissionInfo(visible=False, auto_grant=False),
+    ("finance", "fiscaldocumentevent"): PermissionInfo(visible=False, auto_grant=False),
+    ("finance", "fiscaldocumentlink"): PermissionInfo(visible=False, auto_grant=False),
+    ("finance", "fiscalemissionattempt"): PermissionInfo(visible=False, auto_grant=False),
+    ("finance", "purchasereturnrequest"): PermissionInfo(visible=False, auto_grant=False),
+    ("finance", "purchasereturnrequestitem"): PermissionInfo(visible=False, auto_grant=False),
     # ---- Estoque ----
     ("stock", "stockproduct"): PermissionInfo(
         visible=True,
@@ -279,3 +289,12 @@ def is_auto_grant(app_label: str, model: str) -> bool:
 
 def get_description(app_label: str, model: str) -> str:
     return get_perm_info(app_label, model).description
+
+
+def is_codename_visible(app_label: str, model: str, codename: str) -> bool:
+    info = get_perm_info(app_label, model)
+    if not info.visible:
+        return False
+    if info.visible_codenames is None:
+        return True
+    return codename in info.visible_codenames

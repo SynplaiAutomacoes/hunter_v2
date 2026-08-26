@@ -873,6 +873,8 @@ class FiscalDocument(TimeStampedModel):
     external_confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TimeStampedModel.Meta):
+        verbose_name = "Documento fiscal"
+        verbose_name_plural = "Documentos fiscais"
         constraints = [
             models.UniqueConstraint(fields=["workshop", "legacy_nfe_item"], name="unique_fiscal_document_per_legacy_nfe_item"),
             models.UniqueConstraint(fields=["workshop", "document_type", "remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_remote_uuid_per_workshop"),
@@ -929,6 +931,8 @@ class FiscalDocumentEvent(TimeStampedModel):
     confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TimeStampedModel.Meta):
+        verbose_name = "Evento fiscal"
+        verbose_name_plural = "Eventos fiscais"
         constraints = [
             models.UniqueConstraint(fields=["document", "event_type", "event_sequence"], name="unique_fiscal_document_event_sequence"),
             models.UniqueConstraint(fields=["remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_event_remote_uuid"),
