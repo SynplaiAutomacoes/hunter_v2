@@ -358,7 +358,11 @@ def iter_kit_product_components(item: Any) -> list[Any]:
 
 
 def iter_kit_service_components(item: Any) -> list[Any]:
-    return [override for override in item._iter_frozen_kit_service_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
+    return [
+        override
+        for override in item._iter_frozen_kit_service_overrides()
+        if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False)
+    ]
 
 
 def kit_component_winning_item_ids(items: list[Any]) -> tuple[dict[int, int], dict[int, int]]:
@@ -596,6 +600,8 @@ def build_pricing_snapshot(
                 aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
 
         for override in item._iter_frozen_kit_service_overrides():
+            if getattr(override, "excluded_from_composition", False):
+                continue
             service = override.service
             per_kit_quantity = override.quantity
             if per_kit_quantity <= 0:

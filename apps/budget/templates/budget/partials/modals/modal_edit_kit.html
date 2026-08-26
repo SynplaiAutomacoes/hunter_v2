@@ -111,8 +111,13 @@
                         </thead>
                         <tbody id="services-table-body">
                             {% for service in kit_services %}
-                            <tr data-service-id="{{ service.id|unlocalize }}">
-                                <td class="font-medium">{{ service.name }}</td>
+                            <tr data-service-id="{{ service.id|unlocalize }}" class="{% if service.excluded_from_composition %}opacity-60{% endif %}">
+                                <td class="font-medium">
+                                    {{ service.name }}
+                                    {% if service.excluded_from_composition %}
+                                    <span class="badge badge-warning badge-sm ml-2">Removido (valor mantido)</span>
+                                    {% endif %}
+                                </td>
                                 <td class="text-center">
                                     {{ service.form.quantity }}
                                 </td>

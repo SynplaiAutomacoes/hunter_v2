@@ -70,7 +70,15 @@ def _kit_product_override(*, product_id: int, quantity: int, selling: str, shipp
     )
 
 
-def _kit_service_override(*, service_id: int, quantity: int, selling: str, cost: str = "0.00", duration: timedelta | None = None) -> SimpleNamespace:
+def _kit_service_override(
+    *,
+    service_id: int,
+    quantity: int,
+    selling: str,
+    cost: str = "0.00",
+    duration: timedelta | None = None,
+    excluded_from_composition: bool = False,
+) -> SimpleNamespace:
     service = _service(service_id=service_id)
     return SimpleNamespace(
         service=service,
@@ -79,6 +87,7 @@ def _kit_service_override(*, service_id: int, quantity: int, selling: str, cost:
         service_selling_price=_money(selling),
         service_cost_price=_money(cost),
         duration=duration if duration is not None else timedelta(hours=1),
+        excluded_from_composition=excluded_from_composition,
     )
 
 
@@ -286,6 +295,32 @@ class PricingSnapshotKitWinnerTests(SimpleTestCase):
         self.assertEqual(line.quantity, 1)
         self.assertEqual(line.duration, timedelta(hours=2))
         self.assertEqual(line.raw_total, _money("25.00"))
+
+    def test_excluded_kit_service_is_ignored_as_service_source(self) -> None:
+        snapshot = _snapshot(
+            _kit_item(
+                kit_id=1,
+                quantity=1,
+                services=(
+                    _kit_service_override(
+                        service_id=20,
+                        quantity=1,
+                        selling="50.00",
+                        duration=timedelta(hours=3),
+                        excluded_from_composition=True,
+                    ),
+                ),
+            ),
+            _direct_service_item(service_id=20, quantity=1, selling="10.00", duration=timedelta(hours=1)),
+        )
+
+        self.assertEqual(len(snapshot.service_lines), 1)
+        line = snapshot.service_lines[0]
+        self.assertEqual(line.quantity, 1)
+        self.assertEqual(line.duration, timedelta(hours=1))
+        self.assertEqual(line.raw_total, _money("10.00"))
+        self.assertTrue(line.has_direct_source)
+        self.assertFalse(line.has_kit_source)
 
 
 class KitComponentWinningItemIdsTests(SimpleTestCase):

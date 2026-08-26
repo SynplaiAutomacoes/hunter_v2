@@ -1,0 +1,207 @@
+{% load l10n %}
+<div class="modal-box w-11/12 max-w-5xl bg-base-100 p-0 overflow-hidden relative"
+     id="duplicate-service-queue-modal"
+     data-budget-id="{{ budget.id|unlocalize }}"
+     data-current-step="{{ current_step }}">
+
+    <button type="button"
+            class="btn btn-sm btn-circle btn-ghost absolute top-2 right-2 z-20 text-primary-content hover:bg-primary-content/20"
+            onclick="window.duplicateServiceQueue && window.duplicateServiceQueue.cancel()">
+        ✕
+    </button>
+
+    <div class="bg-gradient-to-r from-primary to-primary-focus p-6 text-primary-content">
+        <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <span class="material-icons text-3xl">content_copy</span>
+                <div>
+                    <h3 class="text-2xl font-bold">Serviço duplicado</h3>
+                    <p class="text-sm opacity-90 mt-1">Compare as ocorrências e escolha qual manter</p>
+                </div>
+            </div>
+            <div class="badge badge-lg badge-accent gap-2">
+                <span class="material-icons text-sm">layers</span>
+                <span>{{ current_index|add:1 }}</span> / {{ total_items }}
+            </div>
+        </div>
+    </div>
+
+    <div class="px-6 pt-4 pb-2 bg-base-50">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm font-semibold text-base-content/70">
+                Restam <span class="text-primary font-bold">{{ remaining_after_current }}</span> serviço(s)
+            </span>
+            <span class="text-xs text-base-content/50">{{ conflict.service_name }}</span>
+        </div>
+        <progress class="progress progress-primary w-full h-3" value="{{ current_index|add:1 }}" max="{{ total_items }}"></progress>
+    </div>
+
+    <div class="divider m-0"></div>
+
+    <form id="duplicate-service-resolve-form"
+          hx-post="{% url 'budget:resolve_duplicate_service' budget.id %}"
+          hx-target="{{ htmx_target|default:'#modal-container' }}"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        <input type="hidden" name="service_id" value="{{ conflict.service_id|unlocalize }}">
+        <input type="hidden" name="current_index" value="{{ current_index }}">
+        <input type="hidden" name="htmx_target" value="{{ htmx_target|default:'#modal-container' }}">
+        <input type="hidden" name="service_ids" value="{% for sid in service_ids %}{{ sid|unlocalize }}{% if not forloop.last %},{% endif %}{% endfor %}">
+        <input type="hidden" name="rollback_item_ids" value="{% for iid in rollback_item_ids %}{{ iid|unlocalize }}{% if not forloop.last %},{% endif %}{% endfor %}">
+
+        <div class="p-6 min-h-[320px] max-h-[60vh] overflow-y-auto space-y-4">
+            {% if error_message %}
+            <div role="alert" class="alert alert-error">
+                <span class="material-icons">error</span>
+                <span>{{ error_message }}</span>
+            </div>
+            {% endif %}
+
+            <div class="alert alert-info">
+                <span class="material-icons">info</span>
+                <span>
+                    O serviço <strong>{{ conflict.service_name }}</strong> aparece em mais de uma origem.
+                    Escolha qual manter. Nas ocorrências de kit que forem removidas, diga se o valor do kit deve ser debitado.
+                </span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for source in conflict.sources %}
+                <label class="card bg-base-100 border-2 border-base-300 hover:border-primary cursor-pointer transition-colors has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/30"
+                       data-source-key="{{ source.source_key }}"
+                       data-source-kind="{{ source.kind }}">
+                    <div class="card-body p-4 gap-3">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex items-center gap-2">
+                                <input type="radio"
+                                       name="keep_source_key"
+                                       value="{{ source.source_key }}"
+                                       class="radio radio-primary"
+                                       {% if source.source_key == conflict.recommended_source_key %}checked{% endif %}
+                                       onchange="window.duplicateServiceQueue && window.duplicateServiceQueue.refreshLoserActions()">
+                                <div>
+                                    <p class="font-bold text-base">
+                                        {% if source.kind == "direct" %}Avulso{% else %}Kit{% endif %}
+                                    </p>
+                                    {% if source.kit_name %}
+                                    <p class="text-sm text-base-content/70">{{ source.kit_name }}</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% if source.source_key == conflict.recommended_source_key %}
+                            <span class="badge badge-success badge-sm gap-1">
+                                <span class="material-icons text-xs">recommend</span>
+                                Sugerido
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            {% if source.is_longest %}
+                            <span class="badge badge-info badge-outline badge-sm">Maior tempo</span>
+                            {% endif %}
+                            {% if source.is_highest_value %}
+                            <span class="badge badge-secondary badge-outline badge-sm">Maior valor</span>
+                            {% endif %}
+                        </div>
+
+                        <div class="stats stats-vertical shadow-sm bg-base-200 w-full">
+                            <div class="stat py-2 px-3">
+                                <div class="stat-title text-xs">Duração</div>
+                                <div class="stat-value text-lg">{{ source.duration_display }}</div>
+                            </div>
+                            <div class="stat py-2 px-3">
+                                <div class="stat-title text-xs">Valor de venda</div>
+                                <div class="stat-value text-lg">{{ source.selling_total_display }}</div>
+                            </div>
+                            <div class="stat py-2 px-3">
+                                <div class="stat-title text-xs">Quantidade</div>
+                                <div class="stat-value text-lg">{{ source.quantity }}</div>
+                            </div>
+                        </div>
+
+                        {% if source.kind == "kit" %}
+                        <div class="kit-loser-actions hidden space-y-2 border-t border-base-300 pt-3"
+                             data-for-source="{{ source.source_key }}">
+                            <p class="text-xs font-semibold uppercase text-base-content/60">Ao remover deste kit</p>
+                            <label class="flex items-start gap-2 cursor-pointer">
+                                <input type="radio"
+                                       class="radio radio-sm radio-warning mt-0.5"
+                                       name="kit_action_{{ source.source_key }}"
+                                       value="debit"
+                                       checked>
+                                <span class="text-sm">Remover e <strong>debitar</strong> do valor do kit</span>
+                            </label>
+                            <label class="flex items-start gap-2 cursor-pointer">
+                                <input type="radio"
+                                       class="radio radio-sm radio-accent mt-0.5"
+                                       name="kit_action_{{ source.source_key }}"
+                                       value="keep_price">
+                                <span class="text-sm">Remover e <strong>não debitar</strong> (mantém valor do kit)</span>
+                            </label>
+                        </div>
+                        {% endif %}
+                    </div>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="divider m-0"></div>
+
+        <div class="p-6 bg-base-50 flex justify-between items-center gap-3">
+            <button type="button"
+                    class="btn btn-ghost gap-2"
+                    onclick="window.duplicateServiceQueue && window.duplicateServiceQueue.cancel()">
+                <span class="material-icons">undo</span>
+                Cancelar adição
+            </button>
+            <button type="submit" class="btn btn-primary gap-2">
+                <span class="material-icons">check</span>
+                {% if current_index|add:1 >= total_items %}Confirmar e finalizar{% else %}Confirmar e próximo{% endif %}
+            </button>
+        </div>
+    </form>
+
+    <form id="duplicate-service-cancel-form"
+          class="hidden"
+          hx-post="{% url 'budget:cancel_duplicate_service_queue' budget.id %}"
+          hx-target="{{ htmx_target|default:'#modal-container' }}"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        <input type="hidden" name="rollback_item_ids" value="{% for iid in rollback_item_ids %}{{ iid|unlocalize }}{% if not forloop.last %},{% endif %}{% endfor %}">
+    </form>
+</div>
+
+<script>
+(function () {
+    function refreshLoserActions() {
+        const form = document.getElementById('duplicate-service-resolve-form');
+        if (!form) return;
+        const selected = form.querySelector('input[name="keep_source_key"]:checked');
+        const keepKey = selected ? selected.value : null;
+        form.querySelectorAll('.kit-loser-actions').forEach((panel) => {
+            const sourceKey = panel.getAttribute('data-for-source');
+            const isLoser = keepKey && sourceKey !== keepKey;
+            panel.classList.toggle('hidden', !isLoser);
+            panel.querySelectorAll('input[type="radio"]').forEach((input) => {
+                input.disabled = !isLoser;
+            });
+        });
+    }
+
+    window.duplicateServiceQueue = {
+        refreshLoserActions,
+        cancel() {
+            const form = document.getElementById('duplicate-service-cancel-form');
+            if (!form) return;
+            if (window.htmx) {
+                window.htmx.trigger(form, 'submit');
+            } else {
+                form.submit();
+            }
+        }
+    };
+
+    refreshLoserActions();
+})();
+</script>
