@@ -16,6 +16,7 @@ from apps.budget.services.duplicate_service_resolution import (
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitService
 from apps.catalog.models.services import Service
+from apps.core.text_normalization import sentence_case
 from apps.workshops.models.workshops import Workshop
 
 
@@ -87,31 +88,38 @@ class DuplicateServiceResolutionTests(TestCase):
         return item
 
     def _add_direct_service(self, *, selling: str = "120.00", duration: timedelta | None = None) -> BudgetItem:
-        return BudgetItem.objects.create(
+        # BudgetItem.save overwrites selling/duration from the catalog Service on create.
+        item = BudgetItem.objects.create(
             workshop=self.workshop,
             budget=self.budget,
             service=self.service,
             quantity=1,
-            service_selling_price=_money(selling),
-            service_cost_price=_money("40.00"),
-            duration=duration or timedelta(hours=2),
             description=self.service.name,
         )
+        item.service_selling_price = _money(selling)
+        item.service_cost_price = _money("40.00")
+        item.duration = duration or timedelta(hours=2)
+        item.save(update_fields=["service_selling_price", "service_cost_price", "duration"])
+        return item
 
-    def test_detection_finds_kit_vs_kit_and_ignores_excluded_and_zero_qty(self) -> None:
-        kit_a = self._add_kit_with_service(kit_name="Kit A", selling="80.00", duration=timedelta(hours=1))
-        kit_b = self._add_kit_with_service(kit_name="Kit B", selling="90.00", duration=timedelta(hours=2))
-        kit_c = self._add_kit_with_service(kit_name="Kit C", selling="70.00", duration=timedelta(hours=3))
-        BudgetKitItemOverride.objects.filter(budget_item=kit_c, service=self.service).update(excluded_from_composition=True)
-        kit_d = self._add_kit_with_service(kit_name="Kit D", selling="60.00", duration=timedelta(hours=4))
-        BudgetKitItemOverride.objects.filter(budget_item=kit_d, service=self.service).update(quantity=0)
+    def test_detection_keeps_higher_selling_value_even_with_shorter_duration(self) -> None:
+        kit_cheap_long = self._add_kit_with_service(kit_name="Kit Barato Longo", selling="80.00", duration=timedelta(hours=3))
+        kit_expensive_short = self._add_kit_with_service(kit_name="Kit Caro Curto", selling="90.00", duration=timedelta(hours=1))
+        kit_excluded = self._add_kit_with_service(kit_name="Kit Excluido", selling="70.00", duration=timedelta(hours=4))
+        BudgetKitItemOverride.objects.filter(budget_item=kit_excluded, service=self.service).update(excluded_from_composition=True)
+        kit_zero = self._add_kit_with_service(kit_name="Kit Zero", selling="60.00", duration=timedelta(hours=5))
+        BudgetKitItemOverride.objects.filter(budget_item=kit_zero, service=self.service).update(quantity=0)
 
         conflicts = find_duplicate_service_conflicts(self.budget)
         self.assertEqual(len(conflicts), 1)
         conflict = conflicts[0]
         self.assertEqual(conflict.service_id, self.service.pk)
-        self.assertEqual({source.budget_item_id for source in conflict.sources}, {kit_a.pk, kit_b.pk})
-        self.assertEqual(conflict.recommended_source_key, f"kit-{kit_b.pk}")
+        self.assertEqual({source.budget_item_id for source in conflict.sources}, {kit_cheap_long.pk, kit_expensive_short.pk})
+        self.assertEqual(conflict.recommended_source_key, f"kit-{kit_expensive_short.pk}")
+        self.assertEqual(conflict.kept_source.budget_item_id, kit_expensive_short.pk)
+        self.assertEqual([loser.budget_item_id for loser in conflict.kit_losers], [kit_cheap_long.pk])
+        self.assertEqual(conflict.removal_kit_names, [sentence_case("Kit Barato Longo")])
+        self.assertTrue(conflict.requires_kit_action)
 
     def test_detection_ignores_local_service(self) -> None:
         kit_item = self._add_kit_with_service(kit_name="Kit Local", selling="80.00")
@@ -143,7 +151,7 @@ class DuplicateServiceResolutionTests(TestCase):
             budget=self.budget,
             service_id=self.service.pk,
             keep_source_key=f"kit-{kit_b.pk}",
-            kit_loser_actions={f"kit-{kit_a.pk}": KitLoserAction.DEBIT.value},
+            kit_action=KitLoserAction.DEBIT.value,
         )
 
         kit_a.refresh_from_db()
@@ -164,7 +172,7 @@ class DuplicateServiceResolutionTests(TestCase):
             budget=self.budget,
             service_id=self.service.pk,
             keep_source_key=f"kit-{kit_b.pk}",
-            kit_loser_actions={f"kit-{kit_a.pk}": KitLoserAction.KEEP_PRICE.value},
+            kit_action=KitLoserAction.KEEP_PRICE.value,
         )
 
         kit_a.refresh_from_db()
@@ -195,7 +203,7 @@ class DuplicateServiceResolutionTests(TestCase):
             budget=self.budget,
             service_id=self.service.pk,
             keep_source_key=f"direct-{direct.pk}",
-            kit_loser_actions={f"kit-{kit_item.pk}": KitLoserAction.DEBIT.value},
+            kit_action=KitLoserAction.DEBIT.value,
         )
 
         self.assertTrue(BudgetItem.objects.filter(pk=direct.pk).exists())
@@ -214,7 +222,7 @@ class DuplicateServiceResolutionTests(TestCase):
             budget=self.budget,
             service_id=self.service.pk,
             keep_source_key=f"direct-{direct.pk}",
-            kit_loser_actions={f"kit-{kit_item.pk}": KitLoserAction.KEEP_PRICE.value},
+            kit_action=KitLoserAction.KEEP_PRICE.value,
         )
 
         kit_item.refresh_from_db()
@@ -231,7 +239,6 @@ class DuplicateServiceResolutionTests(TestCase):
             budget=self.budget,
             service_id=self.service.pk,
             keep_source_key=f"kit-{kit_item.pk}",
-            kit_loser_actions={},
         )
 
         self.assertFalse(BudgetItem.objects.filter(pk=direct.pk).exists())
@@ -299,7 +306,7 @@ class DuplicateServiceModalViewTests(TestCase):
             selling_price=_money("90.00"),
         )
 
-    def test_batch_add_kits_with_duplicate_service_opens_resolution_modal(self) -> None:
+    def test_batch_add_kits_with_duplicate_service_opens_simplified_modal(self) -> None:
         from django.urls import reverse
 
         BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit_a, quantity=1)
@@ -312,8 +319,16 @@ class DuplicateServiceModalViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertIn("Serviço duplicado", content)
+        self.assertIn("O serviço", content)
         self.assertIn("Alinhamento", content)
-        self.assertIn("Remover e", content)
-        self.assertIn("debitar", content)
-        self.assertIn("não debitar", content)
+        self.assertIn("aparece em mais de um kit", content)
+        self.assertIn("Escolha como proceder", content)
+        self.assertIn(sentence_case("Kit Alinhamento A"), content)
+        self.assertIn("Valor do kit", content)
+        self.assertIn("data-kit-preview", content)
+        self.assertIn("Remover e manter o valor original do kit", content)
+        self.assertIn("Remover e debitar o valor do serviço do kit", content)
+        self.assertIn('name="kit_action"', content)
+        self.assertNotIn('name="keep_source_key" type="radio"', content)
+        self.assertNotIn("Sugerido", content)
         self.assertIn(f'name="service_id" value="{self.service.pk}"', content)

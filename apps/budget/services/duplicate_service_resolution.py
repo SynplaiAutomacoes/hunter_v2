@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
@@ -12,7 +12,7 @@ from django.db import transaction
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride
-from apps.budget.pricing import _is_better_service_source, format_duration_display, zero_money
+from apps.budget.pricing import format_duration_display, zero_money
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch
 
 
@@ -37,8 +37,9 @@ class DuplicateServiceSource:
     source_key: str
     duration_display: str
     selling_total_display: str
-    is_longest: bool = False
-    is_highest_value: bool = False
+    item_total: Money | None = None
+    item_total_display: str = ""
+    item_total_after_debit_display: str = ""
 
 
 @dataclass(slots=True)
@@ -47,16 +48,18 @@ class DuplicateServiceConflict:
     service_name: str
     sources: list[DuplicateServiceSource]
     recommended_source_key: str
+    kept_source: DuplicateServiceSource
+    kit_losers: list[DuplicateServiceSource] = field(default_factory=list)
+    direct_losers: list[DuplicateServiceSource] = field(default_factory=list)
+    removal_kit_names: list[str] = field(default_factory=list)
 
+    @property
+    def requires_kit_action(self) -> bool:
+        return bool(self.kit_losers)
 
-def _annotate_source_comparison_badges(sources: list[DuplicateServiceSource]) -> None:
-    if not sources:
-        return
-    best_duration = max((_timedelta_seconds(source.duration) for source in sources), default=0)
-    best_total = max((source.selling_total.amount for source in sources), default=Decimal("0"))
-    for source in sources:
-        source.is_longest = _timedelta_seconds(source.duration) == best_duration and best_duration > 0
-        source.is_highest_value = source.selling_total.amount == best_total and best_total > 0
+    @property
+    def removal_kit_names_display(self) -> str:
+        return ", ".join(self.removal_kit_names)
 
 
 def _timedelta_seconds(value: timedelta | None) -> int:
@@ -72,6 +75,27 @@ def _money_display(value: Money) -> str:
 
 def _source_key(*, kind: SourceKind, budget_item_id: int) -> str:
     return f"{kind}-{budget_item_id}"
+
+
+def _is_better_by_selling_then_duration(
+    *,
+    candidate: DuplicateServiceSource,
+    current: DuplicateServiceSource,
+) -> bool:
+    """Winner: higher service selling total; tie-break by longer duration."""
+    candidate_total = candidate.selling_total.amount or Decimal("0")
+    current_total = current.selling_total.amount or Decimal("0")
+    if candidate_total != current_total:
+        return candidate_total > current_total
+    return _timedelta_seconds(candidate.duration) > _timedelta_seconds(current.duration)
+
+
+def _pick_kept_source(sources: list[DuplicateServiceSource]) -> DuplicateServiceSource:
+    kept = sources[0]
+    for candidate in sources[1:]:
+        if _is_better_by_selling_then_duration(candidate=candidate, current=kept):
+            kept = candidate
+    return kept
 
 
 def _budget_items_for_conflict_scan(budget: Budget) -> list[BudgetItem]:
@@ -139,6 +163,11 @@ def find_duplicate_service_conflicts(budget: Budget) -> list[DuplicateServiceCon
             service = override.service
             names[service_id] = getattr(service, "name", "") or f"Serviço #{service_id}"
             kit_name = item.description or getattr(item.kit, "name", "") or f"Kit #{item.kit_id}"
+            item_total = item.display_total_price or zero_money()
+            after_debit_amount = (item_total.amount or Decimal("0")) - (total.amount or Decimal("0"))
+            if after_debit_amount < 0:
+                after_debit_amount = Decimal("0")
+            item_total_after_debit = Money(after_debit_amount, item_total.currency)
             by_service.setdefault(service_id, []).append(
                 DuplicateServiceSource(
                     kind="kit",
@@ -152,6 +181,9 @@ def find_duplicate_service_conflicts(budget: Budget) -> list[DuplicateServiceCon
                     source_key=_source_key(kind="kit", budget_item_id=int(item.pk)),
                     duration_display=format_duration_display(duration_total),
                     selling_total_display=_money_display(total),
+                    item_total=item_total,
+                    item_total_display=_money_display(item_total),
+                    item_total_after_debit_display=_money_display(item_total_after_debit),
                 )
             )
 
@@ -159,22 +191,20 @@ def find_duplicate_service_conflicts(budget: Budget) -> list[DuplicateServiceCon
     for service_id, sources in sorted(by_service.items(), key=lambda pair: pair[0]):
         if len(sources) < 2:
             continue
-        recommended = sources[0]
-        for candidate in sources[1:]:
-            if _is_better_service_source(
-                candidate_duration=candidate.duration,
-                candidate_total=candidate.selling_total,
-                current_duration=recommended.duration,
-                current_total=recommended.selling_total,
-            ):
-                recommended = candidate
-        _annotate_source_comparison_badges(sources)
+        kept = _pick_kept_source(sources)
+        kit_losers = [source for source in sources if source.source_key != kept.source_key and source.kind == "kit"]
+        direct_losers = [source for source in sources if source.source_key != kept.source_key and source.kind == "direct"]
+        removal_kit_names = [source.kit_name or "Kit" for source in kit_losers]
         conflicts.append(
             DuplicateServiceConflict(
                 service_id=service_id,
                 service_name=names.get(service_id, f"Serviço #{service_id}"),
                 sources=sources,
-                recommended_source_key=recommended.source_key,
+                recommended_source_key=kept.source_key,
+                kept_source=kept,
+                kit_losers=kit_losers,
+                direct_losers=direct_losers,
+                removal_kit_names=removal_kit_names,
             )
         )
     return conflicts
@@ -203,18 +233,31 @@ def apply_duplicate_service_resolution(
     *,
     budget: Budget,
     service_id: int,
-    keep_source_key: str,
-    kit_loser_actions: dict[str, str],
+    keep_source_key: str | None = None,
+    kit_action: str | None = None,
+    kit_loser_actions: dict[str, str] | None = None,
 ) -> None:
-    """Keep one source for the service; remove or exclude the others."""
+    """Keep highest-value source; remove/exclude the others.
+
+    ``kit_action`` applies to every kit loser. ``kit_loser_actions`` remains as a
+    compatibility fallback (per-source keys) for older callers/tests.
+    """
     conflict = get_conflict_for_service(budget, service_id=service_id)
     if conflict is None:
         return
 
-    keep_key = str(keep_source_key).strip()
-    keep_source = next((source for source in conflict.sources if source.source_key == keep_key), None)
-    if keep_source is None:
+    keep_key = str(keep_source_key or conflict.recommended_source_key).strip()
+    if keep_key != conflict.recommended_source_key:
         raise ValueError("Fonte a manter inválida para o serviço duplicado.")
+
+    shared_action: KitLoserAction | None = None
+    if kit_action is not None and str(kit_action).strip():
+        try:
+            shared_action = KitLoserAction(str(kit_action).strip())
+        except ValueError as exc:
+            raise ValueError("Escolha se o serviço removido do kit deve debitar ou manter o valor.") from exc
+
+    per_source_actions = kit_loser_actions or {}
 
     for source in conflict.sources:
         if source.source_key == keep_key:
@@ -224,13 +267,15 @@ def apply_duplicate_service_resolution(
             BudgetItem.objects.filter(pk=source.budget_item_id, budget_id=budget.pk).delete()
             continue
 
-        action_raw = kit_loser_actions.get(source.source_key) or kit_loser_actions.get(str(source.budget_item_id))
-        try:
-            action = KitLoserAction(str(action_raw))
-        except ValueError as exc:
-            raise ValueError(
-                f"Escolha se o serviço removido do kit deve debitar ou manter o valor ({source.kit_name or 'kit'})."
-            ) from exc
+        action = shared_action
+        if action is None:
+            action_raw = per_source_actions.get(source.source_key) or per_source_actions.get(str(source.budget_item_id))
+            try:
+                action = KitLoserAction(str(action_raw))
+            except ValueError as exc:
+                raise ValueError(
+                    f"Escolha se o serviço removido do kit deve debitar ou manter o valor ({source.kit_name or 'kit'})."
+                ) from exc
 
         override = (
             BudgetKitItemOverride.objects.select_related("budget_item")
