@@ -51,7 +51,7 @@ from .forms import (
     TransferStepReasonForm,
 )
 from .services.files import StockImportFileStorageError, delete_import_xml_file, read_import_xml_file
-from .financial_entries import calculate_import_totals, get_next_entry_id
+from .financial_entries import apply_card_fee_budget_plan, calculate_import_totals, get_next_entry_id, resolve_import_budget_plan
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
@@ -85,6 +85,7 @@ class StockHistoryRow:
     criado_em: object
     history_status_badge: dict[str, str]
     xml_file_key: str = ""
+    total_value: object = Decimal("0.00")
 
     @property
     def record_edit_url(self) -> str:
@@ -580,20 +581,28 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             return []
 
         imports = self.get_queryset().select_related("user")
-        return [
-            StockHistoryRow(
-                pk=stock_import.pk,
-                record_type="import",
-                id=stock_import.pk,
-                nf_number=stock_import.nf_number or stock_import.nf_number_display or "---",
-                supplier_name=stock_import.supplier_name or "---",
-                user=stock_import.user,
-                criado_em=stock_import.criado_em,
-                history_status_badge=stock_import.stockimport_status_badge,
-                xml_file_key=stock_import.xml_file_key or "",
+        rows = []
+        for stock_import in imports:
+            items = list(stock_import.items_data or [])
+            total = sum(
+                (Decimal(str(item.get("valor", 0) or 0)) * Decimal(str(item.get("qtd", 0) or 0)) for item in items),
+                start=Decimal("0.00"),
             )
-            for stock_import in imports
-        ]
+            rows.append(
+                StockHistoryRow(
+                    pk=stock_import.pk,
+                    record_type="import",
+                    id=stock_import.pk,
+                    nf_number=stock_import.nf_number or stock_import.nf_number_display or "---",
+                    supplier_name=stock_import.supplier_name or "---",
+                    user=stock_import.user,
+                    criado_em=stock_import.criado_em,
+                    history_status_badge=stock_import.stockimport_status_badge,
+                    xml_file_key=stock_import.xml_file_key or "",
+                    total_value=Money(total, "BRL"),
+                )
+            )
+        return rows
 
     def _build_transfer_history_rows(self) -> list[StockHistoryRow]:
         state = self._get_filter_state()
@@ -615,6 +624,11 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             else:
                 display_path = f"{transfer.source_workshop.name} -> ---"
 
+            transfer_items = list(transfer.items_data or [])
+            transfer_total = sum(
+                (Decimal(str(ti.get("unit_cost", 0) or 0)) * Decimal(str(ti.get("quantity", 0) or 0)) for ti in transfer_items),
+                start=Decimal("0.00"),
+            )
             transfers.append(
                 StockHistoryRow(
                     pk=transfer.pk,
@@ -625,6 +639,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
                     user=transfer.user,
                     criado_em=transfer.criado_em,
                     history_status_badge=transfer.stocktransfer_status_badge,
+                    total_value=Money(transfer_total, "BRL"),
                 )
             )
         return transfers
@@ -641,6 +656,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
             TableColumn(StockImport.supplier_name.field.verbose_name, attr="supplier_name"),
             TableColumn(StockImport.user.field.verbose_name, attr="user"),
             TableColumn(StockImport.criado_em.field.verbose_name, attr="criado_em"),
+            TableColumn("Valor Total", attr="total_value", format="money_br"),
             TableColumn(StockImport.status.field.verbose_name, attr="history_status_badge", format="status_badge"),
         ]
         context["actions"] = [
@@ -1099,8 +1115,9 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         method_code = (request.POST.get("payment_method") or "").strip()
         payment_date = (request.POST.get("payment_date") or "").strip()
         first_amount_str = (request.POST.get("first_amount_0") or "").strip()
+        budget_plan_id = (request.POST.get("budget_plan") or "").strip()
 
-        if not all([method_code, payment_date, first_amount_str]):
+        if not all([method_code, payment_date, first_amount_str, budget_plan_id]):
             return self._htmx_payment_response("Preencha todos os campos do pagamento antes de incluir.", level="warning")
 
         try:
@@ -1111,6 +1128,10 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             method_obj = PaymentMethod.objects.filter(id=method_code, workshop=self.workshop, is_active=True).first()
             if not method_obj:
                 return self._htmx_payment_response("A forma de pagamento selecionada é inválida.", level="warning")
+
+            budget_plan = resolve_import_budget_plan(workshop=self.workshop, budget_plan_id=budget_plan_id)
+            if budget_plan is None:
+                return self._htmx_payment_response("Selecione o plano orçamentário.", level="warning")
 
             installments = max(int(method_obj.installments_count or 1), 1)
             total_paid = first_amount
@@ -1138,6 +1159,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 direction=FinancialMovement.MovementDirection.DEBIT,
                 description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
                 payment_method=method_obj,
+                budget_plan=budget_plan,
                 nf_number=obj.nf_number,
                 amount=Money(total_paid, "BRL"),
                 due_date=payment_date,
@@ -1160,6 +1182,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     due_date=payment_date,
                     is_paid=False,
                 )
+                apply_card_fee_budget_plan(fee_movement=fm_fee, fallback_plan=budget_plan)
 
             new_payment = {
                 "id": get_next_entry_id(payments),
@@ -1168,6 +1191,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "entry_type": "payment",
                 "method": method_obj.id,
                 "method_display": method_obj.description,
+                "budget_plan_id": budget_plan.pk,
                 "installments": str(installments),
                 "first_amount": str(first_amount),
                 "total_paid": str(total_paid),
@@ -1292,6 +1316,15 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
         product = get_object_or_404(Product, id=product_id, workshop=self.workshop)
         import_items = list(obj.items_data)
 
+        is_completed = obj.status == StockImport.ImportStatus.COMPLETED
+
+        # Resolve o fornecedor da importação uma única vez.
+        supplier = None
+        if is_completed and obj.supplier_cnpj:
+            supplier = Supplier.objects.filter(
+                cnpj=obj.supplier_cnpj, workshop=self.workshop,
+            ).first()
+
         if is_manual:
             new_item = {
                 "ref": product.code,
@@ -1302,10 +1335,77 @@ class LinkProductManualView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "linked_product_id": str(product_id),
             }
             import_items.append(new_item)
+            quantity = 1
+
+            # Registrar entrada no novo produto se a importação já foi finalizada.
+            if is_completed:
+                stock_product, _created = StockProduct.objects.get_or_create(
+                    workshop=self.workshop, product=product,
+                    defaults={"supplier": supplier},
+                )
+                StockMovement.objects.create(
+                    workshop=self.workshop,
+                    stock_product=stock_product,
+                    type=StockMovement.MovementType.ENTRY,
+                    supplier=supplier,
+                    transcation_by=request.user,
+                    quantity=quantity,
+                    reason=f"Vinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
+                    status=StockMovement.MovementStatus.APPROVED,
+                )
+                stock_product.current_quantity += quantity
+                stock_product.save(update_fields=["current_quantity"])
         else:
             try:
                 item_idx = int(raw_item_idx)
                 if 0 <= item_idx < len(import_items):
+                    item = import_items[item_idx]
+                    old_product_id = clean_id(item.get("linked_product_id"))
+                    quantity = int(Decimal(str(item.get("qtd", 0))))
+
+                    # Re-vinculação em importação finalizada: saída do antigo + entrada do novo.
+                    if is_completed and old_product_id and str(old_product_id) != str(product_id):
+                        try:
+                            old_stock_product = StockProduct.objects.select_for_update().get(
+                                workshop=self.workshop, product_id=old_product_id,
+                            )
+                        except StockProduct.DoesNotExist:
+                            old_stock_product = None
+
+                        if old_stock_product is not None:
+                            StockMovement.objects.create(
+                                workshop=self.workshop,
+                                stock_product=old_stock_product,
+                                type=StockMovement.MovementType.EXIT,
+                                supplier=supplier,
+                                transcation_by=request.user,
+                                quantity=quantity,
+                                reason=f"Re-vinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
+                                status=StockMovement.MovementStatus.APPROVED,
+                            )
+                            old_stock_product.current_quantity = max(0, old_stock_product.current_quantity - quantity)
+                            old_stock_product.save(update_fields=["current_quantity"])
+
+                    # Registrar entrada no novo produto se importação finalizada
+                    # (nova vinculação ou re-vinculação).
+                    if is_completed and str(old_product_id or "") != str(product_id):
+                        new_stock_product, _created = StockProduct.objects.get_or_create(
+                            workshop=self.workshop, product=product,
+                            defaults={"supplier": supplier},
+                        )
+                        StockMovement.objects.create(
+                            workshop=self.workshop,
+                            stock_product=new_stock_product,
+                            type=StockMovement.MovementType.ENTRY,
+                            supplier=supplier,
+                            transcation_by=request.user,
+                            quantity=quantity,
+                            reason=f"Vinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
+                            status=StockMovement.MovementStatus.APPROVED,
+                        )
+                        new_stock_product.current_quantity += quantity
+                        new_stock_product.save(update_fields=["current_quantity"])
+
                     import_items[item_idx]["linked_product_id"] = product_id
                     if import_items[item_idx].get("selling_price") in (None, ""):
                         import_items[item_idx]["selling_price"] = str(product.selling_price.amount)
@@ -1404,14 +1504,74 @@ class ManualLinkItemEditorView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not form.is_valid():
             return self._render_modal(request, stock_import=stock_import, product=product, form=form, item_idx=item_idx)
 
+        is_completed = stock_import.status == StockImport.ImportStatus.COMPLETED
+
+        # Capturar o produto antigo ANTES de build_item_data sobrescrever.
+        old_product_id = clean_id((item_data or {}).get("linked_product_id")) if item_idx is not None else None
+        old_quantity = int(Decimal(str((item_data or {}).get("qtd", 0)))) if item_data else 0
+
         success_message = form.success_message
         items = list(stock_import.items_data or [])
+        new_item_data = form.build_item_data(existing_item=items[item_idx]) if item_idx is not None else form.build_item_data()
+        new_product_id = clean_id(new_item_data.get("linked_product_id"))
+        new_quantity = int(Decimal(str(new_item_data.get("qtd", 0))))
+
         if item_idx is not None:
-            items[item_idx] = form.build_item_data(existing_item=items[item_idx])
+            items[item_idx] = new_item_data
         else:
-            items.append(form.build_item_data())
+            items.append(new_item_data)
         stock_import.items_data = items
         stock_import.save(update_fields=["items_data"])
+
+        # Ajustar estoque se a importação já foi finalizada.
+        if is_completed and new_product_id:
+            supplier = None
+            if stock_import.supplier_cnpj:
+                supplier = Supplier.objects.filter(
+                    cnpj=stock_import.supplier_cnpj, workshop=self.workshop,
+                ).first()
+
+            nf_ref = stock_import.nf_number or stock_import.nf_key or stock_import.pk
+
+            # Se re-vinculação: saída do produto antigo.
+            if old_product_id and str(old_product_id) != str(new_product_id):
+                try:
+                    old_stock_product = StockProduct.objects.select_for_update().get(
+                        workshop=self.workshop, product_id=old_product_id,
+                    )
+                    StockMovement.objects.create(
+                        workshop=self.workshop,
+                        stock_product=old_stock_product,
+                        type=StockMovement.MovementType.EXIT,
+                        supplier=supplier,
+                        transcation_by=request.user,
+                        quantity=old_quantity,
+                        reason=f"Re-vinculação de item na importação NF {nf_ref}",
+                        status=StockMovement.MovementStatus.APPROVED,
+                    )
+                    old_stock_product.current_quantity = max(0, old_stock_product.current_quantity - old_quantity)
+                    old_stock_product.save(update_fields=["current_quantity"])
+                except StockProduct.DoesNotExist:
+                    pass
+
+            # Entrada no novo produto (nova vinculação ou re-vinculação).
+            if str(old_product_id or "") != str(new_product_id):
+                new_stock_product, _created = StockProduct.objects.get_or_create(
+                    workshop=self.workshop, product=product,
+                    defaults={"supplier": supplier},
+                )
+                StockMovement.objects.create(
+                    workshop=self.workshop,
+                    stock_product=new_stock_product,
+                    type=StockMovement.MovementType.ENTRY,
+                    supplier=supplier,
+                    transcation_by=request.user,
+                    quantity=new_quantity,
+                    reason=f"Vinculação de item na importação NF {nf_ref}",
+                    status=StockMovement.MovementStatus.APPROVED,
+                )
+                new_stock_product.current_quantity += new_quantity
+                new_stock_product.save(update_fields=["current_quantity"])
 
         response = HttpResponse("")
         response["HX-Trigger"] = json.dumps(
@@ -1441,6 +1601,41 @@ class UnlinkItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             idx = int(item_idx)
             if 0 <= idx < len(import_items):
+                item = import_items[idx]
+                old_product_id = clean_id(item.get("linked_product_id"))
+                quantity = int(Decimal(str(item.get("qtd", 0))))
+
+                # Se a importação já foi finalizada e havia produto vinculado,
+                # precisa registrar a saída e ajustar o estoque.
+                if obj.status == StockImport.ImportStatus.COMPLETED and old_product_id:
+                    try:
+                        stock_product = StockProduct.objects.select_for_update().get(
+                            workshop=self.workshop, product_id=old_product_id,
+                        )
+                    except StockProduct.DoesNotExist:
+                        stock_product = None
+
+                    if stock_product is not None:
+                        # Registrar saída e decrementar estoque (mínimo 0).
+                        supplier = None
+                        if obj.supplier_cnpj:
+                            supplier = Supplier.objects.filter(
+                                cnpj=obj.supplier_cnpj, workshop=self.workshop,
+                            ).first()
+
+                        StockMovement.objects.create(
+                            workshop=self.workshop,
+                            stock_product=stock_product,
+                            type=StockMovement.MovementType.EXIT,
+                            supplier=supplier,
+                            transcation_by=request.user,
+                            quantity=quantity,
+                            reason=f"Desvinculação de item na importação NF {obj.nf_number or obj.nf_key or obj.pk}",
+                            status=StockMovement.MovementStatus.APPROVED,
+                        )
+                        stock_product.current_quantity = max(0, stock_product.current_quantity - quantity)
+                        stock_product.save(update_fields=["current_quantity"])
+
                 if obj.method == StockImport.ImportMethods.MANUAL:
                     import_items.pop(idx)
                 else:

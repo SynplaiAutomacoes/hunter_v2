@@ -1,0 +1,105 @@
+---
+description: Agent execution checklist, reuse-first policy, shared modules, and business logic placement
+alwaysApply: true
+---
+
+# hunter_v2 — Workflow and Reuse
+
+## Agent execution checklist
+
+When implementing changes:
+
+1. Read the target file and nearby files.
+2. Search for existing shared helper/service/use case before creating new logic.
+3. Search for similar behavior in sibling apps.
+4. Make the smallest safe change.
+5. Keep business rules near their current owner, or extract them into a better owner if already too spread out.
+6. Add or update focused tests.
+7. Run the smallest relevant test target first.
+8. Run `uv run ruff check .`.
+9. Run `uv run mypy .` when applicable.
+10. Avoid unrelated churn.
+
+If time-limited, the minimum acceptable validation is:
+
+- one targeted test command for the touched behavior
+- `uv run ruff check .`
+
+## Highest-priority rule: reuse first
+
+Before adding any new filter helper, search helper, service, use case, storage integration, signature integration, permission helper, table/list rendering helper, or text normalization helper — check shared and local modules first.
+
+Default rule:
+
+- extend an existing shared abstraction when safe
+- only add a new helper when no existing shared helper fits
+- do not duplicate business logic in a second place
+
+## Shared modules to inspect first
+
+### Query params and list filtering
+
+`apps/core/infrastructure/query_filters.py`: `QueryParamFilter`, `apply_query_param_filters(...)`, `apply_is_active_filter(...)`
+
+### Accent-insensitive text search
+
+`apps/core/infrastructure/search.py`: `build_accent_insensitive_lookup(...)`, `build_text_search_query(...)`, `apply_text_search(...)`
+
+### Shared table/list behavior
+
+`apps/core/templatetags/table_tags.py`: `TableColumn`, `TableAction`, `render_table(...)`
+`apps/core/presentation/tables.py`: `TableActionDefaults`
+
+### Shared forms, widgets, and normalization
+
+`apps/core/presentation/forms.py`: `CoreForm`, `CoreModelForm`, `TextNormalizationFormMixin`, `AddressFormMixin`, `MultiStepFormMixin`
+
+### Shared presentation mixins
+
+`apps/core/presentation/mixins.py`: `HtmxTemplateResponseMixin`, `HtmxDeleteResponseMixin`, `PageFavoriteMixin`
+
+### Middleware
+
+`apps/core/presentation/middlewares.py`: `RequireFirstWorkshopMiddleware`, `RequestPerformanceLoggingMiddleware`
+
+### Multi-workshop scoping and permissions
+
+`apps/workshops/mixin.py`: `WorkshopScopedMixin`
+`apps/workshops/util/workshops.py`: `get_active_workshop_or_404(...)`, `has_workshop_perm(...)`
+
+### Storage and workshop file orchestration
+
+`apps/core/infrastructure/services/storage.py`: `get_storage_service()`, `S3StorageService`
+`apps/workshops/services/files.py`: `get_workshop_file_service()`, `save_workshop_logo_atomic(...)`, etc.
+`apps/workshops/usecases/upload_file_usecase.py`: `UploadWorkshopFileUseCase`
+
+### Signature and external provider abstractions
+
+`apps/core/domain/contracts/`, `apps/core/infrastructure/providers/`, `apps/core/infrastructure/services/signature.py`
+
+### Core domain value objects and interfaces
+
+`apps/core/domain/value_objects.py`: `Money`, `Percentage`, `Discount`, `CPF`, `CNPJ`, etc.
+`apps/core/domain/interfaces.py`: `Repository`, `UnitOfWork`
+
+## Reuse pattern examples
+
+- List views use `apply_query_param_filters(...)` and `apply_text_search(...)` across `customer`, `catalog`, `stock`, `suppliers`, `budget`, `workorder`, and `messaging`.
+- Table-driven list views use `TableActionDefaults` across many apps.
+- Workshop-scoped views use `WorkshopScopedMixin` across `budget`, `finance`, `workorder`, and `workshops`.
+- Workshop file upload/update orchestration has a service + use-case path; do not bypass it.
+
+## Business logic placement
+
+- Views orchestrate request/response.
+- Forms validate and normalize input.
+- Templates render.
+- Services/use cases orchestrate workflows.
+- Domain-layer code owns pure business rules when that structure exists.
+- Infrastructure code owns Django/ORM/external-provider coupling.
+
+Avoid putting pricing rules in views, duplicating status transition rules, embedding storage rollback logic in views, or putting permission/business decisions in templates.
+
+## Refactoring guide status
+
+`docs/REFACTORING_GUIDE.md` is active direction for new code. It is not yet fully implemented across the whole repository. Respect current runtime structure; avoid large architectural rewrites unless asked.

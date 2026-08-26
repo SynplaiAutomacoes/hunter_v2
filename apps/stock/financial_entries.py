@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+from django import forms
 from djmoney.money import Money
 
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.sources.models import Source
@@ -39,6 +41,48 @@ def get_entry_reason(entry: dict[str, Any]) -> str:
 def get_next_entry_id(entries: list[dict[str, Any]]) -> int:
     numeric_ids = [int(entry.get("id", 0) or 0) for entry in entries]
     return (max(numeric_ids) if numeric_ids else 0) + 1
+
+
+MISSING_BUDGET_PLAN_MESSAGE = "Selecione o plano orçamentário dos pagamentos antes de finalizar."
+MISSING_PAYMENT_METHOD_MESSAGE = "A forma de pagamento de um lançamento da importação é inválida."
+
+
+def resolve_import_budget_plan(*, workshop: Any, budget_plan_id: Any) -> FinancialGroup | None:
+    if budget_plan_id in (None, ""):
+        return None
+    try:
+        pk = int(str(budget_plan_id))
+    except (TypeError, ValueError):
+        return None
+    return FinancialGroup.objects.filter(pk=pk, workshop=workshop).first()
+
+
+def payment_entry_has_budget_plan(entry: dict[str, Any]) -> bool:
+    return entry.get("budget_plan_id") not in (None, "")
+
+
+def payment_entries_missing_budget_plan(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [entry for entry in entries if normalize_entry_type(entry) == PAYMENT_ENTRY_TYPE and not payment_entry_has_budget_plan(entry)]
+
+
+def apply_budget_plan_to_payment_entries(*, entries: list[dict[str, Any]], budget_plan_id: int) -> tuple[list[dict[str, Any]], bool]:
+    updated = False
+    normalized_entries = [dict(entry) for entry in entries]
+    for entry in normalized_entries:
+        if normalize_entry_type(entry) != PAYMENT_ENTRY_TYPE:
+            continue
+        if payment_entry_has_budget_plan(entry):
+            continue
+        entry["budget_plan_id"] = budget_plan_id
+        updated = True
+    return normalized_entries, updated
+
+
+def apply_card_fee_budget_plan(*, fee_movement: FinancialMovement, fallback_plan: FinancialGroup | None) -> None:
+    if fee_movement.budget_plan_id or fallback_plan is None:
+        return
+    fee_movement.budget_plan = fallback_plan
+    fee_movement.save(update_fields=["budget_plan"])
 
 
 @dataclass(frozen=True)
@@ -89,7 +133,11 @@ def sync_payment_entries_with_financial_movements(*, stock_import: Any, entries:
 
         payment_method = PaymentMethod.objects.filter(pk=entry.get("method"), workshop=workshop).first()
         if payment_method is None:
-            raise PaymentMethod.DoesNotExist(f"Forma de pagamento {entry.get('method')} não encontrada para a oficina {workshop.pk}.")
+            raise forms.ValidationError(MISSING_PAYMENT_METHOD_MESSAGE)
+
+        budget_plan = resolve_import_budget_plan(workshop=workshop, budget_plan_id=entry.get("budget_plan_id"))
+        if budget_plan is None:
+            raise forms.ValidationError(MISSING_BUDGET_PLAN_MESSAGE)
 
         financial_movement = FinancialMovement.objects.create(
             workshop=workshop,
@@ -98,6 +146,7 @@ def sync_payment_entries_with_financial_movements(*, stock_import: Any, entries:
             direction=FinancialMovement.MovementDirection.DEBIT,
             description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
             payment_method=payment_method,
+            budget_plan=budget_plan,
             nf_number=stock_import.nf_number,
             amount=Money(get_entry_amount(entry), "BRL"),
             due_date=entry.get("payment_date") or None,
@@ -107,3 +156,14 @@ def sync_payment_entries_with_financial_movements(*, stock_import: Any, entries:
         updated = True
 
     return normalized_entries, updated
+
+
+def sync_payment_entries_if_budget_plans_ready(*, stock_import: Any, entries: list[dict[str, Any]], user: Any, replace_existing: bool = False) -> tuple[list[dict[str, Any]], bool]:
+    if payment_entries_missing_budget_plan(entries):
+        return [dict(entry) for entry in entries], False
+    return sync_payment_entries_with_financial_movements(
+        stock_import=stock_import,
+        entries=entries,
+        user=user,
+        replace_existing=replace_existing,
+    )

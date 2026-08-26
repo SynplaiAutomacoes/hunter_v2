@@ -9,6 +9,7 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.urls import reverse
 
 from apps.collaborators.models import CollaboratorBenefit, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.services import get_default_transport_budget_plan
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import (
     CalendarDateInput,
@@ -58,6 +59,7 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             "payment_day_type",
             "payment_day_of_month",
             "transport_allowance_daily",
+            "transport_budget_plan",
             "admission_date",
             "termination_date",
             "collaborator_type",
@@ -79,6 +81,7 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             "payment_day_type": SearchableSelectInput(),
             "payment_day_of_month": NumberInput(attrs={"min": 1, "max": 31, "placeholder": "Ex: 10"}),
             "transport_allowance_daily": MoneyInput(),
+            "transport_budget_plan": SearchableSelectInput(),
             "admission_date": CalendarDateInput(),
             "termination_date": CalendarDateInput(),
             "collaborator_type": SearchableSelectInput(),
@@ -104,6 +107,20 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
         roles_qs = WorkshopRole.objects.filter(account=account).order_by("name") if account else WorkshopRole.objects.none()
         self.fields["role"].queryset = roles_qs
         self.fields["role"].widget = SearchableSelectInput(choices=[(str(r.pk), r.name) for r in roles_qs])
+
+        budget_plan_queryset = FinancialGroup.objects.none()
+        default_transport_plan = None
+        if workshop is not None:
+            budget_plan_queryset = FinancialGroup.objects.filter(workshop=workshop, is_active=True).order_by("sort_key", "id")
+            default_transport_plan = get_default_transport_budget_plan(workshop=workshop)
+        transport_budget_plan_field = self.fields["transport_budget_plan"]
+        transport_budget_plan_field.required = False
+        transport_budget_plan_field.queryset = budget_plan_queryset
+        transport_budget_plan_field.widget = SearchableSelectInput(
+            choices=[("", "Selecione um plano"), *[(str(group.pk), str(group)) for group in budget_plan_queryset]]
+        )
+        if not self.is_bound and not getattr(self.instance, "transport_budget_plan_id", None) and default_transport_plan is not None:
+            transport_budget_plan_field.initial = default_transport_plan
 
         if self.instance and getattr(self.instance, "user_id", None):
             self.fields["system_username"].initial = self.instance.user.username
@@ -283,6 +300,9 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             elif self.account and role.account_id != self.account.id:
                 raise ValidationError("Grupo inválido para esta conta.")
 
+        if cleaned.get("transport_budget_plan") is None and self.workshop is not None:
+            cleaned["transport_budget_plan"] = get_default_transport_budget_plan(workshop=self.workshop)
+
         return cleaned
 
     def clean_name(self):
@@ -446,6 +466,10 @@ class CollaboratorBenefitInlineForm(CoreModelForm):
 
 
 class CollaboratorBenefitInlineFormSet(BaseInlineFormSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(source_payroll__isnull=True)
+
     def clean(self):
         super().clean()
         has_duplicate_names: set[str] = set()

@@ -11,6 +11,7 @@ from apps.core.infrastructure.services.webmania.emission import normalize_codigo
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -54,7 +55,7 @@ def _collect_service_rows(
     if rows:
         default_description = "; ".join(f"{row['quantity']}x {row['description']}" for row in rows)
     else:
-        default_description = f"Prestação de serviço referente à OS #{workorder.pk}"
+        default_description = f"Prestação de serviço referente à OS #{resolve_workorder_number(workorder)}"
 
     return rows, total_services_formatted, default_description
 
@@ -128,7 +129,7 @@ class NfseRequestStep3Form(CoreModelForm):
         self._valid_tax_class_refs = {value for value, _ in self.tax_class_choices if value}
 
         codigo_nbs_field = self.fields["codigo_nbs"]
-        codigo_nbs_field.required = True
+        codigo_nbs_field.required = False
         codigo_nbs_field.help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))

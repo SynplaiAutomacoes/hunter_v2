@@ -15,6 +15,7 @@ urlpatterns = [
     path("<int:pk>/update-discount/", views.UpdateWorkOrderDiscountView.as_view(), name="update_discount"),
     path("<int:pk>/update-km-final/", views.UpdateWorkOrderKmFinalView.as_view(), name="update_km_final"),
     path("<int:pk>/update-observation/", views.UpdateWorkOrderObservationView.as_view(), name="update_observation"),
+    path("<int:pk>/emission/continue/", views.WorkOrderEmissionContinueView.as_view(), name="emission_continue"),
     path("<int:pk>/reopen/", views.ReopenWorkOrderView.as_view(), name="reopen"),
     path("<int:pk>/kit/<int:item_id>/edit/", views.WorkOrderKitEditView.as_view(), name="edit_kit"),
     path("<int:pk>/status/<str:status>/", views.UpdateWorkOrderStatusView.as_view(), name="update_status"),

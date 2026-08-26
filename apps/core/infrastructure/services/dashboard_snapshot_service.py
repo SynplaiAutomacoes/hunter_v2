@@ -200,6 +200,7 @@ def metrics_from_snapshot(snapshot: DashboardMonthlySnapshot, *, now: datetime |
         accumulated_markup=accumulated_markup,
         accumulated_markup_progress=calculate_markup_progress(accumulated_markup, markup_target),
         accumulated_markup_tone=resolve_markup_gauge_tone(accumulated_markup, markup_target),
+        markup_target=markup_target,
         warranty_return_rate=snapshot.warranty_return_rate,
         approval_rate=snapshot.approval_rate,
         total_pending_receivable=snapshot.total_pending_receivable,

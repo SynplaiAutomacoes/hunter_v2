@@ -14,6 +14,7 @@ from localflavor.br.models import BRCPFField
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import format_workorder_reference, resolve_workorder_number
 from apps.core.text_normalization import name_case, sentence_case
 
 
@@ -81,6 +82,14 @@ class WorkshopCollaborator(TimeStampedModel):
     payment_day_type = models.CharField(verbose_name="Tipo de pagamento", max_length=32, choices=PaymentDayType.choices, default=PaymentDayType.FIFTH_BUSINESS_DAY)
     payment_day_of_month = models.PositiveSmallIntegerField(verbose_name="Dia do pagamento", null=True, blank=True)
     transport_allowance_daily = MoneyField(verbose_name="Vale Transporte Diário", max_digits=14, decimal_places=2, default=Decimal("0.00"), blank=True)
+    transport_budget_plan = models.ForeignKey(
+        "finance.FinancialGroup",
+        verbose_name="Plano orçamentário do vale transporte",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="collaborator_transport_allowances",
+    )
     admission_date = models.DateField(verbose_name="Data de Admissão", null=False, blank=False)
     termination_date = models.DateField(verbose_name="Data de Saída", null=True, blank=True)
     collaborator_type = models.CharField(verbose_name="Tipo", max_length=1, choices=CollaboratorType.choices, blank=False, null=False)
@@ -169,6 +178,15 @@ class CollaboratorBenefit(TimeStampedModel):
     monthly_amount = MoneyField(verbose_name="Valor mensal", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     budget_plan = models.ForeignKey("finance.FinancialGroup", verbose_name="Plano Orçamentário", on_delete=models.PROTECT, null=True, blank=True, related_name="collaborator_benefits")
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
+    source_payroll = models.ForeignKey(
+        "collaborators.CollaboratorPayroll",
+        verbose_name="Folha de origem",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="one_off_benefits",
+        help_text="Quando preenchido, o benefício vale só para esta competência e não entra no cadastro.",
+    )
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Benefício do Colaborador"
@@ -315,10 +333,16 @@ class CollaboratorCommissionEntry(TimeStampedModel):
         FORECAST = "FORECAST", "Previsto"
         PAID = "PAID", "Pago"
 
+    class Origin(models.TextChoices):
+        WORKORDER = "WORKORDER", "Ordem de serviço"
+        MANUAL = "MANUAL", "Manual"
+
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="collaborator_commission_entries")
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.CASCADE, related_name="commission_entries")
-    workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.CASCADE, related_name="commission_entries")
+    workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.CASCADE, related_name="commission_entries", null=True, blank=True)
     payroll = models.ForeignKey("collaborators.CollaboratorPayroll", on_delete=models.SET_NULL, related_name="commission_entries", null=True, blank=True)
+    origin = models.CharField(verbose_name="Origem", max_length=16, choices=Origin.choices, default=Origin.WORKORDER)
+    notes = models.TextField(verbose_name="Observação", blank=True)
     reference_year = models.PositiveIntegerField(verbose_name="Ano de referência")
     reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência")
     percentage = models.DecimalField(verbose_name="Percentual", max_digits=7, decimal_places=6)
@@ -340,9 +364,23 @@ class CollaboratorCommissionEntry(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"Comissão {self.collaborator.name} - OS #{self.workorder.pk}"
+        if self.workorder_id:
+            return f"Comissão {self.collaborator.name} - {format_workorder_reference(self.workorder)}"
+        return f"Comissão {self.collaborator.name} - Manual"
+
+    @property
+    def is_manual(self) -> bool:
+        return self.origin == self.Origin.MANUAL or self.workorder_id is None
+
+    @property
+    def workorder_display(self) -> str:
+        if self.is_manual or self.workorder_id is None:
+            return "Manual"
+        return f"#{resolve_workorder_number(self.workorder)}"
 
     @property
     def percentage_display(self) -> str:
+        if self.is_manual:
+            return "-"
         percentage_value = (Decimal(str(self.percentage or 0)) * Decimal("100")).quantize(Decimal("0.01"))
         return f"{str(percentage_value).replace('.', ',')}%"
