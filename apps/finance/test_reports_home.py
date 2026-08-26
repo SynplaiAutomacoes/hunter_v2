@@ -60,6 +60,30 @@ class ParseBrlDecimalTests(SimpleTestCase):
 
 
 class FinancialReportsHomeViewTests(TestCase):
+    def test_discounted_movement_exposes_launch_gross_discount_and_net_values(self) -> None:
+        workshop = create_workshop(suffix=9)
+        launch_date = date(2026, 8, 20)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Compra com desconto",
+            entry_date=launch_date,
+            gross_amount=Money("1000.00", "BRL"),
+            discount_mode=FinancialMovement.DiscountMode.PERCENTAGE,
+            discount_percentage=Decimal("10.00"),
+            due_date=date(2026, 8, 25),
+        )
+
+        row = build_reports_view(workshop=workshop)._build_financial_movement_row(movement)
+
+        self.assertEqual(movement.amount, Money("900.00", "BRL"))
+        self.assertEqual(movement.resolved_discount_amount, Money("100.00", "BRL"))
+        self.assertEqual(row["entry_date"], launch_date)
+        self.assertTrue(row["has_discount"])
+        self.assertIn("1.000,00", row["gross_amount"])
+        self.assertIn("100,00", row["discount_amount"])
+        self.assertIn("900,00", row["total"]["text"])
+
     def test_selection_summary_is_built_without_explicit_filters(self) -> None:
         workshop = create_workshop(suffix=1)
         today = timezone.localdate()

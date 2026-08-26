@@ -423,6 +423,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "paid_status": self._resolve_simple_paid_status(is_paid=bool(payment_movement.is_paid)),
             "reconciliation_status": self._resolve_workorder_conciliation_status(is_reconciled=bool(payment_movement.is_reconciled)),
             "type_badge": payment_movement.report_direction_badge,
+            "entry_date": payment_movement.entry_date,
             "due_date": payment.due_date,
             "agent": agent,
             "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
@@ -438,6 +439,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 "text": f"+ {format_money(payment_amount)}",
                 "class": "text-success font-semibold whitespace-nowrap",
             },
+            "has_discount": False,
+            "gross_amount": format_money(payment_amount),
+            "discount_amount": format_money(Decimal("0.00")),
             "details": [],
             "summary_direction": FinancialMovement.MovementDirection.CREDIT,
             "summary_amount": resolved_amount,
@@ -524,6 +528,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})
         is_workorder = False
         is_group_parent = False
+        gross_amount = movement.gross_amount or movement.amount
+        discount_amount = movement.resolved_discount_amount
         workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}) if movement.workorder_id else None
 
         if movement.workorder_id:
@@ -563,6 +569,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "paid_status": paid_status,
             "reconciliation_status": reconciliation_status,
             "type_badge": movement.report_direction_badge,
+            "entry_date": movement.entry_date,
             "due_date": due_date,
             "agent": agent,
             "origin": movement.report_origin_display if not movement.workorder_id else f"OS #{movement.workorder_id}",
@@ -575,6 +582,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "is_workorder": is_workorder,
             "is_group_parent": is_group_parent,
             "total": movement.report_total_display,
+            "has_discount": Decimal(str(discount_amount.amount or 0)) > 0,
+            "gross_amount": format_money(gross_amount),
+            "discount_amount": format_money(discount_amount),
             "details": details,
             "summary_direction": movement.direction,
             "summary_amount": self._resolve_money_amount(movement.amount),

@@ -8,7 +8,7 @@ from django.db.models import Q
 from django.template.loader import render_to_string
 
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, MoneyInput, NumberInput
+from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, DecimalInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
@@ -88,6 +88,7 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
         const valueHidden = document.getElementById('id_discount_value_0');
         const valueDisplay = document.getElementById('id_discount_value_0_display');
         const percentage = document.getElementById('id_discount_percentage');
+        const percentageDisplay = percentage?.parentElement?.querySelector('input[x-ref="display"]');
         const netHidden = document.getElementById('id_amount_0');
         const netDisplay = document.getElementById('id_amount_0_display');
         const valueContainer = document.getElementById('discount-value-field');
@@ -111,35 +112,44 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
             return parseNumber(display ? display.value : '');
         };
 
-        function updateDiscountUi() {
+        function updateDiscountUi({ resetInactive = false } = {}) {
             const selectedMode = mode.value;
+            if (!['NONE', 'AMOUNT', 'PERCENTAGE'].includes(selectedMode)) return;
+
             const usesAmount = selectedMode === 'AMOUNT';
             const usesPercentage = selectedMode === 'PERCENTAGE';
             valueContainer?.classList.toggle('hidden', !usesAmount);
             percentageContainer?.classList.toggle('hidden', !usesPercentage);
 
-            if (!usesAmount) {
+            if (resetInactive && !usesAmount) {
                 if (valueHidden) valueHidden.value = '0.00';
                 if (valueDisplay) valueDisplay.value = formatMoney(0);
             }
-            if (!usesPercentage && percentage) percentage.value = '0';
+            if (resetInactive && !usesPercentage && percentage) percentage.value = '0';
 
             const gross = hiddenMoneyValue(grossHidden, grossDisplay);
             let discount = 0;
             if (usesAmount) discount = hiddenMoneyValue(valueHidden, valueDisplay);
-            if (usesPercentage) discount = gross * Math.max(parseNumber(percentage?.value), 0) / 100;
+            if (usesPercentage) discount = gross * Math.max(parseNumber(percentageDisplay?.value || percentage?.value), 0) / 100;
             const net = Math.max(gross - discount, 0);
             if (netHidden) netHidden.value = net.toFixed(2);
             if (netDisplay) netDisplay.value = formatMoney(net);
         }
 
-        [mode, grossHidden, grossDisplay, valueHidden, valueDisplay, percentage].forEach((field) => {
+        [grossHidden, grossDisplay, valueHidden, valueDisplay, percentage, percentageDisplay].forEach((field) => {
             if (!field) return;
             field.addEventListener('input', updateDiscountUi);
             field.addEventListener('change', updateDiscountUi);
             field.addEventListener('widget:formatted-change', updateDiscountUi);
         });
+
+        ['input', 'change'].forEach((eventName) => {
+            mode.addEventListener(eventName, () => updateDiscountUi({ resetInactive: true }));
+        });
+
         updateDiscountUi();
+        requestAnimationFrame(() => requestAnimationFrame(() => updateDiscountUi()));
+        setTimeout(() => updateDiscountUi(), 50);
     }
 
     initializeFinancialDiscountFields();
@@ -548,7 +558,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
             "gross_amount": MoneyInput(),
             "discount_mode": SearchableSelectInput(),
             "discount_value": MoneyInput(),
-            "discount_percentage": NumberInput(attrs={"min": "0", "max": "100", "step": "0.01"}),
+            "discount_percentage": DecimalInput(min_value=0, max_value=100, decimal_places=2),
             "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "due_date": CalendarDateInput(),
             "nf_number": NumberInput(),
@@ -884,7 +894,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "gross_amount": MoneyInput(),
             "discount_mode": SearchableSelectInput(),
             "discount_value": MoneyInput(),
-            "discount_percentage": NumberInput(attrs={"min": "0", "max": "100", "step": "0.01"}),
+            "discount_percentage": DecimalInput(min_value=0, max_value=100, decimal_places=2),
             "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),
