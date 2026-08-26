@@ -150,8 +150,16 @@
 
             <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title">Total Vendido <p class="text-sm font-semibold">&nbsp;</p></div>
-                <div class="stat-value text-success mt-2">R$ {{ total_vendido_ate_a_data|floatformat:2 }}</div>
-                <div class="stat-desc">Pago até o momento</div>
+                <div class="stat-value text-success mt-2 flex items-center gap-1.5">
+                    <span>R$ {{ total_vendido_ate_a_data|floatformat:2 }}</span>
+                    <button type="button" class="flex items-center text-base-content/30 hover:text-success" title="Visualizar relação"
+                            hx-get="{% url 'core:dashboard_financial_report_modal' %}?indicador=total_vendido&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}"
+                            hx-target="#dashboard-financial-report-modal-content" hx-swap="innerHTML"
+                            onclick="document.getElementById('dashboardFinancialReportModal').showModal()">
+                        <span class="material-icons" style="font-size: 14px;">visibility</span>
+                    </button>
+                </div>
+                <div class="stat-desc">Veículos entregues no mês</div>
             </div>
 
             <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
