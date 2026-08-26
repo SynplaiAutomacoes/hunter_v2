@@ -1,11 +1,12 @@
 from decimal import Decimal
 
 from django import forms
+from djmoney.money import Money
 
-from apps.core.presentation.forms import CoreForm, CoreModelForm
-from apps.core.presentation.widgets import CalendarDateInput, NumberInput, SearchableSelectInput, TextInput, TextareaInput
-from apps.core.text_normalization import sentence_case
+from apps.core.presentation.widgets import CalendarDateInput, DecimalInput, MoneyInput, NumberInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import FinancialMovement, MovementGroup, PaymentMethod
+from apps.core.text_normalization import sentence_case
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 from apps.finance.services.movement_grouping import InstallmentScheduleError, build_group_installments, parse_group_installment_schedule
 
 
@@ -44,11 +45,14 @@ class GroupMovementStep3Form(CoreModelForm):
 
     class Meta:
         model = MovementGroup
-        fields = ["name", "description", "due_date"]
+        fields = ["name", "description", "due_date", "discount_mode", "discount_value", "discount_percentage"]
         widgets = {
             "name": TextInput(),
             "description": TextareaInput(attrs={"rows": 2}),
             "due_date": CalendarDateInput(),
+            "discount_mode": SearchableSelectInput(),
+            "discount_value": MoneyInput(),
+            "discount_percentage": DecimalInput(min_value=0, max_value=100, decimal_places=2),
         }
         labels = {
             "due_date": "Primeiro vencimento",
@@ -58,6 +62,14 @@ class GroupMovementStep3Form(CoreModelForm):
         workshop = kwargs.pop("workshop", None)
         direction = kwargs.pop("direction", None)
         total_amount = kwargs.pop("total_amount", Decimal("0.00"))
+        data = args[0] if args else kwargs.get("data")
+        if data is not None and "discount_mode" not in data:
+            data = data.copy()
+            data["discount_mode"] = "NONE"
+            if args:
+                args = (data, *args[1:])
+            else:
+                kwargs["data"] = data
         super().__init__(*args, **kwargs)
         self.total_amount = Decimal(str(getattr(total_amount, "amount", total_amount) or 0))
 
@@ -90,6 +102,11 @@ class GroupMovementStep3Form(CoreModelForm):
         self.fields["due_date"].required = True
         self.fields["due_date"].label = "Primeiro vencimento"
         self.fields["due_date"].help_text = "Data da primeira parcela. As demais avançam um mês, e você pode editar depois."
+        self.fields["discount_mode"].required = True
+        self.fields["discount_value"].required = False
+        self.fields["discount_percentage"].required = False
+        if not self.is_bound:
+            self.initial["discount_mode"] = ""
 
     def clean_name(self):
         value = self.cleaned_data.get("name")
@@ -101,6 +118,32 @@ class GroupMovementStep3Form(CoreModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        mode = cleaned_data.get("discount_mode")
+        discount_value = cleaned_data.get("discount_value")
+        discount_percentage = cleaned_data.get("discount_percentage") or Decimal("0.00")
+        discount_amount = Decimal("0.00")
+
+        if mode == "AMOUNT":
+            discount_amount = Decimal(str(discount_value.amount if discount_value else 0))
+            if discount_amount <= 0:
+                self.add_error("discount_value", "Informe o valor do desconto.")
+            elif discount_amount > self.total_amount:
+                self.add_error("discount_value", "O desconto não pode ser maior que o total agrupado.")
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+        elif mode == "PERCENTAGE":
+            if discount_percentage <= 0:
+                self.add_error("discount_percentage", "Informe o percentual do desconto.")
+            elif discount_percentage > Decimal("100"):
+                self.add_error("discount_percentage", "O desconto percentual não pode ser maior que 100%.")
+            discount_amount = self.total_amount * discount_percentage / Decimal("100")
+            cleaned_data["discount_value"] = Money(Decimal("0.00"), "BRL")
+        elif mode == "NONE":
+            cleaned_data["discount_value"] = Money(Decimal("0.00"), "BRL")
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+        else:
+            self.add_error("discount_mode", "Informe se o agrupamento possui desconto.")
+
+        net_total = max(self.total_amount - discount_amount, Decimal("0.00"))
         installments_count = cleaned_data.get("installments_count")
         due_date = cleaned_data.get("due_date")
         payment_method = cleaned_data.get("payment_method")
@@ -119,11 +162,11 @@ class GroupMovementStep3Form(CoreModelForm):
                     due_dates=due_dates,
                     amounts=amounts,
                     expected_count=int(installments_count or 0),
-                    expected_total=self.total_amount,
+                    expected_total=net_total,
                 )
             elif installments_count and due_date:
                 schedule = build_group_installments(
-                    total_amount=self.total_amount,
+                    total_amount=net_total,
                     first_due_date=due_date,
                     installments_count=installments_count,
                 )
@@ -159,3 +202,11 @@ class GroupMovementStep3Form(CoreModelForm):
         for index, (raw_due_date, raw_amount) in enumerate(zip(due_dates, amounts)):
             payload.append({"number": index + 1, "dueDate": str(raw_due_date or ""), "amount": str(raw_amount or "")})
         return payload
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.gross_amount = Money(self.total_amount, "BRL")
+        instance.sync_net_amount()
+        if commit:
+            instance.save()
+        return instance
