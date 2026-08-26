@@ -11,6 +11,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.presentation.forms import AddressFormMixin, CoreForm
 from apps.core.presentation.widgets import CPForCNPJInput, EmailInput, PhoneInput, SearchableSelectInput, TextInput
+from apps.finance.nfe_transport import BRAZILIAN_STATE_CHOICES
 from apps.finance.services.fiscal_recipient import validate_recipient_snapshot
 from apps.finance.services.standalone_emission import normalize_note_mode
 
@@ -63,11 +64,11 @@ class StandaloneRecipientForm(AddressFormMixin, CoreForm):
     complemento = forms.CharField(label="Complemento", required=False, widget=TextInput())
     bairro = forms.CharField(label="Bairro", required=True, widget=TextInput())
     cidade = forms.CharField(label="Cidade", required=True, widget=TextInput())
-    estado = forms.CharField(label="Estado", required=True)
+    estado = forms.ChoiceField(label="Estado", required=True, choices=BRAZILIAN_STATE_CHOICES, widget=SearchableSelectInput(choices=BRAZILIAN_STATE_CHOICES))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.setup_address_fields(include_complemento=True)
+        self.setup_address_fields()
 
         initial_customer_type = str(self.data.get("customer_type") or self.initial.get("customer_type") or "PF").upper()
         if initial_customer_type not in {"PF", "PJ"}:
