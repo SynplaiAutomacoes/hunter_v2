@@ -206,3 +206,108 @@ class WorkOrderResumeDeduplicationTests(TestCase):
         self.assertIn(strong_kit.name, product_rows[0].origin_badge)
         self.assertEqual(len(service_rows), 1)
         self.assertIn(strong_kit.name, service_rows[0].origin_badge)
+
+
+class WorkOrderResumeStalePrefetchTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(
+            name="Oficina Prefetch",
+            cnpj="12.345.678/0001-96",
+            phone="+5511999999996",
+            address="Rua Prefetch, 1",
+        )
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Prefetch")
+        self.kit_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="KP-1",
+            name="Produto Do Kit Prefetch",
+            unit=Product.Unit.UND,
+            cost_price=Money("15.00", "BRL"),
+            selling_price=Money("30.00", "BRL"),
+        )
+        self.kit = Kit.objects.create(workshop=self.workshop, name="Kit Prefetch")
+        self.kit.refresh_from_db()
+        KitProduct.objects.create(kit=self.kit, product=self.kit_product, quantity=1)
+        self.budget = Budget.objects.create(workshop=self.workshop, entry_date=date(2026, 8, 24))
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
+
+    def test_stale_prefetch_cache_still_expands_newly_added_kit(self) -> None:
+        from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
+
+        stale_workorder = (
+            WorkOrder.objects.filter(pk=self.workorder.pk)
+            .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
+            .get()
+        )
+        _ = list(stale_workorder.items.all())
+
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            kit=self.kit,
+            quantity=1,
+        )
+
+        context = _build_edit_items_context(stale_workorder)
+        product_rows = list(context["display_product_items"])
+        self.assertEqual(len(product_rows), 1)
+        self.assertEqual(product_rows[0].origin_label, KIT_ORIGIN_LABEL)
+        self.assertIn(self.kit.name, product_rows[0].origin_badge)
+
+
+class WorkOrderAddKitBatchViewTests(TestCase):
+    def setUp(self) -> None:
+        from apps.accounts.models import Account
+        from apps.collaborators.models import WorkshopMember
+        from apps.iam.utils import get_or_create_director_role
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        account = Account.objects.create(name="Conta Kit Batch")
+        self.user = User.objects.create_user(username="kit-batch-user", password="secret", cpf="39053344705")
+        self.user.account = account
+        self.user.save(update_fields=["account"])
+        self.workshop = Workshop.objects.create(
+            account=account,
+            name="Oficina Kit Batch",
+            cnpj="12.345.678/0001-97",
+            phone="+5511999999997",
+            address="Rua Kit Batch, 1",
+        )
+        role = get_or_create_director_role(account=account)
+        WorkshopMember.objects.create(user=self.user, workshop=self.workshop, role=role, is_active=True)
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Batch")
+        self.kit_product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="KB-1",
+            name="Oleo Batch Kit",
+            unit=Product.Unit.UND,
+            cost_price=Money("15.00", "BRL"),
+            selling_price=Money("30.00", "BRL"),
+        )
+        self.kit = Kit.objects.create(workshop=self.workshop, name="Kit Batch Revisao")
+        self.kit.refresh_from_db()
+        KitProduct.objects.create(kit=self.kit, product=self.kit_product, quantity=2)
+        self.budget = Budget.objects.create(workshop=self.workshop, entry_date=date(2026, 8, 24))
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_add_kit_batch_refreshes_resume_with_origin_badges(self) -> None:
+        url = reverse("workorder:add_items_batch", kwargs={"pk": self.workorder.pk, "item_type": "kit"})
+        response = self.client.post(url, data={"selected_items": [str(self.kit.pk)]})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(KIT_ORIGIN_LABEL, response.content.decode())
+        self.assertIn(self.kit.name, response.content.decode())
+        self.assertIn("resume-section", response.content.decode())
+
+        context = _build_edit_items_context(self.workorder)
+        product_rows = list(context["display_product_items"])
+        self.assertEqual(len(product_rows), 1)
+        self.assertEqual(product_rows[0].product_id, self.kit_product.pk)
+        self.assertEqual(product_rows[0].quantity, 2)
+        self.assertEqual(product_rows[0].origin_label, KIT_ORIGIN_LABEL)

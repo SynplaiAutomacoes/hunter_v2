@@ -487,20 +487,20 @@ def _merge_resume_service_row(rows: dict[object, object], row: object) -> None:
         rows[key] = row
 
 
-def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:
-    prefetched_items = getattr(workorder, "_prefetched_objects_cache", {}).get("items")
-    if prefetched_items is not None:
-        items = list(prefetched_items)
-    else:
-        items = list(
-            workorder.items.select_related("product", "service", "kit")
-            .prefetch_related(
-                workorder_kit_overrides_prefetch(),
-                "kit__kit_products__product",
-                "kit__kit_services__service",
-            )
-            .order_by("id")
+def _load_workorder_items_for_display(workorder: WorkOrder) -> list[WorkOrderItem]:
+    return list(
+        workorder.items.select_related("product", "service", "kit")
+        .prefetch_related(
+            workorder_kit_overrides_prefetch(),
+            "kit__kit_products__product",
+            "kit__kit_services__service",
         )
+        .order_by("id")
+    )
+
+
+def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:
+    items = _load_workorder_items_for_display(workorder)
 
     if workorder.budget_id:
         setattr(workorder.budget, "_read_only_pricing_context", True)

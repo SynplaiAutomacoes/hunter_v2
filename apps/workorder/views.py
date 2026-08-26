@@ -893,12 +893,14 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
             try:
                 for item_id in selected_ids:
                     item_filter = {f"{item_type}_id": item_id}
-                    WorkOrderItem.objects.get_or_create(
+                    item, _created = WorkOrderItem.objects.get_or_create(
                         workshop=self.workshop,
                         workorder=workorder,
                         **item_filter,
                         defaults={"quantity": 1},
                     )
+                    if item_type == "kit" and item.kit_id and not item.kit_snapshot_frozen:
+                        item.ensure_kit_snapshot()
             finally:
                 workorder._skip_stored_total_refresh = False
                 workorder.invalidate_pricing_snapshot_cache()
@@ -1349,14 +1351,21 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 km_final = approval_form.cleaned_data["km_final"]
                 assert km_final is not None
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
-                workorder.complete_delivery(
-                    km_final=km_final,
-                    unsigned_delivery_reason=unsigned_delivery_reason,
-                    last_oil_change_date=approval_form.cleaned_data.get("last_oil_change_date"),
-                    last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
-                    review_plan=approval_form.cleaned_data.get("review_plan"),
-                    warranty_plan=approval_form.cleaned_data.get("warranty_plan"),
-                )
+                delivery_kwargs: dict[str, object] = {
+                    "km_final": km_final,
+                    "unsigned_delivery_reason": unsigned_delivery_reason,
+                    "last_oil_change_date": approval_form.cleaned_data.get("last_oil_change_date"),
+                    "last_oil_change_km": approval_form.cleaned_data.get("last_oil_change_km"),
+                    "review_plan": approval_form.cleaned_data.get("review_plan"),
+                    "warranty_plan": approval_form.cleaned_data.get("warranty_plan"),
+                }
+                if workorder.budget_type in ("warranty", "courtesy"):
+                    previous_mechanic = approval_form.cleaned_data.get("previous_mechanic")
+                    delivery_kwargs["previous_mechanic_id"] = previous_mechanic.pk if previous_mechanic else None
+                    delivery_kwargs["courtesy_reason_type"] = approval_form.cleaned_data.get("courtesy_reason_type")
+                    delivery_kwargs["courtesy_reason_description"] = approval_form.cleaned_data.get("courtesy_reason_description") or ""
+                    delivery_kwargs["update_courtesy_fields"] = True
+                workorder.complete_delivery(**delivery_kwargs)
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)
