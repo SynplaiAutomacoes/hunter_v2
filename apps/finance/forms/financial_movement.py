@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal, ROUND_HALF_UP
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
@@ -26,6 +27,126 @@ class FinancialMovementBaseForm(CoreModelForm):
         self.request = kwargs.pop("request", None)
         self.workshop = kwargs.pop("workshop", None)
         super().__init__(*args, **kwargs)
+
+    def clean_discount_fields(self, cleaned_data):
+        gross_amount = cleaned_data.get("gross_amount")
+        discount_mode = cleaned_data.get("discount_mode") or FinancialMovement.DiscountMode.NONE
+        discount_value = cleaned_data.get("discount_value")
+        discount_percentage = cleaned_data.get("discount_percentage") or Decimal("0.00")
+
+        if gross_amount is None:
+            return cleaned_data
+
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        discount_amount = Decimal("0.00")
+        if discount_mode == FinancialMovement.DiscountMode.AMOUNT:
+            discount_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
+            if discount_amount <= 0:
+                self.add_error("discount_value", "Informe o valor do desconto.")
+            if discount_amount > gross_value:
+                self.add_error("discount_value", "O desconto não pode ser maior que o valor bruto.")
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+        elif discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
+            if discount_percentage <= 0:
+                self.add_error("discount_percentage", "Informe o percentual do desconto.")
+            if discount_percentage > Decimal("100"):
+                self.add_error("discount_percentage", "O desconto percentual não pode ser maior que 100%.")
+            discount_amount = gross_value * discount_percentage / Decimal("100")
+            cleaned_data["discount_value"] = gross_amount.__class__(Decimal("0.00"), gross_amount.currency)
+        else:
+            cleaned_data["discount_value"] = gross_amount.__class__(Decimal("0.00"), gross_amount.currency)
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+
+        if discount_amount < 0:
+            self.add_error("discount_value" if discount_mode == FinancialMovement.DiscountMode.AMOUNT else "discount_percentage", "O desconto não pode ser negativo.")
+
+        if not self.errors:
+            cleaned_data["amount"] = gross_amount.__class__(
+                (gross_value - discount_amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                gross_amount.currency,
+            )
+        return cleaned_data
+
+    def configure_discount_fields(self):
+        self.fields["discount_mode"].label = "Tipo de desconto"
+        self.fields["discount_mode"].required = True
+        self.fields["discount_value"].required = False
+        self.fields["discount_percentage"].required = False
+        self.fields["amount"].label = "Valor líquido"
+        self.fields["amount"].required = False
+        if not self.instance.pk:
+            self.initial["discount_mode"] = ""
+
+
+FINANCIAL_DISCOUNT_UI_SCRIPT = """
+<script>
+(function () {
+    function initializeFinancialDiscountFields() {
+        const mode = document.getElementById('id_discount_mode');
+        const grossHidden = document.getElementById('id_gross_amount_0');
+        const grossDisplay = document.getElementById('id_gross_amount_0_display');
+        const valueHidden = document.getElementById('id_discount_value_0');
+        const valueDisplay = document.getElementById('id_discount_value_0_display');
+        const percentage = document.getElementById('id_discount_percentage');
+        const netHidden = document.getElementById('id_amount_0');
+        const netDisplay = document.getElementById('id_amount_0_display');
+        const valueContainer = document.getElementById('discount-value-field');
+        const percentageContainer = document.getElementById('discount-percentage-field');
+
+        if (!mode || mode.dataset.discountUiReady === 'true') return;
+        mode.dataset.discountUiReady = 'true';
+
+        const parseNumber = (raw) => {
+            const text = String(raw || '').trim();
+            const value = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text;
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+        };
+        const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+        const hiddenMoneyValue = (hidden, display) => {
+            if (hidden && hidden.value !== '') return Number(hidden.value) || 0;
+            return parseNumber(display ? display.value : '');
+        };
+
+        function updateDiscountUi() {
+            const selectedMode = mode.value;
+            const usesAmount = selectedMode === 'AMOUNT';
+            const usesPercentage = selectedMode === 'PERCENTAGE';
+            valueContainer?.classList.toggle('hidden', !usesAmount);
+            percentageContainer?.classList.toggle('hidden', !usesPercentage);
+
+            if (!usesAmount) {
+                if (valueHidden) valueHidden.value = '0.00';
+                if (valueDisplay) valueDisplay.value = formatMoney(0);
+            }
+            if (!usesPercentage && percentage) percentage.value = '0';
+
+            const gross = hiddenMoneyValue(grossHidden, grossDisplay);
+            let discount = 0;
+            if (usesAmount) discount = hiddenMoneyValue(valueHidden, valueDisplay);
+            if (usesPercentage) discount = gross * Math.max(parseNumber(percentage?.value), 0) / 100;
+            const net = Math.max(gross - discount, 0);
+            if (netHidden) netHidden.value = net.toFixed(2);
+            if (netDisplay) netDisplay.value = formatMoney(net);
+        }
+
+        [mode, grossHidden, grossDisplay, valueHidden, valueDisplay, percentage].forEach((field) => {
+            if (!field) return;
+            field.addEventListener('input', updateDiscountUi);
+            field.addEventListener('change', updateDiscountUi);
+            field.addEventListener('widget:formatted-change', updateDiscountUi);
+        });
+        updateDiscountUi();
+    }
+
+    initializeFinancialDiscountFields();
+    document.body.addEventListener('htmx:afterSwap', initializeFinancialDiscountFields);
+})();
+</script>
+"""
 
 
 class MovementStep1Form(FinancialMovementBaseForm):
@@ -420,10 +541,15 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
     class Meta:
         model = FinancialMovement
-        fields = ["payment_method", "is_paid", "is_reconciled", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
+        fields = ["entry_date", "payment_method", "is_paid", "is_reconciled", "gross_amount", "discount_mode", "discount_value", "discount_percentage", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
         widgets = {
+            "entry_date": CalendarDateInput(),
             "payment_method": SearchableSelectInput(),
-            "amount": MoneyInput(),
+            "gross_amount": MoneyInput(),
+            "discount_mode": SearchableSelectInput(),
+            "discount_value": MoneyInput(),
+            "discount_percentage": NumberInput(attrs={"min": "0", "max": "100", "step": "0.01"}),
+            "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "due_date": CalendarDateInput(),
             "nf_number": NumberInput(),
             "budget_plan": SearchableSelectInput(),
@@ -435,7 +561,8 @@ class MovementStep3Form(FinancialMovementBaseForm):
         super().__init__(*args, **kwargs)
 
         self.fields["due_date"].required = True
-        self.fields["amount"].required = True
+        self.fields["gross_amount"].required = True
+        self.configure_discount_fields()
         self.fields["payment_method"].required = True
         self.fields["budget_plan"].required = True
         self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
@@ -488,10 +615,9 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
+                Div("entry_date", css_class="col-span-4"),
                 Div("due_date", css_class="col-span-4"),
                 Div("is_paid", css_class="col-span-4"),
-                Div("amount", css_class="col-span-4"),
-                #
                 Div("is_reconciled", css_class="col-span-4"),
                 Div("payment_method", css_class="col-span-4"),
                 Div("budget_plan", css_class="col-span-4"),
@@ -503,10 +629,18 @@ class MovementStep3Form(FinancialMovementBaseForm):
                     css_class="col-span-6",
                 ),
                 #
+                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e desconto</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto. O valor líquido será calculado automaticamente.</p></div>'),
+                Div("gross_amount", css_class="col-span-4"),
+                Div("discount_mode", css_class="col-span-4"),
+                Div("discount_value", css_class="col-span-4", css_id="discount-value-field"),
+                Div("discount_percentage", css_class="col-span-4", css_id="discount-percentage-field"),
+                Div("amount", css_class="col-span-4", css_id="net-amount-field"),
+                #
                 Div("attachment", css_class="col-span-12"),
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
-            )
+            ),
+            HTML(FINANCIAL_DISCOUNT_UI_SCRIPT),
         )
 
     def save(self, commit=True):
@@ -530,6 +664,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        cleaned_data = self.clean_discount_fields(cleaned_data)
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
         return cleaned_data
@@ -736,8 +871,13 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "description",
             "items_observation",
             # Pagamento
+            "entry_date",
             "due_date",
             "direction",
+            "gross_amount",
+            "discount_mode",
+            "discount_value",
+            "discount_percentage",
             "amount",
             "budget_plan",
             "bank_account",
@@ -753,9 +893,14 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "collaborator": SearchableSelectInput(),
             "description": TextInput(),
             "items_observation": TextareaInput(attrs={"rows": 3}),
+            "entry_date": CalendarDateInput(),
             "due_date": CalendarDateInput(),
             "direction": SearchableSelectInput(),
-            "amount": MoneyInput(),
+            "gross_amount": MoneyInput(),
+            "discount_mode": SearchableSelectInput(),
+            "discount_value": MoneyInput(),
+            "discount_percentage": NumberInput(attrs={"min": "0", "max": "100", "step": "0.01"}),
+            "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),
             "payment_method": SearchableSelectInput(),
@@ -774,7 +919,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["description"].required = getattr(self.instance, "workorder_id", None) is None
         self.fields["due_date"].required = True
         self.fields["direction"].required = True
-        self.fields["amount"].required = True
+        self.fields["gross_amount"].required = True
+        self.configure_discount_fields()
         self.fields["payment_method"].required = True
         self.fields["budget_plan"].required = True
         self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
@@ -892,9 +1038,9 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             HTML('<section x-show="activeTab === \'payment\'" x-cloak class="space-y-4">'),
             HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'),
             Div(
+                Div("entry_date", css_class="col-span-12 lg:col-span-4"),
                 Div("due_date", css_class="col-span-12 lg:col-span-4"),
                 Div("direction", css_class="col-span-12 lg:col-span-4"),
-                Div("amount", css_class="col-span-12 lg:col-span-4"),
                 #
                 Div("budget_plan", css_class="col-span-12 lg:col-span-6"),
                 Div("bank_account", css_class="col-span-12 lg:col-span-6"),
@@ -903,9 +1049,16 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("is_reconciled", css_class="col-span-12 lg:col-span-4"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
+                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e desconto</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto. O valor líquido será calculado automaticamente.</p></div>'),
+                Div("gross_amount", css_class="col-span-12 lg:col-span-4"),
+                Div("discount_mode", css_class="col-span-12 lg:col-span-4"),
+                Div("discount_value", css_class="col-span-12 lg:col-span-4", css_id="discount-value-field"),
+                Div("discount_percentage", css_class="col-span-12 lg:col-span-4", css_id="discount-percentage-field"),
+                Div("amount", css_class="col-span-12 lg:col-span-4", css_id="net-amount-field"),
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             ),
+            HTML(FINANCIAL_DISCOUNT_UI_SCRIPT),
             HTML("</section>"),
             HTML('<section x-show="activeTab === \'attachment\'" x-cloak class="space-y-4">'),
             HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">attach_file</span> Anexo</h3>'),
@@ -988,6 +1141,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        cleaned_data = self.clean_discount_fields(cleaned_data)
         supplier = cleaned_data.get("supplier")
         collaborator = cleaned_data.get("collaborator")
         direction = cleaned_data.get("direction")
