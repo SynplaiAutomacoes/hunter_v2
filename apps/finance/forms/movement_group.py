@@ -3,7 +3,7 @@ from decimal import Decimal
 from django import forms
 from djmoney.money import Money
 
-from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, NumberInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CalendarDateInput, DecimalInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import FinancialMovement, MovementGroup, PaymentMethod
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreForm, CoreModelForm
@@ -52,7 +52,7 @@ class GroupMovementStep3Form(CoreModelForm):
             "due_date": CalendarDateInput(),
             "discount_mode": SearchableSelectInput(),
             "discount_value": MoneyInput(),
-            "discount_percentage": NumberInput(attrs={"min": "0", "max": "100", "step": "0.01"}),
+            "discount_percentage": DecimalInput(min_value=0, max_value=100, decimal_places=2),
         }
         labels = {
             "due_date": "Primeiro vencimento",

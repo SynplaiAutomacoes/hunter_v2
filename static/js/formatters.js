@@ -618,6 +618,7 @@
                     }
 
                     this.$refs.value.value = cleaned;
+                    emitNativeInputEvents(this.$refs.value);
                 },
 
                 handleBlur(e) {
@@ -626,6 +627,7 @@
                     if (!currentVal || currentVal === '-') {
                         this.$refs.display.value = '';
                         this.$refs.value.value = '';
+                        emitNativeInputEvents(this.$refs.value);
                         return;
                     }
 
@@ -634,6 +636,7 @@
                     if (Number.isNaN(val)) {
                         this.$refs.display.value = '';
                         this.$refs.value.value = '';
+                        emitNativeInputEvents(this.$refs.value);
                         return;
                     }
 
@@ -642,6 +645,7 @@
 
                     this.$refs.display.value = decimal.formatPtBr(val, this.places);
                     this.$refs.value.value = decimal.format(val, this.places);
+                    emitNativeInputEvents(this.$refs.value);
                 }
             };
         },
