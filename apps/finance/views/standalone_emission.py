@@ -33,9 +33,17 @@ from apps.finance.services.standalone_emission import (
     get_or_create_standalone_nfse_request,
     normalize_note_mode,
     product_line_from_catalog,
+    refresh_standalone_nfe_lines_from_catalog,
     service_line_from_catalog,
 )
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
+from apps.finance.views.ncm_validation import (
+    build_standalone_invalid_ncm_modal_context,
+    find_first_standalone_line_with_invalid_ncm,
+    pop_invalid_ncm_modal_context,
+    store_invalid_ncm_modal_context,
+)
+from apps.finance.views.navigation import build_issued_documents_list_url
 from apps.finance.views.request_workflow import build_preview_hidden_fields, render_emission_preview_modal
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -227,6 +235,7 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         context["note_mode"] = note_mode
         context["nfe_lines"] = list(state.get("nfe_lines") or [])
         context["nfse_lines"] = list(state.get("nfse_lines") or [])
+        context["ncm_invalid_modal"] = pop_invalid_ncm_modal_context(request=self.request)
 
         if current_step_key == "items":
             context["add_product_form"] = StandaloneAddProductForm(workshop=self.workshop)
@@ -458,7 +467,43 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             self._write_state(state)
             return False, str(exc)
 
+    def _items_step_number(self, *, state: dict[str, Any]) -> int:
+        for index, step in enumerate(self.get_steps_definition(state), start=1):
+            if step["key"] == "items":
+                return index
+        return 1
+
+    def _reject_preview_for_invalid_ncm(self, *, state: dict[str, Any]) -> HttpResponse | None:
+        note_mode = normalize_note_mode(state.get("note_mode"))
+        if note_mode not in {"nfe", "both"}:
+            return None
+
+        refreshed_lines = refresh_standalone_nfe_lines_from_catalog(lines=list(state.get("nfe_lines") or []))
+        state["nfe_lines"] = refreshed_lines
+        self._write_state(state)
+
+        invalid_line = find_first_standalone_line_with_invalid_ncm(lines=refreshed_lines)
+        if invalid_line is None:
+            return None
+
+        items_step = self._items_step_number(state=state)
+        modal_context = build_standalone_invalid_ncm_modal_context(
+            line=invalid_line,
+            return_url=self.request.get_full_path(),
+            items_step_url=self._step_url(items_step),
+        )
+        store_invalid_ncm_modal_context(request=self.request, modal_context=modal_context)
+        messages.error(
+            self.request,
+            f"Produto '{invalid_line.get('description') or 'Produto'}' sem NCM válido para emissão de Nota Fiscal.",
+        )
+        return self._redirect_to_step(self._current_step())
+
     def _build_preview_response(self, *, state: dict[str, Any], cleaned_data: dict[str, Any], current_step: int):
+        invalid_ncm_response = self._reject_preview_for_invalid_ncm(state=state)
+        if invalid_ncm_response is not None:
+            return invalid_ncm_response
+
         note_mode = normalize_note_mode(state.get("note_mode"))
         branches = ["nfe", "nfse"] if note_mode == "both" else [note_mode]
         previews: list[dict[str, str]] = []
@@ -468,9 +513,11 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
                 continue
             if branch == "nfe":
                 nfe_request = get_or_create_standalone_nfe_request(workshop=self.workshop, state=state)
+                self._write_state(state)
                 preview_url = reverse("finance:nfe_preview_pdf", kwargs={"pk": nfe_request.pk})
             else:
                 nfse_request = get_or_create_standalone_nfse_request(workshop=self.workshop, state=state)
+                self._write_state(state)
                 preview_url = reverse("finance:nfse_preview_pdf", kwargs={"pk": nfse_request.pk})
             previews.append(
                 {
@@ -509,11 +556,11 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             return self._redirect_to_step(self._current_step())
 
         self._clear_state()
-        if note_mode == "both":
-            return redirect(reverse("finance:nfe_list"))
         if note_mode == "nfse":
-            return redirect(reverse("finance:nfse_list"))
-        return redirect(reverse("finance:nfe_list"))
+            return redirect(build_issued_documents_list_url(note_type="nfse"))
+        if note_mode == "nfe":
+            return redirect(build_issued_documents_list_url(note_type="nfe"))
+        return redirect(build_issued_documents_list_url())
 
     def get(self, request, *args, **kwargs):
         if request.GET.get("close") == "1":

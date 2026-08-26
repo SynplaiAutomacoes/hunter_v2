@@ -14,7 +14,51 @@
         </div>
     </div>
 
+    {% if ncm_invalid_modal %}
+        {% include 'finance/partials/ncm_invalid_modal.html' %}
+    {% endif %}
+
     <dialog id="form_modal" class="modal">
         <div id="modal-container"></div>
     </dialog>
+
+    <script>
+        (function () {
+            const formModal = document.getElementById('form_modal');
+            const modalContainer = document.getElementById('modal-container');
+
+            function clearModalContainer() {
+                if (modalContainer) {
+                    modalContainer.innerHTML = '';
+                }
+            }
+
+            window.openEmissionModal = function () {
+                if (formModal && !formModal.open) {
+                    formModal.showModal();
+                }
+            };
+
+            window.closeEmissionModal = function () {
+                if (!formModal) {
+                    return;
+                }
+                if (formModal.open) {
+                    formModal.close();
+                }
+                clearModalContainer();
+            };
+
+            if (formModal) {
+                formModal.addEventListener('close', clearModalContainer);
+            }
+
+            document.body.addEventListener('htmx:afterSwap', function (event) {
+                const target = event.detail ? event.detail.target : null;
+                if (target && target.id === 'modal-container' && formModal && !formModal.open) {
+                    formModal.showModal();
+                }
+            });
+        })();
+    </script>
 {% endblock %}

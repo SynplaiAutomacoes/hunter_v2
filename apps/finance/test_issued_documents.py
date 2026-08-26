@@ -414,3 +414,31 @@ class IssuedDocumentsArchiveDownloadViewTests(TestCase):
         self.assertEqual(context["selected_fiscal_nfe"]["request_id"], nfe_request.pk)
         self.assertIn("operacao=return", context["selected_fiscal_nfe"]["detail_url"])
         self.assertNotIn("selected_nfe", context["fiscal_selection_reset_url"])
+
+
+class IssuedDocumentsStandaloneRowTests(SimpleTestCase):
+    def test_build_nfe_row_supports_missing_workorder(self) -> None:
+        view = IssuedDocumentsListView()
+        request_obj = SimpleNamespace(
+            pk=99,
+            workorder_id=None,
+            workorder=None,
+            number_display_listing="123",
+            reserved_series=1,
+            criado_em=None,
+            customer_name="Destinatario Avulso",
+            nfe_request_status_badge={"class": "badge-success", "text": "Aprovado"},
+        )
+        with (
+            patch.object(IssuedDocumentsListView, "_get_latest_prefetched_item", return_value=None),
+            patch.object(IssuedDocumentsListView, "_build_available_document_labels", return_value=[]),
+            patch.object(IssuedDocumentsListView, "_item_has_document_group", return_value=False),
+            patch.object(IssuedDocumentsListView, "_build_detail_url", return_value="/finance/nfe/99/"),
+            patch.object(IssuedDocumentsListView, "_build_selection_url", return_value=""),
+        ):
+            row = view._build_nfe_row(
+                request_obj,
+                state={"fiscal_operation": "", "search_raw": "", "note_type": "nfe", "status": "", "date_from": "", "date_to": ""},
+            )
+
+        self.assertEqual(row["workorder_id"], "Avulsa")

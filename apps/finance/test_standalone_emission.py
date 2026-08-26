@@ -6,15 +6,22 @@ from types import SimpleNamespace
 from crispy_forms.layout import Field
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, SimpleTestCase
-from django.urls import reverse
+from django.urls import resolve, reverse
 
 from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, _build_taker_payload, calculate_nfse_service_total
 from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, _build_customer_payload, _build_nfe_products_payload
-from apps.finance.forms.fiscal_gateway import FiscalOperation, FiscalOperationGatewayForm
-from apps.finance.forms.standalone_emission import StandaloneRecipientForm, build_standalone_items_form
+from apps.finance.forms.fiscal_gateway import EmissionLinkage, FiscalOperation, FiscalOperationGatewayForm, NoteDocument
+from apps.finance.forms.standalone_emission import (
+    StandaloneManualProductForm,
+    StandaloneRecipientForm,
+    _render_product_lines_html,
+    build_standalone_items_form,
+)
 from apps.finance.models.finance import NfeRequest
 from apps.finance.services.fiscal_recipient import validate_recipient_snapshot
 from apps.finance.views.fiscal_gateway import FiscalOperationGatewayView
+from apps.finance.views.navigation import IssuedDocumentsRedirectView, build_issued_documents_list_url
+from apps.finance.views.ncm_validation import find_first_standalone_line_with_invalid_ncm
 from apps.finance.views.standalone_emission import StandaloneEmissionCreateView
 
 
@@ -164,6 +171,64 @@ class StandaloneItemsFormTests(SimpleTestCase):
         self.assertTrue(hasattr(form, "helper"))
 
 
+class StandaloneNcmValidationTests(SimpleTestCase):
+    def test_manual_product_form_allows_invalid_ncm(self) -> None:
+        form = StandaloneManualProductForm(
+            {
+                "description": "Abracadeira",
+                "product_code": "ABR-001",
+                "ncm": "123",
+                "unit": "UN",
+                "quantity": "1",
+                "unit_value": "10.00",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["ncm"], "123")
+
+    def test_manual_product_form_normalizes_eight_digit_ncm(self) -> None:
+        form = StandaloneManualProductForm(
+            {
+                "description": "Abracadeira",
+                "product_code": "ABR-001",
+                "ncm": "7326.90.90",
+                "unit": "UN",
+                "quantity": "1",
+                "unit_value": "10.00",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["ncm"], "73269090")
+
+    def test_product_lines_html_shows_ncm_warning_icon(self) -> None:
+        html = _render_product_lines_html(
+            [
+                {
+                    "description": "ABRACADEIRA 19X27MM",
+                    "ncm": "",
+                    "quantity": "1",
+                    "unit_value": "10",
+                    "cost_value": "0",
+                    "total_value": "10",
+                }
+            ]
+        )
+
+        self.assertIn("ABRACADEIRA 19X27MM", html)
+        self.assertIn("Produto com NCM invalido.", html)
+        self.assertIn("text-warning", html)
+
+    def test_find_first_standalone_line_with_invalid_ncm(self) -> None:
+        lines = [
+            {"description": "Ok", "ncm": "73269090"},
+            {"description": "ABRACADEIRA 19X27MM", "ncm": ""},
+        ]
+        invalid = find_first_standalone_line_with_invalid_ncm(lines=lines)
+        self.assertIsNotNone(invalid)
+        assert invalid is not None
+        self.assertEqual(invalid["description"], "ABRACADEIRA 19X27MM")
+
+
 class StandaloneNfePayloadTests(SimpleTestCase):
     def test_customer_payload_from_recipient_snapshot(self) -> None:
         payload = _build_customer_payload(_standalone_nfe_request())
@@ -245,11 +310,12 @@ class StandaloneGatewayTests(SimpleTestCase):
 
     def test_standalone_operation_redirects_to_avulsa_wizard(self) -> None:
         request = self.factory.post(
-            "/finance/emissao/?fluxo=nfe",
+            "/finance/emissao/?etapa=document&vinculo=standalone",
             {
-                "operation": FiscalOperation.NFE,
-                "linkage": "standalone",
-                "gateway_step": "linkage",
+                "operation": FiscalOperation.EMISSION,
+                "linkage": EmissionLinkage.STANDALONE,
+                "note_document": NoteDocument.NFE,
+                "gateway_step": "document",
             },
         )
         view = self._build_view(request)
@@ -263,3 +329,21 @@ class StandaloneGatewayTests(SimpleTestCase):
             f"{reverse('finance:standalone_emission')}?reset=1&note_mode=nfe",
             fetch_redirect_response=False,
         )
+
+
+class IssuedDocumentsDestinationTests(SimpleTestCase):
+    def test_build_issued_documents_list_url_filters_by_note_type(self) -> None:
+        self.assertEqual(build_issued_documents_list_url(), reverse("finance:issued_documents_list"))
+        self.assertEqual(
+            build_issued_documents_list_url(note_type="nfe"),
+            f"{reverse('finance:issued_documents_list')}?tipo=nfe",
+        )
+        self.assertEqual(
+            build_issued_documents_list_url(note_type="nfse"),
+            f"{reverse('finance:issued_documents_list')}?tipo=nfse",
+        )
+
+    def test_legacy_nfe_and_nfse_list_urls_redirect_to_central(self) -> None:
+        self.assertEqual(resolve(reverse("finance:nfe_list")).func.view_class, IssuedDocumentsRedirectView)
+        self.assertEqual(resolve(reverse("finance:nfe_emit")).func.view_class, IssuedDocumentsRedirectView)
+        self.assertEqual(resolve(reverse("finance:nfse_list")).func.view_class, IssuedDocumentsRedirectView)
