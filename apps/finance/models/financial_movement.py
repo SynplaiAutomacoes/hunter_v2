@@ -1,10 +1,11 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models import PaymentMethod, FinancialGroup
@@ -115,10 +116,29 @@ class FinancialMovement(TimeStampedModel):
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.gross_amount is None:
+            self.gross_amount = self.amount or Money(Decimal("0.00"), "BRL")
+        self._sync_net_amount_from_discount()
         if not self.budget_plan:
             self._auto_assign_budget_plan()
 
         super().save(*args, **kwargs)
+
+    def _sync_net_amount_from_discount(self) -> None:
+        gross_amount = self.gross_amount or Money(Decimal("0.00"), "BRL")
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        discount = Decimal("0.00")
+
+        if self.discount_mode == self.DiscountMode.AMOUNT:
+            discount = Decimal(str((self.discount_value or Money(0, gross_amount.currency)).amount or 0))
+        elif self.discount_mode == self.DiscountMode.PERCENTAGE:
+            discount = gross_value * Decimal(str(self.discount_percentage or 0)) / Decimal("100")
+
+        discount = min(max(discount, Decimal("0.00")), gross_value)
+        self.amount = Money(
+            (gross_value - discount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            gross_amount.currency,
+        )
 
     def _auto_assign_budget_plan(self) -> None:
         """
