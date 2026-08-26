@@ -281,6 +281,7 @@ class SignatureWebhookWarrantyGateTests(SimpleTestCase):
             warranty_plan=None,
             mark_signature_approved=Mock(),
             refresh_from_db=Mock(),
+            save=Mock(),
         )
 
         response = process_signature_webhook_payload(

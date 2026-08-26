@@ -1381,9 +1381,10 @@ class BudgetItem(TimeStampedModel):
         for override in self._iter_frozen_kit_service_overrides():
             if override.quantity <= 0:
                 continue
+            # Preço permanece mesmo se excluded_from_composition (não debitar).
             service_cost_total += override.service_cost_price * override.quantity
             service_selling_total += override.service_selling_price * override.quantity
-            if override.duration:
+            if not override.excluded_from_composition and override.duration:
                 total_duration += override.duration * override.quantity
 
         BudgetItem.objects.filter(pk=self.pk).update(
@@ -1534,7 +1535,7 @@ class BudgetItem(TimeStampedModel):
 
         for override in self._iter_frozen_kit_service_overrides():
             quantity = override.quantity
-            if quantity <= 0:
+            if quantity <= 0 or override.excluded_from_composition:
                 continue
 
             services.append({"id": override.service_id, "name": override.service.name, "quantity": quantity})
@@ -1719,7 +1720,7 @@ class BudgetItem(TimeStampedModel):
 
         total_duration = timedelta(0)
         for override in self._iter_frozen_kit_service_overrides():
-            if override.quantity > 0 and override.duration:
+            if override.quantity > 0 and not override.excluded_from_composition and override.duration:
                 total_duration += override.duration * override.quantity
 
         return total_duration * self.quantity
@@ -1920,6 +1921,13 @@ class BudgetKitItemOverride(TimeStampedModel):
     service_cost_price = MoneyField(verbose_name="Custo do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     service_selling_price = MoneyField(verbose_name="Preço de Venda do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+    # Quando True: serviço sai da composição operacional (duração / listagem / dedup),
+    # mas o valor de venda/custo permanece no total do kit (não debitar).
+    excluded_from_composition = models.BooleanField(
+        verbose_name="Excluído da composição",
+        default=False,
+        help_text="Remove o serviço da execução do kit mantendo o valor no total.",
+    )
 
     class Meta:
         verbose_name = "Override de Item do Kit"

@@ -140,7 +140,8 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
         per_kit_quantity = int(override.quantity or 0)
         if per_kit_quantity <= 0:
             continue
-
+        # Excluded services keep price on the kit but do not contribute operational duration.
+        # Money still counts toward kit labor/third-party allocation so kit revenue stays intact.
         total_quantity = per_kit_quantity * quantity
         if total_quantity <= 0:
             continue
@@ -154,6 +155,8 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
             continue
 
         contribution.labor_raw_total += unit_price * total_quantity
+        if getattr(override, "excluded_from_composition", False):
+            continue
         contribution.labor_quantity += total_quantity
         if override.duration:
             contribution.labor_duration += override.duration * total_quantity
