@@ -140,6 +140,18 @@ class FinancialMovement(TimeStampedModel):
             gross_amount.currency,
         )
 
+    @property
+    def resolved_discount_amount(self) -> Money:
+        """Return the effective discount recorded between gross and net values."""
+        gross_amount = self.gross_amount or self.amount or Money(Decimal("0.00"), "BRL")
+        net_amount = self.amount or Money(Decimal("0.00"), gross_amount.currency)
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        net_value = Decimal(str(net_amount.amount or 0))
+        return Money(
+            max(gross_value - net_value, Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            gross_amount.currency,
+        )
+
     def _auto_assign_budget_plan(self) -> None:
         """
         Lógica interna para atribuir automaticamente o Plano Orçamentário (FinancialGroup)
