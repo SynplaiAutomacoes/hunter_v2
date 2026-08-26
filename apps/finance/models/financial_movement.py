@@ -1,3 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from django.db import models
 
@@ -5,6 +6,8 @@ from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
 from django.conf import settings
+from django.utils import timezone
+from djmoney.money import Money
 
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
@@ -41,6 +44,11 @@ class FinancialMovement(TimeStampedModel):
         TRANSPORT = "TRANSPORT", "Vale Transporte"
         COMMISSION = "COMMISSION", "Comissão"
 
+    class DiscountMode(models.TextChoices):
+        NONE = "NONE", "Sem desconto"
+        AMOUNT = "AMOUNT", "Desconto em reais (R$)"
+        PERCENTAGE = "PERCENTAGE", "Desconto em percentual (%)"
+
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveSmallIntegerField(default=1)
@@ -73,6 +81,11 @@ class FinancialMovement(TimeStampedModel):
     direction = models.CharField(max_length=50, verbose_name="Tipo", choices=MovementDirection.choices, blank=True, null=True)
     payment_method = models.ForeignKey(PaymentMethod, verbose_name="Forma de Pagamento", on_delete=models.PROTECT, blank=True, null=True)
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
+    entry_date = models.DateField(verbose_name="Data de Lançamento", default=timezone.localdate)
+    gross_amount = MoneyField(verbose_name="Valor Bruto", max_digits=14, decimal_places=2, null=True, blank=True)
+    discount_mode = models.CharField(verbose_name="Tipo de Desconto", max_length=12, choices=DiscountMode.choices, default=DiscountMode.NONE)
+    discount_value = MoneyField(verbose_name="Desconto (R$)", max_digits=14, decimal_places=2, default=0)
+    discount_percentage = models.DecimalField(verbose_name="Desconto (%)", max_digits=7, decimal_places=4, default=Decimal("0.00"))
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
     due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
     is_paid = models.BooleanField(verbose_name="Pago", default=False)
@@ -104,10 +117,41 @@ class FinancialMovement(TimeStampedModel):
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.gross_amount is None:
+            self.gross_amount = self.amount or Money(Decimal("0.00"), "BRL")
+        self._sync_net_amount_from_discount()
         if not self.budget_plan:
             self._auto_assign_budget_plan()
 
         super().save(*args, **kwargs)
+
+    def _sync_net_amount_from_discount(self) -> None:
+        gross_amount = self.gross_amount or Money(Decimal("0.00"), "BRL")
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        discount = Decimal("0.00")
+
+        if self.discount_mode == self.DiscountMode.AMOUNT:
+            discount = Decimal(str((self.discount_value or Money(0, gross_amount.currency)).amount or 0))
+        elif self.discount_mode == self.DiscountMode.PERCENTAGE:
+            discount = gross_value * Decimal(str(self.discount_percentage or 0)) / Decimal("100")
+
+        discount = min(max(discount, Decimal("0.00")), gross_value)
+        self.amount = Money(
+            (gross_value - discount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            gross_amount.currency,
+        )
+
+    @property
+    def resolved_discount_amount(self) -> Money:
+        """Return the effective discount recorded between gross and net values."""
+        gross_amount = self.gross_amount or self.amount or Money(Decimal("0.00"), "BRL")
+        net_amount = self.amount or Money(Decimal("0.00"), gross_amount.currency)
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        net_value = Decimal(str(net_amount.amount or 0))
+        return Money(
+            max(gross_value - net_value, Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            gross_amount.currency,
+        )
 
     def _auto_assign_budget_plan(self) -> None:
         """

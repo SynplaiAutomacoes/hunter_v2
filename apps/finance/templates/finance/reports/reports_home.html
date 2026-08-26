@@ -337,6 +337,7 @@
                                             <th>Pago</th>
                                             <th>Conciliado</th>
                                             <th>Tipo</th>
+                                            <th>Lançamento</th>
                                             <th>Vencimento</th>
                                             <th>Agente</th>
                                             <th>Descrição</th>
@@ -378,6 +379,7 @@
                                                     {% endif %}
                                                 </td>
                                                 <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
+                                                <td>{{ row.entry_date|date:"d/m/Y"|default:"-" }}</td>
                                                 <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
                                                 <td>{{ row.agent }}</td>
                                                 <td>{{ row.description }}</td>
@@ -392,11 +394,18 @@
                                                         <span class="material-icons text-sm">edit</span>
                                                     </button>
                                                 </td>
-                                                <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
+                                                <td class="text-right">
+                                                    <span class="{{ row.total.class }}">{{ row.total.text }}</span>
+                                                    {% if row.has_discount %}
+                                                        <div class="mt-1 whitespace-nowrap text-[11px] text-base-content/55">
+                                                            Bruto {{ row.gross_amount }} · Desc. -{{ row.discount_amount }}
+                                                        </div>
+                                                    {% endif %}
+                                                </td>
                                             </tr>
                                             {% if row.is_expandable %}
                                                 <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
-                                                    <td colspan="11" class="p-0">
+                                                    <td colspan="12" class="p-0">
                                                         <div class="border-t border-base-300 px-4 py-4 md:px-6">
                                                             <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
                                                                 <table class="table table-sm">

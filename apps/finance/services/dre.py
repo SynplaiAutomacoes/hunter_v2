@@ -699,8 +699,6 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool, workorder_pa
     elif m.payment_method_id:
         reference_parts.append(f"Pagamento: {m.payment_method}")
 
-    created_at = getattr(m, "criado_em", None)
-
     workorder_id = None
     if m.workorder_id:
         workorder_id = m.workorder_id
@@ -712,7 +710,7 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool, workorder_pa
         "workorder_id": workorder_id,
         "summary": summary,
         "reference": " | ".join(reference_parts) or "-",
-        "entry_date": created_at.date() if created_at else None,
+        "entry_date": m.entry_date,
         "payment_date": payment_date,
         "amount": amount,
         "budget_plan": getattr(m, "budget_plan", None),
