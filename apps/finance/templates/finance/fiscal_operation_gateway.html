@@ -4,54 +4,112 @@
     <div class="flex items-center justify-between gap-4">
         <div>
             <h1 class="text-3xl font-bold text-base-content">Emitir Nota</h1>
-            <p class="mt-1 text-base-content/70">Escolha a operação fiscal que deseja realizar.</p>
+            <p class="mt-1 text-base-content/70">
+                {% if gateway_step == 'linkage' %}
+                    Escolha o fluxo de emissão para {{ selected_document_label }}.
+                {% else %}
+                    Escolha a operação fiscal que deseja realizar.
+                {% endif %}
+            </p>
         </div>
     </div>
 
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8">
-            <div>
-                <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa inicial</p>
-                <h2 class="mt-1 text-2xl font-bold text-base-content">Tipo de operação</h2>
-                <p class="mt-2 text-base-content/70">Selecione uma opção para continuar com a emissão ou operação fiscal.</p>
-            </div>
+            {% if gateway_step == 'linkage' %}
+                <div>
+                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 2 de 2</p>
+                    <h2 class="mt-1 text-2xl font-bold text-base-content">Como deseja emitir a {{ selected_document_label }}?</h2>
+                    <p class="mt-2 text-base-content/70">Selecione se a nota será vinculada a uma Ordem de Serviço ou emitida de forma avulsa.</p>
+                </div>
 
-            <form method="post" class="mt-6 space-y-6">
-                {% csrf_token %}
+                <form method="post" class="mt-6 space-y-6">
+                    {% csrf_token %}
+                    <input type="hidden" name="operation" value="{{ selected_document }}">
+                    <input type="hidden" name="gateway_step" value="linkage">
 
-                {% if form.operation.errors %}
-                    <div class="alert alert-error">
-                        {% for error in form.operation.errors %}<span>{{ error }}</span>{% endfor %}
+                    {% if form.linkage.errors %}
+                        <div class="alert alert-error">
+                            {% for error in form.linkage.errors %}<span>{{ error }}</span>{% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        {% for card in linkage_cards %}
+                            <label class="group flex cursor-pointer items-start gap-4 rounded-2xl border border-base-300 bg-base-100 p-5 transition hover:border-primary/60 hover:shadow-md has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+                                <input
+                                    type="radio"
+                                    name="{{ form.linkage.html_name }}"
+                                    value="{{ card.value }}"
+                                    class="radio radio-primary mt-1 shrink-0"
+                                    {% if form.linkage.value == card.value %}checked{% endif %}
+                                    required
+                                >
+                                <span class="material-icons rounded-xl bg-base-200 p-3 text-primary transition group-hover:bg-primary/10">{{ card.icon }}</span>
+                                <span>
+                                    <span class="block text-lg font-semibold text-base-content">{{ card.label }}</span>
+                                    <span class="mt-1 block text-sm leading-relaxed text-base-content/70">{{ card.description }}</span>
+                                </span>
+                            </label>
+                        {% endfor %}
                     </div>
-                {% endif %}
 
-                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    {% for card in operation_cards %}
-                        <label class="group flex cursor-pointer items-start gap-4 rounded-2xl border border-base-300 bg-base-100 p-5 transition hover:border-primary/60 hover:shadow-md has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
-                            <input
-                                type="radio"
-                                name="{{ form.operation.html_name }}"
-                                value="{{ card.value }}"
-                                class="radio radio-primary mt-1 shrink-0"
-                                {% if form.operation.value == card.value %}checked{% endif %}
-                                required
-                            >
-                            <span class="material-icons rounded-xl bg-base-200 p-3 text-primary transition group-hover:bg-primary/10">{{ card.icon }}</span>
-                            <span>
-                                <span class="block text-lg font-semibold text-base-content">{{ card.label }}</span>
-                                <span class="mt-1 block text-sm leading-relaxed text-base-content/70">{{ card.description }}</span>
-                            </span>
-                        </label>
-                    {% endfor %}
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-t border-base-200 pt-5">
+                        <a href="{{ operation_step_url }}" class="btn btn-outline gap-2">
+                            <span class="material-icons text-sm">arrow_back</span>
+                            Voltar
+                        </a>
+                        <button type="submit" class="btn btn-primary gap-2">
+                            Continuar
+                            <span class="material-icons text-sm">arrow_forward</span>
+                        </button>
+                    </div>
+                </form>
+            {% else %}
+                <div>
+                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 1 de 2</p>
+                    <h2 class="mt-1 text-2xl font-bold text-base-content">Tipo de operação</h2>
+                    <p class="mt-2 text-base-content/70">Selecione uma opção para continuar com a emissão ou operação fiscal.</p>
                 </div>
 
-                <div class="flex justify-end border-t border-base-200 pt-5">
-                    <button type="submit" class="btn btn-primary gap-2">
-                        Continuar
-                        <span class="material-icons text-sm">arrow_forward</span>
-                    </button>
-                </div>
-            </form>
+                <form method="post" class="mt-6 space-y-6">
+                    {% csrf_token %}
+                    <input type="hidden" name="gateway_step" value="operation">
+
+                    {% if form.operation.errors %}
+                        <div class="alert alert-error">
+                            {% for error in form.operation.errors %}<span>{{ error }}</span>{% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                        {% for card in operation_cards %}
+                            <label class="group flex cursor-pointer items-start gap-4 rounded-2xl border border-base-300 bg-base-100 p-5 transition hover:border-primary/60 hover:shadow-md has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+                                <input
+                                    type="radio"
+                                    name="{{ form.operation.html_name }}"
+                                    value="{{ card.value }}"
+                                    class="radio radio-primary mt-1 shrink-0"
+                                    {% if form.operation.value == card.value %}checked{% endif %}
+                                    required
+                                >
+                                <span class="material-icons rounded-xl bg-base-200 p-3 text-primary transition group-hover:bg-primary/10">{{ card.icon }}</span>
+                                <span>
+                                    <span class="block text-lg font-semibold text-base-content">{{ card.label }}</span>
+                                    <span class="mt-1 block text-sm leading-relaxed text-base-content/70">{{ card.description }}</span>
+                                </span>
+                            </label>
+                        {% endfor %}
+                    </div>
+
+                    <div class="flex justify-end border-t border-base-200 pt-5">
+                        <button type="submit" class="btn btn-primary gap-2">
+                            Continuar
+                            <span class="material-icons text-sm">arrow_forward</span>
+                        </button>
+                    </div>
+                </form>
+            {% endif %}
         </div>
     </div>
 {% endblock %}

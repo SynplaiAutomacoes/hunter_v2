@@ -10,6 +10,8 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.generic import FormView
 
+from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.forms.emission import EmissionNfeConfigForm, EmissionNfseConfigForm
@@ -20,6 +22,8 @@ from apps.finance.forms.standalone_emission import (
     StandaloneManualServiceForm,
     StandaloneNoteModeForm,
     StandaloneRecipientForm,
+    _line_pricing_snapshot,
+    _resolve_unit_value,
     build_standalone_items_form,
 )
 from apps.finance.models.finance import NfeRequestStatus, NfseRequestStatus
@@ -61,8 +65,10 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
 
     def get_steps_definition(self, state: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         resolved_state = state or self._default_state()
-        steps = list(self.base_steps_definition)
         note_mode = normalize_note_mode(resolved_state.get("note_mode"))
+        steps = list(self.base_steps_definition)
+        if note_mode:
+            steps = [step for step in steps if step["key"] != "note_mode"]
         steps.extend(self.dynamic_steps_by_mode.get(note_mode, []))
         return steps
 
@@ -227,6 +233,20 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             context["add_service_form"] = StandaloneAddServiceForm(workshop=self.workshop)
             context["manual_product_form"] = StandaloneManualProductForm()
             context["manual_service_form"] = StandaloneManualServiceForm()
+            context["product_price_map"] = {
+                str(product.pk): {
+                    "cost": str(product.cost_price.amount if product.cost_price else 0),
+                    "sell": str(product.selling_price.amount if product.selling_price else 0),
+                }
+                for product in Product.objects.filter(workshop=self.workshop, is_active=True)
+            }
+            context["service_price_map"] = {
+                str(service.pk): {
+                    "cost": str(service.suggested_cost.amount if service.suggested_cost else 0),
+                    "sell": str(service.selling_price.amount if service.selling_price else 0),
+                }
+                for service in Service.objects.filter(workshop=self.workshop, is_active=True)
+            }
         return context
 
     def _submit_button_label(self, *, state: dict[str, Any], step_key: str) -> str:
@@ -266,14 +286,19 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             form = StandaloneAddProductForm(self.request.POST, workshop=self.workshop)
             if form.is_valid():
                 product = form.cleaned_data["product"]
-                unit_value = form.cleaned_data.get("unit_value")
-                state.setdefault("nfe_lines", []).append(
-                    product_line_from_catalog(
-                        product=product,
-                        quantity=form.cleaned_data["quantity"],
-                        unit_value=unit_value,
-                    )
+                quantity = form.cleaned_data["quantity"]
+                unit_value = _resolve_unit_value(
+                    quantity=quantity,
+                    unit_value=form.cleaned_data.get("unit_value"),
+                    total_value=form.cleaned_data.get("total_value"),
                 )
+                line = product_line_from_catalog(
+                    product=product,
+                    quantity=quantity,
+                    unit_value=unit_value,
+                    cost_value=form.cleaned_data.get("cost_value"),
+                )
+                state.setdefault("nfe_lines", []).append(line)
                 self._write_state(state)
                 messages.success(self.request, "Produto adicionado.")
             else:
@@ -283,6 +308,17 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         if "add_manual_product" in self.request.POST:
             form = StandaloneManualProductForm(self.request.POST)
             if form.is_valid():
+                quantity = form.cleaned_data["quantity"]
+                unit_value = _resolve_unit_value(
+                    quantity=quantity,
+                    unit_value=form.cleaned_data.get("unit_value"),
+                    total_value=form.cleaned_data.get("total_value"),
+                )
+                pricing = _line_pricing_snapshot(
+                    quantity=quantity,
+                    cost_value=form.cleaned_data.get("cost_value"),
+                    unit_value=unit_value,
+                )
                 state.setdefault("nfe_lines", []).append(
                     {
                         "description": form.cleaned_data["description"],
@@ -291,8 +327,7 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
                         "cest": "",
                         "unit": form.cleaned_data["unit"],
                         "origin": 0,
-                        "quantity": str(form.cleaned_data["quantity"]),
-                        "unit_value": str(form.cleaned_data["unit_value"]),
+                        **pricing,
                     }
                 )
                 self._write_state(state)
@@ -305,14 +340,19 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             form = StandaloneAddServiceForm(self.request.POST, workshop=self.workshop)
             if form.is_valid():
                 service = form.cleaned_data["service"]
-                unit_value = form.cleaned_data.get("unit_value")
-                state.setdefault("nfse_lines", []).append(
-                    service_line_from_catalog(
-                        service=service,
-                        quantity=form.cleaned_data["quantity"],
-                        unit_value=unit_value,
-                    )
+                quantity = form.cleaned_data["quantity"]
+                unit_value = _resolve_unit_value(
+                    quantity=quantity,
+                    unit_value=form.cleaned_data.get("unit_value"),
+                    total_value=form.cleaned_data.get("total_value"),
                 )
+                line = service_line_from_catalog(
+                    service=service,
+                    quantity=quantity,
+                    unit_value=unit_value,
+                    cost_value=form.cleaned_data.get("cost_value"),
+                )
+                state.setdefault("nfse_lines", []).append(line)
                 self._write_state(state)
                 messages.success(self.request, "Serviço adicionado.")
             else:
@@ -322,11 +362,21 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         if "add_manual_service" in self.request.POST:
             form = StandaloneManualServiceForm(self.request.POST)
             if form.is_valid():
+                quantity = form.cleaned_data["quantity"]
+                unit_value = _resolve_unit_value(
+                    quantity=quantity,
+                    unit_value=form.cleaned_data.get("unit_value"),
+                    total_value=form.cleaned_data.get("total_value"),
+                )
+                pricing = _line_pricing_snapshot(
+                    quantity=quantity,
+                    cost_value=form.cleaned_data.get("cost_value"),
+                    unit_value=unit_value,
+                )
                 state.setdefault("nfse_lines", []).append(
                     {
                         "description": form.cleaned_data["description"],
-                        "quantity": str(form.cleaned_data["quantity"]),
-                        "unit_value": str(form.cleaned_data["unit_value"]),
+                        **pricing,
                     }
                 )
                 self._write_state(state)
@@ -470,6 +520,14 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             return self._close_wizard()
         if request.GET.get("reset") == "1":
             self._clear_state()
+            note_mode = normalize_note_mode(request.GET.get("note_mode") or request.GET.get("tipo"))
+            if note_mode:
+                state = self._default_state()
+                state["note_mode"] = note_mode
+                recipient_step = self._get_step_number(step_key="recipient", state=state) or 1
+                state["current_step"] = recipient_step
+                state["max_reached_step"] = recipient_step
+                self._write_state(state)
         return super().get(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
