@@ -3,7 +3,7 @@ from decimal import Decimal
 from django import forms
 from djmoney.money import Money
 
-from apps.core.presentation.widgets import CalendarDateInput, DecimalInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CalendarDateInput, DecimalInput, MoneyInput, NumberInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import FinancialMovement, MovementGroup, PaymentMethod
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreForm, CoreModelForm
