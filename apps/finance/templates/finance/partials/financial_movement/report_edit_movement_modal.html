@@ -16,12 +16,6 @@
                     <span class="material-icons text-primary text-2xl">edit</span>
                     Editar Movimentação Financeira
                 </h3>
-                {% if movement.installment_plan_id and movement.installment_number and movement.installments_count %}
-                <span class="badge badge-warning gap-1 font-semibold text-warning-content shadow-sm">
-                    <span class="material-icons text-sm">calendar_month</span>
-                    Parcela {{ movement.installment_number }} de {{ movement.installments_count }}
-                </span>
-                {% endif %}
             </div>
             <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.editMovementModal.close()" aria-label="Fechar">
                 <span class="material-icons text-xl">close</span>
