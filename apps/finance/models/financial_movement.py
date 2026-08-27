@@ -1,11 +1,12 @@
+from decimal import Decimal
 from typing import Any
-from django.db import models
-
-from apps.core.infrastructure.models import TimeStampedModel
-from djmoney.models.fields import MoneyField
 
 from django.conf import settings
+from django.db import models
+from django.utils import timezone
+from djmoney.models.fields import MoneyField
 
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 
@@ -41,6 +42,11 @@ class FinancialMovement(TimeStampedModel):
         TRANSPORT = "TRANSPORT", "Vale Transporte"
         COMMISSION = "COMMISSION", "Comissão"
 
+    class DiscountMode(models.TextChoices):
+        NONE = "NONE", "Sem desconto"
+        AMOUNT = "AMOUNT", "Desconto em reais (R$)"
+        PERCENTAGE = "PERCENTAGE", "Desconto em percentual (%)"
+
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveSmallIntegerField(default=1)
@@ -73,6 +79,11 @@ class FinancialMovement(TimeStampedModel):
     direction = models.CharField(max_length=50, verbose_name="Tipo", choices=MovementDirection.choices, blank=True, null=True)
     payment_method = models.ForeignKey(PaymentMethod, verbose_name="Forma de Pagamento", on_delete=models.PROTECT, blank=True, null=True)
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
+    entry_date = models.DateField(verbose_name="Data de Lançamento", default=timezone.localdate)
+    gross_amount = MoneyField(verbose_name="Valor Bruto", max_digits=14, decimal_places=2, null=True, blank=True)
+    discount_mode = models.CharField(verbose_name="Tipo de Desconto", max_length=12, choices=DiscountMode.choices, default=DiscountMode.NONE)
+    discount_value = MoneyField(verbose_name="Desconto (R$)", max_digits=14, decimal_places=2, default=0)
+    discount_percentage = models.DecimalField(verbose_name="Desconto (%)", max_digits=7, decimal_places=4, default=Decimal("0.00"))
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
     due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
     is_paid = models.BooleanField(verbose_name="Pago", default=False)
