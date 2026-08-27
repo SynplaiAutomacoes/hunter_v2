@@ -1231,6 +1231,15 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
         details_context = self._build_entity_details_context()
 
+        installment_indicator_html = ""
+        if self.instance.installment_plan_id and self.instance.installment_number and self.instance.installments_count:
+            installment_indicator_html = (
+                '<span class="badge badge-warning gap-1 font-semibold text-warning-content shadow-sm">'
+                '<span class="material-icons text-sm">calendar_month</span>'
+                f"Parcela {self.instance.installment_number} de {self.instance.installments_count}"
+                "</span>"
+            )
+
         source_info_html = ""
         if self.instance.pk and self.instance.source_id and not self.instance.supplier_id and not self.instance.collaborator_id:
             source_name = str(getattr(self.instance.source, "name", "") or "")
@@ -1266,7 +1275,13 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             else HTML(""),
             HTML("</section>") if self.instance.workorder_id is None else HTML(""),
             HTML('<section x-show="activeTab === \'payment\'" x-cloak class="space-y-4">'),
-            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'),
+            HTML(
+                '<div class="flex items-center justify-between gap-4 mb-3">'
+                '<h3 class="text-base font-semibold text-base-content flex items-center gap-2">'
+                '<span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'
+                f"{installment_indicator_html}"
+                "</div>"
+            ),
             Div(
                 Div("entry_date", css_class="col-span-12 lg:col-span-4"),
                 Div("due_date", css_class="col-span-12 lg:col-span-4"),
