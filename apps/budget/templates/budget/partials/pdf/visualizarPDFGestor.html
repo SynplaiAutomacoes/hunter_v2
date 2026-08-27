@@ -97,9 +97,8 @@
           {% endif %}
 
           <div class="min-w-0">
-            <h3 class="text-[18px] font-bold uppercase m-0">
-              {{ budget.workshop.pdf_name|default:"-" }}
-            </h3>
+            <h3 class="text-[18px] font-bold uppercase m-0">{{ budget.workshop.nome_fantasia_display }}</h3>
+            <p>{{ budget.workshop.razao_social_display }}</p>
             <p>CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</p>
             <p>{{ budget.workshop.address|default:"-" }}</p>
             <p>Fone: {{ budget.workshop.pdf_phone|phone_br|default:"-" }}</p>
