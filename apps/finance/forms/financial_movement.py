@@ -225,8 +225,8 @@ FINANCIAL_INSTALLMENTS_UI_SCRIPT = """
             }
             const renderedAmounts = [...scheduleContainer.querySelectorAll('[name="installment_amount"]')].map((input) => input.value);
             const renderedDates = [...scheduleContainer.querySelectorAll('[name="installment_due_date"]')].map((input) => input.value);
-            const previous = preserve && renderedAmounts.length ? renderedAmounts : initialSchedule.map((item) => item.amount);
-            const dates = preserve && renderedDates.length ? renderedDates : initialSchedule.map((item) => item.due_date);
+            const previous = preserve ? (renderedAmounts.length ? renderedAmounts : initialSchedule.map((item) => item.amount)) : [];
+            const dates = preserve ? (renderedDates.length ? renderedDates : initialSchedule.map((item) => item.due_date)) : [];
             const cents = Math.round(netAmount() * 100);
             const each = Math.floor(cents / count);
             const remainder = cents % count;
