@@ -32,46 +32,70 @@ class FinancialMovementBaseForm(CoreModelForm):
         gross_amount = cleaned_data.get("gross_amount")
         discount_mode = cleaned_data.get("discount_mode") or FinancialMovement.DiscountMode.NONE
         discount_value = cleaned_data.get("discount_value")
-        discount_percentage = cleaned_data.get("discount_percentage") or Decimal("0.00")
+        discount_percentage = cleaned_data.get("discount_percentage") or getattr(self.instance, "discount_percentage", Decimal("0.00")) or Decimal("0.00")
 
         if gross_amount is None:
             return cleaned_data
 
         gross_value = Decimal(str(gross_amount.amount or 0))
-        discount_amount = Decimal("0.00")
+        adjustment_amount = Decimal("0.00")
         if discount_mode == FinancialMovement.DiscountMode.AMOUNT:
-            discount_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
-            if discount_amount <= 0:
+            adjustment_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
+            if adjustment_amount <= 0:
                 self.add_error("discount_value", "Informe o valor do desconto.")
-            if discount_amount > gross_value:
+            if adjustment_amount > gross_value:
                 self.add_error("discount_value", "O desconto não pode ser maior que o valor bruto.")
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+        elif discount_mode == FinancialMovement.DiscountMode.SURCHARGE:
+            adjustment_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
+            if adjustment_amount <= 0:
+                self.add_error("discount_value", "Informe o valor do acréscimo.")
             cleaned_data["discount_percentage"] = Decimal("0.00")
         elif discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
             if discount_percentage <= 0:
-                self.add_error("discount_percentage", "Informe o percentual do desconto.")
+                self.add_error("discount_mode", "O desconto percentual legado deve possuir um percentual válido.")
             if discount_percentage > Decimal("100"):
-                self.add_error("discount_percentage", "O desconto percentual não pode ser maior que 100%.")
-            discount_amount = gross_value * discount_percentage / Decimal("100")
+                self.add_error("discount_mode", "O desconto percentual legado não pode ser maior que 100%.")
+            adjustment_amount = gross_value * discount_percentage / Decimal("100")
             cleaned_data["discount_value"] = gross_amount.__class__(Decimal("0.00"), gross_amount.currency)
         else:
             cleaned_data["discount_value"] = gross_amount.__class__(Decimal("0.00"), gross_amount.currency)
             cleaned_data["discount_percentage"] = Decimal("0.00")
 
-        if discount_amount < 0:
-            self.add_error("discount_value" if discount_mode == FinancialMovement.DiscountMode.AMOUNT else "discount_percentage", "O desconto não pode ser negativo.")
+        if adjustment_amount < 0:
+            self.add_error("discount_value" if discount_mode in (FinancialMovement.DiscountMode.AMOUNT, FinancialMovement.DiscountMode.SURCHARGE) else "discount_percentage", "O ajuste não pode ser negativo.")
 
         if not self.errors:
+            net_amount = gross_value + adjustment_amount if discount_mode == FinancialMovement.DiscountMode.SURCHARGE else gross_value - adjustment_amount
             cleaned_data["amount"] = gross_amount.__class__(
-                (gross_value - discount_amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                net_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                 gross_amount.currency,
             )
         return cleaned_data
 
     def configure_discount_fields(self):
-        self.fields["discount_mode"].label = "Tipo de desconto"
+        is_non_financial_adjustment_context = bool(self.instance.payroll_id or self.instance.movement_group_id)
+        self.fields["discount_mode"].label = "Tipo de desconto" if is_non_financial_adjustment_context else "Desconto ou Acréscimo"
         self.fields["discount_mode"].required = True
         self.fields["discount_value"].required = False
-        self.fields["discount_percentage"].required = False
+        self.fields["discount_value"].label = "Desconto (R$)" if is_non_financial_adjustment_context else "Ajuste (R$)"
+        available_choices = (
+            [
+                (FinancialMovement.DiscountMode.NONE, "Sem desconto"),
+                (FinancialMovement.DiscountMode.AMOUNT, "Desconto em reais (R$)"),
+                (FinancialMovement.DiscountMode.PERCENTAGE, "Desconto em percentual (%)"),
+            ]
+            if is_non_financial_adjustment_context
+            else [
+                (FinancialMovement.DiscountMode.NONE, "Sem desconto ou acréscimo"),
+                (FinancialMovement.DiscountMode.AMOUNT, "Desconto"),
+                (FinancialMovement.DiscountMode.SURCHARGE, "Acréscimo"),
+            ]
+        )
+        if not is_non_financial_adjustment_context and self.instance.pk and self.instance.discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
+            available_choices.append((FinancialMovement.DiscountMode.PERCENTAGE, "Desconto percentual (legado)"))
+        self.fields["discount_mode"].choices = available_choices
+        self.fields["discount_mode"].widget.choices = available_choices
         self.fields["amount"].label = "Valor líquido"
         self.fields["amount"].required = False
         if not self.instance.pk:
@@ -87,12 +111,9 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
         const grossDisplay = document.getElementById('id_gross_amount_0_display');
         const valueHidden = document.getElementById('id_discount_value_0');
         const valueDisplay = document.getElementById('id_discount_value_0_display');
-        const percentage = document.getElementById('id_discount_percentage');
-        const percentageDisplay = percentage?.parentElement?.querySelector('input[x-ref="display"]');
         const netHidden = document.getElementById('id_amount_0');
         const netDisplay = document.getElementById('id_amount_0_display');
         const valueContainer = document.getElementById('discount-value-field');
-        const percentageContainer = document.getElementById('discount-percentage-field');
 
         if (!mode || mode.dataset.discountUiReady === 'true') return;
         mode.dataset.discountUiReady = 'true';
@@ -114,29 +135,23 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
 
         function updateDiscountUi({ resetInactive = false } = {}) {
             const selectedMode = mode.value;
-            if (!['NONE', 'AMOUNT', 'PERCENTAGE'].includes(selectedMode)) return;
+            if (!['NONE', 'AMOUNT', 'SURCHARGE', 'PERCENTAGE'].includes(selectedMode)) return;
 
-            const usesAmount = selectedMode === 'AMOUNT';
-            const usesPercentage = selectedMode === 'PERCENTAGE';
+            const usesAmount = ['AMOUNT', 'SURCHARGE'].includes(selectedMode);
             valueContainer?.classList.toggle('hidden', !usesAmount);
-            percentageContainer?.classList.toggle('hidden', !usesPercentage);
 
             if (resetInactive && !usesAmount) {
                 if (valueHidden) valueHidden.value = '0.00';
                 if (valueDisplay) valueDisplay.value = formatMoney(0);
             }
-            if (resetInactive && !usesPercentage && percentage) percentage.value = '0';
-
             const gross = hiddenMoneyValue(grossHidden, grossDisplay);
-            let discount = 0;
-            if (usesAmount) discount = hiddenMoneyValue(valueHidden, valueDisplay);
-            if (usesPercentage) discount = gross * Math.max(parseNumber(percentageDisplay?.value || percentage?.value), 0) / 100;
-            const net = Math.max(gross - discount, 0);
+            const adjustment = usesAmount ? hiddenMoneyValue(valueHidden, valueDisplay) : 0;
+            const net = selectedMode === 'SURCHARGE' ? gross + adjustment : Math.max(gross - adjustment, 0);
             if (netHidden) netHidden.value = net.toFixed(2);
             if (netDisplay) netDisplay.value = formatMoney(net);
         }
 
-        [grossHidden, grossDisplay, valueHidden, valueDisplay, percentage, percentageDisplay].forEach((field) => {
+        [grossHidden, grossDisplay, valueHidden, valueDisplay].forEach((field) => {
             if (!field) return;
             field.addEventListener('input', updateDiscountUi);
             field.addEventListener('change', updateDiscountUi);
@@ -551,14 +566,13 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
     class Meta:
         model = FinancialMovement
-        fields = ["entry_date", "payment_method", "is_paid", "is_reconciled", "gross_amount", "discount_mode", "discount_value", "discount_percentage", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
+        fields = ["entry_date", "payment_method", "is_paid", "is_reconciled", "gross_amount", "discount_mode", "discount_value", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
         widgets = {
             "entry_date": CalendarDateInput(),
             "payment_method": SearchableSelectInput(),
             "gross_amount": MoneyInput(),
             "discount_mode": SearchableSelectInput(),
             "discount_value": MoneyInput(),
-            "discount_percentage": DecimalInput(min_value=0, max_value=100, decimal_places=2),
             "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "due_date": CalendarDateInput(),
             "nf_number": NumberInput(),
@@ -639,11 +653,10 @@ class MovementStep3Form(FinancialMovementBaseForm):
                     css_class="col-span-6",
                 ),
                 #
-                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e desconto</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto. O valor líquido será calculado automaticamente.</p></div>'),
+                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-4"),
                 Div("discount_mode", css_class="col-span-4"),
                 Div("discount_value", css_class="col-span-4", css_id="discount-value-field"),
-                Div("discount_percentage", css_class="col-span-4", css_id="discount-percentage-field"),
                 Div("amount", css_class="col-span-4", css_id="net-amount-field"),
                 #
                 Div("attachment", css_class="col-span-12"),
@@ -887,7 +900,6 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "gross_amount",
             "discount_mode",
             "discount_value",
-            "discount_percentage",
             "amount",
             "budget_plan",
             "bank_account",
@@ -909,7 +921,6 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "gross_amount": MoneyInput(),
             "discount_mode": SearchableSelectInput(),
             "discount_value": MoneyInput(),
-            "discount_percentage": DecimalInput(min_value=0, max_value=100, decimal_places=2),
             "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),
@@ -1059,11 +1070,10 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("is_reconciled", css_class="col-span-12 lg:col-span-4"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
-                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e desconto</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto. O valor líquido será calculado automaticamente.</p></div>'),
+                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-12 lg:col-span-4"),
                 Div("discount_mode", css_class="col-span-12 lg:col-span-4"),
                 Div("discount_value", css_class="col-span-12 lg:col-span-4", css_id="discount-value-field"),
-                Div("discount_percentage", css_class="col-span-12 lg:col-span-4", css_id="discount-percentage-field"),
                 Div("amount", css_class="col-span-12 lg:col-span-4", css_id="net-amount-field"),
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
