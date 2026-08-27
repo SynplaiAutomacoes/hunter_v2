@@ -134,9 +134,10 @@
                 {% if movement.installment_plan %}
                 <section x-show="activeTab === 'installments'" x-cloak class="space-y-4">
                     <h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">calendar_month</span> Parcelamento</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
                         <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">Valor bruto original</span><strong>{{ movement.installment_plan.gross_amount }}</strong></div>
-                        <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">Valor líquido original</span><strong>{{ movement.installment_plan.net_amount }}</strong></div>
+                        <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">{% if movement.installment_plan.adjustment_mode == 'SURCHARGE' %}Acréscimo original{% elif movement.installment_plan.adjustment_mode == 'AMOUNT' %}Desconto original{% else %}Ajuste original{% endif %}</span><strong>{{ movement.installment_plan.adjustment_value }}</strong></div>
+                        <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">Valor final</span><strong>{{ movement.installment_plan.net_amount }}</strong></div>
                         <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">Quantidade</span><strong>{{ movement.installment_plan.installments_count }} parcelas</strong></div>
                     </div>
                     <div class="overflow-x-auto bg-base-100 rounded-xl border border-base-200">
