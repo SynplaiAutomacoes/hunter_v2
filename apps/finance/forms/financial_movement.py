@@ -115,6 +115,7 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
         const netHidden = document.getElementById('id_amount_0');
         const netDisplay = document.getElementById('id_amount_0_display');
         const valueContainer = document.getElementById('discount-value-field');
+        const valueLabel = valueContainer?.querySelector('label');
 
         if (!mode || mode.dataset.discountUiReady === 'true') return;
         mode.dataset.discountUiReady = 'true';
@@ -140,6 +141,9 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
 
             const usesAmount = ['AMOUNT', 'SURCHARGE'].includes(selectedMode);
             valueContainer?.classList.toggle('hidden', !usesAmount);
+            if (valueLabel) {
+                valueLabel.textContent = selectedMode === 'SURCHARGE' ? 'Acréscimo (R$)' : 'Desconto (R$)';
+            }
 
             if (resetInactive && !usesAmount) {
                 if (valueHidden) valueHidden.value = '0.00';
@@ -679,7 +683,12 @@ class MovementStep3Form(FinancialMovementBaseForm):
         if self.instance.installment_plan_id:
             self.initial["installments_count"] = self.instance.installments_count
 
-        repeat_choices = [("mensal", "Mensal")]
+        repeat_choices = [
+            ("mensal", "Mensal"),
+            ("quinzenal", "Quinzenal"),
+            ("semanal", "Semanal"),
+            ("diario", "Diário"),
+        ]
         has_collab = getattr(self.instance, "collaborator_id", None)
         if has_collab:
             repeat_choices.append(("5_dia_util", "5º dia útil"))
@@ -703,10 +712,13 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
             self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_methods]
 
-        top_btn = '<input class="join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary" type="radio" name="repeat_type" value="mensal" aria-label="Mensal" checked />'
-        bot_btn = '<input class="join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary" type="radio" name="repeat_type" value="5_dia_util" aria-label="5º dia útil" />'
-
-        repeat_html = f'<div class="join">{top_btn}{bot_btn if has_collab else ""}</div>'
+        btn_class = "join-item btn bg-base-200 border-base-300 font-normal shadow-none px-6 checked:bg-primary checked:text-primary-content checked:border-primary"
+        btn_mensal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="mensal" aria-label="Mensal" checked />'
+        btn_quinzenal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="quinzenal" aria-label="Quinzenal" />'
+        btn_semanal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="semanal" aria-label="Semanal" />'
+        btn_diario = f'<input class="{btn_class}" type="radio" name="repeat_type" value="diario" aria-label="Diário" />'
+        btn_5_dia_util = f'<input class="{btn_class}" type="radio" name="repeat_type" value="5_dia_util" aria-label="5º dia útil" />'
+        repeat_html = f'<div class="join">{btn_mensal}{btn_quinzenal}{btn_semanal}{btn_diario}{btn_5_dia_util if has_collab else ""}</div>'
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -725,14 +737,13 @@ class MovementStep3Form(FinancialMovementBaseForm):
                     Div(Field("repeat_count", wrapper_class="mb-0"), HTML('<span class="text-sm font-semibold">vezes</span>'), HTML(repeat_html), css_class="flex items-center gap-4 mb-4 col-span-6"),
                     css_class="col-span-6",
                 ),
-                Div("installments_count", css_class="col-span-6", css_id="installments-count-field"),
-                HTML('<div id="installment-schedule" class="col-span-12 hidden rounded-xl border border-primary/25 bg-primary/5 p-4"></div>'),
-                #
                 HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-4"),
                 Div("discount_mode", css_class="col-span-4"),
                 Div("discount_value", css_class="col-span-4", css_id="discount-value-field"),
                 Div("amount", css_class="col-span-4", css_id="net-amount-field"),
+                Div("installments_count", css_class="col-span-6", css_id="installments-count-field"),
+                HTML('<div id="installment-schedule" class="col-span-12 hidden rounded-xl border border-primary/25 bg-primary/5 p-4"></div>'),
                 #
                 Div("attachment", css_class="col-span-12"),
                 Div("financial_observation", css_class="col-span-12"),
