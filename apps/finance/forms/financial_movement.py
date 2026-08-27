@@ -11,7 +11,8 @@ from apps.collaborators.models import WorkshopCollaborator
 from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, DecimalInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
-from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.financial_movement import FinancialMovement, FinancialMovementInstallmentPlan
+from apps.finance.services.movement_grouping import InstallmentScheduleError, build_group_installments, parse_group_installment_schedule
 from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
@@ -169,6 +170,76 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
 
     initializeFinancialDiscountFields();
     document.body.addEventListener('htmx:afterSwap', initializeFinancialDiscountFields);
+})();
+</script>
+"""
+
+
+FINANCIAL_INSTALLMENTS_UI_SCRIPT = """
+<script>
+(function () {
+    function initializeFinancialInstallments() {
+        const countField = document.getElementById('id_installments_count');
+        const scheduleContainer = document.getElementById('installment-schedule');
+        const dueDate = document.getElementById('id_due_date');
+        const gross = document.getElementById('id_gross_amount_0');
+        const grossDisplay = document.getElementById('id_gross_amount_0_display');
+        const adjustment = document.getElementById('id_discount_value_0');
+        const adjustmentDisplay = document.getElementById('id_discount_value_0_display');
+        const mode = document.getElementById('id_discount_mode');
+        if (!countField || !scheduleContainer || countField.dataset.installmentUiReady === 'true') return;
+        countField.dataset.installmentUiReady = 'true';
+
+        const number = (value) => {
+            const text = String(value || '').trim();
+            const normalized = text.includes(',') ? text.replace(/\\./g, '').replace(',', '.') : text;
+            return Number.isFinite(Number(normalized)) ? Number(normalized) : 0;
+        };
+        const moneyValue = (hidden, display) => hidden?.value !== '' ? number(hidden.value) : number(display?.value);
+        const addMonths = (value, months) => {
+            const [year, month, day] = String(value).split('-').map(Number);
+            const result = new Date(year, month - 1 + months, 1);
+            result.setDate(Math.min(day, new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate()));
+            return `${result.getFullYear()}-${String(result.getMonth() + 1).padStart(2, '0')}-${String(result.getDate()).padStart(2, '0')}`;
+        };
+        const netAmount = () => {
+            const base = moneyValue(gross, grossDisplay);
+            const value = moneyValue(adjustment, adjustmentDisplay);
+            return mode?.value === 'SURCHARGE' ? base + value : Math.max(base - value, 0);
+        };
+        function generate({ preserve = false } = {}) {
+            const count = Math.max(Number(countField.value || 1), 1);
+            const firstDate = dueDate?.value;
+            if (count === 1 || !firstDate) {
+                scheduleContainer.classList.add('hidden');
+                scheduleContainer.innerHTML = '';
+                return;
+            }
+            const previous = preserve ? [...scheduleContainer.querySelectorAll('[name="installment_amount"]')].map((input) => input.value) : [];
+            const dates = preserve ? [...scheduleContainer.querySelectorAll('[name="installment_due_date"]')].map((input) => input.value) : [];
+            const cents = Math.round(netAmount() * 100);
+            const each = Math.floor(cents / count);
+            const remainder = cents % count;
+            const rows = Array.from({ length: count }, (_, index) => {
+                const amount = previous[index] || ((each + (index === count - 1 ? remainder : 0)) / 100).toFixed(2);
+                const date = dates[index] || addMonths(firstDate, index);
+                return `<tr><td class="font-medium">${index + 1}/${count}</td><td><input type="date" class="input input-bordered input-sm w-full" name="installment_due_date" value="${date}" required></td><td><input type="number" step="0.01" min="0.01" class="input input-bordered input-sm w-full text-right" name="installment_amount" value="${amount}" required></td></tr>`;
+            }).join('');
+            scheduleContainer.innerHTML = `<div class="flex items-center justify-between gap-3"><div><h4 class="font-semibold">Parcelas</h4><p class="mt-1 text-xs text-base-content/60">Esta operação será dividida nas parcelas abaixo. Repetir lançamento continua sendo uma função separada.</p></div><button type="button" class="btn btn-outline btn-sm" id="regenerate-installments">Gerar novamente</button></div><div class="mt-3 overflow-x-auto"><table class="table table-sm"><thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-right">Valor</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            scheduleContainer.classList.remove('hidden');
+            scheduleContainer.querySelector('#regenerate-installments')?.addEventListener('click', () => generate());
+        }
+        countField.addEventListener('input', () => generate());
+        dueDate?.addEventListener('change', () => generate());
+        [gross, grossDisplay, adjustment, adjustmentDisplay, mode].forEach((field) => {
+            field?.addEventListener('input', () => generate());
+            field?.addEventListener('change', () => generate());
+            field?.addEventListener('widget:formatted-change', () => generate());
+        });
+        generate({ preserve: true });
+    }
+    initializeFinancialInstallments();
+    document.body.addEventListener('htmx:afterSwap', initializeFinancialInstallments);
 })();
 </script>
 """
@@ -596,6 +667,17 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["repeat_count"] = forms.IntegerField(required=False, min_value=1, max_value=120, widget=NumberInput(attrs={"class": "w-8 text-center", "placeholder": "1"}))
 
         self.fields["repeat_count"].label = "Repetir este lançamento"
+        self.fields["installments_count"] = forms.IntegerField(
+            label="Número de parcelas",
+            required=False,
+            min_value=1,
+            max_value=60,
+            initial=1,
+            widget=NumberInput(attrs={"id": "id_installments_count", "placeholder": "1"}),
+            help_text="Divide esta operação em parcelas. Não é uma repetição de lançamento.",
+        )
+        if self.instance.installment_plan_id:
+            self.initial["installments_count"] = self.instance.installments_count
 
         repeat_choices = [("mensal", "Mensal")]
         has_collab = getattr(self.instance, "collaborator_id", None)
@@ -643,6 +725,8 @@ class MovementStep3Form(FinancialMovementBaseForm):
                     Div(Field("repeat_count", wrapper_class="mb-0"), HTML('<span class="text-sm font-semibold">vezes</span>'), HTML(repeat_html), css_class="flex items-center gap-4 mb-4 col-span-6"),
                     css_class="col-span-6",
                 ),
+                Div("installments_count", css_class="col-span-6", css_id="installments-count-field"),
+                HTML('<div id="installment-schedule" class="col-span-12 hidden rounded-xl border border-primary/25 bg-primary/5 p-4"></div>'),
                 #
                 HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-4"),
@@ -655,6 +739,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 css_class="grid grid-cols-12 gap-4",
             ),
             HTML(FINANCIAL_DISCOUNT_UI_SCRIPT),
+            HTML(FINANCIAL_INSTALLMENTS_UI_SCRIPT),
         )
 
     def save(self, commit=True):
@@ -670,6 +755,14 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 else:
                     self.request.session.pop(f"repeat_count_{instance.pk}", None)
                     self.request.session.pop(f"repeat_type_{instance.pk}", None)
+                schedule = self.cleaned_data.get("installment_schedule") or []
+                if len(schedule) > 1:
+                    self.request.session[f"installment_schedule_{instance.pk}"] = [
+                        {"number": item.number, "total": item.total, "due_date": item.due_date.isoformat(), "amount": str(item.amount)}
+                        for item in schedule
+                    ]
+                else:
+                    self.request.session.pop(f"installment_schedule_{instance.pk}", None)
         return instance
 
     def clean_financial_observation(self):
@@ -681,6 +774,35 @@ class MovementStep3Form(FinancialMovementBaseForm):
         cleaned_data = self.clean_discount_fields(cleaned_data)
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
+        installments_count = int(cleaned_data.get("installments_count") or 1)
+        repeat_count = int(cleaned_data.get("repeat_count") or 1)
+        if installments_count > 1 and repeat_count > 1:
+            self.add_error("installments_count", "Parcelamento e repetição são processos diferentes e não podem ser usados juntos.")
+            return cleaned_data
+
+        if installments_count > 1 and cleaned_data.get("due_date") and cleaned_data.get("amount"):
+            getlist = getattr(self.data, "getlist", None)
+            due_dates = getlist("installment_due_date") if callable(getlist) else []
+            amounts = getlist("installment_amount") if callable(getlist) else []
+            try:
+                if due_dates or amounts:
+                    schedule = parse_group_installment_schedule(
+                        due_dates=due_dates,
+                        amounts=amounts,
+                        expected_count=installments_count,
+                        expected_total=cleaned_data["amount"].amount,
+                    )
+                else:
+                    schedule = build_group_installments(
+                        total_amount=cleaned_data["amount"].amount,
+                        first_due_date=cleaned_data["due_date"],
+                        installments_count=installments_count,
+                    )
+            except InstallmentScheduleError as exc:
+                self.add_error(None, str(exc))
+            else:
+                cleaned_data["installment_schedule"] = schedule
+                cleaned_data["due_date"] = schedule[0].due_date
         return cleaned_data
 
 
@@ -797,6 +919,12 @@ class MovementStep4Form(FinancialMovementBaseForm):
     def save(self, commit=True):
         instance = super().save(commit=commit)
         if commit:
+            installment_flag_key = f"generated_installments_{instance.pk}"
+            if getattr(self, "request", None) and not self.request.session.get(installment_flag_key):
+                schedule = self.request.session.pop(f"installment_schedule_{instance.pk}", None)
+                if schedule:
+                    self._generate_installments(instance, schedule)
+                    self.request.session[installment_flag_key] = True
             flag_key = f"generated_reps_{instance.pk}"
             if getattr(self, "request", None) and not self.request.session.get(flag_key):
                 repeat_count = self.request.session.pop(f"repeat_count_{instance.pk}", None)
@@ -842,6 +970,47 @@ class MovementStep4Form(FinancialMovementBaseForm):
                 target_date = add_months(instance.due_date, i)
                 new_instance.due_date = get_5th_business_day(target_date.year, target_date.month)
 
+            new_instance.save()
+
+    def _generate_installments(self, instance, schedule):
+        if instance.installment_plan_id or len(schedule) < 2:
+            return
+
+        original_gross_amount = instance.gross_amount
+        original_discount_value = instance.discount_value
+        original_amount = instance.amount
+        plan = FinancialMovementInstallmentPlan.objects.create(
+            workshop=instance.workshop,
+            user=instance.user,
+            gross_amount=original_gross_amount,
+            adjustment_mode=instance.discount_mode,
+            adjustment_value=original_discount_value,
+            net_amount=original_amount,
+            installments_count=len(schedule),
+        )
+        first_installment = schedule[0]
+        instance.installment_plan = plan
+        instance.installment_number = first_installment["number"]
+        instance.installments_count = first_installment["total"]
+        instance.description = f"{instance.description} - Parcela {first_installment['number']}/{first_installment['total']}"
+        instance.due_date = date.fromisoformat(first_installment["due_date"])
+        instance.gross_amount = Money(Decimal(first_installment["amount"]), original_amount.currency)
+        instance.discount_mode = FinancialMovement.DiscountMode.NONE
+        instance.discount_value = Money(Decimal("0.00"), original_amount.currency)
+        instance.discount_percentage = Decimal("0.00")
+        instance.save()
+
+        for installment in schedule[1:]:
+            new_instance = FinancialMovement.objects.get(pk=instance.pk)
+            new_instance.pk = None
+            new_instance.attachment = None
+            new_instance.is_paid = False
+            new_instance.installment_number = installment["number"]
+            new_instance.installments_count = installment["total"]
+            new_instance.description = new_instance.description.rsplit(" - Parcela ", 1)[0] + f" - Parcela {installment['number']}/{installment['total']}"
+            new_instance.due_date = date.fromisoformat(installment["due_date"])
+            new_instance.gross_amount = Money(Decimal(installment["amount"]), original_amount.currency)
+            new_instance.amount = new_instance.gross_amount
             new_instance.save()
 
 

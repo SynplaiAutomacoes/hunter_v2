@@ -27,6 +27,22 @@ def _format_money_for_report(value: Any) -> str:
     return f"R$ {grouped_integer},{decimal_part}"
 
 
+class FinancialMovementInstallmentPlan(TimeStampedModel):
+    """Auditable record for one financial operation split into installments."""
+
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="financial_movement_installment_plans")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    gross_amount = MoneyField(verbose_name="Valor Bruto Original", max_digits=14, decimal_places=2)
+    adjustment_mode = models.CharField(max_length=12, default="NONE")
+    adjustment_value = MoneyField(verbose_name="Ajuste Original", max_digits=14, decimal_places=2, default=0)
+    net_amount = MoneyField(verbose_name="Valor Líquido Original", max_digits=14, decimal_places=2)
+    installments_count = models.PositiveSmallIntegerField(verbose_name="Quantidade de Parcelas")
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Plano de Parcelamento Financeiro"
+        verbose_name_plural = "Planos de Parcelamento Financeiro"
+
+
 class FinancialMovement(TimeStampedModel):
     class MovementDirection(models.TextChoices):
         CREDIT = "CREDIT", "Contas a receber (receita)"
@@ -59,6 +75,16 @@ class FinancialMovement(TimeStampedModel):
     workorder_payment = models.ForeignKey("workorder.WorkOrderPaymentMethod", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
     reversal_of = models.OneToOneField("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reversal_entry")
     movement_group = models.ForeignKey("finance.MovementGroup", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
+    installment_plan = models.ForeignKey(
+        "finance.FinancialMovementInstallmentPlan",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="financial_movements",
+        verbose_name="Parcelamento",
+    )
+    installment_number = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name="Número da Parcela")
+    installments_count = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name="Quantidade de Parcelas")
     payroll = models.ForeignKey("collaborators.CollaboratorPayroll", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
     payroll_component = models.CharField(max_length=32, choices=PayrollComponent.choices, null=True, blank=True)
     payroll_benefit = models.ForeignKey(
