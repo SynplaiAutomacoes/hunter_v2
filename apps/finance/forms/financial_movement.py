@@ -1,3 +1,4 @@
+import json
 import logging
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -191,6 +192,8 @@ FINANCIAL_INSTALLMENTS_UI_SCRIPT = """
         const adjustment = document.getElementById('id_discount_value_0');
         const adjustmentDisplay = document.getElementById('id_discount_value_0_display');
         const mode = document.getElementById('id_discount_mode');
+        const initialScheduleElement = document.getElementById('financial-installment-schedule-initial');
+        const initialSchedule = initialScheduleElement ? JSON.parse(initialScheduleElement.textContent || '[]') : [];
         if (!countField || !scheduleContainer || countField.dataset.installmentUiReady === 'true') return;
         countField.dataset.installmentUiReady = 'true';
 
@@ -219,8 +222,10 @@ FINANCIAL_INSTALLMENTS_UI_SCRIPT = """
                 scheduleContainer.innerHTML = '';
                 return;
             }
-            const previous = preserve ? [...scheduleContainer.querySelectorAll('[name="installment_amount"]')].map((input) => input.value) : [];
-            const dates = preserve ? [...scheduleContainer.querySelectorAll('[name="installment_due_date"]')].map((input) => input.value) : [];
+            const renderedAmounts = [...scheduleContainer.querySelectorAll('[name="installment_amount"]')].map((input) => input.value);
+            const renderedDates = [...scheduleContainer.querySelectorAll('[name="installment_due_date"]')].map((input) => input.value);
+            const previous = preserve && renderedAmounts.length ? renderedAmounts : initialSchedule.map((item) => item.amount);
+            const dates = preserve && renderedDates.length ? renderedDates : initialSchedule.map((item) => item.due_date);
             const cents = Math.round(netAmount() * 100);
             const each = Math.floor(cents / count);
             const remainder = cents % count;
@@ -683,6 +688,22 @@ class MovementStep3Form(FinancialMovementBaseForm):
         if self.instance.installment_plan_id:
             self.initial["installments_count"] = self.instance.installments_count
 
+        self.initial_installment_schedule = []
+        if getattr(self, "request", None) and self.instance.pk:
+            self.initial_installment_schedule = self.request.session.get(f"installment_schedule_{self.instance.pk}", [])
+        if not self.initial_installment_schedule and self.instance.installment_plan_id:
+            self.initial_installment_schedule = [
+                {
+                    "number": movement.installment_number,
+                    "total": movement.installments_count,
+                    "due_date": movement.due_date.isoformat(),
+                    "amount": str(movement.amount.amount),
+                }
+                for movement in self.instance.installment_plan.financial_movements.order_by("installment_number", "pk")
+            ]
+        if self.initial_installment_schedule:
+            self.initial["installments_count"] = len(self.initial_installment_schedule)
+
         repeat_choices = [
             ("mensal", "Mensal"),
             ("quinzenal", "Quinzenal"),
@@ -750,6 +771,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 css_class="grid grid-cols-12 gap-4",
             ),
             HTML(FINANCIAL_DISCOUNT_UI_SCRIPT),
+            HTML(f'<script id="financial-installment-schedule-initial" type="application/json">{json.dumps(self.initial_installment_schedule)}</script>'),
             HTML(FINANCIAL_INSTALLMENTS_UI_SCRIPT),
         )
 
@@ -789,6 +811,9 @@ class MovementStep3Form(FinancialMovementBaseForm):
         repeat_count = int(cleaned_data.get("repeat_count") or 1)
         if installments_count > 1 and repeat_count > 1:
             self.add_error("installments_count", "Parcelamento e repetição são processos diferentes e não podem ser usados juntos.")
+            return cleaned_data
+
+        if self.instance.installment_plan_id:
             return cleaned_data
 
         if installments_count > 1 and cleaned_data.get("due_date") and cleaned_data.get("amount"):
@@ -842,6 +867,22 @@ class MovementStep4Form(FinancialMovementBaseForm):
         elif inst.collaborator:
             origin_name = str(inst.collaborator.name) if inst.collaborator.name else ""
             origin_label = "Colaborador"
+
+        installment_schedule = []
+        if getattr(self, "request", None) and inst.pk:
+            installment_schedule = self.request.session.get(f"installment_schedule_{inst.pk}", [])
+        if not installment_schedule and inst.installment_plan_id:
+            installment_schedule = [
+                {"number": movement.installment_number, "total": movement.installments_count, "due_date": movement.due_date.isoformat(), "amount": str(movement.amount.amount)}
+                for movement in inst.installment_plan.financial_movements.order_by("installment_number", "pk")
+            ]
+        installments_summary_html = ""
+        if installment_schedule:
+            rows = "".join(
+                f'<tr><td>{item["number"]}/{item["total"]}</td><td>{date.fromisoformat(item["due_date"]).strftime("%d/%m/%Y")}</td><td class="text-right">R$ {Decimal(item["amount"]):.2f}</td></tr>'
+                for item in installment_schedule
+            )
+            installments_summary_html = f'''<div class="mt-4 rounded-lg border border-base-300 bg-base-100 p-3"><p class="text-xs font-bold uppercase opacity-50">Parcelamento</p><table class="table table-xs mt-2"><thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-right">Valor</th></tr></thead><tbody>{rows}</tbody></table></div>'''
 
         self.helper.layout = Layout(
             HTML(f"""
@@ -919,6 +960,7 @@ class MovementStep4Form(FinancialMovementBaseForm):
                                                 </span>
                                             </div>
                                         </div>
+                                        {installments_summary_html}
                                     </div>
                                 </div>
                             </div>
