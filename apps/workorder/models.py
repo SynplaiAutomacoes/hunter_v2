@@ -290,6 +290,16 @@ class WorkOrder(TimeStampedModel):
             return Money(0, "BRL")
         return self.pricing_snapshot.total_labor_cost_value
 
+    def _is_local_product_item(self, item: "WorkOrderItem") -> bool:
+        if item.local_item_type == "product":
+            return True
+        return bool(item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0)))
+
+    def _is_local_service_item(self, item: "WorkOrderItem") -> bool:
+        if item.local_item_type == "service":
+            return True
+        return bool(item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration))
+
     def _build_pricing_snapshot(self, labor_selling_value_override: Money | None = None) -> PricingSnapshot:
         return build_pricing_snapshot(
             items=list(self._iter_items()),
@@ -298,6 +308,8 @@ class WorkOrder(TimeStampedModel):
             discount_percentage=self.discount_percentage,
             labor_hourly_cost_value=self.mechanic_hour_cost_value,
             labor_selling_value_override=labor_selling_value_override,
+            is_local_product_item=self._is_local_product_item,
+            is_local_service_item=self._is_local_service_item,
         )
 
     def build_cost_snapshot(self) -> PricingSnapshot:
@@ -309,6 +321,8 @@ class WorkOrder(TimeStampedModel):
             discount_percentage=self.discount_percentage,
             labor_hourly_cost_value=self.mechanic_hour_cost_value,
             include_benefit_items=True,
+            is_local_product_item=self._is_local_product_item,
+            is_local_service_item=self._is_local_service_item,
         )
 
     @property
@@ -1085,6 +1099,8 @@ class WorkOrder(TimeStampedModel):
                         kit=budget_item.kit,
                         description=budget_item.description,
                         quantity=budget_item.quantity,
+                        is_local=budget_item.is_local,
+                        local_item_type=budget_item.local_item_type,
                         is_customer_supplied=budget_item.is_customer_supplied,
                         shipping=budget_item.shipping,
                         product_cost_price=budget_item.product_cost_price,
@@ -1121,6 +1137,7 @@ class WorkOrder(TimeStampedModel):
                             service_cost_price=override.service_cost_price,
                             service_selling_price=override.service_selling_price,
                             duration=override.duration,
+                            excluded_from_composition=override.excluded_from_composition,
                         )
                     )
 
@@ -1237,6 +1254,14 @@ class WorkOrderItem(TimeStampedModel):
 
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
+    is_local = models.BooleanField(verbose_name="Item Local", default=False)
+    local_item_type = models.CharField(
+        verbose_name="Tipo do Item Local",
+        max_length=20,
+        choices=[("product", "Produto"), ("service", "Serviço")],
+        blank=True,
+        default="",
+    )
     is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     shipping = MoneyField(verbose_name="Custo de Frete", max_digits=14, decimal_places=2, default=0)
@@ -1609,6 +1634,7 @@ class WorkOrderKitItemOverride(TimeStampedModel):
     service_cost_price = MoneyField(verbose_name="Custo do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     service_selling_price = MoneyField(verbose_name="Preço de Venda do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+    excluded_from_composition = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "Override de Item do Kit da O.S."
