@@ -74,7 +74,7 @@ def get_financial_movement_table_columns() -> list[TableColumn]:
         TableColumn("Tipo", attr="get_direction_display", search_by="direction"),
         TableColumn("Lançamento", attr="entry_date"),
         TableColumn("Valor Bruto", attr="gross_amount", format="money_br"),
-        TableColumn("Desconto", attr="resolved_discount_amount", sortable=False, searchable=False, format="money_br"),
+        TableColumn("Ajuste", attr="resolved_adjustment_amount", sortable=False, searchable=False, format="money_br"),
         TableColumn("Valor Líquido", attr=FinancialMovement.amount.field.name, format="money_br"),
         TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
         TableColumn("Conciliado", attr="is_reconciled"),
@@ -346,6 +346,9 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                         "amount": payment_amount,
                         "gross_amount": payment_amount,
                         "discount_amount": Money(0, "BRL"),
+                        "adjustment_amount": Money(0, "BRL"),
+                        "adjustment_label": "Desconto",
+                        "adjustment_is_surcharge": False,
                     }
                 )
                 continue
@@ -372,6 +375,9 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                         "amount": payment_amount,
                         "gross_amount": payment_amount,
                         "discount_amount": Money(0, "BRL"),
+                        "adjustment_amount": Money(0, "BRL"),
+                        "adjustment_label": "Desconto",
+                        "adjustment_is_surcharge": False,
                     }
                 )
             continue
@@ -391,6 +397,9 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 "amount": movement.amount or Money(0, "BRL"),
                 "gross_amount": movement.gross_amount or movement.amount or Money(0, "BRL"),
                 "discount_amount": movement.resolved_discount_amount,
+                "adjustment_amount": movement.resolved_adjustment_amount,
+                "adjustment_label": movement.adjustment_label,
+                "adjustment_is_surcharge": movement.discount_mode == FinancialMovement.DiscountMode.SURCHARGE,
             }
         )
     return rows

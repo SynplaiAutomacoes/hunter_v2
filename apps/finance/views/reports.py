@@ -529,7 +529,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         is_workorder = False
         is_group_parent = False
         gross_amount = movement.gross_amount or movement.amount
-        discount_amount = movement.resolved_discount_amount
+        adjustment_amount = movement.resolved_adjustment_amount
         workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}) if movement.workorder_id else None
 
         if movement.workorder_id:
@@ -582,9 +582,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "is_workorder": is_workorder,
             "is_group_parent": is_group_parent,
             "total": movement.report_total_display,
-            "has_discount": Decimal(str(discount_amount.amount or 0)) > 0,
+            "has_discount": Decimal(str(adjustment_amount.amount or 0)) > 0,
             "gross_amount": format_money(gross_amount),
-            "discount_amount": format_money(discount_amount),
+            "discount_amount": format_money(adjustment_amount),
+            "adjustment_label": movement.adjustment_label,
+            "adjustment_is_surcharge": movement.discount_mode == FinancialMovement.DiscountMode.SURCHARGE,
             "details": details,
             "summary_direction": movement.direction,
             "summary_amount": self._resolve_money_amount(movement.amount),

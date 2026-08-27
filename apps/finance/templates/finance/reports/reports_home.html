@@ -398,7 +398,7 @@
                                                     <span class="{{ row.total.class }}">{{ row.total.text }}</span>
                                                     {% if row.has_discount %}
                                                         <div class="mt-1 whitespace-nowrap text-[11px] text-base-content/55">
-                                                            Bruto {{ row.gross_amount }} · Desc. -{{ row.discount_amount }}
+                                                            Bruto {{ row.gross_amount }} · {{ row.adjustment_label }} {% if row.adjustment_is_surcharge %}+{% else %}-{% endif %}{{ row.discount_amount }}
                                                         </div>
                                                     {% endif %}
                                                 </td>

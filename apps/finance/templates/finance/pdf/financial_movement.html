@@ -96,10 +96,10 @@
                                     <div class="font-semibold whitespace-nowrap">
                                         {% if row.direction == 'CREDIT' %}+{% elif row.direction == 'DEBIT' %}-{% endif %}{{ row.amount }}
                                     </div>
-                                    {% if row.discount_amount.amount > 0 %}
+                                    {% if row.adjustment_amount.amount > 0 %}
                                         <div class="mt-1 text-[8px] font-normal leading-tight text-gray-500">
                                             <div class="whitespace-nowrap">Bruto: {{ row.gross_amount }}</div>
-                                            <div class="whitespace-nowrap">Desc.: -{{ row.discount_amount }}</div>
+                                            <div class="whitespace-nowrap">{{ row.adjustment_label }}: {% if row.adjustment_is_surcharge %}+{% else %}-{% endif %}{{ row.adjustment_amount }}</div>
                                         </div>
                                     {% endif %}
                                 </td>

@@ -130,6 +130,14 @@ class PayrollPaymentForm(forms.ModelForm):
         self.fields["gross_amount"].required = True
         self.fields["discount_mode"].label = "Tipo de desconto"
         self.fields["discount_mode"].required = True
+        payroll_discount_choices = [
+            (FinancialMovement.DiscountMode.NONE, "Sem desconto"),
+            (FinancialMovement.DiscountMode.AMOUNT, "Desconto em reais (R$)"),
+            (FinancialMovement.DiscountMode.PERCENTAGE, "Desconto em percentual (%)"),
+        ]
+        self.fields["discount_mode"].choices = payroll_discount_choices
+        self.fields["discount_mode"].widget.choices = payroll_discount_choices
+        self.fields["discount_value"].label = "Desconto (R$)"
         self.fields["discount_value"].required = False
         self.fields["discount_percentage"].required = False
         if self.instance.pk:
