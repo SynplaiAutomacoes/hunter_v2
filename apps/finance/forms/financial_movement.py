@@ -11,7 +11,8 @@ from apps.collaborators.models import WorkshopCollaborator
 from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, DecimalInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
-from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.financial_movement import FinancialMovement, FinancialMovementInstallmentPlan
+from apps.finance.services.installments import InstallmentScheduleError, build_installments, parse_installment_schedule
 from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
@@ -32,46 +33,70 @@ class FinancialMovementBaseForm(CoreModelForm):
         gross_amount = cleaned_data.get("gross_amount")
         discount_mode = cleaned_data.get("discount_mode") or FinancialMovement.DiscountMode.NONE
         discount_value = cleaned_data.get("discount_value")
-        discount_percentage = cleaned_data.get("discount_percentage") or Decimal("0.00")
+        discount_percentage = cleaned_data.get("discount_percentage") or getattr(self.instance, "discount_percentage", Decimal("0.00")) or Decimal("0.00")
 
         if gross_amount is None:
             return cleaned_data
 
         gross_value = Decimal(str(gross_amount.amount or 0))
-        discount_amount = Decimal("0.00")
+        adjustment_amount = Decimal("0.00")
         if discount_mode == FinancialMovement.DiscountMode.AMOUNT:
-            discount_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
-            if discount_amount <= 0:
+            adjustment_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
+            if adjustment_amount <= 0:
                 self.add_error("discount_value", "Informe o valor do desconto.")
-            if discount_amount > gross_value:
+            if adjustment_amount > gross_value:
                 self.add_error("discount_value", "O desconto não pode ser maior que o valor bruto.")
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+        elif discount_mode == FinancialMovement.DiscountMode.SURCHARGE:
+            adjustment_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
+            if adjustment_amount <= 0:
+                self.add_error("discount_value", "Informe o valor do acréscimo.")
             cleaned_data["discount_percentage"] = Decimal("0.00")
         elif discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
             if discount_percentage <= 0:
-                self.add_error("discount_percentage", "Informe o percentual do desconto.")
+                self.add_error("discount_mode", "O desconto percentual legado deve possuir um percentual válido.")
             if discount_percentage > Decimal("100"):
-                self.add_error("discount_percentage", "O desconto percentual não pode ser maior que 100%.")
-            discount_amount = gross_value * discount_percentage / Decimal("100")
+                self.add_error("discount_mode", "O desconto percentual legado não pode ser maior que 100%.")
+            adjustment_amount = gross_value * discount_percentage / Decimal("100")
             cleaned_data["discount_value"] = gross_amount.__class__(Decimal("0.00"), gross_amount.currency)
         else:
             cleaned_data["discount_value"] = gross_amount.__class__(Decimal("0.00"), gross_amount.currency)
             cleaned_data["discount_percentage"] = Decimal("0.00")
 
-        if discount_amount < 0:
-            self.add_error("discount_value" if discount_mode == FinancialMovement.DiscountMode.AMOUNT else "discount_percentage", "O desconto não pode ser negativo.")
+        if adjustment_amount < 0:
+            self.add_error("discount_value" if discount_mode in (FinancialMovement.DiscountMode.AMOUNT, FinancialMovement.DiscountMode.SURCHARGE) else "discount_percentage", "O ajuste não pode ser negativo.")
 
         if not self.errors:
+            net_amount = gross_value + adjustment_amount if discount_mode == FinancialMovement.DiscountMode.SURCHARGE else gross_value - adjustment_amount
             cleaned_data["amount"] = gross_amount.__class__(
-                (gross_value - discount_amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                net_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
                 gross_amount.currency,
             )
         return cleaned_data
 
     def configure_discount_fields(self):
-        self.fields["discount_mode"].label = "Tipo de desconto"
+        is_non_financial_adjustment_context = bool(self.instance.payroll_id or self.instance.movement_group_id)
+        self.fields["discount_mode"].label = "Tipo de desconto" if is_non_financial_adjustment_context else "Desconto ou Acréscimo"
         self.fields["discount_mode"].required = True
         self.fields["discount_value"].required = False
-        self.fields["discount_percentage"].required = False
+        self.fields["discount_value"].label = "Desconto (R$)" if is_non_financial_adjustment_context else "Ajuste (R$)"
+        available_choices = (
+            [
+                (FinancialMovement.DiscountMode.NONE, "Sem desconto"),
+                (FinancialMovement.DiscountMode.AMOUNT, "Desconto em reais (R$)"),
+                (FinancialMovement.DiscountMode.PERCENTAGE, "Desconto em percentual (%)"),
+            ]
+            if is_non_financial_adjustment_context
+            else [
+                (FinancialMovement.DiscountMode.NONE, "Sem desconto ou acréscimo"),
+                (FinancialMovement.DiscountMode.AMOUNT, "Desconto"),
+                (FinancialMovement.DiscountMode.SURCHARGE, "Acréscimo"),
+            ]
+        )
+        if not is_non_financial_adjustment_context and self.instance.pk and self.instance.discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
+            available_choices.append((FinancialMovement.DiscountMode.PERCENTAGE, "Desconto percentual (legado)"))
+        self.fields["discount_mode"].choices = available_choices
+        self.fields["discount_mode"].widget.choices = available_choices
         self.fields["amount"].label = "Valor líquido"
         self.fields["amount"].required = False
         if not self.instance.pk:
@@ -87,12 +112,9 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
         const grossDisplay = document.getElementById('id_gross_amount_0_display');
         const valueHidden = document.getElementById('id_discount_value_0');
         const valueDisplay = document.getElementById('id_discount_value_0_display');
-        const percentage = document.getElementById('id_discount_percentage');
-        const percentageDisplay = percentage?.parentElement?.querySelector('input[x-ref="display"]');
         const netHidden = document.getElementById('id_amount_0');
         const netDisplay = document.getElementById('id_amount_0_display');
         const valueContainer = document.getElementById('discount-value-field');
-        const percentageContainer = document.getElementById('discount-percentage-field');
 
         if (!mode || mode.dataset.discountUiReady === 'true') return;
         mode.dataset.discountUiReady = 'true';
@@ -114,29 +136,23 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
 
         function updateDiscountUi({ resetInactive = false } = {}) {
             const selectedMode = mode.value;
-            if (!['NONE', 'AMOUNT', 'PERCENTAGE'].includes(selectedMode)) return;
+            if (!['NONE', 'AMOUNT', 'SURCHARGE', 'PERCENTAGE'].includes(selectedMode)) return;
 
-            const usesAmount = selectedMode === 'AMOUNT';
-            const usesPercentage = selectedMode === 'PERCENTAGE';
+            const usesAmount = ['AMOUNT', 'SURCHARGE'].includes(selectedMode);
             valueContainer?.classList.toggle('hidden', !usesAmount);
-            percentageContainer?.classList.toggle('hidden', !usesPercentage);
 
             if (resetInactive && !usesAmount) {
                 if (valueHidden) valueHidden.value = '0.00';
                 if (valueDisplay) valueDisplay.value = formatMoney(0);
             }
-            if (resetInactive && !usesPercentage && percentage) percentage.value = '0';
-
             const gross = hiddenMoneyValue(grossHidden, grossDisplay);
-            let discount = 0;
-            if (usesAmount) discount = hiddenMoneyValue(valueHidden, valueDisplay);
-            if (usesPercentage) discount = gross * Math.max(parseNumber(percentageDisplay?.value || percentage?.value), 0) / 100;
-            const net = Math.max(gross - discount, 0);
+            const adjustment = usesAmount ? hiddenMoneyValue(valueHidden, valueDisplay) : 0;
+            const net = selectedMode === 'SURCHARGE' ? gross + adjustment : Math.max(gross - adjustment, 0);
             if (netHidden) netHidden.value = net.toFixed(2);
             if (netDisplay) netDisplay.value = formatMoney(net);
         }
 
-        [grossHidden, grossDisplay, valueHidden, valueDisplay, percentage, percentageDisplay].forEach((field) => {
+        [grossHidden, grossDisplay, valueHidden, valueDisplay].forEach((field) => {
             if (!field) return;
             field.addEventListener('input', updateDiscountUi);
             field.addEventListener('change', updateDiscountUi);
@@ -154,6 +170,76 @@ FINANCIAL_DISCOUNT_UI_SCRIPT = """
 
     initializeFinancialDiscountFields();
     document.body.addEventListener('htmx:afterSwap', initializeFinancialDiscountFields);
+})();
+</script>
+"""
+
+
+FINANCIAL_INSTALLMENTS_UI_SCRIPT = """
+<script>
+(function () {
+    function initializeFinancialInstallments() {
+        const countField = document.getElementById('id_installments_count');
+        const scheduleContainer = document.getElementById('installment-schedule');
+        const dueDate = document.getElementById('id_due_date');
+        const gross = document.getElementById('id_gross_amount_0');
+        const grossDisplay = document.getElementById('id_gross_amount_0_display');
+        const adjustment = document.getElementById('id_discount_value_0');
+        const adjustmentDisplay = document.getElementById('id_discount_value_0_display');
+        const mode = document.getElementById('id_discount_mode');
+        if (!countField || !scheduleContainer || countField.dataset.installmentUiReady === 'true') return;
+        countField.dataset.installmentUiReady = 'true';
+
+        const number = (value) => {
+            const text = String(value || '').trim();
+            const normalized = text.includes(',') ? text.replace(/\\./g, '').replace(',', '.') : text;
+            return Number.isFinite(Number(normalized)) ? Number(normalized) : 0;
+        };
+        const moneyValue = (hidden, display) => hidden?.value !== '' ? number(hidden.value) : number(display?.value);
+        const addMonths = (value, months) => {
+            const [year, month, day] = String(value).split('-').map(Number);
+            const result = new Date(year, month - 1 + months, 1);
+            result.setDate(Math.min(day, new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate()));
+            return `${result.getFullYear()}-${String(result.getMonth() + 1).padStart(2, '0')}-${String(result.getDate()).padStart(2, '0')}`;
+        };
+        const netAmount = () => {
+            const base = moneyValue(gross, grossDisplay);
+            const value = moneyValue(adjustment, adjustmentDisplay);
+            return mode?.value === 'SURCHARGE' ? base + value : Math.max(base - value, 0);
+        };
+        function generate({ preserve = false } = {}) {
+            const count = Math.max(Number(countField.value || 1), 1);
+            const firstDate = dueDate?.value;
+            if (count === 1 || !firstDate) {
+                scheduleContainer.classList.add('hidden');
+                scheduleContainer.innerHTML = '';
+                return;
+            }
+            const previous = preserve ? [...scheduleContainer.querySelectorAll('[name="installment_amount"]')].map((input) => input.value) : [];
+            const dates = preserve ? [...scheduleContainer.querySelectorAll('[name="installment_due_date"]')].map((input) => input.value) : [];
+            const cents = Math.round(netAmount() * 100);
+            const each = Math.floor(cents / count);
+            const remainder = cents % count;
+            const rows = Array.from({ length: count }, (_, index) => {
+                const amount = previous[index] || ((each + (index === count - 1 ? remainder : 0)) / 100).toFixed(2);
+                const date = dates[index] || addMonths(firstDate, index);
+                return `<tr><td class="font-medium">${index + 1}/${count}</td><td><input type="date" class="input input-bordered input-sm w-full" name="installment_due_date" value="${date}" required></td><td><input type="number" step="0.01" min="0.01" class="input input-bordered input-sm w-full text-right" name="installment_amount" value="${amount}" required></td></tr>`;
+            }).join('');
+            scheduleContainer.innerHTML = `<div class="flex items-center justify-between gap-3"><div><h4 class="font-semibold">Parcelas</h4><p class="mt-1 text-xs text-base-content/60">Esta operação será dividida nas parcelas abaixo. Repetir lançamento continua sendo uma função separada.</p></div><button type="button" class="btn btn-outline btn-sm" id="regenerate-installments">Gerar novamente</button></div><div class="mt-3 overflow-x-auto"><table class="table table-sm"><thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-right">Valor</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            scheduleContainer.classList.remove('hidden');
+            scheduleContainer.querySelector('#regenerate-installments')?.addEventListener('click', () => generate());
+        }
+        countField.addEventListener('input', () => generate());
+        dueDate?.addEventListener('change', () => generate());
+        [gross, grossDisplay, adjustment, adjustmentDisplay, mode].forEach((field) => {
+            field?.addEventListener('input', () => generate());
+            field?.addEventListener('change', () => generate());
+            field?.addEventListener('widget:formatted-change', () => generate());
+        });
+        generate({ preserve: true });
+    }
+    initializeFinancialInstallments();
+    document.body.addEventListener('htmx:afterSwap', initializeFinancialInstallments);
 })();
 </script>
 """
@@ -551,14 +637,13 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
     class Meta:
         model = FinancialMovement
-        fields = ["entry_date", "payment_method", "is_paid", "is_reconciled", "gross_amount", "discount_mode", "discount_value", "discount_percentage", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
+        fields = ["entry_date", "payment_method", "is_paid", "is_reconciled", "gross_amount", "discount_mode", "discount_value", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
         widgets = {
             "entry_date": CalendarDateInput(),
             "payment_method": SearchableSelectInput(),
             "gross_amount": MoneyInput(),
             "discount_mode": SearchableSelectInput(),
             "discount_value": MoneyInput(),
-            "discount_percentage": DecimalInput(min_value=0, max_value=100, decimal_places=2),
             "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "due_date": CalendarDateInput(),
             "nf_number": NumberInput(),
@@ -582,6 +667,17 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["repeat_count"] = forms.IntegerField(required=False, min_value=1, max_value=120, widget=NumberInput(attrs={"class": "w-8 text-center", "placeholder": "1"}))
 
         self.fields["repeat_count"].label = "Repetir este lançamento"
+        self.fields["installments_count"] = forms.IntegerField(
+            label="Número de parcelas",
+            required=False,
+            min_value=1,
+            max_value=60,
+            initial=1,
+            widget=NumberInput(attrs={"id": "id_installments_count", "placeholder": "1"}),
+            help_text="Divide esta operação em parcelas. Não é uma repetição de lançamento.",
+        )
+        if self.instance.installment_plan_id:
+            self.initial["installments_count"] = self.instance.installments_count
 
         repeat_choices = [("mensal", "Mensal")]
         has_collab = getattr(self.instance, "collaborator_id", None)
@@ -629,12 +725,13 @@ class MovementStep3Form(FinancialMovementBaseForm):
                     Div(Field("repeat_count", wrapper_class="mb-0"), HTML('<span class="text-sm font-semibold">vezes</span>'), HTML(repeat_html), css_class="flex items-center gap-4 mb-4 col-span-6"),
                     css_class="col-span-6",
                 ),
+                Div("installments_count", css_class="col-span-6", css_id="installments-count-field"),
+                HTML('<div id="installment-schedule" class="col-span-12 hidden rounded-xl border border-primary/25 bg-primary/5 p-4"></div>'),
                 #
-                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e desconto</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto. O valor líquido será calculado automaticamente.</p></div>'),
+                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-4"),
                 Div("discount_mode", css_class="col-span-4"),
                 Div("discount_value", css_class="col-span-4", css_id="discount-value-field"),
-                Div("discount_percentage", css_class="col-span-4", css_id="discount-percentage-field"),
                 Div("amount", css_class="col-span-4", css_id="net-amount-field"),
                 #
                 Div("attachment", css_class="col-span-12"),
@@ -642,6 +739,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 css_class="grid grid-cols-12 gap-4",
             ),
             HTML(FINANCIAL_DISCOUNT_UI_SCRIPT),
+            HTML(FINANCIAL_INSTALLMENTS_UI_SCRIPT),
         )
 
     def save(self, commit=True):
@@ -657,6 +755,14 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 else:
                     self.request.session.pop(f"repeat_count_{instance.pk}", None)
                     self.request.session.pop(f"repeat_type_{instance.pk}", None)
+                schedule = self.cleaned_data.get("installment_schedule") or []
+                if len(schedule) > 1:
+                    self.request.session[f"installment_schedule_{instance.pk}"] = [
+                        {"number": item.number, "total": item.total, "due_date": item.due_date.isoformat(), "amount": str(item.amount)}
+                        for item in schedule
+                    ]
+                else:
+                    self.request.session.pop(f"installment_schedule_{instance.pk}", None)
         return instance
 
     def clean_financial_observation(self):
@@ -668,6 +774,35 @@ class MovementStep3Form(FinancialMovementBaseForm):
         cleaned_data = self.clean_discount_fields(cleaned_data)
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
+        installments_count = int(cleaned_data.get("installments_count") or 1)
+        repeat_count = int(cleaned_data.get("repeat_count") or 1)
+        if installments_count > 1 and repeat_count > 1:
+            self.add_error("installments_count", "Parcelamento e repetição são processos diferentes e não podem ser usados juntos.")
+            return cleaned_data
+
+        if installments_count > 1 and cleaned_data.get("due_date") and cleaned_data.get("amount"):
+            getlist = getattr(self.data, "getlist", None)
+            due_dates = getlist("installment_due_date") if callable(getlist) else []
+            amounts = getlist("installment_amount") if callable(getlist) else []
+            try:
+                if due_dates or amounts:
+                    schedule = parse_installment_schedule(
+                        due_dates=due_dates,
+                        amounts=amounts,
+                        expected_count=installments_count,
+                        expected_total=cleaned_data["amount"].amount,
+                    )
+                else:
+                    schedule = build_installments(
+                        total_amount=cleaned_data["amount"].amount,
+                        first_due_date=cleaned_data["due_date"],
+                        installments_count=installments_count,
+                    )
+            except InstallmentScheduleError as exc:
+                self.add_error(None, str(exc))
+            else:
+                cleaned_data["installment_schedule"] = schedule
+                cleaned_data["due_date"] = schedule[0].due_date
         return cleaned_data
 
 
@@ -784,6 +919,12 @@ class MovementStep4Form(FinancialMovementBaseForm):
     def save(self, commit=True):
         instance = super().save(commit=commit)
         if commit:
+            installment_flag_key = f"generated_installments_{instance.pk}"
+            if getattr(self, "request", None) and not self.request.session.get(installment_flag_key):
+                schedule = self.request.session.pop(f"installment_schedule_{instance.pk}", None)
+                if schedule:
+                    self._generate_installments(instance, schedule)
+                    self.request.session[installment_flag_key] = True
             flag_key = f"generated_reps_{instance.pk}"
             if getattr(self, "request", None) and not self.request.session.get(flag_key):
                 repeat_count = self.request.session.pop(f"repeat_count_{instance.pk}", None)
@@ -831,6 +972,47 @@ class MovementStep4Form(FinancialMovementBaseForm):
 
             new_instance.save()
 
+    def _generate_installments(self, instance, schedule):
+        if instance.installment_plan_id or len(schedule) < 2:
+            return
+
+        original_gross_amount = instance.gross_amount
+        original_discount_value = instance.discount_value
+        original_amount = instance.amount
+        plan = FinancialMovementInstallmentPlan.objects.create(
+            workshop=instance.workshop,
+            user=instance.user,
+            gross_amount=original_gross_amount,
+            adjustment_mode=instance.discount_mode,
+            adjustment_value=original_discount_value,
+            net_amount=original_amount,
+            installments_count=len(schedule),
+        )
+        first_installment = schedule[0]
+        instance.installment_plan = plan
+        instance.installment_number = first_installment["number"]
+        instance.installments_count = first_installment["total"]
+        instance.description = f"{instance.description} - Parcela {first_installment['number']}/{first_installment['total']}"
+        instance.due_date = date.fromisoformat(first_installment["due_date"])
+        instance.gross_amount = Money(Decimal(first_installment["amount"]), original_amount.currency)
+        instance.discount_mode = FinancialMovement.DiscountMode.NONE
+        instance.discount_value = Money(Decimal("0.00"), original_amount.currency)
+        instance.discount_percentage = Decimal("0.00")
+        instance.save()
+
+        for installment in schedule[1:]:
+            new_instance = FinancialMovement.objects.get(pk=instance.pk)
+            new_instance.pk = None
+            new_instance.attachment = None
+            new_instance.is_paid = False
+            new_instance.installment_number = installment["number"]
+            new_instance.installments_count = installment["total"]
+            new_instance.description = new_instance.description.rsplit(" - Parcela ", 1)[0] + f" - Parcela {installment['number']}/{installment['total']}"
+            new_instance.due_date = date.fromisoformat(installment["due_date"])
+            new_instance.gross_amount = Money(Decimal(installment["amount"]), original_amount.currency)
+            new_instance.amount = new_instance.gross_amount
+            new_instance.save()
+
 
 class ReportMovementEditForm(FinancialMovementBaseForm):
     """Formulário unificado para edição de movimentação financeira via modal no relatório."""
@@ -872,7 +1054,6 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "gross_amount",
             "discount_mode",
             "discount_value",
-            "discount_percentage",
             "amount",
             "budget_plan",
             "bank_account",
@@ -894,7 +1075,6 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "gross_amount": MoneyInput(),
             "discount_mode": SearchableSelectInput(),
             "discount_value": MoneyInput(),
-            "discount_percentage": DecimalInput(min_value=0, max_value=100, decimal_places=2),
             "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),
@@ -1044,11 +1224,10 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("is_reconciled", css_class="col-span-12 lg:col-span-4"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
-                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e desconto</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto. O valor líquido será calculado automaticamente.</p></div>'),
+                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-12 lg:col-span-4"),
                 Div("discount_mode", css_class="col-span-12 lg:col-span-4"),
                 Div("discount_value", css_class="col-span-12 lg:col-span-4", css_id="discount-value-field"),
-                Div("discount_percentage", css_class="col-span-12 lg:col-span-4", css_id="discount-percentage-field"),
                 Div("amount", css_class="col-span-12 lg:col-span-4", css_id="net-amount-field"),
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",

@@ -2,12 +2,13 @@ from .finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventSta
 from .financial_group import FinancialGroup
 from .payment_method import PaymentMethod
 from .movement_group import MovementGroup
-from .financial_movement import FinancialMovement
+from .financial_movement import FinancialMovement, FinancialMovementInstallmentPlan
 
 __all__ = [
     "FinancialGroup",
     "MovementGroup",
     "FinancialMovement",
+    "FinancialMovementInstallmentPlan",
     "FiscalDocument",
     "FiscalDocumentEvent",
     "FiscalDocumentEventStatus",
