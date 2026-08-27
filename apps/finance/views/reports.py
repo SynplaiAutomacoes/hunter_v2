@@ -898,6 +898,10 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["movement"] = self.object
+        if self.object.installment_plan_id:
+            context["installments"] = self.object.installment_plan.financial_movements.order_by(
+                "installment_number", "pk"
+            )
         fallback_payment_id = ""
         if getattr(self.object, "workorder_payment_id", None):
             fallback_payment_id = str(self.object.workorder_payment_id)
