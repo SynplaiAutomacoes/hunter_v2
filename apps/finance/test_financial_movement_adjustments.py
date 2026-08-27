@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 from djmoney.money import Money
 
 from apps.finance.forms.financial_movement import MovementStep3Form
-from apps.finance.services.movement_grouping import build_group_installments, parse_group_installment_schedule
+from apps.finance.services.installments import build_installments, parse_installment_schedule
 from apps.finance.models.financial_movement import FinancialMovement
 
 
@@ -51,7 +51,7 @@ class FinancialMovementAdjustmentTests(SimpleTestCase):
         )
 
     def test_installments_split_the_final_net_value_with_the_residual_cent(self):
-        schedule = build_group_installments(
+        schedule = build_installments(
             total_amount=Decimal("100.00"),
             first_due_date=date(2026, 9, 30),
             installments_count=3,
@@ -62,7 +62,7 @@ class FinancialMovementAdjustmentTests(SimpleTestCase):
 
     def test_installment_schedule_must_match_the_final_net_total(self):
         with self.assertRaises(ValueError):
-            parse_group_installment_schedule(
+            parse_installment_schedule(
                 due_dates=["2026-09-10", "2026-10-10"],
                 amounts=["40.00", "40.00"],
                 expected_count=2,

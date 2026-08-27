@@ -12,7 +12,7 @@ from apps.core.presentation.widgets import SearchableSelectInput, TextInput, Tex
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement, FinancialMovementInstallmentPlan
-from apps.finance.services.movement_grouping import InstallmentScheduleError, build_group_installments, parse_group_installment_schedule
+from apps.finance.services.installments import InstallmentScheduleError, build_installments, parse_installment_schedule
 from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
@@ -786,14 +786,14 @@ class MovementStep3Form(FinancialMovementBaseForm):
             amounts = getlist("installment_amount") if callable(getlist) else []
             try:
                 if due_dates or amounts:
-                    schedule = parse_group_installment_schedule(
+                    schedule = parse_installment_schedule(
                         due_dates=due_dates,
                         amounts=amounts,
                         expected_count=installments_count,
                         expected_total=cleaned_data["amount"].amount,
                     )
                 else:
-                    schedule = build_group_installments(
+                    schedule = build_installments(
                         total_amount=cleaned_data["amount"].amount,
                         first_due_date=cleaned_data["due_date"],
                         installments_count=installments_count,
