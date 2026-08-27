@@ -711,7 +711,7 @@ class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, Worksho
         if self.request.htmx:
             from django.http import HttpResponse
 
-            response = HttpResponse(status=204)
+            response = HttpResponse()
             response["HX-Redirect"] = success_url
             return response
 
