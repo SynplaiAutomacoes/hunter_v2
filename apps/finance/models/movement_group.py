@@ -1,11 +1,9 @@
-from decimal import Decimal, ROUND_HALF_UP
-
-from django.conf import settings
 from django.db import models
+from django.conf import settings
+from apps.core.infrastructure.models import TimeStampedModel
+from decimal import Decimal, ROUND_HALF_UP
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
-
-from apps.core.infrastructure.models import TimeStampedModel
 
 
 class MovementGroup(TimeStampedModel):
@@ -24,7 +22,7 @@ class MovementGroup(TimeStampedModel):
     discount_value = MoneyField(verbose_name="Desconto (R$)", max_digits=14, decimal_places=2, default=0)
     discount_percentage = models.DecimalField(verbose_name="Desconto (%)", max_digits=7, decimal_places=4, default=Decimal("0.00"))
     net_amount = MoneyField(verbose_name="Valor Líquido", max_digits=14, decimal_places=2, default=0)
-
+    
     supplier = models.ForeignKey("suppliers.Supplier", on_delete=models.SET_NULL, null=True, blank=True, related_name="movement_groups")
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.SET_NULL, null=True, blank=True, related_name="movement_groups")
 

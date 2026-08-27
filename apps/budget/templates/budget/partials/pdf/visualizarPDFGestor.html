@@ -205,7 +205,7 @@
                 Fornecido pelo cliente?
               </th>
               <th class="p-1 font-semibold text-center">Valor Unitário</th>
-              <th class="p-1 font-semibold text-center">Frete</th>
+              <th class="p-1 font-semibold text-center">Custo de Frete</th>
               <th class="p-1 font-semibold text-center">Total</th>
               <th class="p-1 font-semibold text-center">Custo</th>
               <th class="p-1 font-semibold text-center">Lucro</th>
@@ -236,7 +236,7 @@
         </table>
         <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
           <div class="font-bold">
-            Total Custos: {{ budget.total_costs_products_value|money_br }}
+            Total Custos: {{ total_products_effective_cost_value|money_br }}
           </div>
           <div class="font-bold">
             Total Lucro: {{ total_profit_product_value|money_br }}
@@ -267,7 +267,7 @@
                 Valor de Venda
               </th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
-                Frete
+                Custo de Frete
               </th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
                 Valor Total
@@ -318,7 +318,7 @@
         </table>
         <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
           <div class="font-bold">
-            Total Custos: {{ total_services_mechanic_cost_value|money_br }}
+            Total Custos: {{ total_services_effective_cost_value|money_br }}
           </div>
           <div class="font-bold">
             Total Lucro: {{ total_profit_service_value|money_br }}

@@ -556,7 +556,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         is_workorder = False
         is_group_parent = False
         gross_amount = movement.gross_amount or movement.amount
-        discount_amount = movement.resolved_discount_amount
+        adjustment_amount = movement.resolved_adjustment_amount
         workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}) if movement.workorder_id else None
 
         if movement.workorder_id:
@@ -576,9 +576,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             edit_modal_url = f"{edit_modal_url}?payment_id={movement.workorder_payment_id}"
         elif movement.movement_kind == FinancialMovement.MovementKind.GROUP_PARENT and movement.movement_group_id:
             is_group_parent = True
-            children = movement.movement_group.financial_movements.exclude(
-                movement_kind=FinancialMovement.MovementKind.GROUP_PARENT
-            )
+            children = movement.movement_group.financial_movements.exclude(pk=movement.pk)
             for child in children:
                 details.append(
                     {
@@ -609,9 +607,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "is_workorder": is_workorder,
             "is_group_parent": is_group_parent,
             "total": movement.report_total_display,
-            "has_discount": Decimal(str(discount_amount.amount or 0)) > 0,
+            "has_discount": Decimal(str(adjustment_amount.amount or 0)) > 0,
             "gross_amount": format_money(gross_amount),
-            "discount_amount": format_money(discount_amount),
+            "discount_amount": format_money(adjustment_amount),
+            "adjustment_label": movement.adjustment_label,
+            "adjustment_is_surcharge": movement.discount_mode == FinancialMovement.DiscountMode.SURCHARGE,
             "details": details,
             "summary_direction": movement.direction,
             "summary_amount": self._resolve_money_amount(movement.amount),
@@ -898,6 +898,10 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["movement"] = self.object
+        if self.object.installment_plan_id:
+            context["installments"] = self.object.installment_plan.financial_movements.order_by(
+                "installment_number", "pk"
+            )
         fallback_payment_id = ""
         if getattr(self.object, "workorder_payment_id", None):
             fallback_payment_id = str(self.object.workorder_payment_id)
