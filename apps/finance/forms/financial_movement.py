@@ -8,6 +8,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 from django.db.models import Q
 from django.template.loader import render_to_string
+from djmoney.money import Money
 
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, DecimalInput, MoneyInput, NumberInput
