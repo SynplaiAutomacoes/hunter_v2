@@ -765,7 +765,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 Div("discount_mode", css_class="col-span-4"),
                 Div("discount_value", css_class="col-span-4", css_id="discount-value-field"),
                 Div("amount", css_class="col-span-4", css_id="net-amount-field"),
-                Div("installments_count", css_class="col-span-6", css_id="installments-count-field"),
+                Div("installments_count", css_class="col-span-12 md:col-span-3 max-w-xs", css_id="installments-count-field"),
                 HTML('<div id="installment-schedule" class="col-span-12 hidden rounded-xl border border-primary/25 bg-primary/5 p-4"></div>'),
                 #
                 Div("attachment", css_class="col-span-12"),
