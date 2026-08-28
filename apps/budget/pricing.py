@@ -316,6 +316,29 @@ def _distribute_money_by_weights(*, weights: Iterable[Decimal], target_total: Mo
     return [money_from_decimal(value) for value in allocated]
 
 
+def _min_money(left: Money, right: Money) -> Money:
+    return left if left.amount <= right.amount else right
+
+
+def _slider_floor(*, selling: Money, cost: Money) -> Money:
+    """Selling can fall to cost, never below it, and never use a floor above current selling."""
+    if selling.amount <= 0 or cost.amount <= 0:
+        return zero_money()
+    return _min_money(selling, cost)
+
+
+def _distribute_with_floors(*, base_values: list[Money], floors: list[Money], target_total: Money) -> list[Money]:
+    if not base_values:
+        return []
+    effective_floors = [_slider_floor(selling=base, cost=floor) for base, floor in zip(base_values, floors, strict=True)]
+    remaining = target_total - sum(effective_floors, zero_money())
+    if remaining.amount <= 0:
+        return list(effective_floors)
+    weights = [max(base.amount - floor.amount, Decimal("0.00")) for base, floor in zip(base_values, effective_floors, strict=True)]
+    extras = _distribute_money_by_weights(weights=weights, target_total=remaining)
+    return [floor + extra for floor, extra in zip(effective_floors, extras, strict=True)]
+
+
 def _coerce_money(value: Money | None) -> Money:
     return value if value is not None else zero_money()
 
@@ -861,20 +884,21 @@ def build_pricing_snapshot(
     total_labor_by_slider = total_labor_selling_value
     total_third_party_shipping = sum((line.shipping for line in third_party_service_lines), zero_money())
     total_third_party_by_slider = total_third_party_services_selling
+    product_floor = _slider_floor(selling=total_products_value, cost=total_costs_products_value + total_products_shipping)
+    labor_floor = _slider_floor(selling=total_labor_selling_value, cost=effective_labor_cost_value)
+    third_party_floor = _slider_floor(
+        selling=total_third_party_services_selling,
+        cost=total_third_party_services_cost + total_third_party_shipping,
+    )
 
     if slider < 0:
-        # 100% pecas: move labor + third-party profit to products; MO floor = Hunter cost (+ freight in display).
-        available_labor = max(total_labor_selling_value - hunter_labor_cost_value, zero_money())
-        third_party_floor = total_third_party_services_cost + total_third_party_shipping
-        available_third_party = max(total_third_party_services_selling - third_party_floor, zero_money())
-        transfer_labor = available_labor * abs(slider_decimal)
-        transfer_third_party = available_third_party * abs(slider_decimal)
+        transfer_labor = (total_labor_selling_value - labor_floor) * abs(slider_decimal)
+        transfer_third_party = (total_third_party_services_selling - third_party_floor) * abs(slider_decimal)
         total_products_by_slider = total_products_value + transfer_labor + transfer_third_party
         total_labor_by_slider = total_labor_selling_value - transfer_labor
         total_third_party_by_slider = total_third_party_services_selling - transfer_third_party
     elif slider > 0:
-        available_products = max(total_products_value - (total_costs_products_value + total_products_shipping), zero_money())
-        transfer = available_products * slider_decimal
+        transfer = (total_products_value - product_floor) * slider_decimal
         total_products_by_slider = total_products_value - transfer
         total_labor_by_slider = total_labor_selling_value + transfer
 
@@ -882,8 +906,9 @@ def build_pricing_snapshot(
 
     for line, adjusted_subtotal in zip(
         chargeable_product_lines,
-        _distribute_totals(
+        _distribute_with_floors(
             base_values=[line.raw_total for line in chargeable_product_lines],
+            floors=[line.cost_total + line.shipping for line in chargeable_product_lines],
             target_total=total_products_by_slider,
         ),
         strict=False,
@@ -895,27 +920,22 @@ def build_pricing_snapshot(
 
     for line, adjusted_total in zip(
         third_party_service_lines,
-        _distribute_totals(
+        _distribute_with_floors(
             base_values=[line.raw_total for line in third_party_service_lines],
+            floors=[line.cost_total + line.shipping for line in third_party_service_lines],
             target_total=total_third_party_by_slider,
         ),
         strict=False,
     ):
         line.adjusted_total = adjusted_total
 
-    remaining_labor_profit = max(total_labor_by_slider - effective_labor_cost_value, zero_money())
-    labor_profit_weights = [max(line.raw_total.amount - line.cost_total.amount, Decimal("0.00")) for line in labor_service_lines]
-    if not any(weight > 0 for weight in labor_profit_weights):
-        labor_profit_weights = [line.raw_total.amount for line in labor_service_lines]
-    if not any(weight > 0 for weight in labor_profit_weights):
-        labor_profit_weights = [Decimal(max(line.quantity, 0)) for line in labor_service_lines]
-
-    for line, adjusted_total in zip(
-        labor_service_lines,
-        _distribute_money_by_weights(weights=labor_profit_weights, target_total=remaining_labor_profit),
-        strict=False,
-    ):
-        line.adjusted_total = line.cost_total + adjusted_total
+    labor_adjusted_bases = _distribute_with_floors(
+        base_values=[line.raw_total for line in labor_service_lines],
+        floors=[line.cost_total + line.shipping for line in labor_service_lines],
+        target_total=total_labor_by_slider,
+    )
+    for line, adjusted_base in zip(labor_service_lines, labor_adjusted_bases, strict=False):
+        line.adjusted_total = adjusted_base
 
     total_base_value = total_products_by_slider + total_services_by_slider
 

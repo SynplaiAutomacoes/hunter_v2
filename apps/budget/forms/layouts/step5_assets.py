@@ -142,6 +142,7 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 const subtotalDisplay = document.getElementById('step5-subtotal-display');
                                 const discountDisplay = document.getElementById('step5-discount-display');
                                 const totalDisplay = document.getElementById('valor-final-display');
+                                const budgetTotalDisplay = document.getElementById('step5-budget-total-display');
 
                                 if (!displayMoney || !hiddenMoney || !displayPercentage || !hiddenPercentage || !subtotalDisplay || !discountDisplay || !totalDisplay) {{
                                     return null;
@@ -155,11 +156,57 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                     subtotalDisplay,
                                     discountDisplay,
                                     totalDisplay,
+                                    budgetTotalDisplay,
                                 }};
                             }}
 
                             function getBaseTotal(elements) {{
                                 return parseDotDecimal(elements.subtotalDisplay.dataset.baseTotal);
+                            }}
+
+                            function updateCardDiscounts(discountAmount, baseTotal) {{
+                                const type = getDiscountTypeValue();
+                                const products = parseDotDecimal(document.getElementById('display-venda-pecas')?.dataset.baseVal);
+                                const thirdParty = parseDotDecimal(document.getElementById('display-venda-terceiros')?.dataset.baseVal);
+                                const services = Math.max(baseTotal - products, 0);
+                                const labor = Math.max(services - thirdParty, 0);
+                                const total = products + services;
+                                let discountProducts = 0;
+                                let discountServices = 0;
+                                if (type === 'products') {{
+                                    discountProducts = discountAmount;
+                                }} else if (type === 'services') {{
+                                    discountServices = discountAmount;
+                                }} else if (total > 0) {{
+                                    discountProducts = roundCurrency(discountAmount * products / total);
+                                    discountServices = roundCurrency(discountAmount - discountProducts);
+                                }}
+                                let discountLabor = 0;
+                                let discountThird = 0;
+                                if (discountServices > 0) {{
+                                    if (services <= 0) {{
+                                        discountLabor = discountServices;
+                                    }} else {{
+                                        discountLabor = roundCurrency(discountServices * labor / services);
+                                        discountThird = roundCurrency(discountServices - discountLabor);
+                                    }}
+                                }}
+                                applyDiscountRow('step5-discount-products-row', discountProducts);
+                                applyDiscountRow('step5-discount-labor-row', discountLabor);
+                                applyDiscountRow('step5-discount-third-party-row', discountThird);
+                            }}
+
+                            function applyDiscountRow(rowId, amount) {{
+                                const row = document.getElementById(rowId);
+                                if (!row) return;
+                                const valueEl = row.querySelector('.font-semibold');
+                                if (amount > 0.009) {{
+                                    row.classList.remove('hidden');
+                                    if (valueEl) valueEl.textContent = `- R$ ${{formatMoney(amount)}}`;
+                                    return;
+                                }}
+                                row.classList.add('hidden');
+                                if (valueEl) valueEl.textContent = '';
                             }}
 
                             function updateSummary(elements, discountAmount) {{
@@ -169,6 +216,10 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
 
                                 elements.discountDisplay.textContent = `R$ ${{formatMoney(resolvedDiscount)}}`;
                                 elements.totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                                if (elements.budgetTotalDisplay) {{
+                                    elements.budgetTotalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                                }}
+                                updateCardDiscounts(resolvedDiscount, baseTotal);
                             }}
 
                             function syncFromPercentage(elements) {{
@@ -255,18 +306,21 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 syncFromValue(elements);
                             }}
 
-                            document.addEventListener('change', function(e) {{
-                                if (e.target && e.target.name === 'discount_type') {{
-                                    const elements = getDiscountElements();
-                                    if (elements) {{
-                                        clearTimeout(timeout);
-                                        persistDiscount(elements);
+                            if (document.documentElement.dataset.step5DiscountListeners !== 'true') {{
+                                document.documentElement.dataset.step5DiscountListeners = 'true';
+                                document.addEventListener('change', function(e) {{
+                                    if (e.target && e.target.name === 'discount_type') {{
+                                        const elements = getDiscountElements();
+                                        if (elements) {{
+                                            updateSummary(elements, parseDotDecimal(elements.hiddenMoney.value));
+                                            persistDiscount(elements);
+                                        }}
                                     }}
-                                }}
-                            }});
-
-                            document.addEventListener('DOMContentLoaded', bindDiscountSync);
-                            document.body.addEventListener('htmx:afterSettle', bindDiscountSync);
+                                }});
+                                document.addEventListener('DOMContentLoaded', bindDiscountSync);
+                                document.body.addEventListener('htmx:afterSettle', bindDiscountSync);
+                            }}
+                            bindDiscountSync();
                         }})();
 
                         (function () {{
@@ -362,17 +416,13 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                         
                                 if (!slider || !vendaPecaEl || !vendaMOEl) return;
                         
-                                const basePeca = parseFloat(vendaPecaEl.dataset.baseVal);
-                                const baseMO = parseFloat(vendaMOEl.dataset.baseVal);
-                                const costPeca = parseFloat(vendaPecaEl.dataset.costVal);
-                                const fretePeca = parseFloat(vendaPecaEl.dataset.freteVal || 0);
-                                const minVendaPeca = costPeca + fretePeca;
-                                const costMO = parseFloat(vendaMOEl.dataset.costVal);
-                        
-                                const totalLucro = Math.max(
-                                    (basePeca + baseMO) - (minVendaPeca + costMO),
-                                    0
-                                );
+                                const originPeca = parseFloat(vendaPecaEl.dataset.baseVal) || 0;
+                                const originMO = parseFloat(vendaMOEl.dataset.baseVal) || 0;
+                                const costPeca = parseFloat(vendaPecaEl.dataset.costVal) || 0;
+                                const freightPeca = parseFloat(vendaPecaEl.dataset.freteVal || 0);
+                                const floorPeca = Math.min(originPeca, Math.max(costPeca + freightPeca, 0));
+                                const costMO = parseFloat(vendaMOEl.dataset.costVal) || 0;
+                                const floorMO = Math.min(originMO, Math.max(costMO, 0));
                         
                                 const format = (v) =>
                                     "R$ " + v.toLocaleString("pt-BR", {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
@@ -397,10 +447,24 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 }}
                         
                                 function update(val) {{
-                                    labelPecaPct.textContent = val < 0 ? Math.abs(val) : 0;
-                                    labelMOPct.textContent = val > 0 ? val : 0;
-                        
-                                    updateFill(val);
+                                    const sliderValue = Number(val) || 0;
+                                    labelPecaPct.textContent = sliderValue < 0 ? Math.abs(sliderValue) : 0;
+                                    labelMOPct.textContent = sliderValue > 0 ? sliderValue : 0;
+
+                                    const ratio = Math.abs(sliderValue) / 100;
+                                    let peca = originPeca;
+                                    let mo = originMO;
+                                    if (sliderValue < 0) {{
+                                        mo = floorMO + (originMO - floorMO) * (1 - ratio);
+                                        peca = originPeca + (originMO - mo);
+                                    }} else if (sliderValue > 0) {{
+                                        peca = floorPeca + (originPeca - floorPeca) * (1 - ratio);
+                                        mo = originMO + (originPeca - peca);
+                                    }}
+                                    vendaPecaEl.textContent = format(peca);
+                                    vendaMOEl.textContent = format(mo);
+
+                                    updateFill(sliderValue);
                                 }}
                         
                                 slider.addEventListener('input', e => update(e.target.value));

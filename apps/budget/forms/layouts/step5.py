@@ -1,4 +1,5 @@
 # ruff: noqa: F403,F405
+from apps.budget.discount import render_step5_discount_row
 from apps.budget.forms.layouts.step5_assets import build_step5_assets_html
 from apps.budget.forms.layouts.step5_items_expand import build_step5_items_expand_section_html
 from apps.budget.forms.presenters.step5_context import build_step5_context
@@ -42,6 +43,9 @@ def configure_budget_step5_form(form):
     mlr = ctx.mlr
     mlo = ctx.mlo
     discount_display = ctx.discount_display
+    discount_products_row = render_step5_discount_row(element_id="step5-discount-products-row", value=ctx.discount_products)
+    discount_labor_row = render_step5_discount_row(element_id="step5-discount-labor-row", value=ctx.discount_labor)
+    discount_third_party_row = render_step5_discount_row(element_id="step5-discount-third-party-row", value=ctx.discount_third_party)
     step5_loading_hidden_class = ctx.step5_loading_hidden_class
     step5_method_hidden_class = ctx.step5_method_hidden_class
     step5_calculated_input_value = ctx.step5_calculated_input_value
@@ -102,12 +106,13 @@ def configure_budget_step5_form(form):
                                                 <span class="font-medium">Valor de venda peças</span>
                                                 <span id="display-venda-pecas"
                                                       class="font-bold text-success whitespace-nowrap"
-                                                      data-base-val="{venda_pecas.amount}"
+                                                      data-base-val="{budget.total_products_value.amount}"
                                                       data-cost-val="{custo_pecas.amount}"
                                                       data-frete-val="{custo_frete_pecas.amount}">
                                                     {venda_pecas}
                                                 </span>
                                             </div>
+                                            {discount_products_row}
                                         </div>
 
                                         <div class="rounded-xl border border-base-300 bg-base-100 p-3 space-y-2 md:col-span-1">
@@ -124,11 +129,12 @@ def configure_budget_step5_form(form):
                                                 <span class="font-medium">Valor de venda mão de obra</span>
                                                 <span id="display-venda-mo"
                                                       class="font-bold text-success whitespace-nowrap"
-                                                      data-base-val="{venda_mao_obra.amount}"
-                                                      data-cost-val="{custo_total_mao_obra.amount}">
+                                                      data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}"
+                                                      data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
                                                     {venda_mao_obra}
                                                 </span>
                                             </div>
+                                            {discount_labor_row}
                                             <p class="text-xs text-base-content/50 pt-1">Hora mecânico: {custo_hora_mecanico} · Duração: {duracao_total}</p>
                                         </div>
 
@@ -140,25 +146,26 @@ def configure_budget_step5_form(form):
                                             </div>
                                             <div class="flex justify-between gap-2 border-t border-base-300 pt-2">
                                                 <span class="font-medium">Valor de venda serviço terceiro</span>
-                                                <span id="display-venda-terceiros" class="font-bold text-success whitespace-nowrap">{venda_servico_terceiros}</span>
+                                                <span id="display-venda-terceiros" class="font-bold text-success whitespace-nowrap" data-base-val="{venda_servico_terceiros.amount}">{venda_servico_terceiros}</span>
                                             </div>
+                                            {discount_third_party_row}
                                         </div>
 
                                         <div class="rounded-xl border border-base-300 bg-base-100 p-3 space-y-2 md:col-span-1">
                                             <p class="text-sm font-bold text-base-content">Resultado</p>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">Lucro operacional</span>
-                                                <span class="font-bold step5-accent-text whitespace-nowrap">{lucro_operacional}</span>
+                                                <span id="step5-lucro-operacional" class="font-bold step5-accent-text whitespace-nowrap">{lucro_operacional}</span>
                                             </div>
                                             <div class="flex justify-between gap-2 items-center">
                                                 <span class="text-base-content/70">Rentabilidade</span>
-                                                <span class="font-bold {rentabilidade_class} {rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">
+                                                <span id="step5-rentabilidade" class="font-bold {rentabilidade_class} {rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">
                                                     {rentabilidade:.2f}% ({status_texto})
                                                 </span>
                                             </div>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">MLO</span>
-                                                <span class="font-semibold whitespace-nowrap">{mlo:.2f}</span>
+                                                <span id="step5-mlo" class="font-semibold whitespace-nowrap">{mlo:.2f}</span>
                                             </div>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">MLR</span>
@@ -172,7 +179,7 @@ def configure_budget_step5_form(form):
                     Div(
                         HTML(f"""<div class="text-center text-base-content mt-6">
                                         <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                        <p class="text-3xl font-black step5-accent-text">{budget.display_total_base_value}</p>
+                                        <p id="step5-budget-total-display" class="text-3xl font-black step5-accent-text">{budget.display_total_budget_value}</p>
                                     </div>""")
                     ),
                     id="step5-method-card",

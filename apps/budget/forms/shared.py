@@ -175,7 +175,7 @@ def _render_budget_items_rows(budget, step6=False):
                         },
                     )
 
-                for exploded in _explode_kit_service_rows(budget=budget_for_render, kit_line=line, kit_item=kit_item):
+                for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
                     if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
