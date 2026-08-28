@@ -264,8 +264,6 @@ def _resolve_workorder_description(workorder: object) -> str:
 
 def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str, Any], per_payment_movements: dict[int, FinancialMovement], workshop: Any, aggregate_movements: dict[int, FinancialMovement] | None = None) -> list[object]:
     paid_status = filter_params.get("paid_status", "")
-    if paid_status == "unpaid":
-        return []
 
     start_date = filter_params.get("start_date")
     end_date = filter_params.get("end_date")
@@ -289,6 +287,10 @@ def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str,
             if workorder_id and aggregate_movements and workorder_id in aggregate_movements:
                 payment_movement = aggregate_movements[workorder_id]
         if payment_movement is None:
+            continue
+        if paid_status == "paid" and not payment_movement.is_paid:
+            continue
+        if paid_status == "unpaid" and payment_movement.is_paid:
             continue
         is_reconciled = bool(getattr(payment_movement, "is_reconciled", False))
         if reconciliation_status == "reconciled" and not is_reconciled:
