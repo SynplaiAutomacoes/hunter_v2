@@ -85,9 +85,17 @@ class TermSignatureDisplayTests(SimpleTestCase):
         self.assertEqual(badge["text"], "Enviado")
         self.assertEqual(badge["class"], "badge-warning")
 
-    def test_can_toggle_when_sent_with_external_id(self) -> None:
+    def test_can_toggle_false_when_only_sent(self) -> None:
         signing = SimpleNamespace(
             signature_request_status=TermSignatureStatus.SENT,
+            signature_external_id="env-1",
+            signature_document_id="",
+        )
+        self.assertFalse(can_toggle_term_signed_pdf(signing))
+
+    def test_can_toggle_when_approved_with_external_id(self) -> None:
+        signing = SimpleNamespace(
+            signature_request_status=TermSignatureStatus.APPROVED,
             signature_external_id="env-1",
             signature_document_id="",
         )
@@ -95,8 +103,8 @@ class TermSignatureDisplayTests(SimpleTestCase):
 
     def test_resolve_modal_urls_defaults_to_base_when_sent(self) -> None:
         signing = SimpleNamespace(signature_request_status=TermSignatureStatus.SENT)
-        urls = resolve_term_modal_urls(budget_id=10, template_id=3, can_toggle_signed_pdf=True, signing=signing)
-        self.assertTrue(urls.can_toggle_signed_pdf)
+        urls = resolve_term_modal_urls(budget_id=10, template_id=3, can_toggle_signed_pdf=False, signing=signing)
+        self.assertFalse(urls.can_toggle_signed_pdf)
         self.assertEqual(urls.initial_pdf_variant, "base")
         self.assertNotIn("/signed/", urls.default_iframe_url)
 
@@ -187,16 +195,50 @@ class TermWebhookIsolationTests(TestCase):
             signature_external_id="term-env-1",
         )
 
-    def test_term_completed_does_not_approve_budget(self) -> None:
+    def test_term_completed_via_lookup_does_not_approve_budget(self) -> None:
         response = process_signature_webhook_payload(
             payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "term-env-1"},
-            term_signing=self.signing,
         )
         self.assertEqual(response.status_code, 200)
         self.signing.refresh_from_db()
         self.budget.refresh_from_db()
         self.assertEqual(self.signing.signature_request_status, TermSignatureStatus.APPROVED)
         self.assertEqual(self.budget.status, BudgetStatus.WAITING_DIAGNOSIS)
+
+    def test_term_declined_via_lookup(self) -> None:
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_DECLINED", "envelopeId": "term-env-1"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.signing.refresh_from_db()
+        self.budget.refresh_from_db()
+        self.assertEqual(self.signing.signature_request_status, TermSignatureStatus.DECLINED)
+        self.assertEqual(self.budget.status, BudgetStatus.WAITING_DIAGNOSIS)
+
+    def test_term_webhook_post_with_workshop_hmac_approves_via_lookup(self) -> None:
+        from django.test import RequestFactory
+
+        from apps.core.infrastructure.services.signature_webhook import (
+            SignatureWebhookView,
+            build_synplaisign_webhook_signature,
+        )
+        from apps.workshops.services.synplaisign import encrypt_secret
+
+        self.workshop.synplaisign_webhook_secret = encrypt_secret("whsec_term_test")
+        self.workshop.save(update_fields=["synplaisign_webhook_secret"])
+
+        body = json.dumps({"event": "ENVELOPE_COMPLETED", "envelopeId": "term-env-1"}).encode("utf-8")
+        signature = build_synplaisign_webhook_signature(body=body, secret="whsec_term_test")
+        request = RequestFactory().post(
+            "/budget/signature/webhook/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_SYNPLAI_SIGNATURE=signature,
+        )
+        response = SignatureWebhookView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        self.signing.refresh_from_db()
+        self.assertEqual(self.signing.signature_request_status, TermSignatureStatus.APPROVED)
 
     def test_budget_completed_still_approves(self) -> None:
         self.budget.signature_external_id = "budget-env-1"

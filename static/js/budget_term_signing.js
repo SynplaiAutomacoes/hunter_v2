@@ -175,12 +175,15 @@
     }
 
     function initBudgetTermModal(root) {
-        const container = root && root.id === 'modal-container' ? root : document.getElementById('modal-container');
-        if (!container) {
+        const container = root && root.closest
+            ? root.closest('#modal-container')
+            : null;
+        const modalContainer = container || (root && root.id === 'modal-container' ? root : null) || document.getElementById('modal-container');
+        if (!modalContainer) {
             return;
         }
 
-        const box = container.querySelector('#budget-term-modal-box');
+        const box = modalContainer.querySelector('#budget-term-modal-box');
         if (!box || box.dataset.termModalBound === '1') {
             return;
         }
@@ -294,6 +297,21 @@
         initBudgetTermModal(root);
     }
 
+    function initBudgetTermSigningFromEvent(event) {
+        const target = event && event.target;
+        if (!target || !target.closest) {
+            return;
+        }
+        const stepContainer = target.closest('#step-container');
+        if (stepContainer) {
+            initReceiptTermPanel(stepContainer);
+        }
+        const modalContainer = target.closest('#modal-container');
+        if (modalContainer) {
+            initBudgetTermModal(modalContainer);
+        }
+    }
+
     window.initReceiptTermPanel = initReceiptTermPanel;
     window.initBudgetTermModal = initBudgetTermModal;
     window.initBudgetTermSigning = initBudgetTermSigning;
@@ -301,18 +319,8 @@
     if (!window.__budgetTermSigningHooksBound) {
         window.__budgetTermSigningHooksBound = true;
 
-        document.body.addEventListener('htmx:afterSettle', function (event) {
-            const target = event.target;
-            if (!target) {
-                return;
-            }
-            if (target.id === 'step-container') {
-                initReceiptTermPanel(target);
-            }
-            if (target.id === 'modal-container') {
-                initBudgetTermModal(target);
-            }
-        });
+        document.body.addEventListener('htmx:afterSettle', initBudgetTermSigningFromEvent);
+        document.body.addEventListener('htmx:afterSwap', initBudgetTermSigningFromEvent);
 
         document.addEventListener('DOMContentLoaded', function () {
             initReceiptTermPanel(document.getElementById('step-container'));

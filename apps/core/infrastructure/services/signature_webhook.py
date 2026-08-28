@@ -184,12 +184,25 @@ def parse_signature_webhook_body(request: HttpRequest) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _normalize_envelope_id(envelope_id: str) -> str:
+    return str(envelope_id or "").strip()
+
+
+def _signature_envelope_lookup(envelope_id: str) -> Q:
+    normalized = _normalize_envelope_id(envelope_id)
+    return Q(signature_external_id=normalized) | Q(signature_document_id=normalized)
+
+
 def _find_term_signing(envelope_id: str):
     from apps.terms.models import BudgetTermSigning
 
+    normalized = _normalize_envelope_id(envelope_id)
+    if not normalized:
+        return None
+
     return (
         BudgetTermSigning.objects.select_related("workshop")
-        .filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id))
+        .filter(_signature_envelope_lookup(normalized))
         .first()
     )
 
@@ -197,15 +210,20 @@ def _find_term_signing(envelope_id: str):
 def _resolve_workshop_for_envelope(envelope_id: str):
     from apps.budget.models import Budget
 
-    term_signing = _find_term_signing(envelope_id)
+    normalized = _normalize_envelope_id(envelope_id)
+    if not normalized:
+        return None, None, None, None
+
+    term_signing = _find_term_signing(normalized)
     if term_signing is not None:
         return term_signing.workshop, None, None, term_signing
 
-    budget = Budget.objects.select_related("workshop").filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id)).first()
+    lookup = _signature_envelope_lookup(normalized)
+    budget = Budget.objects.select_related("workshop").filter(lookup).first()
     if budget is not None:
         return budget.workshop, budget, None, None
 
-    workorder = WorkOrder.objects.select_related("workshop").filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id)).first()
+    workorder = WorkOrder.objects.select_related("workshop").filter(lookup).first()
     if workorder is not None:
         return workorder.workshop, None, workorder, None
     return None, None, None, None
@@ -308,7 +326,7 @@ def process_signature_webhook_payload(
     from apps.workorder.models import WorkOrderSignatureStatus
 
     event_name = extract_signature_event(payload, header_event=header_event)
-    envelope_id = extract_signature_envelope_id(payload)
+    envelope_id = _normalize_envelope_id(extract_signature_envelope_id(payload))
     logger.info(
         "signature_webhook_parsed",
         extra={"event": event_name, "envelope_id": envelope_id, "payload_structure": _payload_structure(payload)},
@@ -319,8 +337,9 @@ def process_signature_webhook_payload(
         return HttpResponse(status=200)
 
     if budget is None and workorder is None and term_signing is None:
-        budget = Budget.objects.filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id)).first()
-        workorder = WorkOrder.objects.filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id)).first()
+        lookup = _signature_envelope_lookup(envelope_id)
+        budget = Budget.objects.filter(lookup).first()
+        workorder = WorkOrder.objects.filter(lookup).first()
         term_signing = _find_term_signing(envelope_id)
 
     if budget is None and workorder is None and term_signing is None:
@@ -464,7 +483,7 @@ class SignatureWebhookView(View):
             logger.warning("signature_webhook_invalid_json")
             return JsonResponse({"error": "invalid_json"}, status=400)
 
-        envelope_id = extract_signature_envelope_id(payload)
+        envelope_id = _normalize_envelope_id(extract_signature_envelope_id(payload))
         workshop, budget, workorder, term_signing = (None, None, None, None)
         if envelope_id:
             workshop, budget, workorder, term_signing = _resolve_workshop_for_envelope(envelope_id)
