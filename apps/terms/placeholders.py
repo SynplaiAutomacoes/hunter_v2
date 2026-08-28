@@ -2,13 +2,28 @@ from __future__ import annotations
 
 import html
 import re
-from collections.abc import Callable
-from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
 
+from apps.messaging.rendering import render_message_template
 
-TOKEN_PATTERN = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}", re.IGNORECASE)
+
+LEGACY_CURLY_TOKEN_PATTERN = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}", re.IGNORECASE)
+
+_LEGACY_KEY_ALIASES = {
+    "customer_name": "nome",
+    "customer_cpf": "cpf",
+    "plate": "placa",
+}
+
+TERM_VARIABLE_GROUP_KEYS = ("cliente", "veiculo")
+
+VEHICLE_SUMMARY_VARIABLE = {
+    "key": "vehicle",
+    "token": "%%vehicle%%",
+    "label": "Veículo (resumo)",
+    "description": "Marca, modelo e ano em uma linha.",
+}
 
 ALLOWED_TAGS = frozenset(
     {
@@ -38,61 +53,48 @@ ALLOWED_TAGS = frozenset(
 )
 
 DEFAULT_RECEIPT_BODY_HTML = """
-<p>Prezado(a) <strong>{{customer_name}}</strong>,</p>
-<p>Declaro ter entregue o veículo <strong>{{vehicle}}</strong>, placa <strong>{{plate}}</strong>, para os serviços descritos neste atendimento.</p>
-<p>CPF/CNPJ: <strong>{{customer_cpf}}</strong></p>
+<p>Prezado(a) <strong>%%nome%%</strong>,</p>
+<p>Declaro ter entregue o veículo <strong>%%vehicle%%</strong>, placa <strong>%%placa%%</strong>, para os serviços descritos neste atendimento.</p>
+<p>CPF/CNPJ: <strong>%%cpf%%</strong></p>
 <p>Estou ciente das condições de recebimento do veículo na oficina e autorizo a realização dos serviços necessários.</p>
 """.strip()
 
 
-@dataclass(frozen=True)
-class TermPlaceholder:
-    token: str
-    label: str
-    resolver: Callable[[Any], str]
+def get_term_variable_groups() -> list[dict[str, Any]]:
+    from apps.messaging.variables import get_variable_groups
+
+    groups: list[dict[str, Any]] = []
+    for group in get_variable_groups():
+        if group["key"] not in TERM_VARIABLE_GROUP_KEYS:
+            continue
+        variables = list(group["variables"])
+        if group["key"] == "veiculo":
+            variables = [VEHICLE_SUMMARY_VARIABLE, *variables]
+        groups.append({**group, "variables": variables})
+    return groups
 
 
 def _vehicle_description(budget: Any) -> str:
-    vehicle = getattr(budget, "vehicle", None)
-    if vehicle is None:
+    if budget is None:
         return ""
-    parts = [
-        str(getattr(vehicle, "brand", "") or "").strip(),
-        str(getattr(vehicle, "model", "") or "").strip(),
-        str(getattr(vehicle, "year_model", "") or getattr(vehicle, "year_fabrication", "") or "").strip(),
-    ]
-    return " ".join(part for part in parts if part)
+    return render_message_template(
+        "%%marca%% %%modelo%% %%ano%%",
+        budget=budget,
+        workshop=getattr(budget, "workshop", None),
+    ).strip()
 
 
-def _plate(budget: Any) -> str:
-    vehicle = getattr(budget, "vehicle", None)
-    if vehicle is None:
-        return ""
-    return str(getattr(vehicle, "plate", "") or "").strip()
+def _normalize_legacy_tokens(text: str) -> str:
+    normalized = text or ""
 
+    def _curly_replace(match: re.Match[str]) -> str:
+        key = match.group(1).strip().lower()
+        return f"%%{_LEGACY_KEY_ALIASES.get(key, key)}%%"
 
-def _customer_name(budget: Any) -> str:
-    customer = getattr(budget, "customer", None)
-    if customer is None:
-        return ""
-    return str(getattr(customer, "name", "") or "").strip()
-
-
-def _customer_cpf(budget: Any) -> str:
-    customer = getattr(budget, "customer", None)
-    if customer is None:
-        return ""
-    return str(getattr(customer, "cpf_or_cnpj", "") or "").strip()
-
-
-TERM_PLACEHOLDERS: tuple[TermPlaceholder, ...] = (
-    TermPlaceholder(token="vehicle", label="Veículo", resolver=_vehicle_description),
-    TermPlaceholder(token="plate", label="Placa", resolver=_plate),
-    TermPlaceholder(token="customer_name", label="Nome do cliente", resolver=_customer_name),
-    TermPlaceholder(token="customer_cpf", label="CPF/CNPJ do cliente", resolver=_customer_cpf),
-)
-
-PLACEHOLDER_BY_TOKEN = {item.token: item for item in TERM_PLACEHOLDERS}
+    normalized = LEGACY_CURLY_TOKEN_PATTERN.sub(_curly_replace, normalized)
+    for old_key, new_key in _LEGACY_KEY_ALIASES.items():
+        normalized = re.sub(rf"%%{old_key}%%", f"%%{new_key}%%", normalized, flags=re.IGNORECASE)
+    return normalized
 
 
 class _HtmlSanitizer(HTMLParser):
@@ -131,20 +133,12 @@ def sanitize_term_html(raw_html: str) -> str:
     return parser.get_html().strip()
 
 
-def build_placeholder_values(budget: Any) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for item in TERM_PLACEHOLDERS:
-        values[item.token] = item.resolver(budget) or ""
-    return values
-
-
 def merge_term_placeholders(text: str, *, budget: Any) -> str:
-    values = build_placeholder_values(budget)
-
-    def _replace(match: re.Match[str]) -> str:
-        token = match.group(1).strip().lower()
-        if token not in values:
-            return match.group(0)
-        return html.escape(values[token], quote=False)
-
-    return TOKEN_PATTERN.sub(_replace, text or "")
+    normalized = _normalize_legacy_tokens(text)
+    workshop = getattr(budget, "workshop", None) if budget is not None else None
+    return render_message_template(
+        normalized,
+        budget=budget,
+        workshop=workshop,
+        extras={"vehicle": _vehicle_description(budget)},
+    )

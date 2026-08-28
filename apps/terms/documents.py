@@ -53,10 +53,10 @@ def build_term_document_context(*, template, budget=None, request: HttpRequest |
         "intro_text": _merged(template.intro_text, budget=budget),
         "closing_text": _merged(DEFAULT_CLOSING_TEXT, budget=budget),
         "topics": topics,
-        "vehicle_label": _merged("{{vehicle}}", budget=budget),
-        "plate_label": _merged("{{plate}}", budget=budget),
-        "customer_name": _merged("{{customer_name}}", budget=budget),
-        "customer_cpf": _merged("{{customer_cpf}}", budget=budget),
+        "vehicle_label": _merged("%%vehicle%%", budget=budget),
+        "plate_label": _merged("%%placa%%", budget=budget),
+        "customer_name": _merged("%%nome%%", budget=budget),
+        "customer_cpf": _merged("%%cpf%%", budget=budget),
     }
 
 

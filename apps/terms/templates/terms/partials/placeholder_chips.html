@@ -1,0 +1,23 @@
+<div class="mb-4" data-term-placeholders>
+    <p class="mb-2 text-xs text-base-content/60">
+        Clique em uma variável para copiar o token e cole no texto do termo, como
+        <span class="font-mono font-medium">%%nome%%</span> e <span class="font-mono font-medium">%%placa%%</span>.
+    </p>
+    {% for group in variable_groups %}
+        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ group.title }}</p>
+        <div class="mb-3 flex flex-wrap gap-2">
+            {% for variable in group.variables %}
+                <button
+                    type="button"
+                    class="btn btn-xs btn-outline gap-1"
+                    data-term-token="{{ variable.token }}"
+                    title="Copiar {{ variable.token }}"
+                    aria-label="Copiar variável {{ variable.label }}"
+                >
+                    <span class="material-icons text-sm" aria-hidden="true">content_copy</span>
+                    {{ variable.label }}
+                </button>
+            {% endfor %}
+        </div>
+    {% endfor %}
+</div>
