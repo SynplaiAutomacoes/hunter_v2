@@ -1,5 +1,6 @@
 {% load l10n %}
 <div id="commission-pool-section" class="w-full rounded-xl border border-base-300 bg-base-100 p-4 space-y-6">
+    <div style="display:none">{% csrf_token %}</div>
     <h4 class="font-bold text-lg">Previsão de comissão</h4>
     {% if not commission_is_sale %}
         <p class="text-sm text-base-content/70">Comissão não se aplica a orçamentos de garantia ou cortesia.</p>
@@ -57,11 +58,10 @@
                                             class="input input-bordered input-sm w-24"
                                             hx-post="{% url 'workorder:update_allocation' workorder.pk %}"
                                             hx-vals='{"scope": "{{ scope }}", "collaborator_id": "{{ row.collaborator_id|unlocalize }}"}'
-                                            hx-include="this"
+                                            hx-include="this, #commission-pool-section [name=csrfmiddlewaretoken]"
                                             hx-trigger="change"
                                             hx-target="#commission-pool-section"
                                             hx-swap="innerHTML"
-                                            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                                             {% if commission_is_paid %}disabled{% endif %}
                                         >
                                         {% if row.base_pct > row.cap %}
