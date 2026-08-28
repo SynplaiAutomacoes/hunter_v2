@@ -21,6 +21,7 @@ from apps.core.infrastructure.services.signature_webhook import (
     process_signature_webhook_payload,
 )
 from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
+from apps.workorder.approval import WorkOrderApprovalError
 
 
 class SignatureWhatsAppSkipNoteTests(SimpleTestCase):
@@ -351,12 +352,14 @@ class SignatureWebhookHmacTests(SimpleTestCase):
 class SignatureWebhookProcessingTests(SimpleTestCase):
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
+    @patch("apps.terms.models.BudgetTermSigning.objects.filter")
     @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
-    def test_unknown_envelope_is_acked(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
+    def test_unknown_envelope_is_acked(self, _find_term: Mock, term_filter: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
         budget_filter.return_value.first.return_value = None
         budget_filter.return_value.order_by.return_value.values.return_value.__getitem__ = lambda _self, _idx: []
         workorder_filter.return_value.first.return_value = None
         workorder_filter.return_value.order_by.return_value.values.return_value.__getitem__ = lambda _self, _idx: []
+        term_filter.return_value.order_by.return_value.values.return_value.__getitem__ = lambda _self, _idx: []
 
         response = process_signature_webhook_payload(payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "missing-env"})
         self.assertEqual(response.status_code, 200)
@@ -403,6 +406,54 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         )
         self.assertEqual(response.status_code, 200)
         budget.approve.assert_called_once()
+
+    @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")
+    def test_workorder_signature_is_approved_when_completion_is_pending(self, approve_mock: Mock) -> None:
+        from apps.workorder.models import WorkOrderStatus
+
+        workorder = SimpleNamespace(
+            pk=685,
+            warranty_plan="days_90",
+            mark_signature_approved=Mock(),
+            is_fully_paid=False,
+            budget_type="standard",
+            status=WorkOrderStatus.DRAFT,
+            save=Mock(),
+        )
+
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_SIGNED", "envelopeId": "env-os-685"},
+            workorder=workorder,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workorder.mark_signature_approved.assert_called_once()
+        approve_mock.assert_not_called()
+
+    @patch(
+        "apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock",
+        side_effect=WorkOrderApprovalError("estoque insuficiente"),
+    )
+    def test_workorder_signature_is_approved_even_when_finalize_fails(self, _approve_mock: Mock) -> None:
+        from apps.workorder.models import WorkOrderStatus
+
+        workorder = SimpleNamespace(
+            pk=685,
+            warranty_plan="days_90",
+            mark_signature_approved=Mock(),
+            is_fully_paid=True,
+            budget_type="standard",
+            status=WorkOrderStatus.DRAFT,
+            save=Mock(),
+        )
+
+        response = process_signature_webhook_payload(
+            payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "env-os-685"},
+            workorder=workorder,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workorder.mark_signature_approved.assert_called_once()
 
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")

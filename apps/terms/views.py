@@ -5,7 +5,7 @@ from typing import cast
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
@@ -26,6 +26,7 @@ from apps.terms.forms import TermTemplateForm
 from apps.terms.models import BudgetTermSigning, TermBullet, TermKind, TermSource, TermSignatureStatus, TermTemplate, TermTopic
 from apps.terms.util import (
     build_showtoast_trigger,
+    build_term_send_success_trigger,
     can_toggle_term_signed_pdf,
     extract_term_sections,
     new_topic_key,
@@ -389,14 +390,20 @@ class BudgetTermSendView(BudgetTermMixin):
         message = "Termo reenviado para assinatura do cliente." if is_resend else "Termo enviado para assinatura do cliente."
         customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
         message += build_signature_whatsapp_skip_note(workshop=budget.workshop, phone=customer_phone)
-        html_response = _render_budget_term_modal(
-            request=request,
-            workshop=self.workshop,
-            budget=budget,
-            template_id=template_id,
+        response = HttpResponse("")
+        response["HX-Trigger"] = build_term_send_success_trigger(
+            message=message,
+            status_badge=term_signature_status_badge(signing),
         )
-        html_response["HX-Trigger"] = _showtoast_trigger("success", message)
-        return html_response
+        return response
+
+
+class BudgetTermSigningStatusView(BudgetTermMixin):
+    def get(self, request, budget_id: int, template_id: int):
+        budget = self._get_budget(budget_id)
+        template = get_object_or_404(TermTemplate, pk=template_id, workshop=self.workshop)
+        signing = BudgetTermSigning.objects.filter(budget=budget, template=template).first()
+        return JsonResponse(term_signature_status_badge(signing))
 
 
 class BudgetTermSignedPdfView(BudgetTermMixin):

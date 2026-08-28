@@ -248,6 +248,34 @@ def _reject_workorder_from_decline(*, workorder, envelope_id: str) -> None:
     logger.info("signature_webhook_workorder_rejected", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
 
 
+def _decline_term_signing(*, term_signing, envelope_id: str) -> None:
+    from apps.terms.models import TermSignatureStatus
+
+    if term_signing.signature_request_status == TermSignatureStatus.DECLINED:
+        logger.info(
+            "signature_webhook_term_already_declined",
+            extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id},
+        )
+        return
+
+    term_signing.mark_signature_declined()
+    logger.info("signature_webhook_term_declined", extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id})
+
+
+def _approve_term_signing(*, term_signing, envelope_id: str) -> None:
+    from apps.terms.models import TermSignatureStatus
+
+    if term_signing.signature_request_status == TermSignatureStatus.APPROVED:
+        logger.info(
+            "signature_webhook_term_already_approved",
+            extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id},
+        )
+        return
+
+    term_signing.mark_signature_approved()
+    logger.info("signature_webhook_term_approved", extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id})
+
+
 def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, workorder=None, term_signing=None, header_event: str = "") -> HttpResponse:
     from apps.budget.models import Budget, SignatureStatus
     from apps.workorder.models import WorkOrderSignatureStatus
@@ -274,11 +302,7 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
     if term_signing is not None:
         try:
             if event_name == "DOCUMENT_DECLINED":
-                term_signing.mark_signature_declined()
-                logger.info(
-                    "signature_webhook_term_declined",
-                    extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id},
-                )
+                _decline_term_signing(term_signing=term_signing, envelope_id=envelope_id)
                 return HttpResponse(status=200)
             if event_name != "ENVELOPE_COMPLETED":
                 logger.info(
@@ -286,11 +310,7 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
                     extra={"event": event_name, "term_signing_id": term_signing.pk},
                 )
                 return HttpResponse(status=200)
-            term_signing.mark_signature_approved()
-            logger.info(
-                "signature_webhook_term_approved",
-                extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id},
-            )
+            _approve_term_signing(term_signing=term_signing, envelope_id=envelope_id)
         except Exception:
             logger.exception(
                 "signature_webhook_term_processing_failed",
@@ -300,8 +320,16 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
         return HttpResponse(status=200)
 
     if budget is None and workorder is None:
+        from apps.terms.models import BudgetTermSigning, TermSignatureStatus
+
         recent_budget = Budget.objects.filter(signature_request_status=SignatureStatus.SENT).order_by("-signature_sent_at").values("id", "signature_external_id", "signature_document_id", "signature_sent_at")[:3]
         recent_workorder = WorkOrder.objects.filter(signature_request_status=WorkOrderSignatureStatus.SENT).order_by("-signature_sent_at").values("id", "signature_external_id", "signature_document_id", "signature_sent_at")[:3]
+        recent_term_signings = BudgetTermSigning.objects.filter(signature_request_status=TermSignatureStatus.SENT).order_by("-signature_sent_at").values(
+            "id",
+            "signature_external_id",
+            "signature_document_id",
+            "signature_sent_at",
+        )[:3]
         logger.info(
             "signature_webhook_no_matching_document",
             extra={
@@ -309,6 +337,7 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
                 "envelope_id": envelope_id,
                 "recent_sent_budgets": list(recent_budget),
                 "recent_sent_workorders": list(recent_workorder),
+                "recent_sent_term_signings": list(recent_term_signings),
             },
         )
         return HttpResponse(status=200)

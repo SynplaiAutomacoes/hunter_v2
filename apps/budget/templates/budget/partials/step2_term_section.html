@@ -1,6 +1,6 @@
 {% load l10n %}
 
-<div class="flex flex-col h-full w-full" data-receipt-term-panel>
+<div class="flex flex-col h-full w-full" data-receipt-term-panel data-status-url-template="{{ term_status_url_template }}">
     <label class="label p-0 mb-2" for="receipt-term-select">
         <span class="label-text font-semibold">Termo de Recebimento / Garantia</span>
     </label>
@@ -62,14 +62,78 @@
                 statusMap = {};
             }
         }
+        panel.__receiptTermStatusMap = statusMap;
 
         const urlTemplate = button.dataset.urlTemplate || '';
+        const statusUrlTemplate = panel.dataset.statusUrlTemplate || '';
+        let statusPollTimer = null;
+
+        const stopStatusPolling = function () {
+            if (statusPollTimer !== null) {
+                window.clearInterval(statusPollTimer);
+                statusPollTimer = null;
+            }
+        };
+
+        const shouldPollStatus = function () {
+            const currentMap = panel.__receiptTermStatusMap || {};
+            const status = currentMap[select.value] || {};
+            return status.text === 'Enviado';
+        };
+
+        const pollSigningStatus = function () {
+            if (!shouldPollStatus() || !statusUrlTemplate) {
+                stopStatusPolling();
+                return;
+            }
+            const statusUrl = statusUrlTemplate.replace('{id}', select.value);
+            window.fetch(statusUrl, {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+            })
+                .then(function (response) {
+                    if (!response.ok) {
+                        return null;
+                    }
+                    return response.json();
+                })
+                .then(function (status) {
+                    if (!status || !status.text) {
+                        return;
+                    }
+                    statusMap[select.value] = status;
+                    panel.__receiptTermStatusMap = statusMap;
+                    if (statusMapElement) {
+                        statusMapElement.textContent = JSON.stringify(statusMap);
+                    }
+                    updateStatusBadge();
+                    if (status.text !== 'Enviado') {
+                        stopStatusPolling();
+                    }
+                })
+                .catch(function () {
+                    return;
+                });
+        };
+
+        const syncStatusPolling = function () {
+            stopStatusPolling();
+            if (!shouldPollStatus()) {
+                return;
+            }
+            pollSigningStatus();
+            statusPollTimer = window.setInterval(pollSigningStatus, 5000);
+        };
+
+        panel.__syncStatusPolling = syncStatusPolling;
+        panel.__stopStatusPolling = stopStatusPolling;
 
         const updateStatusBadge = function () {
             if (!badge) {
                 return;
             }
-            const status = statusMap[select.value] || { text: 'Não enviado', class: 'badge-ghost' };
+            const currentMap = panel.__receiptTermStatusMap || {};
+            const status = currentMap[select.value] || { text: 'Não enviado', class: 'badge-ghost' };
             badge.textContent = status.text;
             badge.className = 'badge font-semibold uppercase ' + (status.class || 'badge-ghost');
         };
@@ -83,8 +147,52 @@
                 window.htmx.process(button);
             }
             updateStatusBadge();
+            syncStatusPolling();
         };
 
         select.addEventListener('change', updateModalUrl);
+        syncStatusPolling();
+
+        if (document.body.dataset.receiptTermEventsBound !== '1') {
+            document.body.dataset.receiptTermEventsBound = '1';
+
+            document.body.addEventListener('closeBudgetTermModal', function () {
+                const container = document.getElementById('modal-container');
+                if (container) {
+                    container.innerHTML = '';
+                }
+            });
+
+            document.body.addEventListener('updateReceiptTermStatusBadge', function (event) {
+                const badge = document.getElementById('receipt-term-status-badge');
+                const status = event.detail || {};
+                if (!badge || !status.text) {
+                    return;
+                }
+                badge.textContent = status.text;
+                badge.className = 'badge font-semibold uppercase ' + (status.class || 'badge-ghost');
+
+                const selectEl = document.querySelector('[data-receipt-term-select]');
+                const statusMapElement = document.getElementById('receipt-term-status-map');
+                if (!selectEl || !statusMapElement || !statusMapElement.textContent) {
+                    return;
+                }
+                try {
+                    const statusMap = JSON.parse(statusMapElement.textContent);
+                    statusMap[selectEl.value] = status;
+                    statusMapElement.textContent = JSON.stringify(statusMap);
+                    const panelEl = document.querySelector('[data-receipt-term-panel]');
+                    if (panelEl) {
+                        panelEl.__receiptTermStatusMap = statusMap;
+                    }
+                } catch (_error) {
+                    return;
+                }
+                const panelEl = document.querySelector('[data-receipt-term-panel]');
+                if (panelEl && typeof panelEl.__syncStatusPolling === 'function') {
+                    panelEl.__syncStatusPolling();
+                }
+            });
+        }
     })();
 </script>
