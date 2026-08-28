@@ -67,8 +67,7 @@ class BudgetPdfModalUrls:
     base_pdf_download_url: str
 
 
-def resolve_budget_pdf_modal_urls(*, budget_id: int, can_toggle_signed_pdf: bool) -> BudgetPdfModalUrls:
-    pdf_view_url = reverse("budget:visualizar_pdf_assinatura", args=[budget_id])
+def resolve_pdf_modal_urls(*, pdf_view_url: str, can_toggle_signed_pdf: bool) -> BudgetPdfModalUrls:
     signed_pdf_url = "{pdf_view_url}?variant=signed".format(pdf_view_url=pdf_view_url)
     base_pdf_url = "{pdf_view_url}?variant=base".format(pdf_view_url=pdf_view_url)
     signed_pdf_download_url = "{pdf_view_url}?download=1&variant=signed".format(pdf_view_url=pdf_view_url)
@@ -92,6 +91,11 @@ def resolve_budget_pdf_modal_urls(*, budget_id: int, can_toggle_signed_pdf: bool
         signed_pdf_download_url=signed_pdf_download_url,
         base_pdf_download_url=base_pdf_download_url,
     )
+
+
+def resolve_budget_pdf_modal_urls(*, budget_id: int, can_toggle_signed_pdf: bool) -> BudgetPdfModalUrls:
+    pdf_view_url = reverse("budget:visualizar_pdf_assinatura", args=[budget_id])
+    return resolve_pdf_modal_urls(pdf_view_url=pdf_view_url, can_toggle_signed_pdf=can_toggle_signed_pdf)
 
 
 def build_step6_context(budget, form: Any) -> Step6ReviewContext:

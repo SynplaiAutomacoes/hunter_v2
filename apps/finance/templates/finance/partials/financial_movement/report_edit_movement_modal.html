@@ -11,10 +11,12 @@
 >
     <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 shadow-2xl p-6 md:p-12">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-2xl font-bold text-base-content flex items-center gap-3">
-                <span class="material-icons text-primary text-2xl">edit</span>
-                Editar Movimentação Financeira
-            </h3>
+            <div class="flex items-center gap-3">
+                <h3 class="text-2xl font-bold text-base-content flex items-center gap-3">
+                    <span class="material-icons text-primary text-2xl">edit</span>
+                    Editar Movimentação Financeira
+                </h3>
+            </div>
             <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.editMovementModal.close()" aria-label="Fechar">
                 <span class="material-icons text-xl">close</span>
             </button>
@@ -46,6 +48,9 @@
                 <button type="button" class="btn btn-sm" :class="activeTab === 'attachment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'attachment'">Anexo</button>
                 {% if movement.movement_kind == 'GROUP_PARENT' and movement.movement_group %}
                 <button type="button" class="btn btn-sm" :class="activeTab === 'group' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'group'">Agrupamento</button>
+                {% endif %}
+                {% if movement.installment_plan %}
+                <button type="button" class="btn btn-sm" :class="activeTab === 'installments' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'installments'">Parcelas</button>
                 {% endif %}
             </div>
 
@@ -105,6 +110,44 @@
                             <span class="material-icons text-sm">link_off</span>
                             Desagrupar
                         </button>
+                    </div>
+                </section>
+                {% endif %}
+
+                {% if movement.installment_plan %}
+                <section x-show="activeTab === 'installments'" x-cloak class="space-y-4">
+                    <h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">calendar_month</span> Parcelamento</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
+                        <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">Valor bruto original</span><strong>{{ movement.installment_plan.gross_amount }}</strong></div>
+                        <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">{% if movement.installment_plan.adjustment_mode == 'SURCHARGE' %}Acréscimo original{% elif movement.installment_plan.adjustment_mode == 'AMOUNT' %}Desconto original{% else %}Ajuste original{% endif %}</span><strong>{{ movement.installment_plan.adjustment_value }}</strong></div>
+                        <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">Valor final</span><strong>{{ movement.installment_plan.net_amount }}</strong></div>
+                        <div class="rounded-lg border border-base-300 p-3"><span class="block text-xs opacity-60">Quantidade</span><strong>{{ movement.installment_plan.installments_count }} parcelas</strong></div>
+                    </div>
+                    <div class="overflow-x-auto bg-base-100 rounded-xl border border-base-200">
+                        <table class="table table-zebra table-sm w-full"><thead class="bg-base-200/50"><tr><th>Parcela</th><th>Vencimento</th><th>Status</th><th class="text-right">Valor</th><th class="text-right">Ações</th></tr></thead><tbody>
+                            {% for installment in installments %}
+                            <tr>
+                                <td>{{ installment.installment_number }}/{{ installment.installments_count }}</td>
+                                <td>{{ installment.due_date|date:"d/m/Y" }}</td>
+                                <td>{% if installment.is_paid %}<span class="badge badge-success badge-sm badge-outline">Pago</span>{% else %}<span class="badge badge-warning badge-sm badge-outline">Pendente</span>{% endif %}</td>
+                                <td class="font-semibold text-right">{{ installment.amount }}</td>
+                                <td class="text-right">
+                                    <button
+                                        type="button"
+                                        class="btn btn-ghost btn-xs"
+                                        title="Editar parcela {{ installment.installment_number }}/{{ installment.installments_count }}"
+                                        hx-get="{% url 'finance:report_movement_edit' pk=installment.pk %}"
+                                        hx-target="#edit-modal-container"
+                                        hx-swap="innerHTML"
+                                        hx-on::before-request="$refs.editMovementModal.close()"
+                                    >
+                                        <span class="material-icons text-sm">edit</span>
+                                        Editar
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody></table>
                     </div>
                 </section>
                 {% endif %}

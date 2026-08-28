@@ -59,6 +59,18 @@ def build_paid_status_indicator(*, is_paid: bool) -> dict[str, str]:
     }
 
 
+def visible_commission_report_filter() -> Q:
+    return (
+        Q(status=CollaboratorCommissionEntry.Status.PAID)
+        | Q(origin=CollaboratorCommissionEntry.Origin.MANUAL)
+        | Q(
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+            workorder__status=WorkOrderStatus.APPROVED,
+            workorder__budget_type="sale",
+        )
+    )
+
+
 class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = CollaboratorCommissionEntry
     template_name = "finance/commissions/report.html"
@@ -127,18 +139,8 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
 
     def _get_queryset(self):
         queryset = (
-            CollaboratorCommissionEntry.objects.filter(
-                workshop=self.workshop,
-                workorder__isnull=False,
-            )
-            .filter(
-                Q(status=CollaboratorCommissionEntry.Status.PAID)
-                | Q(
-                    status=CollaboratorCommissionEntry.Status.FORECAST,
-                    workorder__status=WorkOrderStatus.APPROVED,
-                    workorder__budget_type="sale",
-                )
-            )
+            CollaboratorCommissionEntry.objects.filter(workshop=self.workshop)
+            .filter(visible_commission_report_filter())
             .select_related("collaborator", "workorder", "workorder__budget", "workorder__budget__customer")
             .order_by("-criado_em", "-id")
         )
@@ -164,6 +166,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "workorder__budget__customer__name",
                     "workorder__budget__problem_description",
                     "workorder__budget__notes",
+                    "notes",
                 ),
             )
             workorder_query = Q(workorder__id__icontains=search) | Q(workorder__budget__number__icontains=search) | Q(workorder__budget__id__icontains=search)
@@ -177,15 +180,18 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
 
     @staticmethod
     def _resolve_workorder_description(entry: CollaboratorCommissionEntry) -> str:
+        notes = str(entry.notes or "").strip()
+        if entry.is_manual or entry.workorder_id is None:
+            return notes or "Comissão manual"
         budget = getattr(entry.workorder, "budget", None)
         if budget is None:
-            return "-"
-        return str(budget.problem_description or budget.notes or "-")
+            return notes or "-"
+        return str(budget.problem_description or budget.notes or notes or "-")
 
     @staticmethod
     def _sum_distinct_workorder_service_totals(*, queryset) -> Decimal:
         """Sum service-only commission bases once per work order (sale OS only)."""
-        per_workorder_totals = queryset.order_by().values("workorder_id").annotate(service_total=Max("base_amount"))
+        per_workorder_totals = queryset.filter(workorder_id__isnull=False).order_by().values("workorder_id").annotate(service_total=Max("base_amount"))
         total = Decimal("0.00")
         for row in per_workorder_totals:
             service_total = row.get("service_total")
@@ -235,17 +241,19 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
     def _build_rows(self, *, entries: list[CollaboratorCommissionEntry]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for entry in entries:
-            customer = getattr(getattr(entry.workorder, "budget", None), "customer", None)
+            is_manual = entry.is_manual or entry.workorder_id is None
+            customer = getattr(getattr(entry.workorder, "budget", None), "customer", None) if entry.workorder_id else None
             rows.append(
                 {
                     "collaborator_name": entry.collaborator.name,
-                    "workorder_id": entry.workorder.budget_id,
+                    "workorder_id": entry.workorder.get_id,
                     "workorder_url": reverse("workorder:workorder_detail", kwargs={"pk": entry.workorder_id}),
+                    "workorder_label": "Manual" if is_manual else "",
                     "customer_name": customer.name if customer is not None else "-",
                     "description": self._resolve_workorder_description(entry),
                     "reference": f"{entry.reference_month:02d}/{entry.reference_year}",
                     "applied_at": entry.criado_em.date() if entry.criado_em else None,
-                    "percentage": f"{(entry.percentage * Decimal('100')).quantize(Decimal('0.01'))}%",
+                    "percentage": "-" if is_manual else f"{(entry.percentage * Decimal('100')).quantize(Decimal('0.01'))}%",
                     "base_amount": entry.base_amount,
                     "commission_amount": entry.commission_amount,
                     "status": entry.status,
@@ -328,18 +336,8 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         selected_month = _parse_int_param(self.request.GET.get("mes"), default=today.month, minimum=1, maximum=12)
         selected_year = _parse_int_param(self.request.GET.get("ano"), default=today.year, minimum=2000, maximum=9999)
         queryset = (
-            CollaboratorCommissionEntry.objects.filter(
-                workshop=self.workshop,
-                workorder__isnull=False,
-            )
-            .filter(
-                Q(status=CollaboratorCommissionEntry.Status.PAID)
-                | Q(
-                    status=CollaboratorCommissionEntry.Status.FORECAST,
-                    workorder__status=WorkOrderStatus.APPROVED,
-                    workorder__budget_type="sale",
-                )
-            )
+            CollaboratorCommissionEntry.objects.filter(workshop=self.workshop)
+            .filter(visible_commission_report_filter())
             .select_related(
                 "collaborator",
                 "workorder",
@@ -388,17 +386,20 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "total_commission": Money(0, "BRL"),
                 }
 
-            customer = getattr(getattr(entry.workorder, "budget", None), "customer", None)
-            vehicle = getattr(getattr(entry.workorder, "budget", None), "vehicle", None)
+            is_manual = entry.is_manual or entry.workorder_id is None
+            customer = getattr(getattr(entry.workorder, "budget", None), "customer", None) if entry.workorder_id else None
+            vehicle = getattr(getattr(entry.workorder, "budget", None), "vehicle", None) if entry.workorder_id else None
+            notes = str(entry.notes or "").strip()
 
             collaborators_map[collab_id]["entries"].append(
                 {
-                    "workorder_id": entry.workorder.get_id,
-                    "customer": customer.name if customer else "-",
-                    "vehicle": str(vehicle) if vehicle else "-",
-                    "delivered_at": entry.workorder.delivered_at,
+                    "workorder_id": "Manual" if is_manual else entry.workorder.get_id,
+                    "customer": (notes or "Lançamento manual") if is_manual else (customer.name if customer else "-"),
+                    "vehicle": notes if is_manual else (str(vehicle) if vehicle else "-"),
+                    "delivered_at": None if is_manual else entry.workorder.delivered_at,
                     "base_amount": entry.base_amount,
-                    "percentage": (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
+                    "percentage": None if is_manual else (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
+                    "is_manual": is_manual,
                     "commission_amount": entry.commission_amount,
                 }
             )

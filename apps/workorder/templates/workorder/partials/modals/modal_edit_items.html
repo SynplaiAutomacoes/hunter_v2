@@ -2,7 +2,7 @@
     <div class="p-6 border-b border-base-200 flex justify-between items-center bg-base-50">
         <h3 class="font-bold text-2xl flex items-center gap-3">
             <span class="material-icons">edit_note</span>
-            Editar Itens da O.S. #{{ workorder.id }}
+            Editar Itens da O.S. #{{ workorder.public_number }}
         </h3>
         <button type="button" class="btn btn-sm btn-circle btn-ghost" onclick="document.getElementById('form_modal').close()">✕</button>
     </div>
@@ -32,7 +32,7 @@
                                 <th class="text-center">Qtd.</th>
                                 <th>Custo</th>
                                 <th>Venda</th>
-                                <th>Frete</th>
+                                <th>Custo de Frete</th>
                                 <th>Total</th>
                                 <th class="text-center">Ações</th>
                             </tr>

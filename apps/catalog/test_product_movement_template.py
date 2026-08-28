@@ -17,6 +17,9 @@ class ProductMovementTemplateTests(SimpleTestCase):
             quantity=1,
             reason="",
             supplier=None,
+            historical_supplier=None,
+            workorder=None,
+            workorder_id=None,
             status="APROVADO",
             get_status_display="Aprovado",
             display_date=timezone.make_aware(datetime(2026, 7, 9, 0, 42)),
@@ -26,7 +29,9 @@ class ProductMovementTemplateTests(SimpleTestCase):
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
         self.assertIn("Sistema", html)
-        self.assertIn("Motivo", html)
+        self.assertNotIn("Motivo", html)
+        self.assertIn("Fornecedor", html)
+        self.assertIn("Cliente/Veículo", html)
         self.assertIn("—", html)
 
     def test_renders_reason_when_present(self) -> None:
@@ -37,6 +42,9 @@ class ProductMovementTemplateTests(SimpleTestCase):
             quantity=2,
             reason="Inventário físico",
             supplier=None,
+            historical_supplier=SimpleNamespace(name="Fornecedor Teste"),
+            workorder=None,
+            workorder_id=None,
             status="APROVADO",
             get_status_display="Aprovado",
             display_date=timezone.make_aware(datetime(2026, 7, 9, 0, 42)),
@@ -45,4 +53,6 @@ class ProductMovementTemplateTests(SimpleTestCase):
 
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
-        self.assertIn("Inventário físico", html)
+        self.assertNotIn("Inventário físico", html)
+        self.assertIn("Fornecedor", html)
+        self.assertIn("Fornecedor Teste", html)

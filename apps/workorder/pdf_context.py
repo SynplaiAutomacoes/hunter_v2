@@ -10,6 +10,7 @@ from djmoney.money import Money
 
 from apps.budget.pdf_context import build_workshop_logo_data_uri as build_workshop_logo_data_uri
 from apps.budget.pdf_context import is_visible_pdf_pricing_line as is_visible_pdf_pricing_line
+from apps.budget.pdf_context import resolve_pdf_opened_by_name as resolve_pdf_opened_by_name
 from apps.budget.pricing import money_div as money_div
 from apps.budget.pricing import money_from_decimal as money_from_decimal
 from apps.budget.pricing import zero_money as zero_money
@@ -378,6 +379,11 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             discount_services = money_from_decimal(allocated[1])
 
     delivery_context = resolve_workorder_pdf_delivery(workorder=workorder)
+    opened_by_name = resolve_pdf_opened_by_name(
+        getattr(workorder, "created_by", None),
+        getattr(workorder.budget, "created_by", None),
+        getattr(workorder.budget, "cost_estimator", None),
+    )
 
     return {
         "workorder": workorder,
@@ -403,5 +409,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         **delivery_context,
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
         "expected_delivery_at": None,
+        "document_title": "ORDEM DE SERVIÇO",
+        "opened_by_name": opened_by_name,
         "request": request,
     }

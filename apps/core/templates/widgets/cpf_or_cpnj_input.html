@@ -1,6 +1,6 @@
 {% with raw=widget.value|default_if_none:"" %}
 <div
-  x-data="formatters.widget.docInput('{{ raw|escapejs }}', '{{ widget.doc_mode|default:"both"|escapejs }}')"
+  x-data="formatters.widget.docInput('{{ raw|escapejs }}', '{{ widget.doc_mode|default:"both"|escapejs }}', '{{ widget.duplicate_check_url|escapejs }}', '{{ widget.customer_id|escapejs }}')"
   x-init="init()"
 >
   <input
@@ -15,6 +15,14 @@
     {% if widget.attrs.disabled %}disabled{% endif %}
     {% if widget.attrs.readonly %}readonly{% endif %}
   >
+
+  <p
+    x-cloak
+    x-show="duplicateMessage"
+    x-text="duplicateMessage"
+    class="mt-1 text-sm"
+    :class="['exists', 'invalid'].includes(duplicateState) ? 'text-error' : 'text-success'"
+  ></p>
 
   <input
     type="hidden"
