@@ -19,13 +19,27 @@
             {% for card in top_summary_cards %}
                 <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                     <div class="stat-title text-base-content/70">{{ card.title }}</div>
-                    <div class="stat-value mt-2 {% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% endif %}">{{ card.value }}</div>
+                    <div class="stat-value mt-2 flex items-center gap-2 {% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% endif %}">
+                        <span>{{ card.value }}</span>
+                        {% if card.filter_url %}
+                            <a href="{{ card.filter_url }}" class="flex items-center text-base-content/30 hover:{% if card.tone == 'credit' %}text-success{% elif card.tone == 'debit' %}text-error{% else %}text-primary{% endif %}" title="Visualizar relação" aria-label="Filtrar movimentações de {{ card.title }}">
+                                <span class="material-icons" style="font-size: 14px;">visibility</span>
+                            </a>
+                        {% endif %}
+                    </div>
                     {% if card.rows %}
                         <div class="stat-desc mt-3 w-full space-y-1">
                             {% for row in card.rows %}
                                 <div class="flex items-center justify-between gap-4 text-xs">
                                     <span class="{% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% endif %}">{{ row.label }}</span>
-                                    <span class="font-semibold {% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% endif %}">{{ row.value }}</span>
+                                    <span class="flex items-center gap-1 font-semibold {% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% endif %}">
+                                        {{ row.value }}
+                                        {% if row.filter_url %}
+                                            <a href="{{ row.filter_url }}" class="flex items-center text-base-content/30 hover:{% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% else %}text-primary{% endif %}" title="Visualizar relação" aria-label="Filtrar movimentações de {{ row.label }}">
+                                                <span class="material-icons" style="font-size: 14px;">visibility</span>
+                                            </a>
+                                        {% endif %}
+                                    </span>
                                 </div>
                             {% endfor %}
                         </div>
@@ -417,11 +431,11 @@
                                     </tbody>
                                 </table>
                             </div>
-                            {% if has_active_filters and selection_summary and not selection_summary.is_placeholder %}
+                            {% if selection_summary and not selection_summary.is_placeholder %}
                                 <div class="border-t border-base-300 bg-base-200/30 p-4">
                                     <div class="ml-auto flex w-full max-w-sm flex-col gap-2">
                                         <span class="mb-1 text-xs font-bold uppercase tracking-wider text-base-content/50">
-                                            Resumo da Seleção
+                                            {{ selection_summary.title }}
                                         </span>
 
                                         <div class="space-y-1.5">
