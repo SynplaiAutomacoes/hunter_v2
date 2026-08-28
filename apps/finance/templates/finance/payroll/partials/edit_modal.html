@@ -115,7 +115,13 @@
                             <tbody>
                                 {% for commission in payroll.commission_entries.all %}
                                     <tr>
-                                        <td>{{ commission.workorder_display }}</td>
+                                        <td>
+                                            {% if commission.workorder_id %}
+                                                <a href="{% url 'workorder:workorder_detail' pk=commission.workorder_id %}" target="_blank" class="hover:text-primary transition-colors hover:underline">{{ commission.workorder_display }}</a>
+                                            {% else %}
+                                                {{ commission.workorder_display }}
+                                            {% endif %}
+                                        </td>
                                         <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year|unlocalize }}</td>
                                         <td>{% if commission.is_manual %}—{% else %}{{ commission.base_amount }}{% endif %}</td>
                                         <td>{{ commission.percentage_display }}</td>

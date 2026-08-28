@@ -477,6 +477,10 @@ class PayrollEditModalViewTests(TestCase):
         content = response.content.decode()
         self.assertIn("6,00%", content)
         self.assertIn("Não Pago", content)
+        self.assertIn(
+            f'href="{reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk})}"',
+            content,
+        )
 
     def test_edit_modal_displays_reconciliation_field(self) -> None:
         workshop = create_workshop(suffix=3)

@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Protocol
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -129,8 +129,17 @@ class DockerRunPostgresRunner:
         command = ["docker", "run", "--rm"]
         command.extend(_docker_env_flags(_docker_run_env(env)))
         for mount_file in mount_files:
-            mount_dir = mount_file.resolve().parent
-            command.extend(["-v", f"{mount_dir}:{mount_dir}"])
+            source_path = mount_file.resolve()
+            # Docker containers always use POSIX paths, even when this script
+            # runs on Windows. pathlib.Path would render this as "\\tmp" there.
+            container_path = PurePosixPath("/tmp") / source_path.name
+            command.extend(
+                [
+                    "--mount",
+                    f"type=bind,source={source_path.parent},target={container_path.parent}",
+                ]
+            )
+            args = [_replace_path_argument(arg, source_path, container_path) for arg in args]
         command.extend([self.image, binary, *args])
         run_command(command, env=os.environ.copy(), step=step)
 
@@ -140,10 +149,10 @@ class DockerExecPostgresRunner:
     container_id: str
 
     def run(self, binary: str, args: list[str], *, env: dict[str, str], step: str, mount_files: tuple[Path, ...] = ()) -> None:
-        container_paths: list[Path] = []
+        container_paths: list[PurePath] = []
         try:
             for mount_file in mount_files:
-                container_path = Path("/tmp") / f"sync-local-db-{mount_file.name}"
+                container_path = PurePosixPath("/tmp") / f"sync-local-db-{mount_file.name}"
                 copy_into_container(mount_file.resolve(), self.container_id, container_path)
                 container_paths.append(container_path)
                 args = [_replace_path_argument(arg, mount_file.resolve(), container_path) for arg in args]
@@ -302,7 +311,7 @@ def _docker_run_env(env: dict[str, str]) -> dict[str, str]:
     return adjusted
 
 
-def _replace_path_argument(arg: str, source_path: Path, container_path: Path) -> str:
+def _replace_path_argument(arg: str, source_path: Path, container_path: PurePath) -> str:
     source = str(source_path)
     container = str(container_path)
     if arg == source:
@@ -314,7 +323,7 @@ def _replace_path_argument(arg: str, source_path: Path, container_path: Path) ->
     return arg
 
 
-def copy_into_container(source_path: Path, container_id: str, container_path: Path) -> None:
+def copy_into_container(source_path: Path, container_id: str, container_path: PurePath) -> None:
     run_command(
         ["docker", "cp", str(source_path), f"{container_id}:{container_path}"],
         env=os.environ.copy(),
@@ -322,7 +331,7 @@ def copy_into_container(source_path: Path, container_id: str, container_path: Pa
     )
 
 
-def cleanup_container_file(container_id: str, container_path: Path) -> None:
+def cleanup_container_file(container_id: str, container_path: PurePath) -> None:
     subprocess.run(
         ["docker", "exec", container_id, "rm", "-f", str(container_path)],
         check=False,
