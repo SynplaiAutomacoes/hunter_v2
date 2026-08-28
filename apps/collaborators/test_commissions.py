@@ -806,7 +806,11 @@ class CollaboratorCommissionSyncTests(TestCase):
         entry.refresh_from_db()
         self.assertEqual(entry.origin, CollaboratorCommissionEntry.Origin.MANUAL)
         self.assertEqual(entry.commission_amount, Money(75, "BRL"))
+        self.assertEqual(entry.notes, "Ajuste")
         self.assertIsNone(entry.workorder_id)
+        payroll.refresh_from_db()
+        commission_item = payroll.items.get(item_type="COMMISSION")
+        self.assertEqual(commission_item.description, "Ajuste")
 
 
 class CommissionAndPayrollCommandTests(TestCase):

@@ -232,7 +232,7 @@ class FinancialMovement(TimeStampedModel):
         return {
             "icon": "check_circle" if self.is_paid else "cancel",
             "class": "text-success" if self.is_paid else "text-error",
-            "label": "Pago" if self.is_paid else "Não pago",
+            "label": "Sim" if self.is_paid else "Não",
         }
 
     @property
@@ -240,7 +240,7 @@ class FinancialMovement(TimeStampedModel):
         return {
             "icon": "check_circle" if self.is_reconciled else "schedule",
             "class": "text-success" if self.is_reconciled else "text-warning",
-            "label": "Conciliado" if self.is_reconciled else "Aguardando conciliação",
+            "label": "Conciliado" if self.is_reconciled else "Aguardando Conciliação",
         }
 
     @property
@@ -250,8 +250,8 @@ class FinancialMovement(TimeStampedModel):
             badge_class = "badge-error"
 
         direction_text = {
-            self.MovementDirection.CREDIT: "Contas a receber",
-            self.MovementDirection.DEBIT: "Contas a pagar",
+            self.MovementDirection.CREDIT: "Crédito",
+            self.MovementDirection.DEBIT: "Débito",
         }.get(self.direction, "-")
 
         return {

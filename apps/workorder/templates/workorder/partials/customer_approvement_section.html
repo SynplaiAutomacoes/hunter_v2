@@ -107,17 +107,16 @@
                     const el = document.getElementById('id_km_final');
                     const hasKm = Boolean(el && el.value.trim());
                     const kmValid = hasKm && el.checkValidity();
-                    const canToggleSignedPdf = {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %};
-                    const isSignatureResend = {% if workorder.signature_request_status == 'sent' and workorder.signature_external_id %}true{% else %}false{% endif %};
+                    const canToggleSignedPdf = {% if workorder_pdf_urls.can_toggle_signed_pdf %}true{% else %}false{% endif %};
+                    const isSignatureResend = {% if workorder_pdf_urls.is_signature_resend %}true{% else %}false{% endif %};
                     const signatureButtonLabel = isSignatureResend ? 'Reenviar Documento' : 'Enviar para Assinatura';
-                    const pdfViewUrl = '{% url 'workorder:visualizar_pdf' workorder.pk %}';
-                    const signedPdfUrl = pdfViewUrl + '?variant=signed';
-                    const basePdfUrl = pdfViewUrl + '?variant=base';
-                    const signedDownloadUrl = pdfViewUrl + '?download=1&variant=signed';
-                    const baseDownloadUrl = pdfViewUrl + '?download=1&variant=base';
-                    const initialPdfVariant = canToggleSignedPdf ? 'signed' : 'base';
-                    const initialPdfUrl = canToggleSignedPdf ? signedPdfUrl : basePdfUrl;
-                    const initialDownloadUrl = canToggleSignedPdf ? signedDownloadUrl : baseDownloadUrl;
+                    const signedPdfUrl = '{{ workorder_pdf_urls.signed_pdf_url }}';
+                    const basePdfUrl = '{{ workorder_pdf_urls.base_pdf_url }}';
+                    const signedDownloadUrl = '{{ workorder_pdf_urls.signed_download_url }}';
+                    const baseDownloadUrl = '{{ workorder_pdf_urls.base_download_url }}';
+                    const initialPdfVariant = '{{ workorder_pdf_urls.initial_pdf_variant }}';
+                    const initialPdfUrl = '{{ workorder_pdf_urls.initial_pdf_url }}';
+                    const initialDownloadUrl = '{{ workorder_pdf_urls.initial_download_url }}';
                     window.dispatchEvent(new CustomEvent('open-pdf-modal', {
                         detail: {
                             url: initialPdfUrl,
@@ -628,6 +627,10 @@
                 lastSavedSnapshot = currentSnapshot;
                 if (kmInput) {
                     kmInput.setCustomValidity('');
+                }
+                if (payload.finalized) {
+                    window.location.reload();
+                    return;
                 }
                 window.updateWorkorderDeliveryButtonState({
                     hasCompletionBlockers: Boolean(payload.has_completion_blockers),

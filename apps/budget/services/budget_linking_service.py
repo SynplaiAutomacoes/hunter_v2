@@ -23,7 +23,7 @@ def linkable_budgets_q() -> Q:
 
     A budget is linkable when:
     - it has a non-terminal status AND no work-order exists yet, OR
-    - it has at least one open work-order.
+    - it has at least one work-order still open (not delivered, rejected or cancelled).
     """
     return (
         Q(status__in=NON_TERMINAL_STATUSES, workorders__isnull=True)

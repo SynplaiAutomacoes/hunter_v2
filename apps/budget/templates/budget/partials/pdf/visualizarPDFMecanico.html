@@ -54,10 +54,11 @@
                 {% endif %}
 
                 <div class="min-w-0">
-                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.pdf_name }}</h3>
-                    <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
+                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.nome_fantasia_display }}</h3>
+                    <p class="field-row"><span class="field-value">{{ budget.workshop.razao_social_display }}</span></p>
+                    <p class="field-row"><span class="field-value">CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
                     <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.pdf_phone|phone_br|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-value">Fone: {{ budget.workshop.pdf_phone|phone_br|default:"-" }}</span></p>
                 </div>
             </div>
             <div class="text-right w-[180px] flex-shrink-0">
@@ -69,8 +70,8 @@
                     <p class="text-[11px] mt-1">Entrega do veículo feita no dia</p>
                     <p class="text-[11px]">{{ pdf_delivered_at|date:"d/m/Y" }} às {{ pdf_delivered_at|date:"H:i" }}</p>
                     {% endif %}
-                {% elif budget.customer_agreed_departure_at %}
-                    <p class="text-[11px] mt-1">Data prevista de entrega: {{ budget.customer_agreed_departure_at|date:"d/m/Y" }}</p>
+                {% elif expected_delivery_at %}
+                    <p class="text-[11px] mt-1">Data prevista de entrega: {{ expected_delivery_at|date:"d/m/Y" }}</p>
                     <small class="block text-[10px] text-gray-500 leading-tight mt-1">Essa data pode ser alterada caso haja algum imprevisto. O cliente será informado caso ocorra qualquer mudança.</small>
                 {% endif %}
                 {% if is_warranty_or_courtesy %}

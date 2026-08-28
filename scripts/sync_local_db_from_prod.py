@@ -7,19 +7,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Protocol
 from urllib.parse import parse_qs, unquote, urlparse
 
 
 REQUIRED_BINARIES = ("pg_dump", "dropdb", "createdb", "pg_restore")
-FORWARDED_PG_ENV_VARS = ("PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGSSLMODE", "PGOPTIONS")
-LOCAL_DOCKER_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "postgres", "host.docker.internal"}
-REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
-POSTGRES_READY_ATTEMPTS = 30
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+DEFAULT_POSTGRES_DOCKER_IMAGE = "postgres:latest"
 
 
 class SyncError(RuntimeError):
@@ -110,43 +106,58 @@ class DatabaseConfig:
     def safe_label(self) -> str:
         return f"{self.host}:{self.port}/{self.name}"
 
-    def for_docker_local(self) -> "DatabaseConfig":
-        if self.host not in LOCAL_DOCKER_HOSTS:
-            return self
-        return DatabaseConfig(
-            name=self.name,
-            user=self.user,
-            password=self.password,
-            host="localhost",
-            port="5432",
-            sslmode=None,
-        )
+    def uses_local_host(self) -> bool:
+        return self.host in LOCAL_HOSTS
 
 
-@dataclass(frozen=True, slots=True)
-class PostgresCli:
-    mode: Literal["docker", "host"]
-    compose_command: tuple[str, ...] = ()
-    service: str = "postgres"
-    compose_cwd: Path | None = None
+class PostgresCommandRunner(Protocol):
+    def run(self, binary: str, args: list[str], *, env: dict[str, str], step: str, mount_files: tuple[Path, ...] = ()) -> None: ...
 
-    def build_command(self, command: list[str], *, env: dict[str, str]) -> list[str]:
-        if self.mode == "host":
-            return command
 
-        wrapped = [*self.compose_command, "exec", "-T"]
-        for key in FORWARDED_PG_ENV_VARS:
-            if env.get(key):
-                wrapped.extend(["-e", key])
-        wrapped.append(self.service)
-        wrapped.extend(command)
-        return wrapped
+@dataclass(frozen=True)
+class HostPostgresRunner:
+    def run(self, binary: str, args: list[str], *, env: dict[str, str], step: str, mount_files: tuple[Path, ...] = ()) -> None:
+        del mount_files
+        run_command([binary, *args], env=env, step=step)
+
+
+@dataclass(frozen=True)
+class DockerRunPostgresRunner:
+    image: str
+
+    def run(self, binary: str, args: list[str], *, env: dict[str, str], step: str, mount_files: tuple[Path, ...] = ()) -> None:
+        command = ["docker", "run", "--rm"]
+        command.extend(_docker_env_flags(_docker_run_env(env)))
+        for mount_file in mount_files:
+            mount_dir = mount_file.resolve().parent
+            command.extend(["-v", f"{mount_dir}:{mount_dir}"])
+        command.extend([self.image, binary, *args])
+        run_command(command, env=os.environ.copy(), step=step)
+
+
+@dataclass(frozen=True)
+class DockerExecPostgresRunner:
+    container_id: str
+
+    def run(self, binary: str, args: list[str], *, env: dict[str, str], step: str, mount_files: tuple[Path, ...] = ()) -> None:
+        container_paths: list[Path] = []
+        try:
+            for mount_file in mount_files:
+                container_path = Path("/tmp") / f"sync-local-db-{mount_file.name}"
+                copy_into_container(mount_file.resolve(), self.container_id, container_path)
+                container_paths.append(container_path)
+                args = [_replace_path_argument(arg, mount_file.resolve(), container_path) for arg in args]
+
+            command = ["docker", "exec", *_docker_env_flags(_docker_exec_env(env)), self.container_id, binary, *args]
+            run_command(command, env=os.environ.copy(), step=step)
+        finally:
+            for container_path in container_paths:
+                cleanup_container_file(self.container_id, container_path)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Faz dump da producao e recria o banco local com esse dump. Por padrao usa o cliente PostgreSQL do container Docker Compose, sem exigir Postgres instalado na maquina.",
-        epilog="Exemplo: uv run python scripts/sync_local_db_from_prod.py --yes",
+        description="Faz dump da producao e recria o banco local com esse dump.",
     )
     parser.add_argument(
         "--env-file",
@@ -172,26 +183,15 @@ def parse_args() -> argparse.Namespace:
         help="Banco usado para dropar/recriar o banco local. Default: postgres",
     )
     parser.add_argument(
-        "--docker",
-        action="store_true",
-        help="Forca o uso do cliente PostgreSQL do servico Docker Compose.",
-    )
-    parser.add_argument(
-        "--no-docker",
-        action="store_true",
-        help="Forca o uso dos binarios PostgreSQL instalados na maquina.",
-    )
-    parser.add_argument(
-        "--docker-service",
-        default=os.getenv("SYNC_DOCKER_POSTGRES_SERVICE", "postgres"),
-        help="Nome do servico Postgres no docker compose. Default: postgres",
-    )
-    parser.add_argument(
         "--yes",
         action="store_true",
         help="Confirma que o banco local pode ser apagado e recriado.",
     )
     return parser.parse_args()
+
+
+def project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
 
 
 def load_env_file(env_path: str | None) -> None:
@@ -216,110 +216,55 @@ def load_env_file(env_path: str | None) -> None:
         os.environ.setdefault(key, value)
 
 
-def missing_host_binaries() -> list[str]:
-    return [binary for binary in REQUIRED_BINARIES if shutil.which(binary) is None]
+def host_postgres_tools_available() -> bool:
+    return all(shutil.which(binary) is not None for binary in REQUIRED_BINARIES)
 
 
-def ensure_host_binaries() -> None:
-    missing = missing_host_binaries()
-    if missing:
-        raise SyncError("Comandos do PostgreSQL nao encontrados no PATH: " + ", ".join(missing))
+def docker_available() -> bool:
+    return shutil.which("docker") is not None
 
 
-def detect_compose_command() -> tuple[str, ...]:
-    docker = shutil.which("docker")
-    if docker:
-        probe = subprocess.run([docker, "compose", "version"], capture_output=True, text=True, timeout=20, check=False)
-        if probe.returncode == 0:
-            return (docker, "compose")
+def find_local_postgres_container(*, root: Path) -> str | None:
+    configured = os.getenv("LOCAL_POSTGRES_DOCKER_CONTAINER", "").strip()
+    if configured:
+        return configured
 
-    compose_v1 = shutil.which("docker-compose")
-    if compose_v1:
-        return (compose_v1,)
+    compose_file = root / "docker-compose.yml"
+    if not compose_file.exists():
+        return None
 
-    raise SyncError("Docker Compose nao encontrado no PATH. Instale o Docker Desktop ou o plugin compose.")
-
-
-def compose_running_services(compose_command: tuple[str, ...], *, cwd: Path) -> set[str]:
     result = subprocess.run(
-        [*compose_command, "ps", "--services", "--status", "running"],
-        cwd=cwd,
+        ["docker", "compose", "-f", str(compose_file), "ps", "-q", "postgres"],
+        cwd=root,
         capture_output=True,
         text=True,
-        timeout=30,
         check=False,
     )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip() or f"codigo {result.returncode}"
-        raise SyncError(f"Falha ao consultar o Docker Compose: {detail}")
-    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    container_id = result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else ""
+    return container_id or None
 
 
-def start_postgres_service(cli: PostgresCli) -> None:
-    run_command(
-        [*cli.compose_command, "up", "-d", cli.service],
-        env=os.environ.copy(),
-        step="docker-up-postgres",
-        cwd=cli.compose_cwd,
-    )
+def resolve_postgres_runner(*, target: DatabaseConfig, root: Path) -> PostgresCommandRunner:
+    if host_postgres_tools_available():
+        return HostPostgresRunner()
 
+    if not docker_available():
+        missing = [binary for binary in REQUIRED_BINARIES if shutil.which(binary) is None]
+        raise SyncError(
+            "Comandos do PostgreSQL nao encontrados no PATH: "
+            + ", ".join(missing)
+            + ". Instale o client do PostgreSQL ou deixe o Docker disponivel com o servico postgres do docker compose."
+        )
 
-def wait_for_postgres(cli: PostgresCli) -> None:
-    command = [*cli.compose_command, "exec", "-T", cli.service, "pg_isready", "-q"]
-    for attempt in range(1, POSTGRES_READY_ATTEMPTS + 1):
-        result = subprocess.run(command, cwd=cli.compose_cwd, capture_output=True, timeout=20, check=False)
-        if result.returncode == 0:
-            print("Postgres no Docker pronto.")
-            return
-        print(f"Aguardando Postgres no Docker ({attempt}/{POSTGRES_READY_ATTEMPTS})...")
-        time.sleep(1)
-    raise SyncError("Postgres no Docker nao ficou pronto. Verifique com: docker compose up -d postgres && docker compose ps")
+    if target.uses_local_host():
+        container_id = find_local_postgres_container(root=root)
+        if container_id:
+            print(f"Usando fallback Docker (docker exec) no container postgres: {container_id}")
+            return DockerExecPostgresRunner(container_id=container_id)
 
-
-def activate_docker_cli(*, service: str) -> PostgresCli:
-    if not COMPOSE_FILE.exists():
-        raise SyncError(f"docker-compose.yml nao encontrado em {COMPOSE_FILE}")
-
-    compose_command = detect_compose_command()
-    cli = PostgresCli(mode="docker", compose_command=compose_command, service=service, compose_cwd=REPO_ROOT)
-    running = compose_running_services(compose_command, cwd=REPO_ROOT)
-    if service not in running:
-        print(f"Servico Docker '{service}' parado. Subindo com docker compose up -d {service}...")
-        start_postgres_service(cli)
-    wait_for_postgres(cli)
-    return cli
-
-
-def resolve_postgres_cli(*, use_docker: bool, use_host: bool, service: str) -> PostgresCli:
-    if use_docker and use_host:
-        raise SyncError("Use apenas --docker ou --no-docker, nao os dois.")
-
-    if use_host:
-        ensure_host_binaries()
-        print("Usando cliente PostgreSQL instalado na maquina.")
-        return PostgresCli(mode="host")
-
-    docker_error: str | None = None
-    try:
-        cli = activate_docker_cli(service=service)
-        print(f"Usando cliente PostgreSQL do Docker Compose (servico {service}).")
-        return cli
-    except SyncError as exc:
-        docker_error = str(exc)
-        if use_docker:
-            raise
-
-    missing = missing_host_binaries()
-    if not missing:
-        print(f"Docker indisponivel ({docker_error}); usando cliente PostgreSQL local.")
-        return PostgresCli(mode="host")
-
-    hints = [
-        docker_error or "Docker indisponivel.",
-        "Suba o Postgres do projeto com: docker compose up -d postgres",
-        "Ou instale o cliente PostgreSQL local (pg_dump, dropdb, createdb, pg_restore) e use --no-docker.",
-    ]
-    raise SyncError(" ".join(hints))
+    image = os.getenv("POSTGRES_DOCKER_IMAGE", DEFAULT_POSTGRES_DOCKER_IMAGE)
+    print(f"Usando fallback Docker (docker run) com imagem: {image}")
+    return DockerRunPostgresRunner(image=image)
 
 
 def ensure_safe_targets(prod_config: DatabaseConfig, local_config: DatabaseConfig) -> None:
@@ -327,110 +272,118 @@ def ensure_safe_targets(prod_config: DatabaseConfig, local_config: DatabaseConfi
         raise SyncError("Banco de producao e banco local apontam para o mesmo destino")
 
 
-def run_command(
-    command: list[str],
-    *,
-    env: dict[str, str],
-    step: str,
-    cwd: Path | None = None,
-    stdin_path: Path | None = None,
-    stdout_path: Path | None = None,
-) -> None:
+def run_command(command: list[str], *, env: dict[str, str], step: str) -> None:
     printable = shlex.join(command)
     print(f"\n[{step}] {printable}")
-    if stdin_path is not None:
-        print(f"[{step}] stdin <- {stdin_path}")
-    if stdout_path is not None:
-        print(f"[{step}] stdout -> {stdout_path}")
-
-    stdin_file = None
-    stdout_file = None
     try:
-        if stdin_path is not None:
-            stdin_file = stdin_path.open("rb")
-        if stdout_path is not None:
-            stdout_file = stdout_path.open("wb")
-        subprocess.run(
-            command,
-            env=env,
-            check=True,
-            cwd=cwd,
-            stdin=stdin_file,
-            stdout=stdout_file,
-        )
+        subprocess.run(command, env=env, check=True)
     except subprocess.CalledProcessError as exc:
         raise SyncError(f"Falha no passo '{step}' com codigo {exc.returncode}") from exc
-    finally:
-        if stdin_file is not None:
-            stdin_file.close()
-        if stdout_file is not None:
-            stdout_file.close()
 
 
-def build_dump_invocation(cli: PostgresCli, prod_config: DatabaseConfig, dump_path: Path) -> tuple[list[str], dict[str, str], Path | None]:
-    command = ["pg_dump", "--format=custom", "--no-owner", "--no-privileges"]
-    stdout_path: Path | None = None
-    if cli.mode == "docker":
-        command.append("--file=-")
-        stdout_path = dump_path
-    else:
-        command.append(f"--file={dump_path}")
-    command.append(prod_config.name)
-    env = prod_config.environment(force_read_only=True)
-    return cli.build_command(command, env=env), env, stdout_path
+def _docker_env_flags(env: dict[str, str]) -> list[str]:
+    flags: list[str] = []
+    for key, value in env.items():
+        if key.startswith("PG") and value:
+            flags.extend(["-e", f"{key}={value}"])
+    return flags
 
 
-def build_restore_invocation(cli: PostgresCli, local_config: DatabaseConfig, dump_path: Path) -> tuple[list[str], dict[str, str], Path | None]:
-    command = ["pg_restore", "--no-owner", "--no-privileges", f"--dbname={local_config.name}"]
-    stdin_path: Path | None = None
-    if cli.mode == "docker":
-        command.append("-")
-        stdin_path = dump_path
-    else:
-        command.append(str(dump_path))
-    env = local_config.environment()
-    return cli.build_command(command, env=env), env, stdin_path
+def _docker_exec_env(env: dict[str, str]) -> dict[str, str]:
+    allowed = ("PGUSER", "PGPASSWORD", "PGDATABASE", "PGSSLMODE", "PGOPTIONS")
+    return {key: env[key] for key in allowed if key in env and env[key]}
 
 
-def create_dump(cli: PostgresCli, prod_config: DatabaseConfig, dump_path: Path) -> None:
-    command, env, stdout_path = build_dump_invocation(cli, prod_config, dump_path)
-    run_command(command, env=env, step="dump-producao", cwd=cli.compose_cwd, stdout_path=stdout_path)
+def _docker_run_env(env: dict[str, str]) -> dict[str, str]:
+    adjusted = {key: value for key, value in env.items() if key.startswith("PG") and value}
+    host = adjusted.get("PGHOST")
+    if host in LOCAL_HOSTS:
+        adjusted["PGHOST"] = "host.docker.internal"
+    return adjusted
 
 
-def recreate_local_database(cli: PostgresCli, local_config: DatabaseConfig, maintenance_db: str) -> None:
-    admin_env = local_config.environment(maintenance_db=maintenance_db)
+def _replace_path_argument(arg: str, source_path: Path, container_path: Path) -> str:
+    source = str(source_path)
+    container = str(container_path)
+    if arg == source:
+        return container
+    if arg.startswith("--file=") and arg.removeprefix("--file=") == source:
+        return f"--file={container}"
+    if arg.startswith("--dbname=") and arg.removeprefix("--dbname=") == source:
+        return f"--dbname={container}"
+    return arg
+
+
+def copy_into_container(source_path: Path, container_id: str, container_path: Path) -> None:
     run_command(
-        cli.build_command(["dropdb", "--if-exists", "--force", local_config.name], env=admin_env),
+        ["docker", "cp", str(source_path), f"{container_id}:{container_path}"],
+        env=os.environ.copy(),
+        step="docker-cp",
+    )
+
+
+def cleanup_container_file(container_id: str, container_path: Path) -> None:
+    subprocess.run(
+        ["docker", "exec", container_id, "rm", "-f", str(container_path)],
+        check=False,
+    )
+
+
+def create_dump(prod_config: DatabaseConfig, dump_path: Path, runner: PostgresCommandRunner) -> None:
+    runner.run(
+        "pg_dump",
+        [
+            "--format=custom",
+            "--no-owner",
+            "--no-privileges",
+            f"--file={dump_path}",
+            prod_config.name,
+        ],
+        env=prod_config.environment(force_read_only=True),
+        step="dump-producao",
+        mount_files=(dump_path,),
+    )
+
+
+def recreate_local_database(local_config: DatabaseConfig, maintenance_db: str, runner: PostgresCommandRunner) -> None:
+    admin_env = local_config.environment(maintenance_db=maintenance_db)
+    runner.run(
+        "dropdb",
+        ["--if-exists", "--force", local_config.name],
         env=admin_env,
         step="drop-local",
-        cwd=cli.compose_cwd,
     )
-    run_command(
-        cli.build_command(["createdb", local_config.name], env=admin_env),
+    runner.run(
+        "createdb",
+        [local_config.name],
         env=admin_env,
         step="create-local",
-        cwd=cli.compose_cwd,
     )
 
 
-def restore_dump(cli: PostgresCli, local_config: DatabaseConfig, dump_path: Path) -> None:
-    command, env, stdin_path = build_restore_invocation(cli, local_config, dump_path)
-    run_command(command, env=env, step="restore-local", cwd=cli.compose_cwd, stdin_path=stdin_path)
+def restore_dump(local_config: DatabaseConfig, dump_path: Path, runner: PostgresCommandRunner) -> None:
+    runner.run(
+        "pg_restore",
+        [
+            "--no-owner",
+            "--no-privileges",
+            f"--dbname={local_config.name}",
+            str(dump_path),
+        ],
+        env=local_config.environment(),
+        step="restore-local",
+        mount_files=(dump_path,),
+    )
 
 
 def build_dump_path(raw_path: str | None, keep_dump: bool) -> tuple[Path, bool]:
     if raw_path:
         return Path(raw_path).resolve(), True
 
-    temp_file = tempfile.NamedTemporaryFile(prefix="prod-sync-", suffix=".dump", delete=False)
-    temp_file.close()
-    return Path(temp_file.name), keep_dump
-
-
-def local_config_for_cli(cli: PostgresCli, local_config: DatabaseConfig) -> DatabaseConfig:
-    if cli.mode == "docker":
-        return local_config.for_docker_local()
-    return local_config
+    fd, path = tempfile.mkstemp(prefix="prod-sync-", suffix=".dump")
+    os.close(fd)
+    os.unlink(path)
+    return Path(path), keep_dump
 
 
 def main() -> int:
@@ -445,11 +398,12 @@ def main() -> int:
         if args.prod_env_file:
             load_env_file(args.prod_env_file)
 
-        cli = resolve_postgres_cli(use_docker=args.docker, use_host=args.no_docker, service=args.docker_service)
-
         prod_config = DatabaseConfig.from_env(prefix="PROD_")
-        local_config = local_config_for_cli(cli, DatabaseConfig.from_env(prefix="LOCAL_", fallback_prefixes=("",)))
+        local_config = DatabaseConfig.from_env(prefix="LOCAL_", fallback_prefixes=("",))
         ensure_safe_targets(prod_config, local_config)
+
+        prod_runner = resolve_postgres_runner(target=prod_config, root=project_root())
+        local_runner = resolve_postgres_runner(target=local_config, root=project_root())
 
         dump_path, keep_dump = build_dump_path(args.dump_file, args.keep_dump)
 
@@ -457,9 +411,9 @@ def main() -> int:
         print(f"Destino local: {local_config.safe_label()}")
         print(f"Arquivo dump: {dump_path}")
 
-        create_dump(cli, prod_config, dump_path)
-        recreate_local_database(cli, local_config, args.local_maintenance_db)
-        restore_dump(cli, local_config, dump_path)
+        create_dump(prod_config, dump_path, prod_runner)
+        recreate_local_database(local_config, args.local_maintenance_db, local_runner)
+        restore_dump(local_config, dump_path, local_runner)
         print("\nSincronizacao concluida com sucesso.")
 
         if keep_dump:

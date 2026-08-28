@@ -4,6 +4,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
 
+from django.urls import reverse
 from django.utils.html import escape
 
 from apps.budget.pricing import format_duration_display, money_div, zero_money
@@ -19,22 +20,61 @@ def kit_origin_name(item: Any) -> str:
     return str(getattr(kit, "name", "") or "").strip()
 
 
-def build_origin_badge(*, label: str, is_kit: bool = False, tooltip: str = "") -> str:
+def kit_origin_id(item: Any) -> int | None:
+    kit_id = getattr(item, "kit_id", None)
+    if kit_id:
+        return int(kit_id)
+    kit = getattr(item, "kit", None)
+    kit_pk = getattr(kit, "pk", None) if kit is not None else None
+    if kit_pk:
+        return int(kit_pk)
+    return None
+
+
+def kit_origin_url(item: Any) -> str:
+    kit_id = kit_origin_id(item)
+    if kit_id is None:
+        return ""
+    return reverse("catalog:kits_update", kwargs={"pk": kit_id})
+
+
+def build_origin_badge(*, label: str, is_kit: bool = False, tooltip: str = "", href: str = "") -> str:
     tone = "badge-info badge-outline" if is_kit else "badge-outline"
     badge = f'<span class="badge {tone} whitespace-nowrap">{escape(label)}</span>'
     tip = str(tooltip or "").strip()
-    if not is_kit or not tip:
+    url = str(href or "").strip()
+    if not is_kit:
         return badge
-    escaped_tip = escape(tip)
+
+    classes = ["inline-flex"]
+    if tip:
+        classes.append("tooltip tooltip-bottom z-20 before:z-50 before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs")
+    if url:
+        classes.append("cursor-pointer hover:opacity-80")
+        attrs = f'class="{" ".join(classes)}" href="{escape(url)}"'
+        if tip:
+            attrs += f' data-tip="{escape(tip)}"'
+        return f"<a {attrs}>{badge}</a>"
+    if not tip:
+        return badge
     return (
         f'<span class="tooltip tooltip-bottom z-20 inline-flex cursor-help before:z-50 before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs" '
-        f'data-tip="{escaped_tip}" tabindex="0">{badge}</span>'
+        f'data-tip="{escape(tip)}" tabindex="0">{badge}</span>'
     )
 
 
 def origin_badge_for_item(*, item: Any) -> tuple[str, str, bool]:
     if getattr(item, "kit_id", None) or getattr(item, "kit", None):
-        return KIT_ORIGIN_LABEL, build_origin_badge(label=KIT_ORIGIN_LABEL, is_kit=True, tooltip=kit_origin_name(item)), True
+        return (
+            KIT_ORIGIN_LABEL,
+            build_origin_badge(
+                label=KIT_ORIGIN_LABEL,
+                is_kit=True,
+                tooltip=kit_origin_name(item),
+                href=kit_origin_url(item),
+            ),
+            True,
+        )
     return AVULSO_ORIGIN_LABEL, build_origin_badge(label=AVULSO_ORIGIN_LABEL), False
 
 
@@ -43,67 +83,62 @@ def _effective_kit_quantity(item: Any) -> int:
 
 
 def iter_kit_product_components(item: Any) -> list[Any]:
-    return [override for override in item._iter_frozen_kit_product_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
+    frozen = list(item._iter_frozen_kit_product_overrides())
+    if frozen:
+        return frozen
+
+    product_overrides, _service_overrides = item._get_kit_override_maps()
+    components: list[Any] = []
+    for kit_product in item._iter_kit_products():
+        override = product_overrides.get(kit_product.product_id)
+        if override is not None:
+            components.append(override)
+            continue
+        product = kit_product.product
+        components.append(
+            SimpleNamespace(
+                product=product,
+                product_id=kit_product.product_id,
+                quantity=kit_product.quantity,
+                product_cost_price=getattr(product, "cost_price", zero_money()),
+                product_selling_price=getattr(product, "selling_price", zero_money()),
+                shipping=zero_money(),
+            )
+        )
+    return components
 
 
 def iter_kit_service_components(item: Any) -> list[Any]:
-    return [override for override in item._iter_frozen_kit_service_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
+    frozen = list(item._iter_frozen_kit_service_overrides())
+    if frozen:
+        return [
+            override
+            for override in frozen
+            if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False)
+        ]
 
-
-def kit_component_winning_item_ids(items: list[Any]) -> tuple[dict[int, int], dict[int, int]]:
-    """Return product_id/service_id -> budget item id using the kit-vs-kit winner rule."""
-    from apps.budget.pricing import _is_better_service_source, _is_better_source, zero_money
-
-    product_winners: dict[int, tuple[int, Any, int]] = {}
-    service_winners: dict[int, tuple[timedelta, Any, int]] = {}
-
-    for item in items:
-        item_id = getattr(item, "pk", None)
-        if item_id is None or not getattr(item, "kit_id", None):
-            continue
-        kit_quantity = _effective_kit_quantity(item)
-        if kit_quantity <= 0:
-            continue
-
-        for override in iter_kit_product_components(item):
-            product_id = getattr(override, "product_id", None)
-            if product_id is None:
+    _product_overrides, service_overrides = item._get_kit_override_maps()
+    components: list[Any] = []
+    for kit_service in item._iter_kit_services():
+        override = service_overrides.get(kit_service.service_id)
+        if override is not None:
+            if int(getattr(override, "quantity", 0) or 0) <= 0 or getattr(override, "excluded_from_composition", False):
                 continue
-            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
-            unit_price = getattr(override, "product_selling_price", None) or zero_money()
-            shipping = (getattr(override, "shipping", None) or zero_money()) * kit_quantity
-            total = (unit_price * quantity) + shipping
-            current = product_winners.get(product_id)
-            if current is None or _is_better_source(
-                candidate_quantity=quantity,
-                candidate_total=total,
-                current_quantity=current[0],
-                current_total=current[1],
-            ):
-                product_winners[product_id] = (quantity, total, item_id)
-
-        for override in iter_kit_service_components(item):
-            service_id = getattr(override, "service_id", None)
-            if service_id is None:
-                continue
-            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
-            unit_price = getattr(override, "service_selling_price", None) or zero_money()
-            total = unit_price * quantity
-            duration = getattr(override, "duration", None) or timedelta()
-            duration = duration * quantity
-            current = service_winners.get(service_id)
-            if current is None or _is_better_service_source(
-                candidate_duration=duration,
-                candidate_total=total,
-                current_duration=current[0],
-                current_total=current[1],
-            ):
-                service_winners[service_id] = (duration, total, item_id)
-
-    return (
-        {product_id: winner[2] for product_id, winner in product_winners.items()},
-        {service_id: winner[2] for service_id, winner in service_winners.items()},
-    )
+            components.append(override)
+            continue
+        service = kit_service.service
+        components.append(
+            SimpleNamespace(
+                service=service,
+                service_id=kit_service.service_id,
+                quantity=kit_service.quantity,
+                service_cost_price=getattr(service, "suggested_cost", None) or zero_money(),
+                service_selling_price=getattr(kit_service, "resolved_selling_price", None) or getattr(service, "selling_price", zero_money()),
+                duration=getattr(kit_service, "duration", None) or getattr(service, "duration", None),
+                excluded_from_composition=False,
+            )
+        )
+    return components
 
 
 def build_kit_component_product_item(*, kit_item: Any, override: Any) -> SimpleNamespace | None:
@@ -144,6 +179,8 @@ def build_kit_component_product_item(*, kit_item: Any, override: Any) -> SimpleN
 
 
 def build_kit_component_service_item(*, kit_item: Any, override: Any) -> SimpleNamespace | None:
+    if getattr(override, "excluded_from_composition", False):
+        return None
     per_kit_quantity = int(getattr(override, "quantity", 0) or 0)
     kit_quantity = _effective_kit_quantity(kit_item)
     total_quantity = per_kit_quantity * kit_quantity

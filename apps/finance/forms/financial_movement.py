@@ -1023,6 +1023,12 @@ class MovementStep4Form(FinancialMovementBaseForm):
 
             if r_type == "mensal":
                 new_instance.due_date = add_months(instance.due_date, i)
+            elif r_type == "quinzenal":
+                new_instance.due_date = instance.due_date + datetime.timedelta(days=15 * i)
+            elif r_type == "semanal":
+                new_instance.due_date = instance.due_date + datetime.timedelta(weeks=i)
+            elif r_type == "diario":
+                new_instance.due_date = instance.due_date + datetime.timedelta(days=i)
             elif r_type == "5_dia_util":
                 target_date = add_months(instance.due_date, i)
                 new_instance.due_date = get_5th_business_day(target_date.year, target_date.month)

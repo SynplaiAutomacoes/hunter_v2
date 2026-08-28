@@ -76,13 +76,13 @@
                     {% if rows %}
                         {% for row in rows %}
                             <tr class="border-t border-gray-200">
-                                <td class="px-2 py-2 text-center font-medium {% if row.paid_status == 'Pago' %}text-green-700{% else %}text-red-700{% endif %}">{{ row.paid_status }}</td>
+                                <td class="px-2 py-2 text-center font-medium {% if row.paid_status == 'Sim' %}text-green-700{% else %}text-red-700{% endif %}">{{ row.paid_status }}</td>
                                 <td class="px-2 py-2 text-center {% if row.reconciliation_status == 'Conciliado' %}text-blue-700{% else %}text-yellow-700{% endif %}">{{ row.reconciliation_status }}</td>
                                 <td class="px-2 py-2 text-center">
                                     {% if row.direction == 'CREDIT' %}
-                                        <span class="uppercase text-green-700">Contas a receber</span>
+                                        <span class="uppercase text-green-700">Crédito</span>
                                     {% elif row.direction == 'DEBIT' %}
-                                        <span class="uppercase text-red-700">Contas a pagar</span>
+                                        <span class="uppercase text-red-700">Débito</span>
                                     {% else %}
                                         <span class="uppercase text-gray-700">{{ row.direction_label }}</span>
                                     {% endif %}

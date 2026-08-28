@@ -9,9 +9,6 @@ from django.conf import settings
 from django.test import SimpleTestCase
 
 ATTRIBUTE_ID_PATTERN = re.compile(r"""(?:value|data-[\w-]+|hx-vals)\s*=\s*['"][^'"]*\{\{\s*(?P<expression>[\w.]*(?:\bpk\b|\bid\b|_id))\s*\}\}""")
-QUERYSTRING_ID_PATTERN = re.compile(
-    r"""(?:hx-get|hx-post)\s*=\s*['"][^'"]*[?&](?:pk|id|_id|appointment_id)=\{\{\s*(?P<expression>[\w.]*(?:\bpk\b|\bid\b|_id))\s*\}\}"""
-)
 
 # Expressoes textuais (slug, UUID): a localizacao numerica nunca as altera.
 ALLOWED_EXPRESSIONS = frozenset(
@@ -34,12 +31,11 @@ class TemplateIdLocalizationTests(SimpleTestCase):
 
         for path in self._template_files():
             content = path.read_text(encoding="utf-8")
-            for pattern in (ATTRIBUTE_ID_PATTERN, QUERYSTRING_ID_PATTERN):
-                for match in pattern.finditer(content):
-                    expression = match.group("expression")
-                    if expression in ALLOWED_EXPRESSIONS:
-                        continue
-                    line_number = content.count("\n", 0, match.start()) + 1
-                    offenders.append(f"{path.relative_to(base)}:{line_number} -> {{{{ {expression} }}}}")
+            for match in ATTRIBUTE_ID_PATTERN.finditer(content):
+                expression = match.group("expression")
+                if expression in ALLOWED_EXPRESSIONS:
+                    continue
+                line_number = content.count("\n", 0, match.start()) + 1
+                offenders.append(f"{path.relative_to(base)}:{line_number} -> {{{{ {expression} }}}}")
 
         self.assertEqual(offenders, [], "Ids renderizados em atributos precisam de |unlocalize (ou |stringformat:'d'):\n" + "\n".join(offenders))

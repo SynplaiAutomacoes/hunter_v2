@@ -1,0 +1,80 @@
+---
+description: Multi-workshop safety, integrations, sensitive areas, anti-patterns, and definition of done
+alwaysApply: true
+---
+
+# hunter_v2 — Safety and Definition of Done
+
+## Multi-workshop and permission safety
+
+- A user belongs to an account and may operate inside one or more workshops.
+- Many queries and actions must be scoped to the active workshop.
+- Permissions are contextual and may vary by workshop role.
+
+When changing views/services/querysets:
+
+- scope queryset by account/workshop where expected
+- preserve role checks
+- preserve active workshop assumptions
+- avoid redirect flows that break onboarding/auth/workshop-selection behavior
+
+Prefer `WorkshopScopedMixin` over re-implementing workshop scoping.
+
+## Integrations and secrets
+
+- Never hardcode API keys, tokens, certificates, passwords, or bucket credentials.
+- Read configuration from settings/environment.
+- Reuse integration wrappers and providers.
+- Avoid logging secrets or sensitive payloads.
+
+Operational reminders:
+
+- signature/webhook flows depend on a public `APP_BASE_URL`
+- fiscal features depend on workshop certificate + Webmania configuration
+- SVG logo conversion may depend on Cairo runtime availability
+
+## Places to be extra careful
+
+### `apps/core/`
+
+Shared platform code — changes can affect many apps. Grep usages before changing signatures. Update all call sites in the same change if a shared API must move.
+
+### `apps/workshops/services/files.py`
+
+Multi-step storage, DB, and external-sync orchestration. Preserve atomic, rollback, and cleanup behavior.
+
+### `finance`, `budget`, and `workorder`
+
+Heavy business rules. Avoid casual refactors. Search for existing services and helpers first. Preserve workshop scoping and status rules.
+
+## Anti-patterns to avoid
+
+- Duplicating query filter/search helpers from `apps/core`
+- Recreating table rendering/action helpers when shared ones already fit
+- Bypassing provider/service abstractions for storage, signature, fiscal, or SEFAZ flows
+- Spreading business logic further into views, forms, or templates
+- Mixing broad refactors with unrelated behavior changes
+- Catching broad exceptions without preserving context
+
+## Definition of done
+
+- Reuse check completed
+- Target file and nearby files reviewed
+- Minimal scoped implementation delivered
+- Relevant tests added or updated
+- Smallest relevant test target run
+- `uv run ruff check .` run
+- `uv run mypy .` run when applicable
+- No secrets introduced
+- No unrelated churn
+
+## Priority order
+
+1. Reuse existing functions, services, use cases, contracts, and providers.
+2. Do not spread business rules/logic into more places.
+3. Respect workshop/account scoping and permission boundaries.
+4. Follow current app conventions unless the task is explicitly refactoring.
+5. When adding new internal structure, align with `docs/REFACTORING_GUIDE.md`.
+6. Keep changes small, typed, testable, and consistent.
+
+If you think you need a new helper, first prove that an existing shared helper cannot be extended safely.

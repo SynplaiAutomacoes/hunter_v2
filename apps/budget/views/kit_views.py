@@ -107,12 +107,16 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 },
                 prefix=f"service_{str(service.id)}",
             )
+            if override.excluded_from_composition:
+                for field in row_form.fields.values():
+                    field.widget.attrs = {**field.widget.attrs, "disabled": "disabled", "readonly": "readonly"}
 
             kit_services.append(
                 {
                     "id": str(service.id),
                     "name": service.name,
                     "form": row_form,
+                    "excluded_from_composition": bool(override.excluded_from_composition),
                 }
             )
 
@@ -216,15 +220,22 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 else:
                     service_cost_price = _calculate_service_mechanic_cost(duration or timedelta(0), budget)
 
+                parsed_quantity = max(0, int(service_data.get("quantity", 1)))
+                # Preserva exclusão com valor mantido; qty 0 limpa a flag (remoção com débito).
+                excluded_from_composition = bool(existing_override.excluded_from_composition) if existing_override else False
+                if parsed_quantity <= 0:
+                    excluded_from_composition = False
+
                 override, created = BudgetKitItemOverride.objects.update_or_create(
                     workshop=self.workshop,
                     budget_item=item,
                     service=service,
                     defaults={
-                        "quantity": max(0, int(service_data.get("quantity", 1))),
+                        "quantity": parsed_quantity,
                         "service_cost_price": service_cost_price,
                         "service_selling_price": service_selling_price,
                         "duration": duration,
+                        "excluded_from_composition": excluded_from_composition,
                     },
                 )
 

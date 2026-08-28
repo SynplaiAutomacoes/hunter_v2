@@ -3,7 +3,6 @@ core/domain/value_objects.py
 
 Pure Python value objects — no Django imports allowed here.
 """
-
 from __future__ import annotations
 
 import re
@@ -31,7 +30,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Money
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class Money:
@@ -106,11 +104,9 @@ def parse_brl_decimal(raw_value: str) -> Decimal | None:
 # Percentage
 # ---------------------------------------------------------------------------
 
-
 @dataclass(frozen=True, slots=True)
 class Percentage:
     """Represents a percentage as a fraction. E.g. 0.10 = 10%."""
-
     value: Decimal
 
     def __post_init__(self) -> None:
@@ -129,7 +125,6 @@ class Percentage:
 # ---------------------------------------------------------------------------
 # Discount
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class Discount:
@@ -152,7 +147,6 @@ class Discount:
 # ---------------------------------------------------------------------------
 # CPF
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class CPF:
@@ -181,7 +175,6 @@ class CPF:
 # ---------------------------------------------------------------------------
 # CNPJ
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class CNPJ:
@@ -217,7 +210,6 @@ class CNPJ:
 # HoursDuration
 # ---------------------------------------------------------------------------
 
-
 @dataclass(frozen=True, slots=True)
 class HoursDuration:
     hours: Decimal
@@ -249,7 +241,6 @@ class HoursDuration:
 # NCM
 # ---------------------------------------------------------------------------
 
-
 @dataclass(frozen=True, slots=True)
 class NCM:
     code: str
@@ -273,7 +264,6 @@ _PLATE_PATTERN = re.compile(r"^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$")
 @dataclass(frozen=True, slots=True)
 class Plate:
     """Vehicle plate in Mercosul (ABC1D23) or old Brazilian format (ABC1234)."""
-
     value: str
 
     def __post_init__(self) -> None:
@@ -286,7 +276,6 @@ class Plate:
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
-
 
 class State(str, Enum):
     AC = "AC"
@@ -341,7 +330,6 @@ class PhoneNumber:
 # ---------------------------------------------------------------------------
 # Kilometers
 # ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class Kilometers:
