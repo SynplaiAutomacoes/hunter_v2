@@ -1,9 +1,9 @@
 {% load crispy_forms_tags l10n %}
-<div class="px-8 pt-8 pb-6 bg-base-100 rounded-t-3xl border-b border-base-200">
-    <div class="flex justify-between items-center mb-6">
+<div class="px-6 pt-6 pb-5 bg-base-100 rounded-t-3xl border-b border-base-200">
+    <div class="flex justify-between items-start gap-4">
         <div>
-            <h3 class="text-2xl font-black text-base-content tracking-tight">Agrupar Lançamentos</h3>
-            <p class="text-sm font-medium text-base-content/60 mt-1">Informe os detalhes para consolidar os lançamentos de <strong>{{ entity_name }}</strong>.</p>
+            <h3 class="text-xl font-black text-base-content tracking-tight">Agrupar Lançamentos</h3>
+            <p class="text-sm font-medium text-base-content/60 mt-1">Consolidar os lançamentos de <strong>{{ entity_name }}</strong>.</p>
         </div>
         <button type="button" class="btn btn-circle btn-ghost btn-sm" onclick="group_modal.close()">
             <span class="material-icons">close</span>
@@ -11,7 +11,82 @@
     </div>
 </div>
 
-<form hx-post="{% url 'finance:group_movement_wizard' %}" hx-target="#group-modal-content">
+{{ payment_method_installments|json_script:"group-payment-method-installments" }}
+{{ initial_installments|json_script:"group-initial-installments" }}
+<form
+    hx-post="{% url 'finance:group_movement_wizard' %}"
+    hx-target="#group-modal-content"
+    x-data="{
+        paymentMethodId: '{{ form.payment_method.value|default_if_none:"" }}',
+        firstDueDate: '{{ form.due_date.value|date:"Y-m-d"|default_if_none:"" }}',
+        installmentsCount: Number('{{ form.installments_count.value|default_if_none:"" }}') || 0,
+        installmentsByMethod: JSON.parse(document.getElementById('group-payment-method-installments').textContent),
+        schedule: JSON.parse(document.getElementById('group-initial-installments').textContent || '[]'),
+        totalAmount: Number('{{ total_amount|unlocalize }}'),
+        discountMode: '{{ form.discount_mode.value|default_if_none:"" }}',
+        discountValue: 0,
+        discountPercentage: 0,
+        parseNumber(raw) {
+            const text = String(raw || '').trim();
+            const normalized = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text;
+            const value = Number(normalized);
+            return Number.isFinite(value) ? value : 0;
+        },
+        get discountAmount() {
+            if (this.discountMode === 'AMOUNT') return Math.min(Math.max(this.discountValue, 0), this.totalAmount);
+            if (this.discountMode === 'PERCENTAGE') return this.totalAmount * Math.min(Math.max(this.discountPercentage, 0), 100) / 100;
+            return 0;
+        },
+        get netTotal() { return Math.max(this.totalAmount - this.discountAmount, 0); },
+        addMonths(isoDate, months) {
+            const [year, month, day] = isoDate.split('-').map(Number);
+            const next = new Date(year, month - 1 + months, 1);
+            const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+            next.setDate(Math.min(day, lastDay));
+            const yyyy = next.getFullYear();
+            const mm = String(next.getMonth() + 1).padStart(2, '0');
+            const dd = String(next.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        },
+        suggestedCount() {
+            return Number(this.installmentsByMethod[this.paymentMethodId] || 0);
+        },
+        generateSchedule() {
+            const count = Math.max(Number(this.installmentsCount) || 0, 0);
+            if (!count || !this.firstDueDate) {
+                this.schedule = [];
+                return;
+            }
+            const totalCents = Math.round(this.netTotal * 100);
+            const amountPerInstallment = Math.floor(totalCents / count);
+            const remainingCents = totalCents % count;
+            this.schedule = Array.from({ length: count }, (_, index) => ({
+                number: index + 1,
+                dueDate: this.addMonths(this.firstDueDate, index),
+                amount: ((amountPerInstallment + (index === count - 1 ? remainingCents : 0)) / 100).toFixed(2),
+            }));
+        },
+        applyPaymentMethodSuggestion() {
+            const suggested = this.suggestedCount();
+            if (suggested) this.installmentsCount = suggested;
+            this.generateSchedule();
+        },
+        scheduleSum() {
+            return this.schedule.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+        },
+        init() {
+            this.discountValue = this.parseNumber(document.getElementById('id_discount_value_0')?.value);
+            this.discountPercentage = this.parseNumber(document.getElementById('id_discount_percentage')?.value);
+            this.$watch('discountMode', () => this.generateSchedule());
+            this.$watch('discountValue', () => this.generateSchedule());
+            this.$watch('discountPercentage', () => this.generateSchedule());
+            if (!this.schedule.length) this.generateSchedule();
+        }
+    }"
+    @searchable-change.window="if ($event.detail.name === 'payment_method') { paymentMethodId = $event.detail.value; applyPaymentMethodSuggestion(); } if ($event.detail.name === 'discount_mode') discountMode = $event.detail.value"
+    @input="if ($event.target.id === 'id_discount_value_0_display') discountValue = parseNumber($event.target.value); if ($event.target.id === 'id_discount_percentage') discountPercentage = parseNumber($event.target.value)"
+    @change="if ($event.target.name === 'due_date') { firstDueDate = $event.target.value; generateSchedule(); }"
+>
     <input type="hidden" name="step" value="3">
     <input type="hidden" name="entity_type" value="{{ entity_type }}">
     <input type="hidden" name="entity_id" value="{{ entity_id|unlocalize }}">
@@ -19,25 +94,84 @@
     <input type="hidden" name="movements" value="{{ mv_id|unlocalize }}">
     {% endfor %}
 
-    <div class="p-8 bg-base-50">
-        <div class="max-w-xl mx-auto flex flex-col gap-6">
-            <div class="bg-gradient-to-r from-primary to-primary/80 text-primary-content p-6 rounded-2xl shadow-md flex items-center justify-between">
+    <div class="p-5 bg-base-50">
+        <div class="max-w-3xl mx-auto flex flex-col gap-4">
+            <div class="bg-gradient-to-r from-primary to-primary/80 text-primary-content p-4 rounded-2xl shadow-md flex items-center justify-between">
                 <div>
-                    <h4 class="text-sm font-medium opacity-80 uppercase tracking-wide">Total a ser agrupado</h4>
+                    <h4 class="text-sm font-medium opacity-80 uppercase tracking-wide">Total bruto a ser agrupado</h4>
                     <p class="text-sm opacity-90 mt-1">{{ movement_ids|length }} lançamento(s) selecionado(s)</p>
                 </div>
                 <div class="text-right">
-                    <span class="text-3xl font-black tracking-tight">R$ {{ total_amount|floatformat:2 }}</span>
+                    <span class="text-2xl font-black tracking-tight">R$ {{ total_amount|floatformat:2 }}</span>
                 </div>
             </div>
-            
-            <div class="bg-base-100 p-6 rounded-2xl shadow-sm border border-base-200">
-                {{ form|crispy }}
+
+            <div class="bg-base-100 p-4 rounded-2xl shadow-sm border border-base-200">
+                {% if form.non_field_errors %}
+                <div class="alert alert-error mb-3 text-sm py-3">
+                    <span class="material-icons text-base">error</span>
+                    <span>{{ form.non_field_errors.0 }}</span>
+                </div>
+                {% endif %}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+                    <div class="md:col-span-2">{{ form.name|as_crispy_field }}</div>
+                    <div class="md:col-span-2">{{ form.description|as_crispy_field }}</div>
+                    <div>{{ form.payment_method|as_crispy_field }}</div>
+                    <div>{{ form.due_date|as_crispy_field }}</div>
+                    <div>{{ form.installments_count|as_crispy_field }}</div>
+                    <div class="flex items-end pb-4">
+                        <button type="button" class="btn btn-outline btn-sm w-full" @click="generateSchedule()">
+                            <span class="material-icons text-base mr-1">auto_fix_high</span>
+                            Gerar automaticamente
+                        </button>
+                    </div>
+                    <div class="md:col-span-2 mt-2 border-t border-base-300 pt-4">
+                        <h4 class="font-semibold text-base-content">Desconto do agrupamento</h4>
+                        <p class="mt-1 mb-2 text-sm text-base-content/60">O desconto será aplicado ao total antes da geração das parcelas.</p>
+                    </div>
+                    <div>{{ form.discount_mode|as_crispy_field }}</div>
+                    <div x-show="discountMode === 'AMOUNT'" x-cloak>{{ form.discount_value|as_crispy_field }}</div>
+                    <div x-show="discountMode === 'PERCENTAGE'" x-cloak>{{ form.discount_percentage|as_crispy_field }}</div>
+                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-3" x-show="discountMode" x-cloak>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-base-content/55">Valor líquido</p>
+                        <p class="mt-1 text-xl font-black text-success" x-text="netTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })"></p>
+                        <p class="mt-1 text-xs text-base-content/60" x-show="discountAmount > 0" x-text="`Desconto aplicado: ${discountAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`"></p>
+                    </div>
+                </div>
+                <div class="alert alert-info mt-3 text-sm py-3" x-show="!schedule.length" x-cloak>
+                    <span class="material-icons text-base">info</span>
+                    <span>Informe a forma de pagamento, o número de parcelas e o primeiro vencimento para gerar ou editar as parcelas.</span>
+                </div>
+                <section class="mt-3 rounded-xl border border-primary/25 bg-primary/5 p-3" x-show="schedule.length" x-cloak>
+                    <div class="flex items-center justify-between gap-3">
+                        <h4 class="font-semibold text-base-content">Parcelas</h4>
+                        <span class="badge badge-primary badge-outline" x-text="`Soma ${scheduleSum().toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`"></span>
+                    </div>
+                    <p class="text-xs text-base-content/60 mt-1">Ajuste valor e vencimento de cada parcela. A soma precisa ser igual ao total agrupado.</p>
+                    <div class="mt-2 overflow-x-auto">
+                        <table class="table table-sm">
+                            <thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-right">Valor</th></tr></thead>
+                            <tbody>
+                                <template x-for="installment in schedule" :key="installment.number">
+                                    <tr>
+                                        <td class="font-medium" x-text="`${installment.number}/${schedule.length}`"></td>
+                                        <td>
+                                            <input type="date" class="input input-bordered input-sm w-full" name="installment_due_date" x-model="installment.dueDate" required>
+                                        </td>
+                                        <td>
+                                            <input type="number" step="0.01" min="0.01" class="input input-bordered input-sm w-full text-right" name="installment_amount" x-model="installment.amount" required>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
-    
-    <div class="px-8 py-5 bg-base-200/50 rounded-b-3xl border-t border-base-200 flex justify-between items-center">
+
+    <div class="px-6 py-4 bg-base-200/50 rounded-b-3xl border-t border-base-200 flex justify-between items-center">
         <button type="button" class="btn btn-ghost text-base-content/70 hover:bg-base-300/50" onclick="group_modal.close()">
             Cancelar
         </button>

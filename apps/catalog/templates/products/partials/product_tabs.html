@@ -26,6 +26,7 @@
         x-model="activeTab"
     />
 
+    {% comment %} Aba "Histórico" removida da exibição (código preservado).
     <input
         type="radio"
         name="product_tabs"
@@ -34,13 +35,23 @@
         aria-label="Histórico"
         x-model="activeTab"
     />
+    {% endcomment %}
 
     <input
         type="radio"
         name="product_tabs"
         value="movimentacao"
         class="tab"
-        aria-label="Movimentação"
+        aria-label="Histórico de Movimentações"
+        x-model="activeTab"
+    />
+
+    <input
+        type="radio"
+        name="product_tabs"
+        value="fornecedor"
+        class="tab"
+        aria-label="Fornecedor"
         x-model="activeTab"
     />
 </div>

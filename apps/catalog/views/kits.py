@@ -359,8 +359,20 @@ class ProductQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
         return kwargs
 
     def form_valid(self, form):
-        form.save()
-        return HttpResponse(headers={"HX-Refresh": "true"})
+        product = form.save()
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps(
+            {
+                "kit-product-updated": {
+                    "id": clean_id(product.pk),
+                    "code": product.code,
+                    "name": product.name,
+                    "cost": KitForm._format_money_display(product.cost_price),
+                    "sell": KitForm._format_money_display(product.selling_price),
+                }
+            }
+        )
+        return response
 
 
 class ServiceQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):

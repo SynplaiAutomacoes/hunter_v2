@@ -80,6 +80,7 @@
             </div>
 
             {% crispy nfse_form %}
+            {% include 'finance/partials/nfse_tax_class_field_suggestions.html' with nfse_form=nfse_form %}
 
             <div class="flex flex-wrap justify-end gap-2">
                 <a href="{% url 'finance:tax_class_list' %}?tab={{ active_tab }}" class="btn btn-ghost">Cancelar</a>

@@ -51,6 +51,8 @@ class CPForCNPJInput(forms.TextInput):
     def get_context(self, name, value, attrs):
         ctx = super().get_context(name, value, attrs)
         ctx["widget"]["doc_mode"] = self.mode
+        ctx["widget"]["duplicate_check_url"] = self.attrs.get("data-document-duplicate-url", "")
+        ctx["widget"]["customer_id"] = self.attrs.get("data-customer-id", "")
         return ctx
 
 

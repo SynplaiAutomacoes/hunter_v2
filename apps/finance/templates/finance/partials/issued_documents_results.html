@@ -106,7 +106,7 @@
                             </td>
                             <td class="font-semibold">{{ row.number }}</td>
                             <td>{{ row.reference }}</td>
-                            <td class="font-mono">#{{ row.workorder_id }}</td>
+                            <td class="font-mono">{% if row.workorder_id == 'Avulsa' %}Avulsa{% else %}#{{ row.workorder_id }}{% endif %}</td>
                             <td>{{ row.customer_name }}</td>
                             <td>{{ row.created_at|date:'d/m/Y H:i' }}</td>
                             <td>

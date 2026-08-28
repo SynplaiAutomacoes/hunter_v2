@@ -9,11 +9,11 @@
           <tr class="bg-base-200">
             <th>Data</th>
             <th>Documento</th>
+            <th>Cliente/Veículo</th>
+            <th>Fornecedor</th>
             <th>Tipo</th>
             <th>Responsável</th>
             <th>Qtd.</th>
-            <th>Motivo</th>
-            <th>Fornecedor</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -21,7 +21,26 @@
           {% for m in movements %}
           <tr class="hover">
             <td>{{ m.display_date|date:"d/m/Y H:i" }}</td>
-            <td>{{ m.workorder_reference|default:"—" }}</td>
+            <td>
+              {% if m.workorder_id and m.workorder_reference %}
+                <a href="{% url 'workorder:workorder_detail' m.workorder_id %}" class="link link-primary font-medium hover:underline">{{ m.workorder_reference }}</a>
+              {% else %}
+                {{ m.workorder_reference|default:"—" }}
+              {% endif %}
+            </td>
+            <td>
+              {% if m.workorder and m.workorder.budget %}
+                <div class="font-medium">{{ m.workorder.budget.customer.name|default:"Consumidor Final" }}</div>
+                {% if m.workorder.budget.vehicle %}
+                  <div class="text-sm text-base-content/60">{{ m.workorder.budget.vehicle.model }}{% if m.workorder.budget.vehicle.plate %} ({{ m.workorder.budget.vehicle.plate }}){% endif %}</div>
+                {% else %}
+                  <div class="text-sm text-base-content/60">—</div>
+                {% endif %}
+              {% else %}
+                <span class="opacity-50">—</span>
+              {% endif %}
+            </td>
+            <td>{{ m.historical_supplier.name|default:"—" }}</td>
             <td>
               {% if m.type == "ENTRADA" %}
                 <span class="badge badge-success">Entrada</span>
@@ -37,8 +56,6 @@
               {% endif %}
             </td>
             <td class="font-bold">{{ m.quantity }}</td>
-            <td class="max-w-xs truncate" title="{{ m.reason }}">{{ m.reason|default:"—" }}</td>
-            <td>{{ m.supplier.name|default:"—" }}</td>
             <td>
                 <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
                     {{ m.get_status_display }}

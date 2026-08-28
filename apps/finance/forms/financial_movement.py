@@ -1,17 +1,22 @@
+import json
 import logging
+from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 from django.db.models import Q
 from django.template.loader import render_to_string
+from djmoney.money import Money
 
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, MoneyInput, NumberInput
+from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, DecimalInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
-from apps.finance.models.financial_movement import FinancialMovement
-from apps.finance.services.financial_movement import apply_payment_reconciliation_rules, generate_card_fee_movement
+from apps.finance.models.financial_movement import FinancialMovement, FinancialMovementInstallmentPlan
+from apps.finance.services.installments import InstallmentScheduleError, build_installments, parse_installment_schedule
+from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreModelForm
@@ -26,6 +31,229 @@ class FinancialMovementBaseForm(CoreModelForm):
         self.request = kwargs.pop("request", None)
         self.workshop = kwargs.pop("workshop", None)
         super().__init__(*args, **kwargs)
+
+    def clean_discount_fields(self, cleaned_data):
+        gross_amount = cleaned_data.get("gross_amount")
+        discount_mode = cleaned_data.get("discount_mode") or FinancialMovement.DiscountMode.NONE
+        discount_value = cleaned_data.get("discount_value")
+        discount_percentage = cleaned_data.get("discount_percentage") or getattr(self.instance, "discount_percentage", Decimal("0.00")) or Decimal("0.00")
+
+        if gross_amount is None:
+            return cleaned_data
+
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        adjustment_amount = Decimal("0.00")
+        if discount_mode == FinancialMovement.DiscountMode.AMOUNT:
+            adjustment_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
+            if adjustment_amount <= 0:
+                self.add_error("discount_value", "Informe o valor do desconto.")
+            if adjustment_amount > gross_value:
+                self.add_error("discount_value", "O desconto não pode ser maior que o valor bruto.")
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+        elif discount_mode == FinancialMovement.DiscountMode.SURCHARGE:
+            adjustment_amount = Decimal(str((discount_value.amount if discount_value else 0) or 0))
+            if adjustment_amount <= 0:
+                self.add_error("discount_value", "Informe o valor do acréscimo.")
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+        elif discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
+            if discount_percentage <= 0:
+                self.add_error("discount_mode", "O desconto percentual legado deve possuir um percentual válido.")
+            if discount_percentage > Decimal("100"):
+                self.add_error("discount_mode", "O desconto percentual legado não pode ser maior que 100%.")
+            adjustment_amount = gross_value * discount_percentage / Decimal("100")
+            cleaned_data["discount_value"] = gross_amount.__class__(Decimal("0.00"), gross_amount.currency)
+        else:
+            cleaned_data["discount_value"] = gross_amount.__class__(Decimal("0.00"), gross_amount.currency)
+            cleaned_data["discount_percentage"] = Decimal("0.00")
+
+        if adjustment_amount < 0:
+            self.add_error("discount_value" if discount_mode in (FinancialMovement.DiscountMode.AMOUNT, FinancialMovement.DiscountMode.SURCHARGE) else "discount_percentage", "O ajuste não pode ser negativo.")
+
+        if not self.errors:
+            net_amount = gross_value + adjustment_amount if discount_mode == FinancialMovement.DiscountMode.SURCHARGE else gross_value - adjustment_amount
+            cleaned_data["amount"] = gross_amount.__class__(
+                net_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                gross_amount.currency,
+            )
+        return cleaned_data
+
+    def configure_discount_fields(self):
+        is_non_financial_adjustment_context = bool(self.instance.payroll_id or self.instance.movement_group_id)
+        self.fields["discount_mode"].label = "Tipo de desconto" if is_non_financial_adjustment_context else "Desconto ou Acréscimo"
+        self.fields["discount_mode"].required = True
+        self.fields["discount_value"].required = False
+        self.fields["discount_value"].label = "Desconto (R$)" if is_non_financial_adjustment_context else "Ajuste (R$)"
+        available_choices = (
+            [
+                (FinancialMovement.DiscountMode.NONE, "Sem desconto"),
+                (FinancialMovement.DiscountMode.AMOUNT, "Desconto em reais (R$)"),
+                (FinancialMovement.DiscountMode.PERCENTAGE, "Desconto em percentual (%)"),
+            ]
+            if is_non_financial_adjustment_context
+            else [
+                (FinancialMovement.DiscountMode.NONE, "Sem desconto ou acréscimo"),
+                (FinancialMovement.DiscountMode.AMOUNT, "Desconto"),
+                (FinancialMovement.DiscountMode.SURCHARGE, "Acréscimo"),
+            ]
+        )
+        if not is_non_financial_adjustment_context and self.instance.pk and self.instance.discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
+            available_choices.append((FinancialMovement.DiscountMode.PERCENTAGE, "Desconto percentual (legado)"))
+        self.fields["discount_mode"].choices = available_choices
+        self.fields["discount_mode"].widget.choices = available_choices
+        self.fields["amount"].label = "Valor líquido"
+        self.fields["amount"].required = False
+        if not self.instance.pk:
+            self.initial["discount_mode"] = ""
+
+
+FINANCIAL_DISCOUNT_UI_SCRIPT = """
+<script>
+(function () {
+    function initializeFinancialDiscountFields() {
+        const mode = document.getElementById('id_discount_mode');
+        const grossHidden = document.getElementById('id_gross_amount_0');
+        const grossDisplay = document.getElementById('id_gross_amount_0_display');
+        const valueHidden = document.getElementById('id_discount_value_0');
+        const valueDisplay = document.getElementById('id_discount_value_0_display');
+        const netHidden = document.getElementById('id_amount_0');
+        const netDisplay = document.getElementById('id_amount_0_display');
+        const valueContainer = document.getElementById('discount-value-field');
+        const valueLabel = valueContainer?.querySelector('label');
+
+        if (!mode || mode.dataset.discountUiReady === 'true') return;
+        mode.dataset.discountUiReady = 'true';
+
+        const parseNumber = (raw) => {
+            const text = String(raw || '').trim();
+            const value = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text;
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+        };
+        const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+        const hiddenMoneyValue = (hidden, display) => {
+            if (hidden && hidden.value !== '') return Number(hidden.value) || 0;
+            return parseNumber(display ? display.value : '');
+        };
+
+        function updateDiscountUi({ resetInactive = false } = {}) {
+            const selectedMode = mode.value;
+            if (!['NONE', 'AMOUNT', 'SURCHARGE', 'PERCENTAGE'].includes(selectedMode)) return;
+
+            const usesAmount = ['AMOUNT', 'SURCHARGE'].includes(selectedMode);
+            valueContainer?.classList.toggle('hidden', !usesAmount);
+            if (valueLabel) {
+                valueLabel.textContent = selectedMode === 'SURCHARGE' ? 'Acréscimo (R$)' : 'Desconto (R$)';
+            }
+
+            if (resetInactive && !usesAmount) {
+                if (valueHidden) valueHidden.value = '0.00';
+                if (valueDisplay) valueDisplay.value = formatMoney(0);
+            }
+            const gross = hiddenMoneyValue(grossHidden, grossDisplay);
+            const adjustment = usesAmount ? hiddenMoneyValue(valueHidden, valueDisplay) : 0;
+            const net = selectedMode === 'SURCHARGE' ? gross + adjustment : Math.max(gross - adjustment, 0);
+            if (netHidden) netHidden.value = net.toFixed(2);
+            if (netDisplay) netDisplay.value = formatMoney(net);
+        }
+
+        [grossHidden, grossDisplay, valueHidden, valueDisplay].forEach((field) => {
+            if (!field) return;
+            field.addEventListener('input', updateDiscountUi);
+            field.addEventListener('change', updateDiscountUi);
+            field.addEventListener('widget:formatted-change', updateDiscountUi);
+        });
+
+        ['input', 'change'].forEach((eventName) => {
+            mode.addEventListener(eventName, () => updateDiscountUi({ resetInactive: true }));
+        });
+
+        updateDiscountUi();
+        requestAnimationFrame(() => requestAnimationFrame(() => updateDiscountUi()));
+        setTimeout(() => updateDiscountUi(), 50);
+    }
+
+    initializeFinancialDiscountFields();
+    document.body.addEventListener('htmx:afterSwap', initializeFinancialDiscountFields);
+})();
+</script>
+"""
+
+
+FINANCIAL_INSTALLMENTS_UI_SCRIPT = """
+<script>
+(function () {
+    function initializeFinancialInstallments() {
+        const countField = document.getElementById('id_installments_count');
+        const scheduleContainer = document.getElementById('installment-schedule');
+        const dueDate = document.getElementById('id_due_date');
+        const gross = document.getElementById('id_gross_amount_0');
+        const grossDisplay = document.getElementById('id_gross_amount_0_display');
+        const adjustment = document.getElementById('id_discount_value_0');
+        const adjustmentDisplay = document.getElementById('id_discount_value_0_display');
+        const mode = document.getElementById('id_discount_mode');
+        const initialScheduleElement = document.getElementById('financial-installment-schedule-initial');
+        const initialSchedule = initialScheduleElement ? JSON.parse(initialScheduleElement.textContent || '[]') : [];
+        if (!countField || !scheduleContainer || countField.dataset.installmentUiReady === 'true') return;
+        countField.dataset.installmentUiReady = 'true';
+
+        const number = (value) => {
+            const text = String(value || '').trim();
+            const normalized = text.includes(',') ? text.replace(/\\./g, '').replace(',', '.') : text;
+            return Number.isFinite(Number(normalized)) ? Number(normalized) : 0;
+        };
+        const moneyValue = (hidden, display) => hidden?.value !== '' ? number(hidden.value) : number(display?.value);
+        const addMonths = (value, months) => {
+            const [year, month, day] = String(value).split('-').map(Number);
+            const result = new Date(year, month - 1 + months, 1);
+            result.setDate(Math.min(day, new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate()));
+            return `${result.getFullYear()}-${String(result.getMonth() + 1).padStart(2, '0')}-${String(result.getDate()).padStart(2, '0')}`;
+        };
+        const netAmount = () => {
+            const base = moneyValue(gross, grossDisplay);
+            const value = moneyValue(adjustment, adjustmentDisplay);
+            return mode?.value === 'SURCHARGE' ? base + value : Math.max(base - value, 0);
+        };
+        function generate({ preserve = false } = {}) {
+            const count = Math.max(Number(countField.value || 1), 1);
+            const firstDate = dueDate?.value;
+            if (count === 1 || !firstDate) {
+                scheduleContainer.classList.add('hidden');
+                scheduleContainer.innerHTML = '';
+                return;
+            }
+            const renderedAmounts = [...scheduleContainer.querySelectorAll('[name="installment_amount"]')].map((input) => input.value);
+            const renderedDates = [...scheduleContainer.querySelectorAll('[name="installment_due_date"]')].map((input) => input.value);
+            const previous = preserve ? (renderedAmounts.length ? renderedAmounts : initialSchedule.map((item) => item.amount)) : [];
+            const dates = preserve ? (renderedDates.length ? renderedDates : initialSchedule.map((item) => item.due_date)) : [];
+            const cents = Math.round(netAmount() * 100);
+            const each = Math.floor(cents / count);
+            const remainder = cents % count;
+            const rows = Array.from({ length: count }, (_, index) => {
+                const amount = previous[index] || ((each + (index === count - 1 ? remainder : 0)) / 100).toFixed(2);
+                const date = dates[index] || addMonths(firstDate, index);
+                return `<tr><td class="font-medium">${index + 1}/${count}</td><td><input type="date" class="input input-bordered input-sm w-full" name="installment_due_date" value="${date}" required></td><td><input type="number" step="0.01" min="0.01" class="input input-bordered input-sm w-full text-right" name="installment_amount" value="${amount}" required></td></tr>`;
+            }).join('');
+            scheduleContainer.innerHTML = `<div class="flex items-center justify-between gap-3"><div><h4 class="font-semibold">Parcelas</h4><p class="mt-1 text-xs text-base-content/60">Esta operação será dividida nas parcelas abaixo. Repetir lançamento continua sendo uma função separada.</p></div><button type="button" class="btn btn-outline btn-sm" id="regenerate-installments">Gerar novamente</button></div><div class="mt-3 overflow-x-auto"><table class="table table-sm"><thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-right">Valor</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+            scheduleContainer.classList.remove('hidden');
+            scheduleContainer.querySelector('#regenerate-installments')?.addEventListener('click', () => generate());
+        }
+        countField.addEventListener('input', () => generate());
+        dueDate?.addEventListener('change', () => generate());
+        [gross, grossDisplay, adjustment, adjustmentDisplay, mode].forEach((field) => {
+            field?.addEventListener('input', () => generate());
+            field?.addEventListener('change', () => generate());
+            field?.addEventListener('widget:formatted-change', () => generate());
+        });
+        generate({ preserve: true });
+    }
+    initializeFinancialInstallments();
+    document.body.addEventListener('htmx:afterSwap', initializeFinancialInstallments);
+})();
+</script>
+"""
 
 
 class MovementStep1Form(FinancialMovementBaseForm):
@@ -52,8 +280,23 @@ class MovementStep1Form(FinancialMovementBaseForm):
             self.suppliers_choices = [(s.id, s.name) for s in suppliers]
             self.collaborators_choices = [(c.id, str(c)) for c in collaborators]
 
-        # Bind dinâmico (POST ou edição)
-        person_type = self.data.get("person_type")
+        # Em um POST, os valores enviados têm precedência. Em um retorno ao
+        # passo 1, estes campos auxiliares precisam ser reconstruídos a partir
+        # da origem que já foi persistida no lançamento.
+        person_type = self.data.get("person_type") if self.is_bound else None
+        entity_id = self.data.get("entity") if self.is_bound else None
+        if not person_type:
+            if self.instance.supplier_id:
+                person_type = "supplier"
+                entity_id = str(self.instance.supplier_id)
+            elif self.instance.collaborator_id:
+                person_type = "collaborator"
+                entity_id = str(self.instance.collaborator_id)
+
+        if person_type:
+            self.initial.setdefault("person_type", person_type)
+        if entity_id:
+            self.initial.setdefault("entity", str(entity_id))
 
         self.fields["direction"].label = ""
 
@@ -67,7 +310,8 @@ class MovementStep1Form(FinancialMovementBaseForm):
         self.helper.layout = Layout(
             HTML("""
             <script>
-                document.addEventListener('DOMContentLoaded', function() {
+                (function initMovementStep1() {
+                    function bindMovementStep1() {
                     const personType = document.querySelector('[name="person_type"]');
                     const entityField = document.querySelector('[name="entity"]');
                     const directionField = document.querySelector('[name="direction"]');
@@ -79,6 +323,42 @@ class MovementStep1Form(FinancialMovementBaseForm):
 
                     const personTitle = document.getElementById('person-title');
                     const resumeContainer = document.getElementById('entity-details');
+
+                    function getSearchableData(input) {
+                        const container = input && input.closest('[x-data]');
+                        if (!container || !window.Alpine) return null;
+                        try {
+                            return Alpine.$data(container);
+                        } catch (error) {
+                            return null;
+                        }
+                    }
+
+                    function clearSearchable(input, { clearOptions = false } = {}) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.clear === 'function') {
+                            alpineData.clear();
+                            if (clearOptions && typeof alpineData.setOptions === 'function') {
+                                alpineData.setOptions([]);
+                            }
+                            return;
+                        }
+                        if (input) input.value = '';
+                    }
+
+                    function setSearchableOptions(input, options) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.setOptions === 'function') {
+                            alpineData.setOptions(options);
+                            return;
+                        }
+                        const container = input && input.closest('[x-data]');
+                        if (container) {
+                            container.dispatchEvent(new CustomEvent('searchable-set-options', {
+                                detail: { options }, bubbles: true,
+                            }));
+                        }
+                    }
 
                     function updateTitles() {
                         const direction = directionField.value;
@@ -118,42 +398,21 @@ class MovementStep1Form(FinancialMovementBaseForm):
                             step3.classList.add('hidden');
                             step4.classList.add('hidden');
 
-                            personType.value = "";
-                            entityField.innerHTML = "";
+                            clearSearchable(personType);
+                            clearSearchable(entityField, { clearOptions: true });
                             resumeContainer.innerHTML = "";
                             syncSupplierQuickButton();
                         }
                     }
 
-                    function selectEntityOption(entityId, entityName) {
+                    function selectEntityOption(entityId) {
                         if (!entityId) return;
 
-                        const container = entityField.closest('[x-data]');
-                        if (!container || !window.Alpine) return;
-
-                        const alpineData = Alpine.$data(container);
-                        const optionsList = container.querySelector('[x-ref="options"]');
-                        if (!optionsList || !alpineData || typeof alpineData.select !== 'function') return;
-
-                        const selectedId = String(entityId);
-                        const selectedName = entityName || 'Fornecedor';
-                        let option = optionsList.querySelector(`li[data-value='${selectedId}']`);
-
-                        if (!option) {
-                            option = document.createElement('li');
-                            option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
-                            option.dataset.value = selectedId;
-                            option.dataset.label = selectedName;
-                            option.dataset.searchText = selectedName.toLowerCase();
-                            option.setAttribute('x-show', "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                            option.setAttribute('@click', 'select($el)');
-                            option.innerHTML = `<span class="block truncate" :class="{'font-bold': value == '${selectedId}'}">${selectedName}</span>`;
-                            optionsList.appendChild(option);
+                        const alpineData = getSearchableData(entityField);
+                        if (alpineData && typeof alpineData.setValue === 'function') {
+                            alpineData.setValue(entityId);
                         }
-
-                        alpineData.select(option);
                         syncSupplierQuickButton();
-                        loadDetails();
                     }
 
                     function loadEntities(selectedEntity) {
@@ -184,52 +443,16 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         })
                         .then(r => r.json())
                         .then(data => {
-                            // Encontra o container do SearchableSelectInput (tem x-data)
-                            const container = entityField.closest('[x-data]');
-                            if (!container) return;
-
-                            // Acessa os dados do Alpine se possível, ou apenas manipula o DOM
-                            const optionsList = container.querySelector('[x-ref="options"]');
-                            if (!optionsList) return;
-
-                            // Limpa o valor atual no componente Alpine
-                            if (window.Alpine) {
-                                const alpineData = Alpine.$data(container);
-                                if (alpineData && typeof alpineData.clear === 'function') {
-                                    alpineData.clear();
-                                }
-                            }
-
-                            optionsList.innerHTML = "";
-
-                            data.forEach(item => {
-                                const li = document.createElement("li");
-                                li.setAttribute("x-show", "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                                li.setAttribute("@click", "select($el)");
-                                li.dataset.value = item.id;
-                                li.dataset.label = item.name;
-                                li.dataset.searchText = item.name.toLowerCase();
-                                li.className = "relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group";
-                                
-                                const span = document.createElement("span");
-                                span.className = "block truncate";
-                                span.setAttribute(":class", `{'font-bold': value == '${item.id}'}`);
-                                span.textContent = item.name;
-                                
-                                li.appendChild(span);
-                                optionsList.appendChild(li);
-                            });
-
-                            // Adiciona a mensagem de "Nenhum resultado"
-                            const noResults = document.createElement("li");
-                            noResults.setAttribute("x-show", "search && $refs.options.querySelectorAll('li[data-value]:not([style*=\\'display: none\\'])').length === 0");
-                            noResults.className = "py-2 pl-3 text-gray-500 italic";
-                            noResults.textContent = "Nenhum resultado encontrado...";
-                            optionsList.appendChild(noResults);
+                            const options = (Array.isArray(data) ? data : []).map((item) => ({
+                                value: item.id,
+                                label: item.name,
+                            }));
+                            setSearchableOptions(entityField, options);
 
                             if (selectedEntity && selectedEntity.id) {
-                                selectEntityOption(selectedEntity.id, selectedEntity.name);
+                                selectEntityOption(selectedEntity.id);
                             } else {
+                                clearSearchable(entityField);
                                 syncSupplierQuickButton();
                             }
                         });
@@ -320,10 +543,17 @@ class MovementStep1Form(FinancialMovementBaseForm):
 
                     // Estado inicial
                     handleDirection();
-                    loadEntities();
+                    loadEntities(entityField.value ? { id: entityField.value } : null);
                     loadDetails();
                     syncSupplierQuickButton();
-                });
+                    }
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', bindMovementStep1);
+                    } else {
+                        bindMovementStep1();
+                    }
+                })();
             </script>"""),
             Div(
                 Div(
@@ -420,10 +650,14 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
     class Meta:
         model = FinancialMovement
-        fields = ["payment_method", "is_paid", "is_reconciled", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
+        fields = ["entry_date", "payment_method", "is_paid", "is_reconciled", "gross_amount", "discount_mode", "discount_value", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
         widgets = {
+            "entry_date": CalendarDateInput(),
             "payment_method": SearchableSelectInput(),
-            "amount": MoneyInput(),
+            "gross_amount": MoneyInput(),
+            "discount_mode": SearchableSelectInput(),
+            "discount_value": MoneyInput(),
+            "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "due_date": CalendarDateInput(),
             "nf_number": NumberInput(),
             "budget_plan": SearchableSelectInput(),
@@ -435,14 +669,44 @@ class MovementStep3Form(FinancialMovementBaseForm):
         super().__init__(*args, **kwargs)
 
         self.fields["due_date"].required = True
-        self.fields["amount"].required = True
+        self.fields["gross_amount"].required = True
+        self.configure_discount_fields()
         self.fields["payment_method"].required = True
+        self.fields["budget_plan"].required = True
+        self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
 
         self.fields["repeat_count"] = forms.IntegerField(required=False, min_value=1, max_value=120, widget=NumberInput(attrs={"class": "w-8 text-center", "placeholder": "1"}))
 
         self.fields["repeat_count"].label = "Repetir este lançamento"
+        self.fields["installments_count"] = forms.IntegerField(
+            label="Número de parcelas",
+            required=False,
+            min_value=1,
+            max_value=60,
+            initial=1,
+            widget=NumberInput(attrs={"id": "id_installments_count", "placeholder": "1"}),
+            help_text="Divide esta operação em parcelas. Não é uma repetição de lançamento.",
+        )
+        if self.instance.installment_plan_id:
+            self.initial["installments_count"] = self.instance.installments_count
+
+        self.initial_installment_schedule = []
+        if getattr(self, "request", None) and self.instance.pk:
+            self.initial_installment_schedule = self.request.session.get(f"installment_schedule_{self.instance.pk}", [])
+        if not self.initial_installment_schedule and self.instance.installment_plan_id:
+            self.initial_installment_schedule = [
+                {
+                    "number": movement.installment_number,
+                    "total": movement.installments_count,
+                    "due_date": movement.due_date.isoformat(),
+                    "amount": str(movement.amount.amount),
+                }
+                for movement in self.instance.installment_plan.financial_movements.order_by("installment_number", "pk")
+            ]
+        if self.initial_installment_schedule:
+            self.initial["installments_count"] = len(self.initial_installment_schedule)
 
         repeat_choices = [
             ("mensal", "Mensal"),
@@ -457,7 +721,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["repeat_type"] = forms.ChoiceField(choices=repeat_choices, initial="mensal", required=False)
 
         if self.workshop:
-            self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
+            self.fields["budget_plan"].widget.choices = [("", "---------")] + [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
             bank_accounts = BankAccount.objects.filter(workshop=self.workshop, is_active=True).order_by("bank_name", "account_number", "id")
             self.fields["bank_account"].queryset = bank_accounts
             self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in bank_accounts]
@@ -479,17 +743,15 @@ class MovementStep3Form(FinancialMovementBaseForm):
         btn_semanal = f'<input class="{btn_class}" type="radio" name="repeat_type" value="semanal" aria-label="Semanal" />'
         btn_diario = f'<input class="{btn_class}" type="radio" name="repeat_type" value="diario" aria-label="Diário" />'
         btn_5_dia_util = f'<input class="{btn_class}" type="radio" name="repeat_type" value="5_dia_util" aria-label="5º dia útil" />'
-
         repeat_html = f'<div class="join">{btn_mensal}{btn_quinzenal}{btn_semanal}{btn_diario}{btn_5_dia_util if has_collab else ""}</div>'
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
+                Div("entry_date", css_class="col-span-4"),
                 Div("due_date", css_class="col-span-4"),
                 Div("is_paid", css_class="col-span-4"),
-                Div("amount", css_class="col-span-4"),
-                #
                 Div("is_reconciled", css_class="col-span-4"),
                 Div("payment_method", css_class="col-span-4"),
                 Div("budget_plan", css_class="col-span-4"),
@@ -500,11 +762,21 @@ class MovementStep3Form(FinancialMovementBaseForm):
                     Div(Field("repeat_count", wrapper_class="mb-0"), HTML('<span class="text-sm font-semibold">vezes</span>'), HTML(repeat_html), css_class="flex items-center gap-4 mb-4 col-span-6"),
                     css_class="col-span-6",
                 ),
+                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
+                Div("gross_amount", css_class="col-span-4"),
+                Div("discount_mode", css_class="col-span-4"),
+                Div("discount_value", css_class="col-span-4", css_id="discount-value-field"),
+                Div("amount", css_class="col-span-4", css_id="net-amount-field"),
+                Div("installments_count", css_class="col-span-12 md:col-span-3 max-w-xs", css_id="installments-count-field"),
+                HTML('<div id="installment-schedule" class="col-span-12 hidden rounded-xl border border-primary/25 bg-primary/5 p-4"></div>'),
                 #
                 Div("attachment", css_class="col-span-12"),
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
-            )
+            ),
+            HTML(FINANCIAL_DISCOUNT_UI_SCRIPT),
+            HTML(f'<script id="financial-installment-schedule-initial" type="application/json">{json.dumps(self.initial_installment_schedule)}</script>'),
+            HTML(FINANCIAL_INSTALLMENTS_UI_SCRIPT),
         )
 
     def save(self, commit=True):
@@ -520,6 +792,14 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 else:
                     self.request.session.pop(f"repeat_count_{instance.pk}", None)
                     self.request.session.pop(f"repeat_type_{instance.pk}", None)
+                schedule = self.cleaned_data.get("installment_schedule") or []
+                if len(schedule) > 1:
+                    self.request.session[f"installment_schedule_{instance.pk}"] = [
+                        {"number": item.number, "total": item.total, "due_date": item.due_date.isoformat(), "amount": str(item.amount)}
+                        for item in schedule
+                    ]
+                else:
+                    self.request.session.pop(f"installment_schedule_{instance.pk}", None)
         return instance
 
     def clean_financial_observation(self):
@@ -528,8 +808,41 @@ class MovementStep3Form(FinancialMovementBaseForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        cleaned_data = self.clean_discount_fields(cleaned_data)
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
+        installments_count = int(cleaned_data.get("installments_count") or 1)
+        repeat_count = int(cleaned_data.get("repeat_count") or 1)
+        if installments_count > 1 and repeat_count > 1:
+            self.add_error("installments_count", "Parcelamento e repetição são processos diferentes e não podem ser usados juntos.")
+            return cleaned_data
+
+        if self.instance.installment_plan_id:
+            return cleaned_data
+
+        if installments_count > 1 and cleaned_data.get("due_date") and cleaned_data.get("amount"):
+            getlist = getattr(self.data, "getlist", None)
+            due_dates = getlist("installment_due_date") if callable(getlist) else []
+            amounts = getlist("installment_amount") if callable(getlist) else []
+            try:
+                if due_dates or amounts:
+                    schedule = parse_installment_schedule(
+                        due_dates=due_dates,
+                        amounts=amounts,
+                        expected_count=installments_count,
+                        expected_total=cleaned_data["amount"].amount,
+                    )
+                else:
+                    schedule = build_installments(
+                        total_amount=cleaned_data["amount"].amount,
+                        first_due_date=cleaned_data["due_date"],
+                        installments_count=installments_count,
+                    )
+            except InstallmentScheduleError as exc:
+                self.add_error(None, str(exc))
+            else:
+                cleaned_data["installment_schedule"] = schedule
+                cleaned_data["due_date"] = schedule[0].due_date
         return cleaned_data
 
 
@@ -558,6 +871,22 @@ class MovementStep4Form(FinancialMovementBaseForm):
         elif inst.collaborator:
             origin_name = str(inst.collaborator.name) if inst.collaborator.name else ""
             origin_label = "Colaborador"
+
+        installment_schedule = []
+        if getattr(self, "request", None) and inst.pk:
+            installment_schedule = self.request.session.get(f"installment_schedule_{inst.pk}", [])
+        if not installment_schedule and inst.installment_plan_id:
+            installment_schedule = [
+                {"number": movement.installment_number, "total": movement.installments_count, "due_date": movement.due_date.isoformat(), "amount": str(movement.amount.amount)}
+                for movement in inst.installment_plan.financial_movements.order_by("installment_number", "pk")
+            ]
+        installments_summary_html = ""
+        if installment_schedule:
+            rows = "".join(
+                f'<tr><td>{item["number"]}/{item["total"]}</td><td>{date.fromisoformat(item["due_date"]).strftime("%d/%m/%Y")}</td><td class="text-right">R$ {Decimal(item["amount"]):.2f}</td></tr>'
+                for item in installment_schedule
+            )
+            installments_summary_html = f'''<div class="mt-4 rounded-lg border border-base-300 bg-base-100 p-3"><p class="text-xs font-bold uppercase opacity-50">Parcelamento</p><table class="table table-xs mt-2"><thead><tr><th>Parcela</th><th>Vencimento</th><th class="text-right">Valor</th></tr></thead><tbody>{rows}</tbody></table></div>'''
 
         self.helper.layout = Layout(
             HTML(f"""
@@ -635,6 +964,7 @@ class MovementStep4Form(FinancialMovementBaseForm):
                                                 </span>
                                             </div>
                                         </div>
+                                        {installments_summary_html}
                                     </div>
                                 </div>
                             </div>
@@ -646,6 +976,12 @@ class MovementStep4Form(FinancialMovementBaseForm):
     def save(self, commit=True):
         instance = super().save(commit=commit)
         if commit:
+            installment_flag_key = f"generated_installments_{instance.pk}"
+            if getattr(self, "request", None) and not self.request.session.get(installment_flag_key):
+                schedule = self.request.session.pop(f"installment_schedule_{instance.pk}", None)
+                if schedule:
+                    self._generate_installments(instance, schedule)
+                    self.request.session[installment_flag_key] = True
             flag_key = f"generated_reps_{instance.pk}"
             if getattr(self, "request", None) and not self.request.session.get(flag_key):
                 repeat_count = self.request.session.pop(f"repeat_count_{instance.pk}", None)
@@ -699,6 +1035,47 @@ class MovementStep4Form(FinancialMovementBaseForm):
 
             new_instance.save()
 
+    def _generate_installments(self, instance, schedule):
+        if instance.installment_plan_id or len(schedule) < 2:
+            return
+
+        original_gross_amount = instance.gross_amount
+        original_discount_value = instance.discount_value
+        original_amount = instance.amount
+        plan = FinancialMovementInstallmentPlan.objects.create(
+            workshop=instance.workshop,
+            user=instance.user,
+            gross_amount=original_gross_amount,
+            adjustment_mode=instance.discount_mode,
+            adjustment_value=original_discount_value,
+            net_amount=original_amount,
+            installments_count=len(schedule),
+        )
+        first_installment = schedule[0]
+        instance.installment_plan = plan
+        instance.installment_number = first_installment["number"]
+        instance.installments_count = first_installment["total"]
+        instance.description = f"{instance.description} - Parcela {first_installment['number']}/{first_installment['total']}"
+        instance.due_date = date.fromisoformat(first_installment["due_date"])
+        instance.gross_amount = Money(Decimal(first_installment["amount"]), original_amount.currency)
+        instance.discount_mode = FinancialMovement.DiscountMode.NONE
+        instance.discount_value = Money(Decimal("0.00"), original_amount.currency)
+        instance.discount_percentage = Decimal("0.00")
+        instance.save()
+
+        for installment in schedule[1:]:
+            new_instance = FinancialMovement.objects.get(pk=instance.pk)
+            new_instance.pk = None
+            new_instance.attachment = None
+            new_instance.is_paid = False
+            new_instance.installment_number = installment["number"]
+            new_instance.installments_count = installment["total"]
+            new_instance.description = new_instance.description.rsplit(" - Parcela ", 1)[0] + f" - Parcela {installment['number']}/{installment['total']}"
+            new_instance.due_date = date.fromisoformat(installment["due_date"])
+            new_instance.gross_amount = Money(Decimal(installment["amount"]), original_amount.currency)
+            new_instance.amount = new_instance.gross_amount
+            new_instance.save()
+
 
 class ReportMovementEditForm(FinancialMovementBaseForm):
     """Formulário unificado para edição de movimentação financeira via modal no relatório."""
@@ -734,8 +1111,12 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "description",
             "items_observation",
             # Pagamento
+            "entry_date",
             "due_date",
             "direction",
+            "gross_amount",
+            "discount_mode",
+            "discount_value",
             "amount",
             "budget_plan",
             "bank_account",
@@ -751,9 +1132,13 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "collaborator": SearchableSelectInput(),
             "description": TextInput(),
             "items_observation": TextareaInput(attrs={"rows": 3}),
+            "entry_date": CalendarDateInput(),
             "due_date": CalendarDateInput(),
             "direction": SearchableSelectInput(),
-            "amount": MoneyInput(),
+            "gross_amount": MoneyInput(),
+            "discount_mode": SearchableSelectInput(),
+            "discount_value": MoneyInput(),
+            "amount": MoneyInput(attrs={"readonly": "readonly"}),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),
             "payment_method": SearchableSelectInput(),
@@ -772,9 +1157,11 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["description"].required = getattr(self.instance, "workorder_id", None) is None
         self.fields["due_date"].required = True
         self.fields["direction"].required = True
-        self.fields["amount"].required = True
+        self.fields["gross_amount"].required = True
+        self.configure_discount_fields()
         self.fields["payment_method"].required = True
-        self.fields["budget_plan"].required = getattr(self.instance, "workorder_id", None) is not None
+        self.fields["budget_plan"].required = True
+        self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["bank_account"].required = False
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(getattr(self.instance, "is_reconciled", False)) if self.instance.pk else False
@@ -817,7 +1204,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             self.fields["payment_method"].queryset = payment_method_qs
 
             self.fields["payment_method"].widget.choices = [(pm.id, str(pm)) for pm in payment_method_qs]
-            self.fields["budget_plan"].widget.choices = [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
+            self.fields["budget_plan"].widget.choices = [("", "---------")] + [(bp.id, str(bp)) for bp in FinancialGroup.objects.filter(workshop=self.workshop)]
             bank_account_qs = self._get_bank_account_queryset()
             self.fields["bank_account"].queryset = bank_account_qs
             self.fields["bank_account"].widget.choices = [(ba.id, str(ba)) for ba in bank_account_qs]
@@ -851,6 +1238,15 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             self.fields["supplier"].widget.attrs["disabled"] = True
 
         details_context = self._build_entity_details_context()
+
+        installment_indicator_html = ""
+        if self.instance.installment_plan_id and self.instance.installment_number and self.instance.installments_count:
+            installment_indicator_html = (
+                '<span class="badge badge-warning gap-1 font-semibold text-warning-content shadow-sm">'
+                '<span class="material-icons text-sm">calendar_month</span>'
+                f"Parcela {self.instance.installment_number} de {self.instance.installments_count}"
+                "</span>"
+            )
 
         source_info_html = ""
         if self.instance.pk and self.instance.source_id and not self.instance.supplier_id and not self.instance.collaborator_id:
@@ -887,11 +1283,17 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             else HTML(""),
             HTML("</section>") if self.instance.workorder_id is None else HTML(""),
             HTML('<section x-show="activeTab === \'payment\'" x-cloak class="space-y-4">'),
-            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'),
+            HTML(
+                '<div class="flex items-center justify-between gap-4 mb-3">'
+                '<h3 class="text-base font-semibold text-base-content flex items-center gap-2">'
+                '<span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'
+                f"{installment_indicator_html}"
+                "</div>"
+            ),
             Div(
+                Div("entry_date", css_class="col-span-12 lg:col-span-4"),
                 Div("due_date", css_class="col-span-12 lg:col-span-4"),
                 Div("direction", css_class="col-span-12 lg:col-span-4"),
-                Div("amount", css_class="col-span-12 lg:col-span-4"),
                 #
                 Div("budget_plan", css_class="col-span-12 lg:col-span-6"),
                 Div("bank_account", css_class="col-span-12 lg:col-span-6"),
@@ -900,9 +1302,15 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("is_reconciled", css_class="col-span-12 lg:col-span-4"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
+                HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
+                Div("gross_amount", css_class="col-span-12 lg:col-span-4"),
+                Div("discount_mode", css_class="col-span-12 lg:col-span-4"),
+                Div("discount_value", css_class="col-span-12 lg:col-span-4", css_id="discount-value-field"),
+                Div("amount", css_class="col-span-12 lg:col-span-4", css_id="net-amount-field"),
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             ),
+            HTML(FINANCIAL_DISCOUNT_UI_SCRIPT),
             HTML("</section>"),
             HTML('<section x-show="activeTab === \'attachment\'" x-cloak class="space-y-4">'),
             HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">attach_file</span> Anexo</h3>'),
@@ -985,6 +1393,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        cleaned_data = self.clean_discount_fields(cleaned_data)
         supplier = cleaned_data.get("supplier")
         collaborator = cleaned_data.get("collaborator")
         direction = cleaned_data.get("direction")

@@ -136,6 +136,7 @@ def build_vehicle_saved_trigger(vehicle: Vehicle) -> str:
             "id": str(vehicle.pk),
             "label": str(vehicle),
             "customer_id": str(vehicle.customer.pk) if vehicle.customer else "",
+            "km": vehicle.km,
         }
     })
 

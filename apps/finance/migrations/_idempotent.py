@@ -1,4 +1,9 @@
-"""Idempotent migration ops for DBs that already have historical fiscal tables."""
+"""Idempotent migration ops for DBs that already have historical fiscal tables.
+
+Also skips state_forwards when the target already exists so parallel port
+chains (feat/nf 0047-0049 vs prod 0049-0051) can be merged without
+duplicate CreateModel/AddField state errors.
+"""
 
 from __future__ import annotations
 
@@ -51,6 +56,11 @@ def _constraint_exists(schema_editor: Any, constraint_name: str) -> bool:
 
 
 class CreateModelIfMissing(migrations.CreateModel):
+    def state_forwards(self, app_label, state):
+        if (app_label, self.name.lower()) in state.models:
+            return
+        super().state_forwards(app_label, state)
+
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.name)
         if model._meta.db_table in _table_names(schema_editor):
@@ -65,6 +75,12 @@ class CreateModelIfMissing(migrations.CreateModel):
 
 
 class AddFieldIfMissing(migrations.AddField):
+    def state_forwards(self, app_label, state):
+        model_state = state.models.get((app_label, self.model_name))
+        if model_state is not None and self.name in model_state.fields:
+            return
+        super().state_forwards(app_label, state)
+
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         model = to_state.apps.get_model(app_label, self.model_name)
         table = model._meta.db_table
@@ -89,6 +105,12 @@ class AddFieldIfMissing(migrations.AddField):
 
 
 class AddIndexIfMissing(migrations.AddIndex):
+    def state_forwards(self, app_label, state):
+        model_state = state.models[(app_label, self.model_name)]
+        if any(index.name == self.index.name for index in model_state.options.get("indexes", [])):
+            return
+        super().state_forwards(app_label, state)
+
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         if _index_exists(schema_editor, self.index.name):
             return
@@ -101,6 +123,15 @@ class AddIndexIfMissing(migrations.AddIndex):
 
 
 class AddConstraintIfMissing(migrations.AddConstraint):
+    def state_forwards(self, app_label, state):
+        model_state = state.models[(app_label, self.model_name)]
+        if any(
+            constraint.name == self.constraint.name
+            for constraint in model_state.options.get("constraints", [])
+        ):
+            return
+        super().state_forwards(app_label, state)
+
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         if _constraint_exists(schema_editor, self.constraint.name):
             return
