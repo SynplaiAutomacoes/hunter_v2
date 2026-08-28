@@ -283,6 +283,86 @@ class PaymentReconciliationFormTests(TestCase):
         self.assertEqual(form.cleaned_data["budget_plan"], budget_plan)
         self.assertEqual(form.cleaned_data["bank_account"], bank_account)
 
+    def test_report_edit_form_partial_payment_creates_pending_balance(self) -> None:
+        workshop = create_workshop(suffix=41)
+        supplier = self._create_supplier(workshop=workshop, suffix=41)
+        payment_method = self._create_payment_method(workshop=workshop)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[1], names=["Plano"])
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            supplier=supplier,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Peças",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 5),
+            payment_method=payment_method,
+            budget_plan=budget_plan,
+        )
+
+        form = ReportMovementEditForm(
+            data={
+                "supplier": str(supplier.pk),
+                "description": "Peças",
+                "entry_date": "2026-08-05",
+                "due_date": "2026-08-05",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "gross_amount_0": "100.00",
+                "gross_amount_1": "BRL",
+                "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "discount_value_0": "0.00",
+                "discount_value_1": "BRL",
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "payment_method": str(payment_method.pk),
+                "budget_plan": str(budget_plan.pk),
+                "is_paid": "True",
+                "is_reconciled": "False",
+                "is_partial_payment": "on",
+                "partial_payment_amount_0": "40.00",
+                "partial_payment_amount_1": "BRL",
+            },
+            instance=movement,
+            workshop=workshop,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        movement.refresh_from_db()
+        balance = FinancialMovement.objects.get(partial_payment_of=movement)
+        self.assertEqual(movement.amount, Money(40, "BRL"))
+        self.assertTrue(movement.is_paid)
+        self.assertEqual(balance.amount, Money(60, "BRL"))
+        self.assertFalse(balance.is_paid)
+        self.assertFalse(balance.is_reconciled)
+        self.assertEqual(balance.supplier, supplier)
+
+    def test_report_edit_form_rejects_partial_payment_equal_to_total(self) -> None:
+        workshop = create_workshop(suffix=42)
+        supplier = self._create_supplier(workshop=workshop, suffix=42)
+        payment_method = self._create_payment_method(workshop=workshop)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            supplier=supplier,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Peças",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 5),
+            payment_method=payment_method,
+        )
+        form = ReportMovementEditForm(
+            data={
+                "supplier": str(supplier.pk), "description": "Peças", "entry_date": "2026-08-05", "due_date": "2026-08-05",
+                "direction": FinancialMovement.MovementDirection.DEBIT, "gross_amount_0": "100.00", "gross_amount_1": "BRL", "discount_mode": FinancialMovement.DiscountMode.NONE, "discount_value_0": "0.00", "discount_value_1": "BRL", "amount_0": "100.00", "amount_1": "BRL",
+                "payment_method": str(payment_method.pk), "is_paid": "True", "is_reconciled": "False",
+                "is_partial_payment": "on", "partial_payment_amount_0": "100.00", "partial_payment_amount_1": "BRL",
+            },
+            instance=movement,
+            workshop=workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("partial_payment_amount", form.errors)
+
     def test_step3_and_payroll_forms_apply_same_rules(self) -> None:
         workshop = create_workshop(suffix=5)
         collaborator = WorkshopCollaborator.objects.create(

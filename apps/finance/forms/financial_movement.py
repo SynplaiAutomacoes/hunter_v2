@@ -6,8 +6,10 @@ from decimal import Decimal, ROUND_HALF_UP
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.template.loader import render_to_string
+from djmoney.forms import MoneyField
 from djmoney.money import Money
 
 from apps.collaborators.models import WorkshopCollaborator
@@ -16,7 +18,7 @@ from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement, FinancialMovementInstallmentPlan
 from apps.finance.services.installments import InstallmentScheduleError, build_installments, parse_installment_schedule
-from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, generate_card_fee_movement
+from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, create_partial_payment_balance, generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreModelForm
@@ -1094,6 +1096,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
         initial=False,
     )
+    is_partial_payment = forms.BooleanField(label="Pagamento parcial", required=False)
+    partial_payment_amount = MoneyField(label="Valor pago", required=False, widget=MoneyInput())
 
     class Meta:
         model = FinancialMovement
@@ -1143,6 +1147,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self._was_paid = bool(self.instance.pk and self.instance.is_paid)
         self.payment_method_filter_data = {"CREDIT": [], "DEBIT": []}
         self.selected_workorder_payment: WorkOrderPaymentMethod | None = None
 
@@ -1159,6 +1164,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["bank_account"].required = False
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(getattr(self.instance, "is_reconciled", False)) if self.instance.pk else False
+        self.fields["partial_payment_amount"].widget.attrs["data-partial-payment-amount"] = "true"
 
         if getattr(self.instance, "workorder_id", None):
             raw_payment_id = ""
@@ -1295,6 +1301,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("payment_method", css_class="col-span-12 lg:col-span-4"),
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("is_reconciled", css_class="col-span-12 lg:col-span-4"),
+                Div("is_partial_payment", css_class="col-span-12 lg:col-span-4 partial-payment-field"),
+                Div("partial_payment_amount", css_class="col-span-12 lg:col-span-4 partial-payment-field"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
                 HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-12 lg:col-span-4"),
@@ -1415,6 +1423,20 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
 
+        if cleaned_data.get("is_partial_payment"):
+            paid_amount = cleaned_data.get("partial_payment_amount")
+            total_amount = cleaned_data.get("amount")
+            if direction != FinancialMovement.MovementDirection.DEBIT:
+                self.add_error("is_partial_payment", "Pagamento parcial está disponível apenas para contas a pagar.")
+            if not cleaned_data.get("is_paid"):
+                self.add_error("is_paid", "Marque a conta como paga para registrar um pagamento parcial.")
+            if paid_amount is None:
+                self.add_error("partial_payment_amount", "Informe o valor efetivamente pago.")
+            elif total_amount is not None and (paid_amount <= Money(0, paid_amount.currency) or paid_amount >= total_amount):
+                self.add_error("partial_payment_amount", "O valor pago deve ser maior que zero e menor que o valor total da conta.")
+            if self._was_paid:
+                self.add_error("is_partial_payment", "Não é possível dividir uma conta que já foi paga.")
+
         return cleaned_data
 
     def save(self, commit=True):
@@ -1464,5 +1486,13 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         if commit:
             instance.save()
             self.save_m2m()
+            if self.cleaned_data.get("is_partial_payment"):
+                try:
+                    create_partial_payment_balance(
+                        paid_movement=instance,
+                        paid_amount=self.cleaned_data["partial_payment_amount"],
+                    )
+                except ValidationError as exc:
+                    raise ValueError(str(exc)) from exc
 
         return instance

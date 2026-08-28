@@ -222,6 +222,8 @@
     const paymentMethodFilterData = paymentMethodConfigElement ? JSON.parse(paymentMethodConfigElement.textContent) : null;
     const isWorkorderMovement = {{ movement.workorder_id|yesno:"true,false" }};
     const expectedPaymentMethodId = '{{ forced_payment_method_id|default_if_none:""|escapejs }}';
+    const partialPaymentCheckbox = modal.querySelector('input[name="is_partial_payment"]');
+    const partialPaymentFields = modal.querySelectorAll('.partial-payment-field');
 
     function getWidgetElements(input) {
         if (!input) return null;
@@ -371,6 +373,15 @@
         setWidgetAllowedValues(paymentMethodInput, allowedValues);
     }
 
+    function syncPartialPaymentState() {
+        if (!partialPaymentCheckbox) return;
+        const isDebit = directionInput && directionInput.value === 'DEBIT';
+        const isPaid = modal.querySelector('input[name="is_paid"]')?.value === 'True';
+        const visible = isDebit && isPaid;
+        partialPaymentFields.forEach((field) => { field.style.display = visible ? '' : 'none'; });
+        if (!visible) partialPaymentCheckbox.checked = false;
+    }
+
     function forceWorkorderPaymentMethodSelection() {
         if (!isWorkorderMovement || !paymentMethodInput || !expectedPaymentMethodId) {
             return true;
@@ -441,8 +452,13 @@
 
     if (directionInput && paymentMethodInput && paymentMethodFilterData) {
         directionInput.addEventListener('change', syncPaymentMethodState);
+        directionInput.addEventListener('change', syncPartialPaymentState);
         setTimeout(syncPaymentMethodState, 250);
     }
+
+    const isPaidInput = modal.querySelector('input[name="is_paid"]');
+    if (isPaidInput) isPaidInput.addEventListener('change', syncPartialPaymentState);
+    setTimeout(syncPartialPaymentState, 250);
 
     if (isWorkorderMovement) {
         let attempts = 0;
