@@ -30,10 +30,8 @@
                     {{ tab.label }}
                     {% if tab.is_missing %}<span class="badge badge-warning badge-xs ml-1">faltando</span>{% endif %}
                 </button>
-                {% if tab.is_commission_tab %}
-                <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
-                {% endif %}
             {% endfor %}
+            <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
             <button type="button" class="btn btn-sm" :class="activeTab === 'summary' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'summary'">Resumo</button>
         </div>
 
@@ -106,7 +104,7 @@
                     <div class="alert alert-error shadow-sm bg-opacity-20 border-error">
                         <div class="flex flex-col gap-1 text-error">
                             <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
-                            <span class="text-sm text-gray-900">Este colaborador gerou prejuízo de {{ prejuizo_total }} para as WOs de garantia {% for w in warranty_wos %}#{{ w.get_id }}{% if not forloop.last %}, {% endif %}{% endfor %}.</span>
+                            <span class="text-sm text-gray-900">Este colaborador gerou prejuízo de {{ prejuizo_total }} nas comissões devido a garantias.</span>
                         </div>
                     </div>
                     {% endif %}
@@ -147,6 +145,33 @@
                             </tbody>
                         </table>
                     </div>
+
+                    {% if warranty_wos %}
+                    <div class="mt-6 space-y-2">
+                        <h4 class="text-sm font-semibold text-error">Prejuízo por Garantias</h4>
+                        <div class="overflow-x-auto rounded-xl border border-base-300">
+                            <table class="table table-sm">
+                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55"><tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Motivo</th><th>Status</th><th></th></tr></thead>
+                                <tbody>
+                                    {% for item in warranty_wos %}
+                                        {% for entry in item.entries %}
+                                            <tr>
+                                                <td>{{ entry.workorder_display }} (Garantia: #{{ item.workorder.get_id }})</td>
+                                                <td>{{ entry.reference_month|stringformat:'02d' }}/{{ entry.reference_year|unlocalize }}</td>
+                                                <td>{% if entry.is_manual %}—{% else %}{{ entry.base_amount }}{% endif %}</td>
+                                                <td>{{ entry.percentage_display }}</td>
+                                                <td class="font-semibold text-error">-{{ entry.commission_amount }}</td>
+                                                <td class="max-w-xs whitespace-pre-wrap break-words">Prejuízo decorrente da garantia #{{ item.workorder.get_id }}{% if entry.notes %}: {{ entry.notes }}{% endif %}</td>
+                                                <td>{% if entry.status == "PAID" %}Pago{% else %}Não Pago{% endif %}</td>
+                                                <td></td>
+                                            </tr>
+                                        {% endfor %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
                 </section>
 
                 <section x-show="activeTab === 'summary'" x-cloak class="space-y-4">
@@ -277,7 +302,7 @@
                             <div class="alert alert-error shadow-sm bg-opacity-20 border-error mb-4">
                                 <div class="flex flex-col gap-1 text-error">
                                     <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
-                                    <span class="text-sm text-gray-900">Este colaborador gerou prejuízo de {{ prejuizo_total }} para as WOs de garantia {% for w in warranty_wos %}#{{ w.get_id }}{% if not forloop.last %}, {% endif %}{% endfor %}.</span>
+                                    <span class="text-sm text-gray-900">Este colaborador gerou prejuízo de {{ prejuizo_total }} nas comissões devido a garantias.</span>
                                 </div>
                             </div>
                             {% endif %}

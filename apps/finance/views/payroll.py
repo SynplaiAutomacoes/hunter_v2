@@ -891,14 +891,14 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
         prejuizo_total = Decimal("0.00")
         warranty_wos = []
         for w_wo in warranty_wos_qs:
-            entries = CollaboratorCommissionEntry.objects.filter(
+            entries = list(CollaboratorCommissionEntry.objects.filter(
                 collaborator=payroll.collaborator,
                 workorder=w_wo.warranty_origin
-            )
+            ).select_related("workorder"))
             loss = sum((e.commission_amount.amount for e in entries if e.commission_amount), start=Decimal("0.00"))
             if loss > 0:
                 prejuizo_total += loss
-                warranty_wos.append(w_wo)
+                warranty_wos.append({"workorder": w_wo, "entries": entries})
                 
         prejuizo_money = Money(-prejuizo_total, "BRL")
 

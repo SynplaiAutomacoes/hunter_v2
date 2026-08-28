@@ -942,7 +942,7 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder.refresh_from_db()
 
         finalized = False
-        if workorder.is_customer_signature_approved and workorder_can_finalize_after_signature(workorder):
+        if "km_final" in posted_fields and workorder.is_customer_signature_approved and workorder_can_finalize_after_signature(workorder):
             try:
                 approve_workorder_with_stock(workorder=workorder, signature_approved=True)
                 sync_workorder_financial_movement(workorder=workorder)
@@ -1564,8 +1564,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "warranty_plan": approval_form.cleaned_data.get("warranty_plan"),
                 }
                 if workorder.budget_type in ("warranty", "courtesy"):
-                    previous_mechanic = approval_form.cleaned_data.get("previous_mechanic")
-                    delivery_kwargs["previous_mechanic_id"] = previous_mechanic.pk if previous_mechanic else None
+                    delivery_kwargs["previous_mechanic_id"] = workorder.previous_mechanic_id
                     delivery_kwargs["courtesy_reason_type"] = approval_form.cleaned_data.get("courtesy_reason_type")
                     delivery_kwargs["courtesy_reason_description"] = approval_form.cleaned_data.get("courtesy_reason_description") or ""
                     if workorder.budget_type == "warranty":
