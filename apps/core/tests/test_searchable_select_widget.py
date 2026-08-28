@@ -43,3 +43,20 @@ class SearchableSelectInputTests(SimpleTestCase):
             "if (!this.value) {\n                this.label = '';\n                this.search = '';",
             html,
         )
+
+    def test_render_uses_x_model_for_safari_compatibility(self) -> None:
+        widget = SearchableSelectInput(choices=())
+
+        html = widget.render("entity", None, attrs={"id": "id_entity"})
+
+        self.assertIn('x-model="search"', html)
+        self.assertNotIn(':value="open ? search : label"', html)
+
+    def test_render_keeps_selected_label_visible_when_closed(self) -> None:
+        widget = SearchableSelectInput(choices=(("supplier", "Fornecedor"),))
+
+        html = widget.render("person_type", "supplier", attrs={"id": "id_person_type"})
+
+        self.assertIn('value="supplier"', html)
+        self.assertIn("this.search = this.label || ''", html)
+        self.assertIn("this.$watch('label'", html)
