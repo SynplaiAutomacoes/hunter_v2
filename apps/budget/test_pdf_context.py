@@ -9,13 +9,43 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget
-from apps.budget.pdf_context import _merge_selected_product_rows, _merge_selected_service_rows, build_budget_pdf_context, resolve_expected_delivery_at, resolve_pdf_opened_by_name
+from apps.budget.pdf_context import (
+    _merge_selected_product_rows,
+    _merge_selected_service_rows,
+    build_budget_pdf_context,
+    is_visible_pdf_pricing_line,
+    resolve_expected_delivery_at,
+    resolve_pdf_opened_by_name,
+)
 from apps.customer.models import Customer, Vehicle
 from apps.workshops.models.workshops import Workshop
 
 
 def _money(amount: str) -> Money:
     return Money(amount, "BRL")
+
+
+def _pricing_line(*, kind: str, quantity: int, raw_total: str, shipping: str = "0.00") -> SimpleNamespace:
+    return SimpleNamespace(
+        kind=kind,
+        quantity=quantity,
+        raw_total=_money(raw_total),
+        shipping=_money(shipping),
+    )
+
+
+class VisiblePdfPricingLineTests(SimpleTestCase):
+    def test_zero_priced_service_with_quantity_stays_visible(self) -> None:
+        line = _pricing_line(kind="service", quantity=1, raw_total="0.00")
+        self.assertTrue(is_visible_pdf_pricing_line(line))
+
+    def test_zero_priced_product_with_quantity_stays_visible(self) -> None:
+        line = _pricing_line(kind="product", quantity=2, raw_total="0.00")
+        self.assertTrue(is_visible_pdf_pricing_line(line))
+
+    def test_zero_quantity_line_is_hidden(self) -> None:
+        line = _pricing_line(kind="service", quantity=0, raw_total="50.00")
+        self.assertFalse(is_visible_pdf_pricing_line(line))
 
 
 def _product_row(*, product_id: int, quantity: int, selling: str, shipping: str = "0.00") -> dict:

@@ -66,6 +66,20 @@ class FinanceMigrationHistoryTests(SimpleTestCase):
             },
         )
 
+    def test_ticket240_discount_parents_exist_for_homol_merge(self) -> None:
+        self.assertTrue((MIGRATIONS_DIR / "0052_financial_movement_discount_fields.py").exists())
+        self.assertTrue((MIGRATIONS_DIR / "0053_movement_group_discount_fields.py").exists())
+        deps = _finance_dependencies("0062_merge_ticket240_discounts_and_homol")
+        self.assertEqual(
+            set(deps),
+            {
+                "0053_movement_group_discount_fields",
+                "0061_merge_feat_nf_and_standalone_emission",
+            },
+        )
+        parent_deps = _finance_dependencies("0053_movement_group_discount_fields")
+        self.assertIn("0052_financial_movement_discount_fields", parent_deps)
+
 
 class IdempotentMigrationStateTests(SimpleTestCase):
     def test_duplicate_create_add_index_constraint_are_state_safe(self) -> None:

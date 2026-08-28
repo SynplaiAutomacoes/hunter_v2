@@ -488,8 +488,12 @@ def _merge_resume_service_row(rows: dict[object, object], row: object) -> None:
 
 
 def _load_workorder_items_for_display(workorder: WorkOrder) -> list[WorkOrderItem]:
+    # Use the model manager (not workorder.items): Django 6 keeps Prefetch querysets
+    # in _prefetched_objects_cache, and chaining prefetch_related on the related
+    # manager duplicates kit_overrides (ValueError). Also avoids stale item caches.
     return list(
-        workorder.items.select_related("product", "service", "kit")
+        WorkOrderItem.objects.filter(workorder_id=workorder.pk)
+        .select_related("product", "service", "kit")
         .prefetch_related(
             workorder_kit_overrides_prefetch(),
             "kit__kit_products__product",
