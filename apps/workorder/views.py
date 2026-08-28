@@ -1568,6 +1568,9 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     delivery_kwargs["previous_mechanic_id"] = previous_mechanic.pk if previous_mechanic else None
                     delivery_kwargs["courtesy_reason_type"] = approval_form.cleaned_data.get("courtesy_reason_type")
                     delivery_kwargs["courtesy_reason_description"] = approval_form.cleaned_data.get("courtesy_reason_description") or ""
+                    if workorder.budget_type == "warranty":
+                        warranty_origin = approval_form.cleaned_data.get("warranty_origin")
+                        delivery_kwargs["warranty_origin_id"] = warranty_origin.pk if warranty_origin else None
                     delivery_kwargs["update_courtesy_fields"] = True
                 workorder.complete_delivery(**delivery_kwargs)
 
@@ -1790,3 +1793,49 @@ def signature_file(request, token):
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
     return build_pdf_http_response(document=document, download=False)
+
+class WorkOrderWarrantyOriginDetailView(WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "view_workorder"
+    
+    def get(self, request, pk: int):
+        workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        origin_id = request.GET.get("warranty_origin")
+        
+        origin_workorder = None
+        collaborator_commissions = []
+        
+        if origin_id:
+            try:
+                origin_workorder = WorkOrder.objects.get(pk=origin_id, workshop=self.workshop)
+                from apps.collaborators.models import CollaboratorCommissionEntry
+                entries = CollaboratorCommissionEntry.objects.filter(
+                    workorder=origin_workorder
+                ).select_related("collaborator")
+                
+                # Group by collaborator
+                from collections import defaultdict
+                grouped = defaultdict(list)
+                for entry in entries:
+                    grouped[entry.collaborator].append(entry)
+                
+                collaborator_commissions = [
+                    {
+                        "collaborator": collab,
+                        "entries": collab_entries,
+                        "total": sum((e.commission_amount.amount for e in collab_entries if e.commission_amount), start=0)
+                    }
+                    for collab, collab_entries in grouped.items()
+                ]
+            except WorkOrder.DoesNotExist:
+                pass
+                
+        return render(
+            request,
+            "workorder/partials/warranty_origin_commissions.html",
+            {
+                "workorder": workorder,
+                "origin_workorder": origin_workorder,
+                "collaborator_commissions": collaborator_commissions,
+            }
+        )

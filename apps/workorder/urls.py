@@ -15,6 +15,7 @@ urlpatterns = [
     path("<int:pk>/payment-section/", views.WorkOrderPaymentSectionView.as_view(), name="payment_section"),
     path("<int:pk>/update-discount/", views.UpdateWorkOrderDiscountView.as_view(), name="update_discount"),
     path("<int:pk>/update-km-final/", views.UpdateWorkOrderKmFinalView.as_view(), name="update_km_final"),
+    path("<int:pk>/warranty-origin-detail/", views.WorkOrderWarrantyOriginDetailView.as_view(), name="warranty_origin_detail"),
     path("<int:pk>/update-observation/", views.UpdateWorkOrderObservationView.as_view(), name="update_observation"),
     path("<int:pk>/emission/continue/", views.WorkOrderEmissionContinueView.as_view(), name="emission_continue"),
     path("<int:pk>/reopen/", views.ReopenWorkOrderView.as_view(), name="reopen"),

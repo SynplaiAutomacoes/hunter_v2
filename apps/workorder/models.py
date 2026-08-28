@@ -164,6 +164,10 @@ class WorkOrder(TimeStampedModel):
         verbose_name="Descrição do motivo da cortesia/garantia",
         blank=True,
     )
+    warranty_origin = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="warranty_children", verbose_name="WO de venda que originou a garantia"
+    )
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
     stored_total_amount = MoneyField(
@@ -700,6 +704,10 @@ class WorkOrder(TimeStampedModel):
             self.courtesy_reason_description = str(cleaned_data.get("courtesy_reason_description") or "")
             update_fields.append("courtesy_reason_description")
 
+        if "warranty_origin" in posted_fields:
+            self.warranty_origin = cleaned_data.get("warranty_origin")
+            update_fields.append("warranty_origin")
+
         if not update_fields:
             return
 
@@ -758,6 +766,7 @@ class WorkOrder(TimeStampedModel):
         previous_mechanic_id: int | None = None,
         courtesy_reason_type: str | None = None,
         courtesy_reason_description: str = "",
+        warranty_origin_id: int | None = None,
         update_courtesy_fields: bool = False,
     ) -> None:
         self.km_final = km_final
@@ -773,6 +782,8 @@ class WorkOrder(TimeStampedModel):
             update_fields.append("courtesy_reason_type")
             self.courtesy_reason_description = courtesy_reason_description
             update_fields.append("courtesy_reason_description")
+            self.warranty_origin_id = warranty_origin_id
+            update_fields.append("warranty_origin_id")
         if last_oil_change_date is not None:
             self.last_oil_change_date = last_oil_change_date
             update_fields.append("last_oil_change_date")
