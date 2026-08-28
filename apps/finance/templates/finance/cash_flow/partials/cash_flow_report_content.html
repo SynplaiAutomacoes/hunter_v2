@@ -1,0 +1,65 @@
+<p class="text-xs font-semibold uppercase tracking-[0.22em] text-base-content/45">Relatório gerencial</p>
+<h3 class="mt-2 text-2xl font-black text-balance text-base-content xl:text-[2rem]">{{ report_title }}</h3>
+<p class="mt-2 text-sm text-base-content/70">{{ workshop.name|default:"-" }} <span class="mx-2 text-base-content/30">/</span> {{ period_label }}</p>
+
+<div class="mt-5 space-y-4">
+    <section class="rounded-[1.75rem] border border-base-300/70 bg-base-100 p-4 shadow-sm sm:p-5">
+        <div class="grid gap-3 md:grid-cols-3">
+            <div class="rounded-[1.25rem] border border-base-300/60 bg-base-200/70 px-4 py-3">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">Quantidade de registros</p>
+                <p class="mt-1 text-2xl font-black tabular-nums text-base-content">{{ record_count }}</p>
+            </div>
+            <div class="rounded-[1.25rem] border border-base-300/60 bg-base-200/70 px-4 py-3">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">Conta</p>
+                <p class="mt-1 text-lg font-black text-base-content">{{ account_title }}</p>
+            </div>
+            <div class="rounded-[1.25rem] border border-success/15 bg-success/10 px-4 py-3">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-success/70">Resultado conciliado</p>
+                <p class="mt-1 text-2xl font-black tabular-nums text-success">{{ total_value }}</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="min-w-0 rounded-[1.75rem] border border-base-300/70 bg-base-100 shadow-sm">
+        <div class="flex flex-col gap-2 border-b border-base-300/70 px-5 py-4 sm:px-6">
+            <h4 class="font-semibold text-base-content sm:text-lg">Movimentações consideradas no cálculo</h4>
+            <p class="text-sm text-base-content/60">A soma das linhas abaixo fecha com o total exibido no cabeçalho.</p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="table table-zebra w-full">
+                <thead>
+                    <tr class="text-[11px] uppercase tracking-[0.14em] text-base-content/55">
+                        <th>Tipo</th>
+                        <th>Data</th>
+                        <th>Agente</th>
+                        <th>Origem</th>
+                        <th>Descrição</th>
+                        <th>Plano Orçamentário</th>
+                        <th>Conta Bancária</th>
+                        <th>Tipo Pagamento</th>
+                        <th class="text-right">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in financial_movement_report_rows %}
+                        <tr>
+                            <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
+                            <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
+                            <td>{{ row.agent }}</td>
+                            <td>{{ row.origin }}</td>
+                            <td>{{ row.description }}</td>
+                            <td>{{ row.budget_plan }}</td>
+                            <td>{{ row.account }}</td>
+                            <td>{{ row.payment_type }}</td>
+                            <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="9" class="py-8 text-center text-sm text-base-content/60">Nenhuma movimentação encontrada para esta conta.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>

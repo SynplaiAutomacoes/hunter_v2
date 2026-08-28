@@ -5,6 +5,7 @@ from djmoney.money import Money
 
 from apps.finance.models.financial_movement import FinancialMovement
 
+BUDGET_PLAN_REQUIRED = "Selecione o plano orçamentário."
 BUDGET_PLAN_REQUIRED_FOR_RECONCILIATION = "Plano Orçamentário é obrigatório para conciliar. Preencha o campo no modal de edição."
 BANK_ACCOUNT_REQUIRED_FOR_RECONCILIATION = "Conta bancária é obrigatória para conciliar. Selecione a conta do lançamento."
 

@@ -26,7 +26,7 @@ from apps.finance.forms import (
     PisScenarioFormSet,
     TaxClassPresetMetaForm,
 )
-from apps.finance.models.finance import NfseRequest, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState
+from apps.finance.models.finance import NfseRequest, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState
 from apps.finance.services.tax_class_presets import normalize_tax_class_preset_payload
 from apps.finance.services.tax_classes import (
     TaxClassServiceError,
@@ -177,12 +177,24 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             return NfeTaxClassForm(initial=NfeTaxClassForm.initial_from_tax_class(editing_tax_class))
         return NfeTaxClassForm()
 
-    def _build_nfse_form(self, *, data: Any | None, editing_tax_class: dict[str, object] | None) -> NfseTaxClassForm:
+    def _build_nfse_suggestion_tax_classes(self, tax_classes: list[dict[str, object]] | None = None) -> list[dict[str, object]]:
+        if tax_classes is not None:
+            return [tax_class for tax_class in tax_classes if self._is_nfse_tax_class(tax_class)]
+
+        return list(
+            TaxClassNfse.objects.filter(workshop=self.workshop)
+            .exclude(codigo_servico="", codigo_nbs="")
+            .order_by("codigo_servico", "codigo_nbs", "id")
+            .values("codigo_servico", "codigo_nbs")
+        )
+
+    def _build_nfse_form(self, *, data: Any | None, editing_tax_class: dict[str, object] | None, tax_classes: list[dict[str, object]] | None = None) -> NfseTaxClassForm:
+        suggestion_tax_classes = self._build_nfse_suggestion_tax_classes(tax_classes)
         if data is not None:
-            return NfseTaxClassForm(data)
+            return NfseTaxClassForm(data, nfse_suggestion_tax_classes=suggestion_tax_classes)
         if editing_tax_class is not None:
-            return NfseTaxClassForm(initial=NfseTaxClassForm.initial_from_tax_class(editing_tax_class))
-        return NfseTaxClassForm()
+            return NfseTaxClassForm(initial=NfseTaxClassForm.initial_from_tax_class(editing_tax_class), nfse_suggestion_tax_classes=suggestion_tax_classes)
+        return NfseTaxClassForm(nfse_suggestion_tax_classes=suggestion_tax_classes)
 
     def _handle_tax_class_save_error(
         self,
@@ -377,10 +389,10 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 nfe_formsets = self._build_nfe_formsets(data=None, editing_tax_class=editing_tax_class)
 
             if not isinstance(nfse_form, NfseTaxClassForm):
-                nfse_form = self._build_nfse_form(data=None, editing_tax_class=None)
+                nfse_form = self._build_nfse_form(data=None, editing_tax_class=None, tax_classes=tax_classes)
         else:
             if not isinstance(nfse_form, NfseTaxClassForm):
-                nfse_form = self._build_nfse_form(data=None, editing_tax_class=editing_tax_class)
+                nfse_form = self._build_nfse_form(data=None, editing_tax_class=editing_tax_class, tax_classes=tax_classes)
 
             if not isinstance(nfe_form, NfeTaxClassForm):
                 nfe_form = self._build_nfe_form(data=None, editing_tax_class=None)
@@ -463,7 +475,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                     self.get_context_data(
                         active_tab=active_tab,
                         tax_classes=tax_classes,
-                        nfse_form=self._build_nfse_form(data=request.POST, editing_tax_class=editing_tax_class),
+                        nfse_form=self._build_nfse_form(data=request.POST, editing_tax_class=editing_tax_class, tax_classes=tax_classes),
                         edit_reference=edit_reference,
                         selected_preset_key=selected_preset_key,
                     )
@@ -489,7 +501,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 self.get_context_data(
                     active_tab=active_tab,
                     tax_classes=tax_classes,
-                    nfse_form=self._build_nfse_form(data=None, editing_tax_class=preset_payload),
+                    nfse_form=self._build_nfse_form(data=None, editing_tax_class=preset_payload, tax_classes=tax_classes),
                     edit_reference=reference_to_keep,
                     selected_preset_key=selected_preset_key,
                 )
@@ -545,7 +557,7 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 )
             )
 
-        nfse_form = self._build_nfse_form(data=request.POST, editing_tax_class=editing_tax_class)
+        nfse_form = self._build_nfse_form(data=request.POST, editing_tax_class=editing_tax_class, tax_classes=tax_classes)
 
         if nfse_form.is_valid():
             payload = nfse_form.build_payload()
@@ -830,7 +842,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
                         tax_classes=tax_classes,
                         nfe_form=self._build_nfe_form(data=request.POST, editing_tax_class=editing_tax_class) if active_tab == self.TAB_NFE else None,
                         nfe_formsets=self._build_nfe_formsets(data=request.POST, editing_tax_class=editing_tax_class) if active_tab == self.TAB_NFE else None,
-                        nfse_form=self._build_nfse_form(data=request.POST, editing_tax_class=editing_tax_class) if active_tab == self.TAB_NFSE else None,
+                        nfse_form=self._build_nfse_form(data=request.POST, editing_tax_class=editing_tax_class, tax_classes=tax_classes) if active_tab == self.TAB_NFSE else None,
                         edit_reference=edit_reference,
                         selected_preset_key=selected_preset_key,
                     )
@@ -848,7 +860,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
                     tax_classes=tax_classes,
                     nfe_form=self._build_nfe_form(data=None, editing_tax_class=preset_payload) if active_tab == self.TAB_NFE else None,
                     nfe_formsets=self._build_nfe_formsets(data=None, editing_tax_class=preset_payload) if active_tab == self.TAB_NFE else None,
-                    nfse_form=self._build_nfse_form(data=None, editing_tax_class=preset_payload) if active_tab == self.TAB_NFSE else None,
+                    nfse_form=self._build_nfse_form(data=None, editing_tax_class=preset_payload, tax_classes=tax_classes) if active_tab == self.TAB_NFSE else None,
                     edit_reference=reference_to_keep,
                     selected_preset_key=selected_preset_key,
                 )
@@ -912,7 +924,7 @@ class TaxClassFormBaseView(TaxClassManagerView):
                 )
             )
 
-        nfse_form = self._build_nfse_form(data=request.POST, editing_tax_class=editing_tax_class)
+        nfse_form = self._build_nfse_form(data=request.POST, editing_tax_class=editing_tax_class, tax_classes=tax_classes)
         if nfse_form.is_valid():
             payload = nfse_form.build_payload()
             if self.is_update and edit_reference:
