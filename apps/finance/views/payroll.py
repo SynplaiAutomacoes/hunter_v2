@@ -735,7 +735,17 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 return str(tab["key"])
         return "summary"
 
-    def _build_component_url(self, *, payroll: CollaboratorPayroll, tab: str, movement_id: int | None = None, continue_without_create: bool = False, prompt_create_component: str | None = None) -> str:
+    def _build_component_url(
+        self,
+        *,
+        payroll: CollaboratorPayroll,
+        tab: str,
+        movement_id: int | None = None,
+        continue_without_create: bool = False,
+        prompt_create_component: str | None = None,
+        show_manual_benefit_form: bool = False,
+        show_manual_commission_form: bool = False,
+    ) -> str:
         params = QueryDict("", mutable=True)
         params["tab"] = tab
         if movement_id is not None:
@@ -744,6 +754,10 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             params["continue_without_create"] = "true"
         if prompt_create_component:
             params["prompt_create_component"] = prompt_create_component
+        if show_manual_benefit_form:
+            params["show_manual_benefit_form"] = "true"
+        if show_manual_commission_form:
+            params["show_manual_commission_form"] = "true"
         query = params.urlencode()
         return f"{self._get_modal_url(payroll=payroll)}?{query}" if query else self._get_modal_url(payroll=payroll)
 
@@ -877,7 +891,30 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             if tab["is_benefit_tab"]:
                 tab["benefit_items"] = self._build_benefit_items(payroll=payroll, movements=tab["movements"])
                 tab["form"] = None
+                tab["manual_launch_open_url"] = self._build_component_url(
+                    payroll=payroll,
+                    tab=str(tab["key"]),
+                    continue_without_create=True,
+                    show_manual_benefit_form=True,
+                )
+                tab["manual_launch_close_url"] = self._build_component_url(
+                    payroll=payroll,
+                    tab=str(tab["key"]),
+                    continue_without_create=True,
+                )
                 continue
+            if tab["is_commission_tab"]:
+                tab["manual_launch_open_url"] = self._build_component_url(
+                    payroll=payroll,
+                    tab=str(tab["key"]),
+                    continue_without_create=True,
+                    show_manual_commission_form=True,
+                )
+                tab["manual_launch_close_url"] = self._build_component_url(
+                    payroll=payroll,
+                    tab=str(tab["key"]),
+                    continue_without_create=True,
+                )
             movement = next((m for m in tab["movements"] if m.pk == movement_id), None) if movement_id is not None else None
             prefix = self._component_form_prefix(str(tab["key"]))
             tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix) if movement is not None else None
@@ -932,7 +969,12 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             continue_url = self._build_component_url(payroll=payroll, tab=self._get_first_available_financial_tab(component_tabs), continue_without_create=True)
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll, continue_url=continue_url)
 
-        return self._open_edit_modal(request=request, payroll=payroll)
+        return self._open_edit_modal(
+            request=request,
+            payroll=payroll,
+            show_manual_benefit_form=request.GET.get("show_manual_benefit_form") == "true",
+            show_manual_commission_form=request.GET.get("show_manual_commission_form") == "true",
+        )
 
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         payroll = self._get_existing_payroll()
@@ -1245,7 +1287,7 @@ class PayrollAddManualBenefitView(PayrollEditModalView):
             payroll=payroll,
             selected_tab=FinancialMovement.PayrollComponent.BENEFIT,
             force_selected_tab=True,
-            show_manual_benefit_form=True,
+            show_manual_benefit_form=False,
         )
         response["HX-Trigger"] = json.dumps(
             {
@@ -1286,7 +1328,7 @@ class PayrollAddManualCommissionView(PayrollEditModalView):
             payroll=payroll,
             selected_tab=FinancialMovement.PayrollComponent.COMMISSION,
             force_selected_tab=True,
-            show_manual_commission_form=True,
+            show_manual_commission_form=False,
         )
         response["HX-Trigger"] = json.dumps(
             {

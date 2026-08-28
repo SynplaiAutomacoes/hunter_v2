@@ -4,7 +4,7 @@ import djmoney.models.fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("finance", "0062_merge_ticket240_discounts_and_homol"),
+        ("finance", "0053_movement_group_discount_fields"),
     ]
 
     operations = [

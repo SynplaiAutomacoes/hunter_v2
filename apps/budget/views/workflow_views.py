@@ -22,7 +22,9 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
+from apps.budget.discount import render_step5_discount_rows_oob
 from apps.budget.forms.layouts.step5_items_expand import build_step5_products_list_html, build_step5_services_list_html
+from apps.budget.forms.presenters.step5_context import build_step5_context
 from apps.budget.forms.shared import _get_budget_with_prefetched_items
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
@@ -697,6 +699,13 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if budget and budget.is_status_locked:
             context["max_reached_step"] = total_steps
         context["origin_appointment_id"] = self._get_origin_appointment_id()
+        from apps.terms.models import TermKind, TermTemplate
+
+        context["has_receipt_term"] = TermTemplate.objects.filter(
+            workshop=self.workshop,
+            is_active=True,
+            kind=TermKind.RECEIPT,
+        ).exists()
         return context
 
     def _block_step5_advance_if_needed(self, current_step):
@@ -986,6 +995,24 @@ class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespon
     htmx_trigger = "budget-table-refresh"
 
 
+def _render_step5_result_oob(*, budget: Budget) -> str:
+    context = build_step5_context(budget)
+    return f"""
+        <p id="step5-budget-total-display" hx-swap-oob="true" class="text-3xl font-black step5-accent-text">
+            {budget.display_total_budget_value}
+        </p>
+        <span id="step5-lucro-operacional" hx-swap-oob="true" class="font-bold step5-accent-text whitespace-nowrap">
+            {context.lucro_operacional}
+        </span>
+        <span id="step5-rentabilidade" hx-swap-oob="true" class="font-bold {context.rentabilidade_class} {context.rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">
+            {context.rentabilidade:.2f}% ({context.status_texto})
+        </span>
+        <span id="step5-mlo" hx-swap-oob="true" class="font-semibold whitespace-nowrap">
+            {context.mlo:.2f}
+        </span>
+    """
+
+
 class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
@@ -1009,6 +1036,7 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget.discount_type = raw_discount_type
                 update_fields.append("discount_type")
             budget.save(update_fields=update_fields)
+            budget.invalidate_pricing_snapshot_cache()
             sync_budget_discount_to_workorder(budget=budget)
         except (ValueError, TypeError, InvalidOperation):
             logger.warning(
@@ -1020,8 +1048,19 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "raw_discount_type": request.POST.get("discount_type"),
                 },
             )
+            return HttpResponse(status=204)
 
-        return HttpResponse(status=204)
+        html = f"""
+                <span id="step5-discount-display" hx-swap-oob="true">
+                    {budget.display_resolved_discount_value}
+                </span>
+                <span id="valor-final-display" hx-swap-oob="true">
+                    {budget.display_total_budget_value}
+                </span>
+                {_render_step5_result_oob(budget=budget)}
+                {render_step5_discount_rows_oob(budget=budget)}
+                """
+        return HttpResponse(html)
 
 
 def _serialize_budget_state(budget):
@@ -1410,6 +1449,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if slider_value is not None:
             budget.slider = int(slider_value)
             budget.save(update_fields=["slider"])
+            budget.invalidate_pricing_snapshot_cache()
 
         display_products_value = budget.display_total_products_by_slider
         display_third_party_value = budget.display_total_third_party_by_slider
@@ -1418,13 +1458,13 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
         services_list_html = build_step5_services_list_html(budget=budget_for_lists, oob=True)
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.total_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
                     {display_products_value}
                 </span>
-                <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap">
+                <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_third_party_services_selling.amount}">
                     {display_third_party_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}" data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
                     {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
@@ -1436,6 +1476,8 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="valor-final-display" hx-swap-oob="true">
                     {budget.display_total_budget_value}
                 </span>
+                {_render_step5_result_oob(budget=budget)}
+                {render_step5_discount_rows_oob(budget=budget)}
                 {products_list_html}
                 {services_list_html}
                 """
