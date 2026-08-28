@@ -16,8 +16,8 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 
-from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
-from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.forms import CollaboratorBenefitFormSet, CollaboratorCommissionScopeForm, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionRule, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import (
     apply_collaborator_work_days_for_reference,
     calculate_transport_allowance_total,
@@ -230,11 +230,38 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    def _get_commission_scope_forms(self, data=None):
+        forms: dict[str, CollaboratorCommissionScopeForm] = {}
+        for scope in (CollaboratorCommissionRule.Scope.SERVICE, CollaboratorCommissionRule.Scope.PRODUCT):
+            prefix = f"commission_{scope}"
+            instance = None
+            if getattr(self, "object", None) and getattr(self.object, "pk", None):
+                instance = CollaboratorCommissionRule.objects.filter(collaborator=self.object, scope=scope).first()
+            # For display, if no instance, create an empty one with is_active False to render form correctly
+            # but don't persist yet; ModelForm with None instance will work.
+            forms[scope] = CollaboratorCommissionScopeForm(
+                data=data,
+                instance=instance,
+                workshop=self.workshop,
+                scope=scope,
+                prefix=prefix,
+            )
+        return forms
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         benefit_formset = kwargs.get("benefit_formset")
         if benefit_formset is None:
             benefit_formset = CollaboratorBenefitFormSet(instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
+        # Commission scope forms (v3)
+        commission_service_form = kwargs.get("commission_service_form")
+        commission_product_form = kwargs.get("commission_product_form")
+        if commission_service_form is None or commission_product_form is None:
+            commission_forms = self._get_commission_scope_forms()
+            commission_service_form = commission_service_form or commission_forms[CollaboratorCommissionRule.Scope.SERVICE]
+            commission_product_form = commission_product_form or commission_forms[CollaboratorCommissionRule.Scope.PRODUCT]
+        context["commission_service_form"] = commission_service_form
+        context["commission_product_form"] = commission_product_form
         reference_date = self.request.GET.get("reference_date")
         history_month = str(self.request.GET.get("history_month") or "").strip()
         history_year = str(self.request.GET.get("history_year") or "").strip()
@@ -274,11 +301,61 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         self.object = self.get_object()
         form = self.get_form()
         benefit_formset = CollaboratorBenefitFormSet(request.POST, instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
-        if form.is_valid() and benefit_formset.is_valid():
-            return self.forms_valid(form, benefit_formset)
-        return self.forms_invalid(form, benefit_formset)
+        commission_forms = self._get_commission_scope_forms(data=request.POST)
+        service_form = commission_forms[CollaboratorCommissionRule.Scope.SERVICE]
+        product_form = commission_forms[CollaboratorCommissionRule.Scope.PRODUCT]
+        # Se não recebe comissão, forçar inativo (mesmo que formulário venha com is_active)
+        receives_commission = form.data.get("receives_commission") is not None if form.is_bound else bool(getattr(self.object, "receives_commission", False))
+        # Validar todos os formulários (scope forms só validam se receives_commission ativo; caso contrário, considerar válidos)
+        forms_valid = form.is_valid() and benefit_formset.is_valid()
+        scope_forms_valid = True
+        if receives_commission or form.cleaned_data.get("receives_commission"):
+            # Validar regras apenas se recebe comissão
+            scope_forms_valid = service_form.is_valid() and product_form.is_valid()
+        else:
+            # Limpar erros de scope quando não recebe comissão
+            scope_forms_valid = True
+        if forms_valid and scope_forms_valid:
+            return self.forms_valid(form, benefit_formset, service_form, product_form)
+        return self.forms_invalid(form, benefit_formset, service_form, product_form)
 
-    def forms_valid(self, form, benefit_formset: BaseInlineFormSet):
+    def _save_commission_scope_forms(self, collaborator: WorkshopCollaborator, service_form, product_form):
+        # Se não recebe comissão, desativar todas as regras existentes
+        receives = bool(collaborator.receives_commission)
+        if not receives:
+            CollaboratorCommissionRule.objects.filter(collaborator=collaborator, is_active=True).update(is_active=False)
+            return
+        for scope, scope_form in (
+            (CollaboratorCommissionRule.Scope.SERVICE, service_form),
+            (CollaboratorCommissionRule.Scope.PRODUCT, product_form),
+        ):
+            if scope_form is None:
+                continue
+            # scope_form já foi validado; mas pode ser inativo
+            cleaned = getattr(scope_form, "cleaned_data", {}) or {}
+            is_active = bool(cleaned.get("is_active"))
+            instance = scope_form.instance
+            # Caso inativo e sem registro prévio, não criar
+            if not is_active and (instance is None or instance.pk is None):
+                continue
+            if not is_active and instance and instance.pk:
+                instance.is_active = False
+                instance.save(update_fields=["is_active"])
+                continue
+            if is_active:
+                rule = scope_form.save(commit=False)
+                rule.collaborator = collaborator
+                rule.scope = scope
+                # modality já definido no clean via cleaned["modality"] mas save pode não setar; garantir
+                if "modality" in cleaned:
+                    rule.modality = cleaned["modality"]
+                rule.is_active = True
+                rule.save()
+                # Se havia regra antiga do mesmo escopo inativa, garantir única ativa (constraint)
+                # Desativar outras do mesmo escopo (caso tenha duplicata histórica)
+                CollaboratorCommissionRule.objects.filter(collaborator=collaborator, scope=scope).exclude(pk=rule.pk).update(is_active=False)
+
+    def forms_valid(self, form, benefit_formset: BaseInlineFormSet, service_form=None, product_form=None):
         previous_termination_date = WorkshopCollaborator.objects.filter(pk=self.object.pk).values_list("termination_date", flat=True).first()
         with transaction.atomic():
             if form.instance.salary is None:
@@ -292,6 +369,22 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
             benefit_formset.instance = collaborator
             benefit_formset.save()
+            # Salvar regras de comissão v3
+            if service_form is not None or product_form is not None:
+                # Caso não tenha passado forms (compatibilidade com form_valid simples), tentar construir
+                if service_form is None or product_form is None:
+                    commission_forms = self._get_commission_scope_forms(data=self.request.POST)
+                    service_form = service_form or commission_forms.get(CollaboratorCommissionRule.Scope.SERVICE)
+                    product_form = product_form or commission_forms.get(CollaboratorCommissionRule.Scope.PRODUCT)
+                    # Re-validar se necessário (quando chamado via form_valid simples sem passar commission forms)
+                    if service_form and not service_form.is_valid():
+                        # Se não recebe comissão, ignorar
+                        if not collaborator.receives_commission:
+                            service_form = None
+                    if product_form and not product_form.is_valid():
+                        if not collaborator.receives_commission:
+                            product_form = None
+                self._save_commission_scope_forms(collaborator, service_form, product_form)
 
             raw_work_days = str(self.request.POST.get("work_days") or "").strip()
             if raw_work_days == "":
@@ -361,12 +454,29 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 return HttpResponseRedirect(self.get_success_url())
             return response
 
-    def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):
-        return self.render_to_response(self.get_context_data(form=form, benefit_formset=benefit_formset))
+    def forms_invalid(self, form, benefit_formset: BaseInlineFormSet, service_form=None, product_form=None):
+        return self.render_to_response(
+            self.get_context_data(
+                form=form,
+                benefit_formset=benefit_formset,
+                commission_service_form=service_form,
+                commission_product_form=product_form,
+            )
+        )
 
     def form_valid(self, form):
+        # Compatibilidade: quando chamado via UpdateView genérico, construir scope forms e delegar
         benefit_formset = CollaboratorBenefitFormSet(self.request.POST or None, instance=form.instance, prefix="benefits", form_kwargs={"workshop": self.workshop})
-        return self.forms_valid(form, benefit_formset)
+        commission_forms = self._get_commission_scope_forms(data=self.request.POST)
+        service_form = commission_forms[CollaboratorCommissionRule.Scope.SERVICE]
+        product_form = commission_forms[CollaboratorCommissionRule.Scope.PRODUCT]
+        if not benefit_formset.is_valid():
+            return self.forms_invalid(form, benefit_formset, service_form, product_form)
+        # form já está validado ao entrar em form_valid, mas precisamos checar receives para decidir validar scopes
+        receives = bool(form.cleaned_data.get("receives_commission")) if hasattr(form, "cleaned_data") else bool(getattr(form.instance, "receives_commission", False))
+        if receives and (not service_form.is_valid() or not product_form.is_valid()):
+            return self.forms_invalid(form, benefit_formset, service_form, product_form)
+        return self.forms_valid(form, benefit_formset, service_form, product_form)
 
 
 class WorkshopCollaboratorGenerateMovementsView(LoginRequiredMixin, WorkshopScopedMixin, View):
