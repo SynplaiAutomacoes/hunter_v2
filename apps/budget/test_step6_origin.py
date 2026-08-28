@@ -24,6 +24,8 @@ class BudgetStep6OriginTemplateTests(SimpleTestCase):
         layout = STEP6_LAYOUT_PATH.read_text(encoding="utf-8")
         self.assertIn("ORIGEM", layout)
         self.assertGreaterEqual(layout.count("ORIGEM"), 2)
+        self.assertNotIn("Kits Selecionados", layout)
+        self.assertNotIn("kit-list-body", layout)
 
 
 class BudgetStep6OriginDisplayTests(TestCase):
