@@ -377,6 +377,10 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             discount_products = money_from_decimal(allocated[0])
             discount_services = money_from_decimal(allocated[1])
 
+    created_by = workorder.created_by or workorder.budget.created_by or workorder.budget.cost_estimator
+    opened_by_name = "Sistema"
+    if created_by is not None:
+        opened_by_name = created_by.get_full_name() or created_by.get_username()
     delivery_context = resolve_workorder_pdf_delivery(workorder=workorder)
 
     return {
@@ -403,5 +407,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         **delivery_context,
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
         "expected_delivery_at": None,
+        "document_title": "ORDEM DE SERVIÇO",
+        "opened_by_name": opened_by_name,
         "request": request,
     }

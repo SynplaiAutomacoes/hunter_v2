@@ -154,12 +154,14 @@ class WorkOrderWarrantyHistoryEntryTests(TestCase):
 
 
 class SignatureWebhookWarrantyGateTests(SimpleTestCase):
+    @patch("apps.messaging.application.services.satisfaction_survey.schedule_satisfaction_survey_for_workorder")
     @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")
     @patch("apps.core.infrastructure.services.signature_webhook.sync_workorder_financial_movement")
-    def test_webhook_does_not_finalize_without_warranty_plan(
+    def test_webhook_finalizes_with_default_warranty_when_paid(
         self,
         sync_finance_mock: Mock,
         approve_mock: Mock,
+        schedule_survey_mock: Mock,
     ) -> None:
         workorder = SimpleNamespace(
             pk=99,
@@ -177,9 +179,13 @@ class SignatureWebhookWarrantyGateTests(SimpleTestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        approve_mock.assert_not_called()
-        sync_finance_mock.assert_not_called()
-        workorder.mark_signature_approved.assert_called_once()
+        approve_mock.assert_called_once()
+        sync_finance_mock.assert_called_once()
+        schedule_survey_mock.assert_called_once()
+        # mark_signature_approved não deve ser chamado quando workflow pode ser finalizado
+        assert not workorder.mark_signature_approved.called
+        # warranty_plan deve ter sido defaultado para DAYS_90
+        assert workorder.warranty_plan == WorkOrderWarrantyPlan.DAYS_90
 
     @patch("apps.messaging.application.services.satisfaction_survey.schedule_satisfaction_survey_for_workorder")
     @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")

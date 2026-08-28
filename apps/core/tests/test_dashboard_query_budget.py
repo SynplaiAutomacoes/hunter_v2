@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -114,11 +115,41 @@ class ReadOnlyPricingContextTests(SimpleTestCase):
         _prepare_workorder_for_dashboard_pricing(workorder, for_totals_only=True)
         self.assertTrue(getattr(workorder, "_skip_mechanic_labor_cost", False))
 
+    def test_pdf_pricing_preserves_frozen_step_5_context_and_full_costs(self) -> None:
+        from apps.budget.views.pdf_views import _prepare_budget_for_pdf_pricing
+
+        budget = Budget(slider=0)
+        _prepare_budget_for_pdf_pricing(budget)
+
+        self.assertTrue(getattr(budget, "_read_only_pricing_context", False))
+        self.assertFalse(hasattr(budget, "_injected_pricing_context"))
+        self.assertFalse(getattr(budget, "_skip_mechanic_labor_cost", False))
+
     def test_build_injected_pricing_context_without_workshop_cost(self) -> None:
         workshop = MagicMock()
         context = _build_injected_pricing_context(workshop=workshop, workshop_cost=None)
         self.assertEqual(context.working_hours_per_month, 0)
         self.assertEqual(context.productive_salary_total, Money(0, "BRL"))
+
+    @patch(
+        "apps.core.infrastructure.services.dashboard_query_service.get_productive_salary_total_including_transport",
+        return_value=Money(Decimal("2864.00"), "BRL"),
+    )
+    def test_build_injected_pricing_context_uses_same_productive_cost_as_budget(self, productive_cost_mock) -> None:
+        workshop = MagicMock()
+        workshop_cost = SimpleNamespace(
+            month=8,
+            year=2026,
+            working_hours_per_month=Decimal("100.00"),
+            hourly_cost_value=Money(0, "BRL"),
+            profitability_multiplier=Decimal("1.00"),
+            minimum_hourly_cost=Money(0, "BRL"),
+        )
+
+        context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+
+        self.assertEqual(context.productive_salary_total, Money(Decimal("2864.00"), "BRL"))
+        productive_cost_mock.assert_called_once_with(workshop=workshop, workshop_cost=workshop_cost)
 
 
 class DashboardKitOverridePrefetchShapeTests(SimpleTestCase):

@@ -24,6 +24,7 @@ from apps.core.infrastructure.services.dashboard_query_service import (
     build_financial_indicator_report_data,
     get_financial_indicator_data,
 )
+from apps.core.infrastructure.services.dashboard_report_export import build_dashboard_financial_report_excel
 from apps.core.infrastructure.services.dashboard_snapshot_service import get_dashboard_metrics
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.utils import clean_id
@@ -257,6 +258,7 @@ class DashboardFinancialReportView(View):
             "value_column_label": report_data.value_column_label,
             "is_grouped_report": bool(report_data.workorder_groups),
             "download_url": f"{reverse('core:dashboard_financial_report')}?download=1&{report_querystring}",
+            "excel_download_url": f"{reverse('core:dashboard_financial_report_excel')}?{report_querystring}",
             "report_querystring": report_querystring,
             "valor_pago_esse_mes": valor_pago_esse_mes,
             "sinal_pago_mes_anterior": sinal_pago_mes_anterior,
@@ -302,6 +304,19 @@ class DashboardFinancialReportModalView(View):
         context["pdf_download_url"] = context["download_url"]
         context["is_pdf"] = False
         return TemplateResponse(request, self.template_name, context)
+
+
+class DashboardFinancialReportExcelView(View):
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        context = DashboardFinancialReportView._build_report_context(request=request)
+        if context is None or context["indicator"] != "total_vendido":
+            return HttpResponse("Indicador inválido para exportação Excel", status=400)
+
+        document = build_dashboard_financial_report_excel(context=context)
+        response = HttpResponse(document.content, content_type=document.content_type)
+        response["Content-Disposition"] = f'attachment; filename="{document.filename}"'
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
 
 def permission_denied(request: Any, exception: BaseException | None = None) -> TemplateResponse:

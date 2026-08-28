@@ -85,8 +85,6 @@ class ConsolidatedPricingLine:
 
     @property
     def adjusted_unit_price(self) -> Money:
-        if self.kind == "product":
-            return money_div(self.adjusted_total - self.shipping, self.quantity)
         return money_div(self.adjusted_total, self.quantity)
 
     @property
@@ -107,7 +105,8 @@ class ConsolidatedPricingLine:
 
     @property
     def profit_value(self) -> Money:
-        return self.adjusted_total - self.cost_total
+        # Freight is an internal cost, never part of the customer's price.
+        return self.adjusted_total - self.cost_total - self.shipping
 
     @property
     def duration_display(self) -> str:
@@ -189,6 +188,27 @@ def resolve_discount_fields(
         return money_from_decimal(resolved_discount_amount), raw_discount_percentage
 
     return zero_money(), Decimal("0.00")
+
+
+def discount_by_pricing_section(
+    *,
+    discount_value: Money,
+    discount_type: str,
+    products_value: Money,
+    labor_value: Money,
+) -> tuple[Money, Money]:
+    """Return the discount shown in the Parts and Labor pricing cards.
+
+    A discount for both categories remains consolidated in the final total,
+    as it must not be visually attributed to either card.
+    """
+    if discount_type == "products":
+        return money_from_decimal(min(discount_value.amount, products_value.amount)), zero_money()
+
+    if discount_type == "services":
+        return zero_money(), money_from_decimal(min(discount_value.amount, labor_value.amount))
+
+    return zero_money(), zero_money()
 
 
 @dataclass(slots=True)
@@ -353,68 +373,6 @@ def _is_better_service_source(
     return candidate_total.amount > current_total.amount
 
 
-def iter_kit_product_components(item: Any) -> list[Any]:
-    return [override for override in item._iter_frozen_kit_product_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
-
-
-def iter_kit_service_components(item: Any) -> list[Any]:
-    return [override for override in item._iter_frozen_kit_service_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
-
-
-def kit_component_winning_item_ids(items: list[Any]) -> tuple[dict[int, int], dict[int, int]]:
-    """Return product_id/service_id -> budget item id using the kit-vs-kit winner rule."""
-    product_winners: dict[int, tuple[int, Any, int]] = {}
-    service_winners: dict[int, tuple[timedelta, Any, int]] = {}
-
-    for item in items:
-        item_id = getattr(item, "pk", None)
-        if item_id is None or not getattr(item, "kit_id", None):
-            continue
-        kit_quantity = int(getattr(item, "quantity", 0) or 0)
-        if kit_quantity <= 0:
-            continue
-
-        for override in iter_kit_product_components(item):
-            product_id = getattr(override, "product_id", None)
-            if product_id is None:
-                continue
-            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
-            unit_price = getattr(override, "product_selling_price", None) or zero_money()
-            shipping = (getattr(override, "shipping", None) or zero_money()) * kit_quantity
-            total = (unit_price * quantity) + shipping
-            current = product_winners.get(product_id)
-            if current is None or _is_better_source(
-                candidate_quantity=quantity,
-                candidate_total=total,
-                current_quantity=current[0],
-                current_total=current[1],
-            ):
-                product_winners[product_id] = (quantity, total, item_id)
-
-        for override in iter_kit_service_components(item):
-            service_id = getattr(override, "service_id", None)
-            if service_id is None:
-                continue
-            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
-            unit_price = getattr(override, "service_selling_price", None) or zero_money()
-            total = unit_price * quantity
-            duration = getattr(override, "duration", None) or timedelta()
-            duration = duration * quantity
-            current = service_winners.get(service_id)
-            if current is None or _is_better_service_source(
-                candidate_duration=duration,
-                candidate_total=total,
-                current_duration=current[0],
-                current_total=current[1],
-            ):
-                service_winners[service_id] = (duration, total, item_id)
-
-    return (
-        {product_id: winner[2] for product_id, winner in product_winners.items()},
-        {service_id: winner[2] for service_id, winner in service_winners.items()},
-    )
-
-
 def build_pricing_snapshot(
     *,
     items: Iterable[Any],
@@ -422,6 +380,7 @@ def build_pricing_snapshot(
     discount_value: Money,
     discount_percentage: Decimal | None = None,
     labor_cost_value: Money | None = None,
+    labor_hourly_cost_value: Money | None = None,
     labor_selling_value_override: Money | None = None,
     is_local_product_item: Callable[[Any], bool] | None = None,
     is_local_service_item: Callable[[Any], bool] | None = None,
@@ -471,7 +430,7 @@ def build_pricing_snapshot(
                 product_aggregates[key] = aggregate
 
             effective_selling = _coerce_money(getattr(item, "product_selling_price", None))
-            direct_total = (effective_selling * item_quantity) + _coerce_money(getattr(item, "shipping", None))
+            direct_total = effective_selling * item_quantity
             direct_cost_total = _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
             direct_shipping = _coerce_money(getattr(item, "shipping", None))
             should_replace_direct = product_id is not None and _is_better_source(
@@ -577,7 +536,8 @@ def build_pricing_snapshot(
             shipping = override.shipping * item_quantity
             unit_price = override.product_selling_price
             unit_cost = override.product_cost_price
-            kit_total = (unit_price * consolidated_quantity) + shipping
+            # Freight is a cost, not part of the value charged for the kit product.
+            kit_total = unit_price * consolidated_quantity
 
             if _is_better_source(
                 candidate_quantity=consolidated_quantity,
@@ -787,23 +747,29 @@ def build_pricing_snapshot(
     total_products_value = sum((line.raw_total for line in chargeable_product_lines), zero_money())
     labor_service_lines = [line for line in service_lines if not line.third_party]
     third_party_service_lines = [line for line in service_lines if line.third_party]
-    total_labor_services_shipping = sum((line.shipping for line in labor_service_lines), zero_money())
     total_duration = sum((line.duration for line in service_lines), timedelta())
-    total_third_party_services_selling = sum((line.raw_total + line.shipping for line in third_party_service_lines), zero_money())
-    total_services_value = sum((line.raw_total + line.shipping for line in service_lines), zero_money())
+    total_third_party_services_selling = sum((line.raw_total for line in third_party_service_lines), zero_money())
+    total_services_value = sum((line.raw_total for line in service_lines), zero_money())
 
     total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
     total_labor_selling_value = labor_selling_value_override if labor_selling_value_override is not None else sum((line.raw_total for line in labor_service_lines), zero_money())
     # Hunter labor cost (mechanic hour * duration). This is the slider floor shown in step 5.
     # Never fall back to sum(service_cost_price) for the floor — those can equal selling and block transfer.
-    hunter_labor_cost_value = labor_cost_value if labor_cost_value is not None and labor_cost_value.amount > 0 else zero_money()
-    resolved_labor_cost_value = hunter_labor_cost_value if hunter_labor_cost_value.amount > 0 else sum((line.cost_total for line in service_lines if not line.third_party), zero_money())
+    has_explicit_labor_cost = labor_cost_value is not None or labor_hourly_cost_value is not None
+    if labor_cost_value is not None:
+        hunter_labor_cost_value = labor_cost_value
+    elif labor_hourly_cost_value is not None:
+        duration_in_hours = Decimal(total_duration.total_seconds()) / Decimal(3600)
+        hunter_labor_cost_value = labor_hourly_cost_value * duration_in_hours
+    else:
+        hunter_labor_cost_value = zero_money()
+    resolved_labor_cost_value = hunter_labor_cost_value if has_explicit_labor_cost else sum((line.cost_total for line in service_lines if not line.third_party), zero_money())
     fixed_labor_service_lines = [line for line in labor_service_lines if line.fixed_cost_total.amount > 0]
     variable_labor_service_lines = [line for line in labor_service_lines if line.fixed_cost_total.amount <= 0]
     preserved_labor_cost_value = sum((line.fixed_cost_total for line in fixed_labor_service_lines), zero_money())
 
     # Kit fixed costs must not raise the labor floor above the Hunter mechanic cost.
-    if preserved_labor_cost_value.amount > hunter_labor_cost_value.amount and hunter_labor_cost_value.amount > 0:
+    if has_explicit_labor_cost and preserved_labor_cost_value.amount > hunter_labor_cost_value.amount:
         fixed_labor_service_lines = []
         variable_labor_service_lines = list(labor_service_lines)
         preserved_labor_cost_value = zero_money()
@@ -811,7 +777,7 @@ def build_pricing_snapshot(
     for line in fixed_labor_service_lines:
         line.cost_total = line.fixed_cost_total
 
-    labor_cost_allocation_target = hunter_labor_cost_value if hunter_labor_cost_value.amount > 0 else resolved_labor_cost_value
+    labor_cost_allocation_target = hunter_labor_cost_value if has_explicit_labor_cost else resolved_labor_cost_value
     remaining_labor_cost_value = max(labor_cost_allocation_target - preserved_labor_cost_value, zero_money())
     labor_cost_weights = [Decimal(int(line.duration.total_seconds())) for line in variable_labor_service_lines]
     if not any(weight > 0 for weight in labor_cost_weights):
@@ -851,17 +817,17 @@ def build_pricing_snapshot(
         total_products_by_slider = total_products_value - transfer
         total_labor_by_slider = total_labor_selling_value + transfer
 
-    total_services_by_slider = total_third_party_by_slider + total_labor_by_slider + total_labor_services_shipping
+    total_services_by_slider = total_third_party_by_slider + total_labor_by_slider
 
     for line, adjusted_subtotal in zip(
         chargeable_product_lines,
         _distribute_totals(
-            base_values=[line.raw_total - line.shipping for line in chargeable_product_lines],
-            target_total=total_products_by_slider - total_products_shipping,
+            base_values=[line.raw_total for line in chargeable_product_lines],
+            target_total=total_products_by_slider,
         ),
         strict=False,
     ):
-        line.adjusted_total = adjusted_subtotal + line.shipping
+        line.adjusted_total = adjusted_subtotal
 
     for line in customer_supplied_product_lines:
         line.adjusted_total = line.raw_total
@@ -869,7 +835,7 @@ def build_pricing_snapshot(
     for line, adjusted_total in zip(
         third_party_service_lines,
         _distribute_totals(
-            base_values=[line.raw_total + line.shipping for line in third_party_service_lines],
+            base_values=[line.raw_total for line in third_party_service_lines],
             target_total=total_third_party_by_slider,
         ),
         strict=False,
@@ -888,7 +854,7 @@ def build_pricing_snapshot(
         _distribute_money_by_weights(weights=labor_profit_weights, target_total=remaining_labor_profit),
         strict=False,
     ):
-        line.adjusted_total = line.cost_total + adjusted_total + line.shipping
+        line.adjusted_total = line.cost_total + adjusted_total
 
     total_base_value = total_products_by_slider + total_services_by_slider
 

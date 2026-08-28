@@ -1,0 +1,27 @@
+<div class="border border-base-300 rounded-xl p-4 bg-base-100" data-topic-card>
+    <input type="hidden" name="topic_order" value="{{ topic_key }}">
+    <div class="flex flex-col lg:flex-row gap-3 items-start lg:items-end">
+        <div class="flex-1 w-full">
+            <label class="label"><span class="label-text font-bold">Tópico</span></label>
+            <input type="text" name="topic_title_{{ topic_key }}" value="{{ title }}" class="input input-bordered w-full" placeholder="Ex.: Seguro e restrições">
+        </div>
+        <button type="button" class="btn btn-ghost text-error" onclick="this.closest('[data-topic-card]').remove()">Remover tópico</button>
+    </div>
+    <p class="text-sm text-base-content/70 mt-4 mb-2">Textos deste tópico (cada um aparece como um item na lista)</p>
+    <div id="topic-items-{{ topic_key }}" class="flex flex-col gap-2">
+        {% for item in items %}
+            {% include 'terms/partials/topic_item_row.html' with topic_key=topic_key item_text=item %}
+        {% empty %}
+            {% include 'terms/partials/topic_item_row.html' with topic_key=topic_key item_text='' %}
+        {% endfor %}
+    </div>
+    <button
+        type="button"
+        class="btn btn-outline btn-sm mt-3"
+        hx-post="{% url 'terms:add_item' %}"
+        hx-target="#topic-items-{{ topic_key }}"
+        hx-swap="beforeend"
+        hx-include="[name='csrfmiddlewaretoken']"
+        hx-vals='{"topic_key": "{{ topic_key }}"}'
+    >Adicionar texto</button>
+</div>

@@ -169,23 +169,3 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["quantity"], 1)
         self.assertEqual(merged[0]["duration_display"], "01h 00m")
-
-
-class ExpectedDeliveryDatePdfContextTests(SimpleTestCase):
-    def test_prefers_date_agreed_with_customer(self) -> None:
-        agreed_date = datetime(2026, 8, 19, 10, 30)
-        budget = SimpleNamespace(
-            customer_agreed_departure_at=agreed_date,
-            service_expected_completion_at=datetime(2026, 8, 18, 17, 0),
-        )
-
-        self.assertEqual(resolve_expected_delivery_at(budget=budget), agreed_date)
-
-    def test_falls_back_to_service_completion_date(self) -> None:
-        service_completion_date = datetime(2026, 8, 19, 17, 0)
-        budget = SimpleNamespace(
-            customer_agreed_departure_at=None,
-            service_expected_completion_at=service_completion_date,
-        )
-
-        self.assertEqual(resolve_expected_delivery_at(budget=budget), service_completion_date)

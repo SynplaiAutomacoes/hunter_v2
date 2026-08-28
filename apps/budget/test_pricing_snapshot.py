@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from django.test import SimpleTestCase
 from djmoney.money import Money
 
-from apps.budget.pricing import build_pricing_snapshot, kit_component_winning_item_ids, zero_money
+from apps.budget.pricing import build_pricing_snapshot, zero_money
 
 
 def _money(amount: str) -> Money:
@@ -286,23 +286,3 @@ class PricingSnapshotKitWinnerTests(SimpleTestCase):
         self.assertEqual(line.quantity, 1)
         self.assertEqual(line.duration, timedelta(hours=2))
         self.assertEqual(line.raw_total, _money("25.00"))
-
-
-class KitComponentWinningItemIdsTests(SimpleTestCase):
-    def test_keeps_kit_item_with_higher_product_quantity(self) -> None:
-        lower = _kit_item(
-            kit_id=1,
-            quantity=1,
-            products=(_kit_product_override(product_id=10, quantity=2, selling="10.00"),),
-        )
-        lower.pk = 11
-        higher = _kit_item(
-            kit_id=2,
-            quantity=1,
-            products=(_kit_product_override(product_id=10, quantity=3, selling="10.00"),),
-        )
-        higher.pk = 22
-
-        product_winners, _service_winners = kit_component_winning_item_ids([lower, higher])
-
-        self.assertEqual(product_winners[10], 22)
