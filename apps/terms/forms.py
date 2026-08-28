@@ -8,26 +8,32 @@ from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import CheckboxInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.core.text_normalization import sentence_case
 from apps.terms.content import DEFAULT_INTRO_TEXT, DEFAULT_RECEIPT_SECTIONS
-from apps.terms.models import TermKind, TermSource, TermTemplate
+from apps.terms.models import TERM_DEFAULT_ACCENT_COLOR, TERM_DEFAULT_PRIMARY_COLOR, TermKind, TermSource, TermTemplate
 from apps.terms.placeholders import TERM_PLACEHOLDERS
 from apps.terms.util import new_topic_key
 from apps.workshops.models.workshops import Workshop
 
 
-class TermTemplateForm(CoreModelForm):
-    imported_pdf = forms.FileField(
-        required=False,
-        label="Arquivo PDF",
-        widget=forms.ClearableFileInput(attrs={"accept": "application/pdf", "class": "file-input file-input-bordered w-full", "id": "imported-pdf"}),
+def _render_color_picker(*, field_name: str, label: str, value: str, default_value: str, help_text: str = "") -> str:
+    return render_to_string(
+        "terms/partials/color_picker_field.html",
+        {
+            "field_name": field_name,
+            "label": label,
+            "value": value,
+            "default_value": default_value,
+            "help_text": help_text,
+        },
     )
 
+
+class TermTemplateForm(CoreModelForm):
     class Meta:
         model = TermTemplate
-        fields = ["name", "kind", "source", "intro_text", "is_active"]
+        fields = ["name", "kind", "intro_text", "is_active", "primary_color", "accent_color"]
         widgets = {
             "name": TextInput(),
             "kind": SearchableSelectInput(choices=[(str(value), str(label)) for value, label in TermKind.choices]),
-            "source": forms.HiddenInput(attrs={"id": "id_source"}),
             "intro_text": TextareaInput(attrs={"rows": 3, "id": "id_intro_text"}),
             "is_active": CheckboxInput(),
         }
@@ -37,18 +43,19 @@ class TermTemplateForm(CoreModelForm):
         self.workshop = workshop
         self.helper = FormHelper()
         self.helper.form_method = "post"
-        self.helper.attrs = {"enctype": "multipart/form-data"}
 
         cancel_url = reverse("terms:term_list")
+        primary_color = TERM_DEFAULT_PRIMARY_COLOR
+        accent_color = TERM_DEFAULT_ACCENT_COLOR
+
         if self.instance and self.instance.pk:
-            self.fields["source"].initial = self.instance.source
+            primary_color = self.instance.primary_color or TERM_DEFAULT_PRIMARY_COLOR
+            accent_color = self.instance.accent_color or TERM_DEFAULT_ACCENT_COLOR
         else:
-            self.fields["source"].initial = TermSource.HTML
             self.fields["intro_text"].initial = DEFAULT_INTRO_TEXT
 
-        current_pdf_html = ""
-        if self.instance and self.instance.pk and self.instance.has_pdf_file:
-            current_pdf_html = f'<p class="text-sm text-base-content/70 mt-2">Arquivo atual: <span class="font-semibold">{self.instance.pdf_file_name}</span></p>'
+        self.fields["primary_color"].initial = primary_color
+        self.fields["accent_color"].initial = accent_color
 
         topics_html = self._render_topics_html()
         chips = "".join((f'<button type="button" class="btn btn-xs btn-outline" data-term-token="{{{{{item.token}}}}}">{item.label}</button>' for item in TERM_PLACEHOLDERS))
@@ -59,33 +66,32 @@ class TermTemplateForm(CoreModelForm):
                 Field("name", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("kind", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("is_active", wrapper_class="col-span-12 lg:col-span-2"),
-                Field("source"),
+                Div(
+                    HTML('<h4 class="text-xl font-semibold mb-1">Aparência do documento</h4>'),
+                    HTML('<p class="text-sm text-base-content/70 mb-4">Personalize as cores do cabeçalho, faixas e destaques. O texto do termo permanece na cor padrão.</p>'),
+                    HTML(
+                        '<div class="col-span-12 grid grid-cols-1 gap-4 md:grid-cols-2">'
+                        + _render_color_picker(
+                            field_name="primary_color",
+                            label="Cor principal",
+                            value=primary_color,
+                            default_value=TERM_DEFAULT_PRIMARY_COLOR,
+                            help_text="Cabeçalho e barras escuras do documento.",
+                        )
+                        + _render_color_picker(
+                            field_name="accent_color",
+                            label="Cor de destaque",
+                            value=accent_color,
+                            default_value=TERM_DEFAULT_ACCENT_COLOR,
+                            help_text="Faixa, numeração dos tópicos e marcadores.",
+                        )
+                        + "</div>"
+                    ),
+                    css_class="col-span-12 border border-base-300 rounded-xl p-4",
+                ),
                 HTML(
                     """
                     <script>
-                    function activateTermSource(source) {
-                        const sourceInput = document.getElementById('id_source');
-                        const pdfInput = document.getElementById('imported-pdf');
-                        if (sourceInput) {
-                            sourceInput.value = source;
-                        }
-                        if (pdfInput) {
-                            pdfInput.disabled = source !== 'pdf';
-                        }
-                        const htmlSection = document.getElementById('html-term-section');
-                        const pdfSection = document.getElementById('pdf-term-section');
-                        if (htmlSection) {
-                            htmlSection.classList.toggle('ring', source === 'html');
-                            htmlSection.classList.toggle('ring-primary', source === 'html');
-                            htmlSection.classList.toggle('opacity-50', source !== 'html');
-                            htmlSection.classList.toggle('pointer-events-none', source !== 'html');
-                        }
-                        if (pdfSection) {
-                            pdfSection.classList.toggle('ring', source === 'pdf');
-                            pdfSection.classList.toggle('ring-primary', source === 'pdf');
-                            pdfSection.classList.toggle('opacity-50', source !== 'pdf');
-                        }
-                    }
                     function insertTermToken(token) {
                         const active = document.activeElement;
                         if (!active || (active.tagName !== 'TEXTAREA' && active.tagName !== 'INPUT')) {
@@ -98,12 +104,90 @@ class TermTemplateForm(CoreModelForm):
                         active.focus();
                         active.selectionStart = active.selectionEnd = start + token.length;
                     }
+
+                    function normalizeHexColor(rawValue) {
+                        let value = String(rawValue || '').trim();
+                        if (!value) {
+                            return '';
+                        }
+                        if (!value.startsWith('#')) {
+                            value = '#' + value;
+                        }
+                        if (!/^#[0-9a-fA-F]{6}$/.test(value)) {
+                            return '';
+                        }
+                        return value.toLowerCase();
+                    }
+
+                    function updateTermColorField(field, color) {
+                        const picker = field.querySelector('[data-term-color-picker]');
+                        const text = field.querySelector('[data-term-color-text]');
+                        const swatch = field.querySelector('[data-term-color-swatch]');
+                        if (picker) {
+                            picker.value = color;
+                        }
+                        if (text) {
+                            text.value = color;
+                        }
+                        if (swatch) {
+                            swatch.style.backgroundColor = color;
+                        }
+                    }
+
+                    function initTermColorFields() {
+                        document.querySelectorAll('[data-term-color-field]').forEach(function (field) {
+                            if (field.dataset.termColorReady === 'true') {
+                                return;
+                            }
+                            field.dataset.termColorReady = 'true';
+
+                            const defaultColor = field.dataset.default || '#000000';
+                            const picker = field.querySelector('[data-term-color-picker]');
+                            const text = field.querySelector('[data-term-color-text]');
+                            const resetButton = field.querySelector('[data-term-color-reset]');
+
+                            const applyColor = function (color) {
+                                const normalized = normalizeHexColor(color);
+                                if (!normalized) {
+                                    return;
+                                }
+                                updateTermColorField(field, normalized);
+                            };
+
+                            if (picker) {
+                                picker.addEventListener('input', function (event) {
+                                    applyColor(event.target.value);
+                                });
+                            }
+
+                            if (text) {
+                                text.addEventListener('input', function (event) {
+                                    const normalized = normalizeHexColor(event.target.value);
+                                    if (!normalized) {
+                                        return;
+                                    }
+                                    updateTermColorField(field, normalized);
+                                });
+                                text.addEventListener('blur', function (event) {
+                                    const normalized = normalizeHexColor(event.target.value) || defaultColor;
+                                    updateTermColorField(field, normalized);
+                                });
+                            }
+
+                            if (resetButton) {
+                                resetButton.addEventListener('click', function () {
+                                    applyColor(defaultColor);
+                                });
+                            }
+
+                            applyColor(text && text.value ? text.value : defaultColor);
+                        });
+                    }
+
                     document.addEventListener('DOMContentLoaded', function () {
-                        const sourceInput = document.getElementById('id_source');
-                        activateTermSource(sourceInput && sourceInput.value ? sourceInput.value : 'html');
+                        initTermColorFields();
                         document.querySelectorAll('[data-term-token]').forEach(function (button) {
                             button.addEventListener('click', function () {
-                                activateTermSource('html');
                                 insertTermToken(button.getAttribute('data-term-token') || '');
                             });
                         });
@@ -119,24 +203,12 @@ class TermTemplateForm(CoreModelForm):
                     HTML(f'<div id="term-topics-container" class="flex flex-col gap-4 mt-4">{topics_html}</div>'),
                     HTML(
                         f"""
-                        <div class="mt-4 flex flex-wrap gap-2">
-                            <button type="button" class="btn btn-primary" hx-post="{add_topic_url}" hx-target="#term-topics-container" hx-swap="beforeend" hx-include="[name='csrfmiddlewaretoken']" onclick="activateTermSource('html')">Adicionar tópico</button>
-                            <button type="button" class="btn btn-outline btn-primary" onclick="activateTermSource('html')">Usar texto na plataforma</button>
+                        <div class="mt-4">
+                            <button type="button" class="btn btn-primary" hx-post="{add_topic_url}" hx-target="#term-topics-container" hx-swap="beforeend" hx-include="[name='csrfmiddlewaretoken']">Adicionar tópico</button>
                         </div>
                         """
                     ),
-                    css_id="html-term-section",
-                    css_class="col-span-12 border border-base-300 rounded-xl p-4 transition-all",
-                ),
-                HTML('<div class="divider my-8">ou</div>'),
-                Div(
-                    HTML('<h4 class="text-xl font-semibold mb-2">Importar PDF</h4>'),
-                    HTML('<p class="text-sm text-base-content/70 mb-3">PDF estático para consulta. Este modo não preenche campos dinâmicos e não envia para assinatura.</p>'),
-                    Field("imported_pdf", wrapper_class="mb-0"),
-                    HTML(current_pdf_html),
-                    HTML('<div class="mt-3"><button type="button" class="btn btn-outline btn-primary" onclick="activateTermSource(\'pdf\')">Usar arquivo PDF</button></div>'),
-                    css_id="pdf-term-section",
-                    css_class="col-span-12 border border-base-300 rounded-xl p-4 transition-all",
+                    css_class="col-span-12 border border-base-300 rounded-xl p-4",
                 ),
                 css_class="grid grid-cols-12 gap-4",
             ),
@@ -164,31 +236,28 @@ class TermTemplateForm(CoreModelForm):
 
         return "".join(render_to_string("terms/partials/topic_card.html", {"topic_key": section["key"], "title": section["title"], "items": section["items"]}) for section in sections)
 
-    def clean_source(self) -> str:
-        source = str(self.cleaned_data.get("source") or "").strip()
-        if source not in {choice[0] for choice in TermSource.choices}:
-            return TermSource.HTML
-        return source
-
-    def clean_imported_pdf(self):
-        uploaded_pdf = self.cleaned_data.get("imported_pdf")
-        if uploaded_pdf is None:
-            return None
-        uploaded_name = str(getattr(uploaded_pdf, "name", "") or "").lower()
-        uploaded_content_type = str(getattr(uploaded_pdf, "content_type", "") or "").lower()
-        if not uploaded_name.endswith(".pdf") and uploaded_content_type not in {"application/pdf", "application/x-pdf"}:
-            raise forms.ValidationError("Envie um arquivo PDF válido.")
-        return uploaded_pdf
-
     def clean_name(self):
         value = self.cleaned_data.get("name")
         return sentence_case(value) if value else value
 
-    def clean(self):
-        cleaned = super().clean()
-        source = cleaned.get("source") or TermSource.HTML
-        if source == TermSource.PDF:
-            has_existing = bool(self.instance and self.instance.pk and self.instance.has_pdf_file)
-            if cleaned.get("imported_pdf") is None and not has_existing:
-                self.add_error("imported_pdf", "Envie um arquivo PDF para este termo.")
-        return cleaned
+    def _clean_hex_color(self, field_name: str, *, default: str) -> str:
+        raw_value = str(self.cleaned_data.get(field_name) or default).strip()
+        if not raw_value.startswith("#"):
+            raw_value = f"#{raw_value}"
+        normalized = raw_value.lower()
+        if len(normalized) != 7 or any(char not in "0123456789abcdef#" for char in normalized[1:]):
+            raise forms.ValidationError("Informe uma cor válida no formato #RRGGBB.")
+        return normalized
+
+    def clean_primary_color(self) -> str:
+        return self._clean_hex_color("primary_color", default=TERM_DEFAULT_PRIMARY_COLOR)
+
+    def clean_accent_color(self) -> str:
+        return self._clean_hex_color("accent_color", default=TERM_DEFAULT_ACCENT_COLOR)
+
+    def save(self, commit: bool = True):
+        instance = super().save(commit=False)
+        instance.source = TermSource.HTML
+        if commit:
+            instance.save()
+        return instance

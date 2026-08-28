@@ -662,6 +662,17 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         kwargs["workshop"] = self.workshop
         kwargs["instance"] = self.get_object()
 
+        if self.get_current_step() == 2:
+            from apps.terms.models import TermKind, TermTemplate
+
+            kwargs["receipt_terms"] = list(
+                TermTemplate.objects.filter(
+                    workshop=self.workshop,
+                    is_active=True,
+                    kind=TermKind.RECEIPT,
+                ).order_by("name")
+            )
+
         obj = kwargs["instance"]
         if not obj and self.get_current_step() == 6:
             last_observation = (Budget.objects.filter(workshop=self.workshop).exclude(observations="").order_by("-criado_em").values_list("observations", flat=True).first()) or ""

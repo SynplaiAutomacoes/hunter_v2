@@ -5,6 +5,9 @@ from django.utils import timezone
 
 from apps.core.infrastructure.models import TimeStampedModel
 
+TERM_DEFAULT_PRIMARY_COLOR = "#000000"
+TERM_DEFAULT_ACCENT_COLOR = "#e30613"
+
 
 class TermKind(models.TextChoices):
     RECEIPT = "receipt", "Termo de Recebimento"
@@ -39,6 +42,18 @@ class TermTemplate(TimeStampedModel):
         help_text="Aparece após os dados do veículo. Use linguagem simples; os dados do cliente e do veículo entram sozinhos no documento.",
     )
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
+    primary_color = models.CharField(
+        verbose_name="Cor principal",
+        max_length=7,
+        default=TERM_DEFAULT_PRIMARY_COLOR,
+        help_text="Usada no cabeçalho e barras escuras do documento.",
+    )
+    accent_color = models.CharField(
+        verbose_name="Cor de destaque",
+        max_length=7,
+        default=TERM_DEFAULT_ACCENT_COLOR,
+        help_text="Usada em faixas, numeração e marcadores do documento.",
+    )
     pdf_file_key = models.CharField(max_length=512, blank=True, default="")
     pdf_file_name = models.CharField(max_length=255, blank=True, default="")
     pdf_content_type = models.CharField(max_length=100, blank=True, default="")
