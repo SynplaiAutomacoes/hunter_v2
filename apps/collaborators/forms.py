@@ -8,7 +8,9 @@ from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.urls import reverse
 
-from apps.collaborators.models import CollaboratorBenefit, WorkshopCollaborator, WorkshopMember
+from decimal import Decimal
+
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionRule, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import get_default_transport_budget_plan
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import (
@@ -259,10 +261,7 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
         cleaned = super().clean()
 
         receives_commission = cleaned.get("receives_commission")
-        commission_percentage = cleaned.get("commission_percentage")
-
-        if receives_commission and commission_percentage is None:
-            self.add_error("commission_percentage", "Informe o percentual de comissão.")
+        # v3: commission_percentage legado não é mais obrigatório; regras são em CollaboratorCommissionRule
         if not receives_commission:
             cleaned["commission_percentage"] = None
 
@@ -494,3 +493,106 @@ CollaboratorBenefitFormSet = inlineformset_factory(
     extra=0,
     can_delete=True,
 )
+
+
+class CollaboratorCommissionScopeForm(CoreModelForm):
+    """Form para uma regra de comissão (serviço ou produto) — v3 sem base."""
+
+    class Meta:
+        model = CollaboratorCommissionRule
+        fields = ["is_active", "apply_scope", "percentage", "fixed_amount"]
+        widgets = {
+            "is_active": CheckboxInput(),
+            "apply_scope": SearchableSelectInput(),
+            "percentage": PercentageInput(decimal_places=2),
+            "fixed_amount": MoneyInput(),
+        }
+
+    def __init__(self, *args, workshop=None, scope=None, **kwargs):
+        self.workshop = workshop
+        self.scope = scope
+        super().__init__(*args, **kwargs)
+        # apply_scope como SearchableSelect
+        apply_scope_field = self.fields.get("apply_scope")
+        if apply_scope_field is not None:
+            apply_scope_field.widget = SearchableSelectInput(
+                choices=[("", "Selecione"), *list(CollaboratorCommissionRule.ApplyScope.choices)]
+            )
+            apply_scope_field.required = False
+        # percentage / fixed_amount opcionais — validação no clean
+        if "percentage" in self.fields:
+            self.fields["percentage"].required = False
+            self.fields["percentage"].help_text = "Ex.: 10% (0 a 100). Limite da oficina será validado."
+        if "fixed_amount" in self.fields:
+            self.fields["fixed_amount"].required = False
+            self.fields["fixed_amount"].help_text = "Ex.: R$ 10,00 — não entra no montante de distribuição percentual de comissão, fora do limite %."
+        if "is_active" in self.fields:
+            self.fields["is_active"].required = False
+            self.fields["is_active"].widget.attrs["x-model"] = "enabled"
+
+    def clean(self):
+        cleaned = super().clean()
+        is_active = bool(cleaned.get("is_active"))
+        if not is_active:
+            # Se desabilitado, limpar demais campos
+            cleaned["apply_scope"] = CollaboratorCommissionRule.ApplyScope.PARTICIPATION
+            cleaned["percentage"] = None
+            # fixed_amount como Money(0) será tratado no save
+            if cleaned.get("fixed_amount") is not None:
+                # zerar para evitar lixo
+                from djmoney.money import Money
+
+                cleaned["fixed_amount"] = Money(0, "BRL")
+            return cleaned
+
+        apply_scope = cleaned.get("apply_scope")
+        percentage = cleaned.get("percentage")
+        fixed_amount = cleaned.get("fixed_amount")
+
+        # apply_scope obrigatório quando ativo
+        if not apply_scope:
+            self.add_error("apply_scope", "Informe a aplicação da regra.")
+
+        # Resolver valores
+        has_pct = percentage is not None and Decimal(str(percentage)) > Decimal("0")
+        fixed_amount_value = Decimal(str(getattr(fixed_amount, "amount", fixed_amount) or 0)) if fixed_amount is not None else Decimal("0")
+        has_fixed = fixed_amount_value > Decimal("0")
+
+        if has_pct and has_fixed:
+            self.add_error("percentage", "Informe apenas Percentual OU Valor Fixo, não ambos.")
+            self.add_error("fixed_amount", "Informe apenas Percentual OU Valor Fixo, não ambos.")
+        if not has_pct and not has_fixed:
+            self.add_error("percentage", "Informe o percentual ou o valor fixo da comissão.")
+            self.add_error("fixed_amount", "Informe o valor fixo ou o percentual da comissão.")
+
+        # Validar limite da Workshop (apenas para percentual)
+        if has_pct and self.workshop is not None and self.scope is not None:
+            limit = None
+            if self.scope == CollaboratorCommissionRule.Scope.SERVICE:
+                limit = getattr(self.workshop, "service_commission_max_percentage", None)
+            elif self.scope == CollaboratorCommissionRule.Scope.PRODUCT:
+                limit = getattr(self.workshop, "product_commission_max_percentage", None)
+            if limit is not None:
+                limit_dec = Decimal(str(limit))
+                pct_dec = Decimal(str(percentage))
+                if pct_dec > limit_dec:
+                    limit_display = (limit_dec * Decimal("100")).quantize(Decimal("0.01"))
+                    self.add_error(
+                        "percentage",
+                        f"Percentual ultrapassa o limite máximo da oficina ({limit_display}%).",
+                    )
+
+        # Definir modalidade derivada
+        if has_fixed and not has_pct:
+            cleaned["modality"] = CollaboratorCommissionRule.Modality.FIXED
+            cleaned["percentage"] = Decimal("0")
+        elif has_pct and not has_fixed:
+            cleaned["modality"] = CollaboratorCommissionRule.Modality.PERCENTAGE
+            # fixed_amount zera
+            from djmoney.money import Money
+
+            cleaned["fixed_amount"] = Money(0, "BRL")
+        else:
+            cleaned["modality"] = CollaboratorCommissionRule.Modality.PERCENTAGE
+
+        return cleaned

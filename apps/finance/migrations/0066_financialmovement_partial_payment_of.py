@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("finance", "0049_financialmovement_discount_mode"),
+        ("finance", "0065_merge_20260828_1017"),
     ]
 
     operations = [

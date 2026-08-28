@@ -1030,12 +1030,6 @@ class MovementStep4Form(FinancialMovementBaseForm):
 
             if r_type == "mensal":
                 new_instance.due_date = add_months(instance.due_date, i)
-            elif r_type == "quinzenal":
-                new_instance.due_date = instance.due_date + datetime.timedelta(days=15 * i)
-            elif r_type == "semanal":
-                new_instance.due_date = instance.due_date + datetime.timedelta(weeks=i)
-            elif r_type == "diario":
-                new_instance.due_date = instance.due_date + datetime.timedelta(days=i)
             elif r_type == "5_dia_util":
                 target_date = add_months(instance.due_date, i)
                 new_instance.due_date = get_5th_business_day(target_date.year, target_date.month)
@@ -1439,6 +1433,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
 
         if cleaned_data.get("is_partial_payment"):
+            # A partial settlement always settles the paid portion. The user
+            # should not need to mark the same payment as paid a second time.
             cleaned_data["is_paid"] = True
             paid_amount = cleaned_data.get("partial_payment_amount")
             total_amount = cleaned_data.get("amount")
@@ -1446,7 +1442,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 self.add_error("is_partial_payment", "Pagamento parcial está disponível apenas para contas a pagar.")
             if paid_amount is None:
                 self.add_error("partial_payment_amount", "Informe o valor efetivamente pago.")
-            elif total_amount is not None and (paid_amount.amount <= 0 or paid_amount >= total_amount):
+            elif total_amount is not None and (paid_amount <= Money(0, paid_amount.currency) or paid_amount >= total_amount):
                 self.add_error("partial_payment_amount", "O valor pago deve ser maior que zero e menor que o valor total da conta.")
             if self._was_paid:
                 self.add_error("is_partial_payment", "Não é possível dividir uma conta que já foi paga.")

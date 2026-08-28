@@ -9,15 +9,7 @@ from django.test import RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
 
 from apps.core.presentation.navigation import NAVBAR_MENU_DEFINITIONS
-from apps.finance.forms.fiscal_gateway import (
-    EMISSION_LINKAGE_CHOICES,
-    FISCAL_OPERATION_CHOICES,
-    NOTE_DOCUMENT_CHOICES,
-    EmissionLinkage,
-    FiscalOperation,
-    FiscalOperationGatewayForm,
-    NoteDocument,
-)
+from apps.finance.forms.fiscal_gateway import FISCAL_OPERATION_CHOICES, FiscalOperation, FiscalOperationGatewayForm
 from apps.finance.views.emission import EmissionRequestCreateView, NfeCreateRedirectView, NfseCreateRedirectView
 from apps.finance.views.fiscal_gateway import FiscalOperationGatewayView
 
@@ -46,152 +38,31 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         self.assertIs(gateway_match.func.view_class, FiscalOperationGatewayView)
         self.assertIs(normal_match.func.view_class, EmissionRequestCreateView)
 
-    def test_gateway_exposes_nota_fiscal_without_nfe_nfse_top_level(self) -> None:
+    def test_gateway_exposes_only_selected_nfe_operations(self) -> None:
         request = self.factory.get("/finance/emissao/")
         view = self._build_view(request)
         response = view.get(request)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.template_name, ["finance/fiscal_operation_gateway.html"])
-        card_values = [card.value for card in response.context_data["operation_cards"]]
-        self.assertEqual(card_values, [value for value, _label in FISCAL_OPERATION_CHOICES])
+        self.assertEqual(
+            [card.value for card in response.context_data["operation_cards"]],
+            [value for value, _label in FISCAL_OPERATION_CHOICES],
+        )
         self.assertEqual(
             {value for value, _label in FISCAL_OPERATION_CHOICES},
-            {"emission", "return", "correction", "complementary", "adjustment"},
-        )
-        self.assertNotIn("nfe", card_values)
-        self.assertNotIn("nfse", card_values)
-        self.assertEqual(
-            [card.value for card in response.context_data["linkage_cards"]],
-            [value for value, _label in EMISSION_LINKAGE_CHOICES],
-        )
-        self.assertEqual(
-            [card.value for card in response.context_data["document_cards"]],
-            [value for value, _label in NOTE_DOCUMENT_CHOICES],
+            {"normal", "return", "correction", "complementary", "adjustment"},
         )
 
-    def test_emission_continue_opens_linkage_step(self) -> None:
-        request = self.factory.post(
-            "/finance/emissao/",
-            {"operation": FiscalOperation.EMISSION, "gateway_step": "operation"},
-        )
+    def test_normal_operation_redirects_to_existing_wizard_with_reset(self) -> None:
+        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.NORMAL})
         view = self._build_view(request)
         form = FiscalOperationGatewayForm(request.POST)
         self.assertTrue(form.is_valid(), form.errors)
 
         response = view.form_valid(form)
 
-        self.assertRedirects(response, f"{reverse('finance:emission_create')}?etapa=linkage", fetch_redirect_response=False)
-
-    def test_linkage_step_renders_two_flow_cards(self) -> None:
-        request = self.factory.get("/finance/emissao/", {"etapa": "linkage"})
-        view = self._build_view(request)
-        response = view.get(request)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context_data["gateway_step"], "linkage")
-        self.assertEqual(len(response.context_data["linkage_cards"]), 2)
-
-    def test_linkage_continue_opens_document_step(self) -> None:
-        request = self.factory.post(
-            "/finance/emissao/?etapa=linkage",
-            {
-                "operation": FiscalOperation.EMISSION,
-                "linkage": EmissionLinkage.STANDALONE,
-                "gateway_step": "linkage",
-            },
-        )
-        view = self._build_view(request)
-        form = FiscalOperationGatewayForm(request.POST)
-        self.assertTrue(form.is_valid(), form.errors)
-
-        response = view.form_valid(form)
-
-        self.assertRedirects(
-            response,
-            f"{reverse('finance:emission_create')}?etapa=document&vinculo=standalone",
-            fetch_redirect_response=False,
-        )
-
-    def test_document_step_renders_product_and_service_cards(self) -> None:
-        request = self.factory.get("/finance/emissao/", {"etapa": "document", "vinculo": "workorder"})
-        view = self._build_view(request)
-        response = view.get(request)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context_data["gateway_step"], "document")
-        self.assertEqual(response.context_data["selected_linkage"], "workorder")
-        self.assertEqual(len(response.context_data["document_cards"]), 2)
-
-    def test_nfe_workorder_redirects_to_existing_wizard_with_reset(self) -> None:
-        request = self.factory.post(
-            "/finance/emissao/?etapa=document&vinculo=workorder",
-            {
-                "operation": FiscalOperation.EMISSION,
-                "linkage": EmissionLinkage.WORKORDER,
-                "note_document": NoteDocument.NFE,
-                "gateway_step": "document",
-            },
-        )
-        view = self._build_view(request)
-        form = FiscalOperationGatewayForm(request.POST)
-        self.assertTrue(form.is_valid(), form.errors)
-
-        response = view.form_valid(form)
-
-        self.assertRedirects(response, f"{reverse('finance:emission_normal')}?reset=1&tipo=nfe", fetch_redirect_response=False)
-
-    def test_nfse_standalone_redirects_to_avulsa_wizard(self) -> None:
-        request = self.factory.post(
-            "/finance/emissao/?etapa=document&vinculo=standalone",
-            {
-                "operation": FiscalOperation.EMISSION,
-                "linkage": EmissionLinkage.STANDALONE,
-                "note_document": NoteDocument.NFSE,
-                "gateway_step": "document",
-            },
-        )
-        view = self._build_view(request)
-        form = FiscalOperationGatewayForm(request.POST)
-        self.assertTrue(form.is_valid(), form.errors)
-
-        response = view.form_valid(form)
-
-        self.assertRedirects(
-            response,
-            f"{reverse('finance:standalone_emission')}?reset=1&note_mode=nfse",
-            fetch_redirect_response=False,
-        )
-
-    def test_document_operation_requires_linkage_on_second_step(self) -> None:
-        form = FiscalOperationGatewayForm(
-            {
-                "operation": FiscalOperation.EMISSION,
-                "gateway_step": "linkage",
-            }
-        )
-        self.assertFalse(form.is_valid())
-        self.assertIn("linkage", form.errors)
-
-    def test_document_operation_requires_note_type_on_third_step(self) -> None:
-        form = FiscalOperationGatewayForm(
-            {
-                "operation": FiscalOperation.EMISSION,
-                "linkage": EmissionLinkage.WORKORDER,
-                "gateway_step": "document",
-            }
-        )
-        self.assertFalse(form.is_valid())
-        self.assertIn("note_document", form.errors)
-
-    def test_document_operation_does_not_require_linkage_on_first_step(self) -> None:
-        form = FiscalOperationGatewayForm(
-            {
-                "operation": FiscalOperation.EMISSION,
-                "gateway_step": "operation",
-            }
-        )
-        self.assertTrue(form.is_valid(), form.errors)
+        self.assertRedirects(response, f"{reverse('finance:emission_normal')}?reset=1", fetch_redirect_response=False)
 
     def test_legacy_link_redirects_to_normal_wizard_preserving_query(self) -> None:
         request = self.factory.get("/finance/emissao/", {"tipo": "nfse", "reset": "1"})
@@ -216,6 +87,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
     def test_reference_operations_redirect_to_nfe_central(self) -> None:
         operations = (
+            FiscalOperation.RETURN,
             FiscalOperation.CORRECTION,
             FiscalOperation.COMPLEMENTARY,
             FiscalOperation.ADJUSTMENT,
@@ -232,16 +104,6 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
                 expected_url = f"{reverse('finance:issued_documents_list')}?tipo=nfe&operacao={operation}"
                 self.assertRedirects(response, expected_url, fetch_redirect_response=False)
-
-    def test_return_operation_redirects_to_stock_purchase_return_workflow(self) -> None:
-        request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.RETURN})
-        view = self._build_view(request)
-        form = FiscalOperationGatewayForm(request.POST)
-        self.assertTrue(form.is_valid(), form.errors)
-
-        response = view.form_valid(form)
-
-        self.assertRedirects(response, reverse("finance:purchase_return_create"), fetch_redirect_response=False)
 
     def test_nfe_redirect_opens_gateway_while_nfse_keeps_existing_wizard(self) -> None:
         nfe_view = NfeCreateRedirectView()

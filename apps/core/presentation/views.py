@@ -16,8 +16,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.domain.contracts.documents import DocumentRenderRequest
-from apps.core.infrastructure.pdf.renderer import build_excel_http_response, build_pdf_http_response, render_template_request_to_pdf
-from apps.core.infrastructure.services.dashboard_report_excel import build_dashboard_financial_report_excel
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf, build_pdf_http_response
 from apps.core.observability import observe_dependency_call
 from apps.core.presentation.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.infrastructure.services.dashboard_query_service import (
@@ -25,11 +24,12 @@ from apps.core.infrastructure.services.dashboard_query_service import (
     build_financial_indicator_report_data,
     get_financial_indicator_data,
 )
+from apps.core.infrastructure.services.dashboard_report_export import build_dashboard_financial_report_excel
 from apps.core.infrastructure.services.dashboard_snapshot_service import get_dashboard_metrics
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.utils import clean_id
 from apps.workshops.util.workshops import get_active_workshop_or_404
-from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrderPaymentMethod, WORKORDER_REVENUE_STATUSES
 
 external_calls_logger = logging.getLogger("performance.external")
 logger = logging.getLogger(__name__)
@@ -219,9 +219,7 @@ class DashboardFinancialReportView(View):
                 WorkOrderPaymentMethod.objects.filter(
                     workorder__workshop=workshop,
                     workorder__budget_type="sale",
-                    workorder__status=WorkOrderStatus.APPROVED,
-                    workorder__delivered_at__month=mes,
-                    workorder__delivered_at__year=ano,
+                    workorder__status__in=WORKORDER_REVENUE_STATUSES,
                     due_date__month=mes,
                     due_date__year=ano,
                 )
@@ -268,7 +266,6 @@ class DashboardFinancialReportView(View):
             "courtesy_count": courtesy_count,
             "summary_count_label": (
                 "Quantidade de Veículos" if indicador in ("carros_mes", "garantia_cortesia_mes")
-                else "Quantidade de veículos/grupos de O.S." if indicador == "total_vendido"
                 else "Quantidade de Registros"
             ),
         }
@@ -312,10 +309,14 @@ class DashboardFinancialReportModalView(View):
 class DashboardFinancialReportExcelView(View):
     def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         context = DashboardFinancialReportView._build_report_context(request=request)
-        if context is None:
-            return HttpResponse("Indicador inválido", status=400)
+        if context is None or context["indicator"] != "total_vendido":
+            return HttpResponse("Indicador inválido para exportação Excel", status=400)
+
         document = build_dashboard_financial_report_excel(context=context)
-        return build_excel_http_response(document=document)
+        response = HttpResponse(document.content, content_type=document.content_type)
+        response["Content-Disposition"] = f'attachment; filename="{document.filename}"'
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
 
 def permission_denied(request: Any, exception: BaseException | None = None) -> TemplateResponse:

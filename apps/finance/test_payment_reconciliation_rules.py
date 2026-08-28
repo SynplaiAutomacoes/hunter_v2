@@ -90,6 +90,19 @@ class PaymentReconciliationFormTests(TestCase):
             cnpj=f"12.345.678/0001-{suffix:02d}",
         )
 
+    @staticmethod
+    def _financial_amount_fields(*, amount: str = "100.00", entry_date: str = "2026-08-05") -> dict[str, str]:
+        return {
+            "entry_date": entry_date,
+            "gross_amount_0": amount,
+            "gross_amount_1": "BRL",
+            "discount_mode": FinancialMovement.DiscountMode.NONE,
+            "discount_value_0": "0.00",
+            "discount_value_1": "BRL",
+            "amount_0": amount,
+            "amount_1": "BRL",
+        }
+
     def test_report_edit_form_unpaid_resets_reconciliation(self) -> None:
         workshop = create_workshop(suffix=1)
         supplier = self._create_supplier(workshop=workshop, suffix=1)
@@ -114,12 +127,12 @@ class PaymentReconciliationFormTests(TestCase):
                 "description": "Despesa teste",
                 "due_date": "2026-08-05",
                 "direction": FinancialMovement.MovementDirection.DEBIT,
-                "amount_0": "100.00",
-                "amount_1": "BRL",
+                **self._financial_amount_fields(),
                 "payment_method": str(payment_method.pk),
                 "budget_plan": str(budget_plan.pk),
                 "is_paid": "False",
                 "is_reconciled": "True",
+                "is_partial_payment": "False",
             },
             instance=movement,
             workshop=workshop,
@@ -266,13 +279,13 @@ class PaymentReconciliationFormTests(TestCase):
                 "description": "Despesa teste",
                 "due_date": "2026-08-05",
                 "direction": FinancialMovement.MovementDirection.DEBIT,
-                "amount_0": "100.00",
-                "amount_1": "BRL",
+                **self._financial_amount_fields(),
                 "payment_method": str(payment_method.pk),
                 "budget_plan": str(budget_plan.pk),
                 "bank_account": str(bank_account.pk),
                 "is_paid": "True",
                 "is_reconciled": "True",
+                "is_partial_payment": "False",
             },
             instance=movement,
             workshop=workshop,
@@ -296,6 +309,7 @@ class PaymentReconciliationFormTests(TestCase):
             amount=Money(100, "BRL"),
             due_date=date(2026, 8, 5),
             payment_method=payment_method,
+            budget_plan=budget_plan,
         )
 
         form = ReportMovementEditForm(
@@ -308,6 +322,8 @@ class PaymentReconciliationFormTests(TestCase):
                 "gross_amount_0": "100.00",
                 "gross_amount_1": "BRL",
                 "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "discount_value_0": "0.00",
+                "discount_value_1": "BRL",
                 "amount_0": "100.00",
                 "amount_1": "BRL",
                 "budget_plan": str(budget_plan.pk),
@@ -350,9 +366,18 @@ class PaymentReconciliationFormTests(TestCase):
         form = ReportMovementEditForm(
             data={
                 "supplier": str(supplier.pk), "description": "Peças", "entry_date": "2026-08-05", "due_date": "2026-08-05",
-                "direction": FinancialMovement.MovementDirection.DEBIT, "amount_0": "100.00", "amount_1": "BRL",
-                "gross_amount_0": "100.00", "gross_amount_1": "BRL", "discount_mode": FinancialMovement.DiscountMode.NONE,
-                "budget_plan": str(budget_plan.pk), "payment_method": str(payment_method.pk), "is_paid": "True", "is_reconciled": "False",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "gross_amount_0": "100.00",
+                "gross_amount_1": "BRL",
+                "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "discount_value_0": "0.00",
+                "discount_value_1": "BRL",
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "budget_plan": str(budget_plan.pk),
+                "payment_method": str(payment_method.pk),
+                "is_paid": "True",
+                "is_reconciled": "False",
                 "is_partial_payment": "True", "partial_payment_amount_0": "100.00", "partial_payment_amount_1": "BRL",
             },
             instance=movement,
@@ -391,8 +416,7 @@ class PaymentReconciliationFormTests(TestCase):
         step3_form = MovementStep3Form(
             data={
                 "due_date": "2026-08-05",
-                "amount_0": "2000.00",
-                "amount_1": "BRL",
+                **self._financial_amount_fields(amount="2000.00"),
                 "payment_method": str(payment_method.pk),
                 "budget_plan": str(budget_plan.pk),
                 "is_paid": "False",
@@ -409,6 +433,7 @@ class PaymentReconciliationFormTests(TestCase):
                 "budget_plan": str(budget_plan.pk),
                 "is_paid": "False",
                 "is_reconciled": "True",
+                "is_partial_payment": "False",
             },
             instance=movement,
             workshop=workshop,

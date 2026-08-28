@@ -14,11 +14,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
-from apps.workorder.approval import (
-    WorkOrderApprovalError,
-    approve_workorder_with_stock,
-    workorder_can_finalize_after_signature,
-)
+from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.models import WorkOrder, WorkOrderError, WorkOrderStatus, WorkOrderWarrantyPlan
 
 
@@ -69,30 +65,17 @@ def _normalize_event_name(raw_event: str) -> str:
     return normalized
 
 
-def _normalized_payload_event(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
-    for key in keys:
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return _normalize_event_name(value)
-    raw_event = _find_first_string(payload, keys)
-    if not raw_event:
-        return ""
-    return _normalize_event_name(raw_event)
-
-
 def extract_signature_event(payload: dict[str, Any], *, header_event: str = "") -> str:
     if header_event.strip():
         return _normalize_event_name(header_event)
-
-    named_event = _normalized_payload_event(payload, ("event", "eventType"))
-    if named_event:
-        return named_event
-
-    status_event = _normalized_payload_event(payload, ("status",))
-    if status_event in {"ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"}:
-        return status_event
-
-    return _normalized_payload_event(payload, ("type",))
+    for key in ("event", "eventType", "type"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return _normalize_event_name(value)
+    raw_event = _find_first_string(payload, ("event", "eventType", "type"))
+    if not raw_event:
+        return ""
+    return _normalize_event_name(raw_event)
 
 
 def _payload_structure(payload: Any, depth: int = 0, max_depth: int = 3) -> str:
@@ -112,7 +95,7 @@ def _payload_structure(payload: Any, depth: int = 0, max_depth: int = 3) -> str:
 
 
 def extract_signature_envelope_id(payload: dict[str, Any]) -> str:
-    direct = _find_first_string(payload, ("envelopeId", "envelope_id", "envelopeID", "documentId", "document_id"))
+    direct = _find_first_string(payload, ("envelopeId", "envelope_id", "envelopeID"))
     if direct:
         return direct
 
@@ -130,9 +113,6 @@ def extract_signature_envelope_id(payload: dict[str, Any]) -> str:
                     queue.append(value)
         elif isinstance(current, list):
             queue.extend(current)
-    top_id = payload.get("id")
-    if isinstance(top_id, str) and top_id.strip():
-        return top_id.strip()
     return ""
 
 
@@ -314,14 +294,7 @@ def _approve_term_signing(*, term_signing, envelope_id: str) -> None:
     logger.info("signature_webhook_term_approved", extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id})
 
 
-def process_signature_webhook_payload(
-    *,
-    payload: dict[str, Any],
-    budget=None,
-    workorder=None,
-    term_signing=None,
-    header_event: str = "",
-) -> HttpResponse:
+def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, workorder=None, term_signing=None, header_event: str = "") -> HttpResponse:
     from apps.budget.models import Budget, SignatureStatus
     from apps.workorder.models import WorkOrderSignatureStatus
 
@@ -337,12 +310,36 @@ def process_signature_webhook_payload(
         return HttpResponse(status=200)
 
     if budget is None and workorder is None and term_signing is None:
-        lookup = _signature_envelope_lookup(envelope_id)
-        budget = Budget.objects.filter(lookup).first()
-        workorder = WorkOrder.objects.filter(lookup).first()
         term_signing = _find_term_signing(envelope_id)
+        if term_signing is not None:
+            budget = None
+            workorder = None
+        else:
+            lookup = _signature_envelope_lookup(envelope_id)
+            budget = Budget.objects.filter(lookup).first()
+            workorder = WorkOrder.objects.filter(lookup).first()
 
-    if budget is None and workorder is None and term_signing is None:
+    if term_signing is not None:
+        try:
+            if event_name == "DOCUMENT_DECLINED":
+                _decline_term_signing(term_signing=term_signing, envelope_id=envelope_id)
+                return HttpResponse(status=200)
+            if event_name != "ENVELOPE_COMPLETED":
+                logger.info(
+                    "signature_webhook_event_ignored",
+                    extra={"event": event_name, "term_signing_id": term_signing.pk},
+                )
+                return HttpResponse(status=200)
+            _approve_term_signing(term_signing=term_signing, envelope_id=envelope_id)
+        except Exception:
+            logger.exception(
+                "signature_webhook_term_processing_failed",
+                extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id},
+            )
+            return HttpResponse(status=500)
+        return HttpResponse(status=200)
+
+    if budget is None and workorder is None:
         from apps.terms.models import BudgetTermSigning, TermSignatureStatus
 
         recent_budget = Budget.objects.filter(signature_request_status=SignatureStatus.SENT).order_by("-signature_sent_at").values("id", "signature_external_id", "signature_document_id", "signature_sent_at")[:3]
@@ -367,8 +364,6 @@ def process_signature_webhook_payload(
 
     if event_name == "DOCUMENT_DECLINED":
         try:
-            if term_signing is not None:
-                _decline_term_signing(term_signing=term_signing, envelope_id=envelope_id)
             if budget is not None:
                 _reject_budget_from_decline(budget=budget, envelope_id=envelope_id)
             if workorder is not None:
@@ -379,7 +374,6 @@ def process_signature_webhook_payload(
                 extra={
                     "budget_id": budget.pk if budget is not None else None,
                     "workorder_id": workorder.pk if workorder is not None else None,
-                    "term_signing_id": term_signing.pk if term_signing is not None else None,
                     "envelope_id": envelope_id,
                 },
             )
@@ -393,15 +387,11 @@ def process_signature_webhook_payload(
                 "event": event_name,
                 "budget_id": budget.pk if budget is not None else None,
                 "workorder_id": workorder.pk if workorder is not None else None,
-                "term_signing_id": term_signing.pk if term_signing is not None else None,
             },
         )
         return HttpResponse(status=200)
 
     try:
-        if term_signing is not None:
-            _approve_term_signing(term_signing=term_signing, envelope_id=envelope_id)
-
         if budget is not None:
             if not budget.approve():
                 budget.mark_signature_approved()
@@ -411,12 +401,13 @@ def process_signature_webhook_payload(
 
         if workorder is not None:
             can_finalize_workorder = workorder.is_fully_paid or workorder.budget_type in ("warranty", "courtesy")
-            if (can_finalize_workorder or workorder.status == WorkOrderStatus.APPROVED) and workorder.warranty_plan is None:
-                # Default warranty only when finalization will be attempted; unpaid WOs stay unchanged.
-                workorder.warranty_plan = WorkOrderWarrantyPlan.DAYS_90
-                workorder.save(update_fields=["warranty_plan"])
-
-            if workorder_can_finalize_after_signature(workorder):
+            if can_finalize_workorder or workorder.status == WorkOrderStatus.APPROVED:
+                # Garantir warranty_plan consistente antes de aprovar.
+                # Apenas define default quando a finalização será efetuada;
+                # WO que permanece pendente por pagamento não sofre mutação silenciosa.
+                if workorder.warranty_plan is None:
+                    workorder.warranty_plan = WorkOrderWarrantyPlan.DAYS_90
+                    workorder.save(update_fields=["warranty_plan"])
                 try:
                     approve_workorder_with_stock(workorder=workorder, signature_approved=True)
                 except WorkOrderApprovalError as exc:
@@ -457,7 +448,6 @@ def process_signature_webhook_payload(
             extra={
                 "budget_id": budget.pk if budget is not None else None,
                 "workorder_id": workorder.pk if workorder is not None else None,
-                "term_signing_id": term_signing.pk if term_signing is not None else None,
                 "envelope_id": envelope_id,
             },
         )

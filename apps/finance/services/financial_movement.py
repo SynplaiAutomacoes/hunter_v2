@@ -54,6 +54,9 @@ def create_partial_payment_balance(*, paid_movement: FinancialMovement, paid_amo
 
     outstanding_amount = original_amount - paid_amount
     paid_movement.amount = paid_amount
+    # The staging model derives ``amount`` from gross amount and adjustments.
+    # A partial settlement is a new final amount, so it must not retain the
+    # original discount calculation or a later save would restore the total.
     paid_movement.gross_amount = paid_amount
     paid_movement.discount_mode = FinancialMovement.DiscountMode.NONE
     paid_movement.discount_value = Money(0, paid_amount.currency)
@@ -83,6 +86,9 @@ def create_partial_payment_balance(*, paid_movement: FinancialMovement, paid_amo
     balance.payroll = None
     balance.payroll_component = None
     balance.payroll_benefit = None
+    balance.installment_plan = None
+    balance.installment_number = None
+    balance.installments_count = None
     balance.financial_observation = " ".join(
         value for value in [
             str(balance.financial_observation or "").strip(),

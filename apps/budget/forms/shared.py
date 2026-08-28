@@ -132,7 +132,6 @@ def _render_budget_items_rows(budget, step6=False):
                     setattr(line.item, "product_issue_messages", ())
                     setattr(line.item, "excess_quantity", 0)
                     setattr(line.item, "has_invalid_ncm", False)
-
             winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget_for_render.items.all()))
 
             for line in review_display.direct_products:

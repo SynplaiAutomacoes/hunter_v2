@@ -665,6 +665,196 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
         return response
 
 
+class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        from decimal import Decimal, InvalidOperation
+
+        from apps.collaborators.commission.allocation import CommissionAllocationService
+        from apps.collaborators.models import WorkshopCollaborator
+
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
+        # Comissão PAID é imutável — bloquear mutação mesmo que WO ainda editável (só alerta no resto)
+        from apps.collaborators.models import CollaboratorCommissionEntry
+
+        if CollaboratorCommissionEntry.objects.filter(workorder=workorder, status=CollaboratorCommissionEntry.Status.PAID).exists():
+            msg = "Comissão já está paga e não pode ser alterada."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=204)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=409)
+
+        scope = str(request.POST.get("scope") or "").strip().lower()
+        if scope not in ("service", "product"):
+            msg = "Escopo inválido."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=204)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
+        collaborator_id = str(request.POST.get("collaborator_id") or "").strip()
+        if not collaborator_id.isdigit():
+            msg = "Colaborador inválido."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=204)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
+        collaborator = WorkshopCollaborator.objects.filter(pk=int(collaborator_id), workshop=self.workshop).first()
+        if collaborator is None:
+            msg = "Colaborador não encontrado."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=204)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=404)
+        if collaborator.pk not in set(workorder.collaborators.values_list("pk", flat=True)):
+            msg = "Colaborador não vinculado à O.S."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=204)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
+
+        raw_pct = str(request.POST.get("distribution_percentage") or "").strip().replace(",", ".")
+        try:
+            pct = Decimal(raw_pct) if raw_pct else Decimal("0")
+        except (InvalidOperation, ValueError, TypeError):
+            pct = Decimal("0")
+        # Converter 0..100 para 0..1 se necessário (ver comentário no template)
+        if pct > Decimal("1"):
+            pct = pct / Decimal("100")
+        if pct < Decimal("0"):
+            pct = Decimal("0")
+        if pct > Decimal("1"):
+            pct = Decimal("1")
+
+        # Validação de bloqueio: Base% não pode exceder cap (rule% / max%) e Σ ≤100% — rejeitar e obrigar corrigir
+        from apps.collaborators.models import CollaboratorCommissionRule, WorkOrderCommissionAllocation
+
+        try:
+            with transaction.atomic():
+                locked_wo = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
+                # Buscar regras de todos os participantes para calcular max_pct e cap correto
+                wo_collab_ids = list(locked_wo.collaborators.values_list("id", flat=True))
+                all_rules = list(
+                    CollaboratorCommissionRule.objects.filter(
+                        collaborator_id__in=wo_collab_ids,
+                        scope=scope,
+                        is_active=True,
+                        modality=CollaboratorCommissionRule.Modality.PERCENTAGE,
+                        apply_scope=CollaboratorCommissionRule.ApplyScope.PARTICIPATION,
+                    )
+                )
+                max_pct = max((r.percentage or Decimal("0") for r in all_rules), default=Decimal("0"))
+                rule = next((r for r in all_rules if r.collaborator_id == collaborator.pk), None)
+                if pct > Decimal("0") and rule is None:
+                    msg = "Colaborador não possui regra de percentual por participação neste escopo."
+                    if request.headers.get("HX-Request") == "true":
+                        resp = HttpResponse(status=204)
+                        resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                        return resp
+                    return JsonResponse({"ok": False, "error": msg}, status=400)
+                if rule is not None and max_pct > Decimal("0"):
+                    cap = (rule.percentage or Decimal("0")) / max_pct if max_pct else Decimal("1")
+                    if pct - cap > Decimal("0.000001"):
+                        cap_display = (cap * Decimal("100")).quantize(Decimal("0.01"))
+                        try:
+                            from apps.collaborators.commission.calculators import calculate_total_for_scope
+                            total_S = calculate_total_for_scope(workorder=locked_wo, workshop=locked_wo.workshop, scope=scope)
+                        except Exception:
+                            total_S = Decimal("0")
+                        pool_S = (total_S * max_pct).quantize(Decimal("0.01")) if max_pct else Decimal("0")
+                        cap_val = (cap * pool_S).quantize(Decimal("0.01")) if pool_S else Decimal("0")
+                        pool_val = pool_S.quantize(Decimal("0.01"))
+                        msg = f"Base% de {collaborator.name} ultrapassa o máximo permitido de {cap_display}% (R$ {cap_val} de R$ {pool_val} no montante). Corrija."
+                        if request.headers.get("HX-Request") == "true":
+                            # Render pool section with attempted value to show yellow line + title, but do not persist
+                            # Build temporary context with override
+                            from apps.collaborators.services import _build_pool_scope_context
+                            # Create a fake allocation for rendering
+                            _tmp_alloc = type("TmpAlloc", (), {"collaborator_id": collaborator.pk, "distribution_percentage": pct, "scope": scope})()
+                            # Build context manually with override: we will inject the attempted pct into the row
+                            # For HTMX, return 200 with rendered HTML and toast, so swap occurs and blank page is avoided
+                            # Use existing pool context but override the specific row's base_pct for display
+                            # Simpler: render normal pool_section (with old DB values) and rely on client-side JS to show yellow for input value
+                            # But to show server-side yellow for attempted value, we need to pass it via context
+                            # Approach: render with a flag that indicates attempted error, and template will show attempted value
+                            # For now, return a normal pool_section but with HX-Trigger error; the input will remain at invalid value client-side
+                            # To avoid blank page, return 200 with HX-Trigger and let client-side JS handle yellow
+                            resp = HttpResponse(status=200)
+                            resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                            # HTMX will not swap on 200 without body, so we need to provide body that keeps the pool_section
+                            # Instead, we return the current pool_section HTML (old values) with 200, so swap occurs but keeps old values
+                            # The input's invalid value (100%) will remain client-side, and JS will add yellow
+                            # To make server render with attempted value, we would need to override, but we can keep simple: return 200 with empty body and let JS handle
+                            # For now, return 200 with HX-Trigger and let the client-side input stay at invalid value
+                            # To prevent blank page, we must return a valid HTMX response that swaps, so we render the pool_section
+                            # Render the pool_section with current DB (old) values, but the input's value is still 100% client-side, so after swap it would revert to old
+                            # To avoid revert, we should NOT swap on error — keep the invalid input client-side and just show toast
+                            # Therefore, return 200 with no swap (HX-Retarget to none) and just toast
+                            # HTMX will not swap if we use 204 No Content, but we need to avoid blank page, so return 204 with HX-Trigger
+                            resp = HttpResponse(status=204)
+                            resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                            return resp
+                        return JsonResponse({"ok": False, "error": msg}, status=400, headers={"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})})
+                # Validar soma Σ Base% ≤100% (considerando novo valor)
+                existing_allocs = list(WorkOrderCommissionAllocation.objects.select_for_update().filter(workorder=locked_wo, scope=scope))
+                old_val = next((Decimal(str(a.distribution_percentage or 0)) for a in existing_allocs if a.collaborator_id == collaborator.pk), Decimal("0"))
+                sum_others = sum((Decimal(str(a.distribution_percentage or 0)) for a in existing_allocs if a.collaborator_id != collaborator.pk), Decimal("0"))
+                new_sum = sum_others + pct
+                if new_sum - Decimal("1") > Decimal("0.000001"):
+                    sum_display = (new_sum * Decimal("100")).quantize(Decimal("0.01"))
+                    msg = f"Soma das Bases ({sum_display}%) ultrapassa 100%. Ajuste as porcentagens."
+                    if request.headers.get("HX-Request") == "true":
+                        resp = HttpResponse(status=204)
+                        resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                        return resp
+                    return JsonResponse(
+                        {"ok": False, "error": msg},
+                        status=400,
+                        headers={"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})},
+                    )
+                allocation = CommissionAllocationService.upsert(workorder=locked_wo, collaborator=collaborator, scope=scope, distribution_percentage=pct)
+                has_warnings = False
+        except ValidationError as exc:
+            msg = str(exc.message if hasattr(exc, 'message') else str(exc))
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=204)
+                resp["HX-Trigger"] = __import__("json").dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
+        except Exception as exc:
+            # Se já retornamos JsonResponse, não cair aqui
+            if isinstance(exc, JsonResponse):
+                raise
+            msg = str(exc)
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=204)
+                resp["HX-Trigger"] = __import__("json").dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
+
+        context = _build_edit_items_context(workorder)
+        context["workorder"] = workorder
+        context["collaborator_form"] = __import__("apps.workorder.forms", fromlist=["WorkOrderCollaboratorForm"]).WorkOrderCollaboratorForm(instance=workorder, workorder=workorder)
+        context.update(workorder_stepper_context(request=request, workorder=workorder))
+        response = render(request, "workorder/partials/commission_pool_section.html", context)
+        response["Cache-Control"] = "no-store"
+        if has_warnings:
+            messages = []
+            messages.extend(validation.get("cap", []))
+            messages.extend(validation.get("sum", []))
+            msg_text = " ".join(messages)[:500]
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": msg_text, "type": "warning"}})
+        return response
+
+
 class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkOrder
     workshop_permission_codename = "view_workorder"
@@ -752,7 +942,7 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder.refresh_from_db()
 
         finalized = False
-        if workorder.is_customer_signature_approved and workorder_can_finalize_after_signature(workorder):
+        if "km_final" in posted_fields and workorder.is_customer_signature_approved and workorder_can_finalize_after_signature(workorder):
             try:
                 approve_workorder_with_stock(workorder=workorder, signature_approved=True)
                 sync_workorder_financial_movement(workorder=workorder)
@@ -1341,6 +1531,20 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
                 return response
 
+            # Comissão v3 — bloquear approve se Base% excede cap ou Σ>100% (rejeitar e obrigar corrigir)
+            from apps.collaborators.commission.allocation import CommissionAllocationService
+            commission_errors = []
+            for _scope in ("service", "product"):
+                _v = CommissionAllocationService.validate(workorder=workorder, scope=_scope)
+                commission_errors.extend(_v.get("cap", []))
+                commission_errors.extend(_v.get("sum", []))
+            if commission_errors:
+                msg = "Há colaborador com comissão maior que o permitido. Corrija a Base% na previsão de comissão."
+                detail = commission_errors[0]
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": f"{msg} {detail}", "type": "error"}})
+                return response
+
             approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
             if not approval_form.is_valid():
                 context = _build_customer_approvement_context(workorder, request=request)
@@ -1360,10 +1564,12 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "warranty_plan": approval_form.cleaned_data.get("warranty_plan"),
                 }
                 if workorder.budget_type in ("warranty", "courtesy"):
-                    previous_mechanic = approval_form.cleaned_data.get("previous_mechanic")
-                    delivery_kwargs["previous_mechanic_id"] = previous_mechanic.pk if previous_mechanic else None
+                    delivery_kwargs["previous_mechanic_id"] = workorder.previous_mechanic_id
                     delivery_kwargs["courtesy_reason_type"] = approval_form.cleaned_data.get("courtesy_reason_type")
                     delivery_kwargs["courtesy_reason_description"] = approval_form.cleaned_data.get("courtesy_reason_description") or ""
+                    if workorder.budget_type == "warranty":
+                        warranty_origin = approval_form.cleaned_data.get("warranty_origin")
+                        delivery_kwargs["warranty_origin_id"] = warranty_origin.pk if warranty_origin else None
                     delivery_kwargs["update_courtesy_fields"] = True
                 workorder.complete_delivery(**delivery_kwargs)
 
@@ -1586,3 +1792,49 @@ def signature_file(request, token):
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
     return build_pdf_http_response(document=document, download=False)
+
+class WorkOrderWarrantyOriginDetailView(WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "view_workorder"
+    
+    def get(self, request, pk: int):
+        workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        origin_id = request.GET.get("warranty_origin")
+        
+        origin_workorder = None
+        collaborator_commissions = []
+        
+        if origin_id:
+            try:
+                origin_workorder = WorkOrder.objects.get(pk=origin_id, workshop=self.workshop)
+                from apps.collaborators.models import CollaboratorCommissionEntry
+                entries = CollaboratorCommissionEntry.objects.filter(
+                    workorder=origin_workorder
+                ).select_related("collaborator")
+                
+                # Group by collaborator
+                from collections import defaultdict
+                grouped = defaultdict(list)
+                for entry in entries:
+                    grouped[entry.collaborator].append(entry)
+                
+                collaborator_commissions = [
+                    {
+                        "collaborator": collab,
+                        "entries": collab_entries,
+                        "total": sum((e.commission_amount.amount for e in collab_entries if e.commission_amount), start=0)
+                    }
+                    for collab, collab_entries in grouped.items()
+                ]
+            except WorkOrder.DoesNotExist:
+                pass
+                
+        return render(
+            request,
+            "workorder/partials/warranty_origin_commissions.html",
+            {
+                "workorder": workorder,
+                "origin_workorder": origin_workorder,
+                "collaborator_commissions": collaborator_commissions,
+            }
+        )
