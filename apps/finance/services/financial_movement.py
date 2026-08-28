@@ -53,7 +53,7 @@ def create_partial_payment_balance(*, paid_movement: FinancialMovement, paid_amo
 
     outstanding_amount = original_amount - paid_amount
     paid_movement.amount = paid_amount
-    paid_movement.save(update_fields=["amount", "updated_at"])
+    paid_movement.save(update_fields=["amount"])
 
     balance = FinancialMovement.objects.get(pk=paid_movement.pk)
     balance.pk = None
