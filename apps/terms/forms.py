@@ -58,7 +58,7 @@ class TermTemplateForm(CoreModelForm):
         self.fields["accent_color"].initial = accent_color
 
         topics_html = self._render_topics_html()
-        chips = "".join((f'<button type="button" class="btn btn-xs btn-outline" data-term-token="{{{{{item.token}}}}}">{item.label}</button>' for item in TERM_PLACEHOLDERS))
+        placeholder_chips_html = render_to_string("terms/partials/placeholder_chips.html", {"placeholders": TERM_PLACEHOLDERS})
         add_topic_url = reverse("terms:add_topic")
 
         self.helper.layout = Layout(
@@ -92,17 +92,58 @@ class TermTemplateForm(CoreModelForm):
                 HTML(
                     """
                     <script>
-                    function insertTermToken(token) {
-                        const active = document.activeElement;
-                        if (!active || (active.tagName !== 'TEXTAREA' && active.tagName !== 'INPUT')) {
+                    function copyTermPlaceholder(button) {
+                        const token = button.getAttribute('data-term-token') || '';
+                        if (!token) {
                             return;
                         }
-                        const start = active.selectionStart || 0;
-                        const end = active.selectionEnd || 0;
-                        const value = active.value || '';
-                        active.value = value.slice(0, start) + token + value.slice(end);
-                        active.focus();
-                        active.selectionStart = active.selectionEnd = start + token.length;
+
+                        const showCopiedFeedback = function () {
+                            button.classList.add('btn-success', 'text-success-content');
+                            const icon = button.querySelector('.material-icons');
+                            const originalIcon = icon ? icon.textContent : '';
+                            if (icon) {
+                                icon.textContent = 'done';
+                            }
+
+                            document.body.dispatchEvent(new CustomEvent('showToast', {
+                                detail: {
+                                    type: 'success',
+                                    message: 'Copiado para a área de transferência.',
+                                },
+                            }));
+
+                            window.setTimeout(function () {
+                                button.classList.remove('btn-success', 'text-success-content');
+                                if (icon) {
+                                    icon.textContent = originalIcon || 'content_copy';
+                                }
+                            }, 1200);
+                        };
+
+                        const fallbackCopy = function () {
+                            const textarea = document.createElement('textarea');
+                            textarea.value = token;
+                            textarea.setAttribute('readonly', '');
+                            textarea.style.position = 'absolute';
+                            textarea.style.left = '-9999px';
+                            document.body.appendChild(textarea);
+                            textarea.select();
+                            try {
+                                if (document.execCommand('copy')) {
+                                    showCopiedFeedback();
+                                }
+                            } finally {
+                                document.body.removeChild(textarea);
+                            }
+                        };
+
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(token).then(showCopiedFeedback).catch(fallbackCopy);
+                            return;
+                        }
+
+                        fallbackCopy();
                     }
 
                     function normalizeHexColor(rawValue) {
@@ -188,7 +229,7 @@ class TermTemplateForm(CoreModelForm):
                         initTermColorFields();
                         document.querySelectorAll('[data-term-token]').forEach(function (button) {
                             button.addEventListener('click', function () {
-                                insertTermToken(button.getAttribute('data-term-token') || '');
+                                copyTermPlaceholder(button);
                             });
                         });
                     });
@@ -197,8 +238,8 @@ class TermTemplateForm(CoreModelForm):
                 ),
                 Div(
                     HTML('<h4 class="text-xl font-semibold mb-2">Conteúdo do termo</h4>'),
-                    HTML('<p class="text-sm text-base-content/70 mb-3">Monte o termo em tópicos, como no checklist. Cada texto vira um item na lista. Dados do veículo, placa, nome e CPF entram sozinhos no documento na hora da assinatura.</p>'),
-                    HTML(f'<div class="flex flex-wrap gap-2 mb-4">{chips}</div>'),
+                    HTML('<p class="text-sm text-base-content/70 mb-3">Monte o termo em tópicos, como no checklist. Cada texto vira um item na lista. Use as variáveis abaixo onde quiser que os dados do cliente e do veículo apareçam no documento.</p>'),
+                    HTML(placeholder_chips_html),
                     Field("intro_text", wrapper_class="col-span-12"),
                     HTML(f'<div id="term-topics-container" class="flex flex-col gap-4 mt-4">{topics_html}</div>'),
                     HTML(
