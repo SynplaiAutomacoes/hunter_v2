@@ -188,6 +188,8 @@
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.due_date|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.amount|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_paid|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.is_partial_payment|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.partial_payment_amount|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_reconciled|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.payment_method|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.budget_plan|as_crispy_field }}</div>
@@ -226,6 +228,8 @@
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_paid|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.is_partial_payment|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.partial_payment_amount|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_reconciled|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.payment_method|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.budget_plan|as_crispy_field }}</div>
@@ -300,6 +304,18 @@
 
 <script>
 (function() {
+    document.querySelectorAll('input[type="checkbox"][name$="is_partial_payment"]').forEach(function(checkbox) {
+        var grid = checkbox.closest('.grid');
+        if (!grid) return;
+        var amountInput = grid.querySelector('input[name$="partial_payment_amount_0"]');
+        var amountWrapper = amountInput && amountInput.closest('[class*="col-span"]');
+        function syncPartialPaymentAmount() {
+            if (amountWrapper) amountWrapper.style.display = checkbox.checked ? '' : 'none';
+        }
+        checkbox.addEventListener('change', syncPartialPaymentAmount);
+        syncPartialPaymentAmount();
+    });
+
     // Intercept clicks on disabled fields inside locked payment forms.
     document.querySelectorAll('.payroll-locked-fields').forEach(function(container) {
         container.addEventListener('click', function(e) {
