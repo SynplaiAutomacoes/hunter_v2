@@ -370,8 +370,7 @@
                     </button>
                     <button type="button" class="btn btn-error btn-outline btn-sm ml-2"
                             x-show="activeTab !== 'BENEFIT'"
-                            hx-target="body" hx-swap="beforeend"
-                            x-bind:hx-get="removeUrlForTab(activeTab)">
+                            @click="htmx.ajax('GET', removeUrlForTab(activeTab), {target: document.body, swap: 'beforeend'})">
                         <span class="material-icons text-sm">link_off</span>
                         Excluir <span x-text="tabLabels[activeTab] || ''"></span>
                     </button>

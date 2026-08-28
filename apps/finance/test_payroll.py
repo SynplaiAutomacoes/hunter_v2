@@ -377,6 +377,9 @@ class PayrollEditModalViewTests(TestCase):
         self.assertIn("Excluir", content)
         self.assertIn('name="tab"', content)
         self.assertIn(':value="activeTab"', content)
+        self.assertIn("removeUrlForTab(activeTab)", content)
+        self.assertIn("htmx.ajax('GET', removeUrlForTab(activeTab)", content)
+        self.assertNotIn("x-bind:hx-get", content)
 
     def test_payroll_movements_store_named_agent_and_description(self) -> None:
         workshop = create_workshop(suffix=24)

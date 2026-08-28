@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
-from djmoney.money import Money
 
 from apps.accounts.models import Account
 from apps.budget.models import Budget, BudgetStatus, BudgetType
@@ -97,12 +96,6 @@ class DashboardMetricsQueryTests(TestCase):
             budget=budget,
             status=status,
             budget_type=budget.budget_type,
-            delivered_at=(
-                timezone.make_aware(datetime.combine(due_date, datetime.min.time()))
-                if status == WorkOrderStatus.APPROVED
-                else None
-            ),
-            stored_total_amount=Money(first_amount + (installments - 1) * remaining_amount, "BRL"),
         )
         WorkOrderPaymentMethod.objects.create(
             workorder=workorder,
@@ -123,7 +116,7 @@ class DashboardMetricsQueryTests(TestCase):
                 selected_year=2026,
             )
 
-        self.assertEqual(total_sold, Decimal("150.00"))
+        self.assertEqual(total_sold, Decimal("350.00"))
 
     def test_total_sold_and_today_preserve_independent_periods(self) -> None:
         total_sold = DashboardQueryService._calculate_total_sold(
@@ -136,7 +129,7 @@ class DashboardMetricsQueryTests(TestCase):
         self.assertEqual(total_sold, Decimal("300.00"))
         self.assertEqual(today_sales, Decimal("150.00"))
 
-    def test_total_sold_report_excludes_workorders_that_are_not_delivered(self) -> None:
+    def test_total_sold_report_includes_all_revenue_workorder_statuses(self) -> None:
         customer = Customer.objects.get(workshop=self.workshop)
         vehicle = Vehicle.objects.get(workshop=self.workshop)
         payment_method = PaymentMethod.objects.get(workshop=self.workshop)
@@ -156,9 +149,9 @@ class DashboardMetricsQueryTests(TestCase):
         )
 
         self.assertFalse(is_budget_report)
-        self.assertEqual(total_sold, Decimal("150.00"))
-        self.assertEqual(total_label, "R$ 150,00")
-        self.assertNotIn(budget.pk, [item.budget_id for item in items])
+        self.assertEqual(total_sold, Decimal("425.00"))
+        self.assertEqual(total_label, "R$ 425,00")
+        self.assertIn(budget.pk, [item.budget_id for item in items])
 
     def test_revenue_queries_return_zero_for_empty_workshop(self) -> None:
         total_sold = DashboardQueryService._calculate_total_sold(
