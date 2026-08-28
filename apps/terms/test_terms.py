@@ -24,21 +24,47 @@ from apps.workshops.models.workshops import Workshop
 class TermPlaceholderTests(SimpleTestCase):
     def test_merge_fills_budget_customer_and_vehicle_fields(self) -> None:
         budget = SimpleNamespace(
-            customer=SimpleNamespace(name="Maria Silva", cpf_or_cnpj="52998224725"),
+            customer=SimpleNamespace(
+                name="Maria Silva",
+                cpf_or_cnpj="52998224725",
+                cpf_or_cnpj_formatted="529.982.247-25",
+            ),
             vehicle=SimpleNamespace(brand="Fiat", model="Argo", year_model="2022", plate="ABC1D23"),
         )
         html = merge_term_placeholders(
-            "<p>{{customer_name}} / {{customer_cpf}} / {{vehicle}} / {{plate}}</p>",
+            "<p>%%nome%% / %%cpf%% / %%vehicle%% / %%placa%%</p>",
             budget=budget,
         )
         self.assertIn("Maria Silva", html)
-        self.assertIn("52998224725", html)
+        self.assertIn("529.982.247-25", html)
         self.assertIn("Fiat Argo 2022", html)
         self.assertIn("ABC1D23", html)
 
+    def test_merge_supports_messaging_tokens(self) -> None:
+        budget = SimpleNamespace(
+            customer=SimpleNamespace(
+                name="Maria Silva",
+                cpf_or_cnpj="52998224725",
+                cpf_or_cnpj_formatted="529.982.247-25",
+            ),
+            vehicle=SimpleNamespace(brand="Fiat", model="Argo", year_model="2022", plate="ABC1D23"),
+        )
+        html = merge_term_placeholders("<p>%%nome%% · %%cpf%% · %%placa%%</p>", budget=budget)
+        self.assertIn("Maria Silva", html)
+        self.assertIn("529.982.247-25", html)
+        self.assertIn("ABC1D23", html)
+
+    def test_merge_supports_legacy_curly_tokens(self) -> None:
+        budget = SimpleNamespace(
+            customer=SimpleNamespace(name="Maria Silva", cpf_or_cnpj="52998224725"),
+            vehicle=SimpleNamespace(brand="Fiat", model="Argo", year_model="2022", plate="ABC1D23"),
+        )
+        html = merge_term_placeholders("<p>{{plate}}</p>", budget=budget)
+        self.assertIn("ABC1D23", html)
+
     def test_unknown_tokens_remain(self) -> None:
-        html = merge_term_placeholders("Olá {{unknown}}", budget=SimpleNamespace(customer=None, vehicle=None))
-        self.assertEqual(html, "Olá {{unknown}}")
+        html = merge_term_placeholders("Olá %%unknown%%", budget=SimpleNamespace(customer=None, vehicle=None))
+        self.assertEqual(html, "Olá %%unknown%%")
 
     def test_sanitize_strips_script(self) -> None:
         cleaned = sanitize_term_html("<p>ok</p><script>alert(1)</script>")
@@ -142,6 +168,8 @@ class TermWebhookIsolationTests(TestCase):
         self.assertIn("VW Gol 2019", context["topics"][0]["items"][0])
         self.assertIn("VW Gol 2019", context["vehicle_label"])
         self.assertEqual(context["plate_label"], "TRM1A23")
+        self.assertEqual(context["customer_name"], "Cliente Termo")
+        self.assertIn("529", context["customer_cpf"])
         self.assertEqual(context["document_title_line1"], "Termo de recebimento")
         self.assertEqual(context["document_title_line2"], "de veículo")
         self.assertEqual(context["primary_color"], "#000000")

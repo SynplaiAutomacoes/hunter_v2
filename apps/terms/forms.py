@@ -9,7 +9,7 @@ from apps.core.presentation.widgets import CheckboxInput, SearchableSelectInput,
 from apps.core.text_normalization import sentence_case
 from apps.terms.content import DEFAULT_INTRO_TEXT, DEFAULT_RECEIPT_SECTIONS
 from apps.terms.models import TERM_DEFAULT_ACCENT_COLOR, TERM_DEFAULT_PRIMARY_COLOR, TermKind, TermSource, TermTemplate
-from apps.terms.placeholders import TERM_PLACEHOLDERS
+from apps.terms.placeholders import get_term_variable_groups
 from apps.terms.util import new_topic_key
 from apps.workshops.models.workshops import Workshop
 
@@ -58,7 +58,10 @@ class TermTemplateForm(CoreModelForm):
         self.fields["accent_color"].initial = accent_color
 
         topics_html = self._render_topics_html()
-        placeholder_chips_html = render_to_string("terms/partials/placeholder_chips.html", {"placeholders": TERM_PLACEHOLDERS})
+        placeholder_chips_html = render_to_string(
+            "terms/partials/placeholder_chips.html",
+            {"variable_groups": get_term_variable_groups()},
+        )
         add_topic_url = reverse("terms:add_topic")
 
         self.helper.layout = Layout(
