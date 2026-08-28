@@ -16,7 +16,12 @@ from django.http import QueryDict
 from apps.terms.documents import build_term_document_context, render_term_signature_html
 from apps.terms.models import BudgetTermSigning, TermBullet, TermKind, TermSignatureStatus, TermSource, TermTemplate, TermTopic
 from apps.terms.placeholders import merge_term_placeholders, sanitize_term_html
-from apps.terms.util import extract_term_sections
+from apps.terms.util import (
+    can_toggle_term_signed_pdf,
+    extract_term_sections,
+    resolve_term_modal_urls,
+    term_signature_status_badge,
+)
 from apps.terms.services.signature import send_term_for_signature
 from apps.workshops.models.workshops import Workshop
 
@@ -70,6 +75,28 @@ class TermPlaceholderTests(SimpleTestCase):
         cleaned = sanitize_term_html("<p>ok</p><script>alert(1)</script>")
         self.assertIn("<p>ok</p>", cleaned)
         self.assertNotIn("script", cleaned.lower())
+
+
+class TermSignatureDisplayTests(SimpleTestCase):
+    def test_status_badge_for_sent_signing(self) -> None:
+        signing = SimpleNamespace(signature_request_status=TermSignatureStatus.SENT)
+        badge = term_signature_status_badge(signing)
+        self.assertEqual(badge["text"], "Enviado")
+        self.assertEqual(badge["class"], "badge-warning")
+
+    def test_can_toggle_when_sent_with_external_id(self) -> None:
+        signing = SimpleNamespace(
+            signature_request_status=TermSignatureStatus.SENT,
+            signature_external_id="env-1",
+            signature_document_id="",
+        )
+        self.assertTrue(can_toggle_term_signed_pdf(signing))
+
+    def test_resolve_modal_urls_defaults_to_signed_when_toggle_enabled(self) -> None:
+        urls = resolve_term_modal_urls(budget_id=10, template_id=3, can_toggle_signed_pdf=True)
+        self.assertTrue(urls.can_toggle_signed_pdf)
+        self.assertEqual(urls.initial_pdf_variant, "signed")
+        self.assertIn("/signed/", urls.default_iframe_url)
 
 
 class TermSectionExtractTests(SimpleTestCase):

@@ -2,7 +2,7 @@
 
 <div class="flex flex-col h-full w-full" data-receipt-term-panel>
     <label class="label p-0 mb-2" for="receipt-term-select">
-        <span class="label-text font-semibold">Termo de Recebimento</span>
+        <span class="label-text font-semibold">Termo de Recebimento / Garantia</span>
     </label>
     <select
         id="receipt-term-select"
@@ -13,19 +13,29 @@
             <option value="{{ term.pk|unlocalize }}" {% if forloop.first %}selected{% endif %}>{{ term.name }}</option>
         {% endfor %}
     </select>
-    <button
-        type="button"
-        class="btn btn-outline w-full sm:w-auto"
-        id="receipt-term-open-btn"
-        data-url-template="{{ term_modal_url_template }}"
-        hx-get="{{ initial_term_modal_url }}"
-        hx-target="#modal-container"
-        hx-swap="innerHTML"
-    >
-        <span class="material-icons text-base">description</span>
-        Visualizar termo
-    </button>
+    <div class="flex flex-wrap items-center gap-2">
+        <span
+            id="receipt-term-status-badge"
+            class="badge {{ initial_term_status_badge.class }} font-semibold uppercase"
+        >
+            {{ initial_term_status_badge.text }}
+        </span>
+        <button
+            type="button"
+            class="btn btn-outline w-full sm:w-auto"
+            id="receipt-term-open-btn"
+            data-url-template="{{ term_modal_url_template }}"
+            hx-get="{{ initial_term_modal_url }}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+        >
+            <span class="material-icons text-base">description</span>
+            Visualizar termo
+        </button>
+    </div>
 </div>
+
+<script type="application/json" id="receipt-term-status-map">{{ term_signing_status_map_json|safe }}</script>
 
 <script>
     (function () {
@@ -38,11 +48,31 @@
 
         const select = panel.querySelector('[data-receipt-term-select]');
         const button = panel.querySelector('#receipt-term-open-btn');
+        const badge = panel.querySelector('#receipt-term-status-badge');
+        const statusMapElement = document.getElementById('receipt-term-status-map');
         if (!select || !button) {
             return;
         }
 
+        let statusMap = {};
+        if (statusMapElement && statusMapElement.textContent) {
+            try {
+                statusMap = JSON.parse(statusMapElement.textContent);
+            } catch (_error) {
+                statusMap = {};
+            }
+        }
+
         const urlTemplate = button.dataset.urlTemplate || '';
+
+        const updateStatusBadge = function () {
+            if (!badge) {
+                return;
+            }
+            const status = statusMap[select.value] || { text: 'Não enviado', class: 'badge-ghost' };
+            badge.textContent = status.text;
+            badge.className = 'badge font-semibold uppercase ' + (status.class || 'badge-ghost');
+        };
 
         const updateModalUrl = function () {
             if (!urlTemplate) {
@@ -52,6 +82,7 @@
             if (window.htmx) {
                 window.htmx.process(button);
             }
+            updateStatusBadge();
         };
 
         select.addEventListener('change', updateModalUrl);
