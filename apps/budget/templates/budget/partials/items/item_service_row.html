@@ -43,6 +43,9 @@
             {% endif %}
         </div>
     </td>
+    {% if step6 %}
+    <td class="text-center">{{ origin_badge|safe }}</td>
+    {% endif %}
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-right">{{ service_mechanic_cost|default:item.service_cost_price }}</td>
     <td class="text-right">

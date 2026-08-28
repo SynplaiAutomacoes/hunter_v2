@@ -43,6 +43,9 @@
             {% endif %}
         </div>
     </td>
+    {% if step6 %}
+    <td class="text-center">{{ origin_badge|safe }}</td>
+    {% endif %}
     <td class="budget-step4-application">
         <span class="break-words whitespace-normal leading-snug">{{ item.product.application|default:"-" }}</span>
     </td>
