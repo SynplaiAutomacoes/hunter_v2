@@ -89,6 +89,13 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
         visible=True,
         description="Gerenciar itens dos checklists de vistoria.",
     ),
+    ("terms", "termtemplate"): PermissionInfo(
+        visible=True,
+        description="Gerenciar termos (recebimento, garantia e outros) enviados para assinatura do cliente.",
+    ),
+    ("terms", "termtopic"): PermissionInfo(visible=False, auto_grant=True),
+    ("terms", "termbullet"): PermissionInfo(visible=False, auto_grant=True),
+    ("terms", "budgettermsigning"): PermissionInfo(visible=False, auto_grant=True),
     # ---- Colaboradores ----
     ("collaborators", "workshopmember"): PermissionInfo(visible=False, auto_grant=True),
     ("collaborators", "workshopcollaborator"): PermissionInfo(

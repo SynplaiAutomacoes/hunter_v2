@@ -781,6 +781,10 @@ class StockImportCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScope
             success_url = self.get_success_url()
 
         if self.request.htmx:
+            if current_step >= total_steps:
+                response = HttpResponse(status=204)
+                response["HX-Redirect"] = success_url
+                return response
             response = redirect(success_url)
             response["HX-Push-Url"] = success_url
             return response
@@ -845,6 +849,10 @@ class StockImportUpdateView(StockImportCreateView):
             success_url = self.get_success_url()
 
         if self.request.htmx:
+            if current_step >= total_steps:
+                response = HttpResponse(status=204)
+                response["HX-Redirect"] = success_url
+                return response
             response = redirect(success_url)
             response["HX-Push-Url"] = success_url
             return response

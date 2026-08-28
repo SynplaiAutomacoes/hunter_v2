@@ -18,7 +18,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
 from djmoney.money import Money
 
-from apps.core.infrastructure.search import build_text_search_query
+from apps.finance.services.reports import build_financial_movement_search_query
 from apps.core.domain.contracts.documents import DocumentRenderRequest
 from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf, build_pdf_http_response
 from apps.core.presentation.forms import MultiStepFormMixin
@@ -173,23 +173,7 @@ def _apply_report_filters_to_queryset(queryset: QuerySet[FinancialMovement], *, 
     if params["paid_status"]:
         queryset = _apply_paid_status_filter_to_queryset(queryset, paid_status=params["paid_status"])
     if params["search"]:
-        search_query = build_text_search_query(
-            search_value=params["search"],
-            lookups=(
-                "description",
-                "items_observation",
-                "financial_observation",
-                "nf_number",
-                "source__name",
-                "supplier__name",
-                "collaborator__name",
-                "budget_plan__name",
-                "bank_account__bank_name",
-                "workorder__budget__customer__name",
-            ),
-        )
-        search_query = search_query | Q(workorder__id__icontains=params["search"]) if search_query.children else Q(workorder__id__icontains=params["search"])
-        queryset = queryset.filter(search_query)
+        queryset = queryset.filter(build_financial_movement_search_query(search_value=params["search"]))
     return queryset
 
 
@@ -243,9 +227,9 @@ def _money_amount(value: object) -> Decimal:
 
 def _movement_pdf_direction_label(movement: FinancialMovement) -> str:
     if movement.direction == FinancialMovement.MovementDirection.CREDIT:
-        return "Crédito"
+        return "Contas a receber"
     if movement.direction == FinancialMovement.MovementDirection.DEBIT:
-        return "Débito"
+        return "Contas a pagar"
     return "-"
 
 
@@ -264,9 +248,6 @@ def _resolve_workorder_description(workorder: object) -> str:
 
 def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str, Any], per_payment_movements: dict[int, FinancialMovement], workshop: Any, aggregate_movements: dict[int, FinancialMovement] | None = None) -> list[object]:
     paid_status = filter_params.get("paid_status", "")
-    if paid_status == "unpaid":
-        return []
-
     start_date = filter_params.get("start_date")
     end_date = filter_params.get("end_date")
     payment_method_id = filter_params.get("payment_method_id")
@@ -294,6 +275,11 @@ def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str,
         if reconciliation_status == "reconciled" and not is_reconciled:
             continue
         if reconciliation_status == "pending" and is_reconciled:
+            continue
+        is_paid = bool(getattr(payment_movement, "is_paid", False))
+        if paid_status == "paid" and not is_paid:
+            continue
+        if paid_status == "unpaid" and is_paid:
             continue
         filtered.append(payment)
     return filtered
@@ -347,10 +333,10 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 agent, description = resolve_payroll_movement_display(movement=payment_movement, user=user, workshop=workshop, request=request)
                 rows.append(
                     {
-                        "paid_status": "Sim" if payment_movement.is_paid else "Não",
-                        "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
+                        "paid_status": "Pago" if payment_movement.is_paid else "Não pago",
+                        "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando conciliação",
                         "direction": FinancialMovement.MovementDirection.CREDIT,
-                        "direction_label": "Crédito",
+                        "direction_label": "Contas a receber",
                         "entry_date": payment_movement.entry_date,
                         "due_date": payment.due_date or movement.due_date,
                         "agent": agent,
@@ -376,10 +362,10 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 agent, description = resolve_payroll_movement_display(movement=payment_movement, user=user, workshop=workshop, request=request)
                 rows.append(
                     {
-                        "paid_status": "Sim" if payment_movement.is_paid else "Não",
-                        "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
+                        "paid_status": "Pago" if payment_movement.is_paid else "Não pago",
+                        "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando conciliação",
                         "direction": FinancialMovement.MovementDirection.CREDIT,
-                        "direction_label": "Crédito",
+                        "direction_label": "Contas a receber",
                         "entry_date": payment_movement.entry_date,
                         "due_date": payment.due_date or movement.due_date,
                         "agent": agent,
@@ -398,8 +384,8 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
         agent, description = resolve_payroll_movement_display(movement=movement, user=user, workshop=workshop, request=request)
         rows.append(
             {
-                "paid_status": "Sim" if movement.is_paid else "Não",
-                "reconciliation_status": "Conciliado" if movement.is_reconciled else "Aguardando Conciliação",
+                "paid_status": "Pago" if movement.is_paid else "Não pago",
+                "reconciliation_status": "Conciliado" if movement.is_reconciled else "Aguardando conciliação",
                 "direction": movement.direction,
                 "direction_label": _movement_pdf_direction_label(movement),
                 "entry_date": movement.entry_date,
@@ -457,7 +443,7 @@ def _build_financial_movement_filter_labels(*, request: HttpRequest, workshop: A
 
     paid_status = str(request.GET.get("paid_status") or "").strip()
     if paid_status:
-        labels.append(f"Pagamento: {'Pagos' if paid_status == 'paid' else 'Não pagos'}")
+        labels.append(f"Pagamento: {'Pago' if paid_status == 'paid' else 'Não pago'}")
 
     reconciliation_status = str(request.GET.get("reconciliation_status") or "").strip()
     if reconciliation_status:
