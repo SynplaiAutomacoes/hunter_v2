@@ -775,7 +775,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
 
     class Meta:
         model = Vehicle
-        fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color"]
+        fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color", "km"]
         widgets = {
             "plate": PlateInput(),
             "brand": SearchableSelectInput(choices=[]),
@@ -785,6 +785,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
             "year_fabrication": TextInput(),
             "year_model": TextInput(),
             "color": TextInput(),
+            "km": NumberInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -1265,6 +1266,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                 Field("year_fabrication", wrapper_class="col-span-12 sm:col-span-6 xl:col-span-2"),
                 Field("year_model", wrapper_class="col-span-12 sm:col-span-6 xl:col-span-2"),
                 Field("color", wrapper_class="col-span-12 md:col-span-6 xl:col-span-2"),
+                Field("km", wrapper_class="col-span-12 md:col-span-6 xl:col-span-2"),
                 css_class="customer-vehicle-catalog-form grid grid-cols-12 gap-x-4 gap-y-3 items-start",
             ),
         )

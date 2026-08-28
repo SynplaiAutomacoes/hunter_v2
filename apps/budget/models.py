@@ -553,7 +553,7 @@ class Budget(TimeStampedModel):
 
         #
         soma_base_orcamento = venda_pecas + venda_servico_terceiro
-        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
+        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun - self.resolved_discount_value
         divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra + custo_frete_servico).amount
 
         return (valor_orcamento_hun.amount / divisor_mlo) if divisor_mlo > 0 else Decimal("1.00")
@@ -588,7 +588,7 @@ class Budget(TimeStampedModel):
         # MÉTOD0 TRADICIONAL
         valor_hora_vendida_trad = pricing_context.hourly_cost_value
         venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
-        valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
+        valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad - self.resolved_discount_value
         lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
         if valor_orcamento_trad.amount > 0:
             rentabilidade_trad = ((lucro_operacional_trad.amount / valor_orcamento_trad.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -597,7 +597,7 @@ class Budget(TimeStampedModel):
 
         # MÉTOD0 HUNTER
         venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
-        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
+        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun - self.resolved_discount_value
         lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
         if valor_orcamento_hun.amount > 0:
             rentabilidade_hun = ((lucro_operacional_hun.amount / valor_orcamento_hun.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
@@ -657,7 +657,7 @@ class Budget(TimeStampedModel):
         venda_pecas = self.total_products_value
         venda_servico_terceiro = self.total_third_party_services_selling
         venda_mao_obra = self.total_services_value - venda_servico_terceiro
-        valor_orcamento = self.total_products_value + self.total_services_value
+        valor_orcamento = self.total_products_value + self.total_services_value - self.resolved_discount_value
         lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro + custo_frete_servicos)
 
         if valor_orcamento.amount > 0:
@@ -1887,12 +1887,10 @@ class BudgetItem(TimeStampedModel):
         ganha_valor = (slider < 0 and is_product) or (slider > 0 and not is_product)
 
         if ganha_valor:
-            # Aplica o share sobre o que veio do outro grupo
             return original_unit + (valor_transferido_total * share)
-        else:
-            # Perde valor: retira do próprio lucro do item proporcional ao slider
-            margem_propria = max(original_unit - unit_cost, Money(0, "BRL"))
-            return original_unit - (margem_propria * percentual_slider)
+
+        own_margin = max(original_unit - unit_cost, Money(0, "BRL"))
+        return original_unit - (own_margin * percentual_slider)
 
     class Meta:
         verbose_name = "Item do Orçamento"

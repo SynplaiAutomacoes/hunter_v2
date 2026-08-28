@@ -53,7 +53,6 @@ class Step6ReviewContext:
     blocked_reopen: bool
     products_html: str
     services_html: str
-    kits_html: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -373,7 +372,6 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
     rows = _render_budget_items_rows(budget, step6=True)
     products_html = rows["product"]
     services_html = rows["service"]
-    kits_html = rows["kit"]
 
     return Step6ReviewContext(
         budget=budget,
@@ -423,5 +421,4 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         blocked_reopen=blocked_reopen,
         products_html=products_html,
         services_html=services_html,
-        kits_html=kits_html,
     )
