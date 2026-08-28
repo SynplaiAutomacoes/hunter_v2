@@ -52,8 +52,23 @@ class MovementStep1Form(FinancialMovementBaseForm):
             self.suppliers_choices = [(s.id, s.name) for s in suppliers]
             self.collaborators_choices = [(c.id, str(c)) for c in collaborators]
 
-        # Bind dinâmico (POST ou edição)
-        person_type = self.data.get("person_type")
+        # Em um POST, os valores enviados têm precedência. Em um retorno ao
+        # passo 1, estes campos auxiliares precisam ser reconstruídos a partir
+        # da origem que já foi persistida no lançamento.
+        person_type = self.data.get("person_type") if self.is_bound else None
+        entity_id = self.data.get("entity") if self.is_bound else None
+        if not person_type:
+            if self.instance.supplier_id:
+                person_type = "supplier"
+                entity_id = str(self.instance.supplier_id)
+            elif self.instance.collaborator_id:
+                person_type = "collaborator"
+                entity_id = str(self.instance.collaborator_id)
+
+        if person_type:
+            self.initial.setdefault("person_type", person_type)
+        if entity_id:
+            self.initial.setdefault("entity", str(entity_id))
 
         self.fields["direction"].label = ""
 
@@ -67,7 +82,8 @@ class MovementStep1Form(FinancialMovementBaseForm):
         self.helper.layout = Layout(
             HTML("""
             <script>
-                document.addEventListener('DOMContentLoaded', function() {
+                (function initMovementStep1() {
+                    function bindMovementStep1() {
                     const personType = document.querySelector('[name="person_type"]');
                     const entityField = document.querySelector('[name="entity"]');
                     const directionField = document.querySelector('[name="direction"]');
@@ -79,6 +95,42 @@ class MovementStep1Form(FinancialMovementBaseForm):
 
                     const personTitle = document.getElementById('person-title');
                     const resumeContainer = document.getElementById('entity-details');
+
+                    function getSearchableData(input) {
+                        const container = input && input.closest('[x-data]');
+                        if (!container || !window.Alpine) return null;
+                        try {
+                            return Alpine.$data(container);
+                        } catch (error) {
+                            return null;
+                        }
+                    }
+
+                    function clearSearchable(input, { clearOptions = false } = {}) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.clear === 'function') {
+                            alpineData.clear();
+                            if (clearOptions && typeof alpineData.setOptions === 'function') {
+                                alpineData.setOptions([]);
+                            }
+                            return;
+                        }
+                        if (input) input.value = '';
+                    }
+
+                    function setSearchableOptions(input, options) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.setOptions === 'function') {
+                            alpineData.setOptions(options);
+                            return;
+                        }
+                        const container = input && input.closest('[x-data]');
+                        if (container) {
+                            container.dispatchEvent(new CustomEvent('searchable-set-options', {
+                                detail: { options }, bubbles: true,
+                            }));
+                        }
+                    }
 
                     function updateTitles() {
                         const direction = directionField.value;
@@ -118,42 +170,21 @@ class MovementStep1Form(FinancialMovementBaseForm):
                             step3.classList.add('hidden');
                             step4.classList.add('hidden');
 
-                            personType.value = "";
-                            entityField.innerHTML = "";
+                            clearSearchable(personType);
+                            clearSearchable(entityField, { clearOptions: true });
                             resumeContainer.innerHTML = "";
                             syncSupplierQuickButton();
                         }
                     }
 
-                    function selectEntityOption(entityId, entityName) {
+                    function selectEntityOption(entityId) {
                         if (!entityId) return;
 
-                        const container = entityField.closest('[x-data]');
-                        if (!container || !window.Alpine) return;
-
-                        const alpineData = Alpine.$data(container);
-                        const optionsList = container.querySelector('[x-ref="options"]');
-                        if (!optionsList || !alpineData || typeof alpineData.select !== 'function') return;
-
-                        const selectedId = String(entityId);
-                        const selectedName = entityName || 'Fornecedor';
-                        let option = optionsList.querySelector(`li[data-value='${selectedId}']`);
-
-                        if (!option) {
-                            option = document.createElement('li');
-                            option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
-                            option.dataset.value = selectedId;
-                            option.dataset.label = selectedName;
-                            option.dataset.searchText = selectedName.toLowerCase();
-                            option.setAttribute('x-show', "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                            option.setAttribute('@click', 'select($el)');
-                            option.innerHTML = `<span class="block truncate" :class="{'font-bold': value == '${selectedId}'}">${selectedName}</span>`;
-                            optionsList.appendChild(option);
+                        const alpineData = getSearchableData(entityField);
+                        if (alpineData && typeof alpineData.setValue === 'function') {
+                            alpineData.setValue(entityId);
                         }
-
-                        alpineData.select(option);
                         syncSupplierQuickButton();
-                        loadDetails();
                     }
 
                     function loadEntities(selectedEntity) {
@@ -184,52 +215,16 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         })
                         .then(r => r.json())
                         .then(data => {
-                            // Encontra o container do SearchableSelectInput (tem x-data)
-                            const container = entityField.closest('[x-data]');
-                            if (!container) return;
-
-                            // Acessa os dados do Alpine se possível, ou apenas manipula o DOM
-                            const optionsList = container.querySelector('[x-ref="options"]');
-                            if (!optionsList) return;
-
-                            // Limpa o valor atual no componente Alpine
-                            if (window.Alpine) {
-                                const alpineData = Alpine.$data(container);
-                                if (alpineData && typeof alpineData.clear === 'function') {
-                                    alpineData.clear();
-                                }
-                            }
-
-                            optionsList.innerHTML = "";
-
-                            data.forEach(item => {
-                                const li = document.createElement("li");
-                                li.setAttribute("x-show", "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                                li.setAttribute("@click", "select($el)");
-                                li.dataset.value = item.id;
-                                li.dataset.label = item.name;
-                                li.dataset.searchText = item.name.toLowerCase();
-                                li.className = "relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group";
-                                
-                                const span = document.createElement("span");
-                                span.className = "block truncate";
-                                span.setAttribute(":class", `{'font-bold': value == '${item.id}'}`);
-                                span.textContent = item.name;
-                                
-                                li.appendChild(span);
-                                optionsList.appendChild(li);
-                            });
-
-                            // Adiciona a mensagem de "Nenhum resultado"
-                            const noResults = document.createElement("li");
-                            noResults.setAttribute("x-show", "search && $refs.options.querySelectorAll('li[data-value]:not([style*=\\'display: none\\'])').length === 0");
-                            noResults.className = "py-2 pl-3 text-gray-500 italic";
-                            noResults.textContent = "Nenhum resultado encontrado...";
-                            optionsList.appendChild(noResults);
+                            const options = (Array.isArray(data) ? data : []).map((item) => ({
+                                value: item.id,
+                                label: item.name,
+                            }));
+                            setSearchableOptions(entityField, options);
 
                             if (selectedEntity && selectedEntity.id) {
-                                selectEntityOption(selectedEntity.id, selectedEntity.name);
+                                selectEntityOption(selectedEntity.id);
                             } else {
+                                clearSearchable(entityField);
                                 syncSupplierQuickButton();
                             }
                         });
@@ -320,10 +315,17 @@ class MovementStep1Form(FinancialMovementBaseForm):
 
                     // Estado inicial
                     handleDirection();
-                    loadEntities();
+                    loadEntities(entityField.value ? { id: entityField.value } : null);
                     loadDetails();
                     syncSupplierQuickButton();
-                });
+                    }
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', bindMovementStep1);
+                    } else {
+                        bindMovementStep1();
+                    }
+                })();
             </script>"""),
             Div(
                 Div(
