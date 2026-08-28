@@ -26,17 +26,6 @@
                         >
                             {{ card.value }}
                         </a>
-                        <button
-                            type="button"
-                            class="flex items-center text-base-content/30 {% if card.tone == 'debit' %}hover:text-error{% else %}hover:text-success{% endif %}"
-                            title="Visualizar relação"
-                            hx-get="{{ card.report_url }}"
-                            hx-target="#cashflow-report-modal-content"
-                            hx-swap="innerHTML"
-                            onclick="event.preventDefault(); event.stopPropagation(); document.getElementById('cashflowReportModal').showModal()"
-                        >
-                            <span class="material-icons" style="font-size: 22px;">visibility</span>
-                        </button>
                     </div>
                     <div class="stat-desc">Resultado conciliado</div>
                 </div>
@@ -244,15 +233,4 @@
             </div>
         </div>
     </div>
-
-    <dialog id="cashflowReportModal" class="modal">
-        <div class="modal-box flex h-[92vh] w-[calc(100vw-4rem)] max-w-[1600px] flex-col overflow-hidden bg-transparent p-0 shadow-none">
-            <div id="cashflow-report-modal-content" class="flex h-full w-full items-center justify-center overflow-hidden rounded-[2rem] border border-base-300/60 bg-base-100 text-base-content/50 shadow-2xl">
-                <span class="loading loading-spinner loading-lg"></span>
-            </div>
-        </div>
-        <form method="dialog" class="modal-backdrop">
-            <button onclick="document.getElementById('cashflow-report-modal-content').innerHTML = '<span class=&quot;loading loading-spinner loading-lg&quot;></span>'">close</button>
-        </form>
-    </dialog>
 {% endblock %}

@@ -13,7 +13,6 @@ from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
-from apps.finance.services.fiscal_recipient import FiscalRecipient, resolve_fiscal_recipient_for_nfe_request
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
 from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
 from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
@@ -250,46 +249,41 @@ def _require_customer_field(*, value: object, field_name: str) -> str:
     return normalized
 
 
-def _build_customer_payload_from_recipient(recipient: FiscalRecipient) -> dict[str, Any]:
-    document = _normalize_document(recipient.cpf_or_cnpj or "")
+def _build_customer_payload(nfe_request: NfeRequest) -> dict[str, Any]:
+    customer = nfe_request.workorder.budget.customer
+    if customer is None:
+        raise NfeEmissionError("A OS selecionada nao possui cliente vinculado.")
+
+    document = _normalize_document(customer.cpf_or_cnpj or "")
     payload: dict[str, Any] = {
-        "endereco": _require_customer_field(value=recipient.logradouro, field_name="endereco"),
-        "numero": _require_customer_field(value=recipient.numero, field_name="numero"),
-        "bairro": _require_customer_field(value=recipient.bairro, field_name="bairro"),
-        "cidade": _require_customer_field(value=recipient.cidade, field_name="cidade"),
-        "uf": _require_customer_field(value=recipient.estado, field_name="uf"),
-        "cep": _require_customer_field(value=recipient.cep, field_name="cep"),
+        "endereco": _require_customer_field(value=customer.logradouro, field_name="endereco"),
+        "numero": _require_customer_field(value=customer.numero, field_name="numero"),
+        "bairro": _require_customer_field(value=customer.bairro, field_name="bairro"),
+        "cidade": _require_customer_field(value=customer.cidade, field_name="cidade"),
+        "uf": _require_customer_field(value=customer.estado, field_name="uf"),
+        "cep": _require_customer_field(value=customer.cep, field_name="cep"),
     }
 
-    if recipient.complemento:
-        payload["complemento"] = str(recipient.complemento).strip()
-    if recipient.phone:
-        payload["telefone"] = str(recipient.phone)
-    if recipient.email:
-        payload["email"] = str(recipient.email).strip()
+    if customer.complemento:
+        payload["complemento"] = str(customer.complemento).strip()
+    if customer.phone:
+        payload["telefone"] = str(customer.phone)
+    if customer.email:
+        payload["email"] = str(customer.email).strip()
 
     if len(document) == 11:
-        payload["cpf"] = recipient.cpf_or_cnpj
-        payload["nome_completo"] = _require_customer_field(value=recipient.name, field_name="nome_completo")
+        payload["cpf"] = customer.cpf_or_cnpj
+        payload["nome_completo"] = _require_customer_field(value=customer.name, field_name="nome_completo")
         return payload
 
     if len(document) == 14:
-        payload["cnpj"] = recipient.cpf_or_cnpj
-        payload["razao_social"] = _require_customer_field(value=recipient.name, field_name="razao_social")
-        state_registration = str(recipient.state_registration or "").strip()
+        payload["cnpj"] = customer.cpf_or_cnpj
+        payload["razao_social"] = _require_customer_field(value=customer.name, field_name="razao_social")
+        state_registration = str(customer.state_registration or "").strip()
         payload["ie"] = state_registration or "ISENTO"
         return payload
 
     raise NfeEmissionError("Documento do cliente invalido para emissao de Nota Fiscal.")
-
-
-def _build_customer_payload(nfe_request: NfeRequest) -> dict[str, Any]:
-    recipient = resolve_fiscal_recipient_for_nfe_request(nfe_request)
-    if recipient is None:
-        if getattr(nfe_request, "workorder", None) is None:
-            raise NfeEmissionError("Informe os dados do destinatario para emissao avulsa de Nota Fiscal.")
-        raise NfeEmissionError("A OS selecionada nao possui cliente vinculado.")
-    return _build_customer_payload_from_recipient(recipient)
 
 
 def _normalize_ncm(raw_value: str) -> str:
@@ -436,12 +430,12 @@ def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) ->
     return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
 
 
-def _build_payment_payload(*, workorder: WorkOrder | None, total_value: Decimal, discount_value: Decimal) -> dict[str, Any]:
+def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal, discount_value: Decimal) -> dict[str, Any]:
+    payment = workorder.payments.order_by("id").first()
+
     payment_indicator = 0
-    if workorder is not None:
-        payment = workorder.payments.order_by("id").first()
-        if payment is not None:
-            payment_indicator = 1 if int(payment.installments_count or 1) > 1 else 0
+    if payment is not None:
+        payment_indicator = 1 if int(payment.installments_count or 1) > 1 else 0
 
     return {
         "pagamento": payment_indicator,
@@ -450,64 +444,6 @@ def _build_payment_payload(*, workorder: WorkOrder | None, total_value: Decimal,
         "desconto": _format_decimal(discount_value, places=2),
         "total": _format_decimal(_quantize_money(total_value), places=2),
     }
-
-
-def _build_standalone_nfe_products_payload(*, nfe_request: NfeRequest) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation, Decimal]:
-    lines = list(nfe_request.standalone_lines.order_by("sort_order", "id"))
-    if not lines:
-        raise NfeEmissionError("Informe ao menos um produto para emissao avulsa de Nota Fiscal.")
-
-    products_payload: list[dict[str, Any]] = []
-    total_products = Decimal("0.00")
-    tax_class_reference = str(nfe_request.tax_class or "").strip()
-
-    for line in lines:
-        ncm = _normalize_ncm(line.ncm)
-        if len(ncm) != 8:
-            raise NfeEmissionError(f"Produto '{line.description}' sem NCM valido para emissao de Nota Fiscal.")
-
-        code = str(line.product_code or "").strip()
-        if not code:
-            raise NfeEmissionError(f"Produto '{line.description}' sem codigo para emissao de Nota Fiscal.")
-
-        quantity = Decimal(line.quantity)
-        if quantity <= 0:
-            continue
-
-        line_total = _quantize_money(Decimal(line.total_value))
-        if line_total <= 0:
-            continue
-
-        unit_price = _build_unit_price_for_api(allocated_total=line_total, quantity=quantity)
-        product_payload: dict[str, Any] = {
-            "nome": str(line.description)[:120],
-            "codigo": code[:60],
-            "ncm": ncm,
-            "quantidade": _format_quantity(quantity),
-            "unidade": _unit_for_api(str(line.unit or "")),
-            "origem": int(line.origin or 0),
-            "subtotal": _format_decimal(unit_price, places=2),
-            "total": _format_decimal(line_total, places=2),
-            "classe_imposto": tax_class_reference,
-        }
-        cest = str(line.cest or "").strip()
-        if cest:
-            product_payload["cest"] = cest
-        products_payload.append(product_payload)
-        total_products += line_total
-
-    if not products_payload:
-        raise NfeEmissionError("Nao foi possivel montar itens de produto para emissao avulsa de Nota Fiscal.")
-
-    allocation = SliderAllocation(
-        slider=0,
-        products_base=total_products,
-        services_base=Decimal("0.00"),
-        total_base=total_products,
-        products_target=total_products,
-        services_target=Decimal("0.00"),
-    )
-    return products_payload, total_products, allocation, Decimal("0.00")
 
 
 def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe_request: NfeRequest) -> None:
@@ -543,13 +479,7 @@ def _apply_transport_to_nfe_payload(*, payload: dict[str, Any], nfe_request: Nfe
 
 
 def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation, Decimal]:
-    if nfe_request.standalone_lines.exists():
-        return _build_standalone_nfe_products_payload(nfe_request=nfe_request)
-
     workorder = nfe_request.workorder
-    if workorder is None:
-        raise NfeEmissionError("A emissao de Nota Fiscal exige uma OS ou itens avulsos.")
-
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
         persisted_slider=getattr(nfe_request, "pricing_slider", None),
@@ -638,7 +568,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         str(allocation.products_target),
         str(allocation.services_target),
         str(product_discount),
-        getattr(getattr(nfe_request, "workorder", None), "discount_type", ""),
+        nfe_request.workorder.discount_type,
     )
     return payload
 
@@ -934,10 +864,10 @@ def sync_nfe_emission_response(*, nfe_request: NfeRequest, response_payload: dic
 
     with transaction.atomic():
         NfeItem.objects.update_or_create(
+            workorder=nfe_request.workorder,
             uuid=nfe_uuid,
             defaults={
                 "workshop": nfe_request.workshop,
-                "workorder": nfe_request.workorder,
                 "request": nfe_request,
                 "raw_payload": response_payload,
                 "last_sync_error": "",
