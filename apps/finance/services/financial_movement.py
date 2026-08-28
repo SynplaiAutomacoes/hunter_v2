@@ -61,7 +61,15 @@ def create_partial_payment_balance(*, paid_movement: FinancialMovement, paid_amo
     paid_movement.discount_mode = FinancialMovement.DiscountMode.NONE
     paid_movement.discount_value = Money(0, paid_amount.currency)
     paid_movement.discount_percentage = Decimal("0.00")
-    paid_movement.save()
+    paid_movement.save(
+        update_fields=[
+            "gross_amount",
+            "amount",
+            "discount_mode",
+            "discount_value",
+            "discount_percentage",
+        ]
+    )
 
     balance = FinancialMovement.objects.get(pk=paid_movement.pk)
     balance.pk = None

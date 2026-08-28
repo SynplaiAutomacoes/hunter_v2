@@ -313,8 +313,8 @@ class PaymentReconciliationFormTests(TestCase):
                 "discount_value_1": "BRL",
                 "amount_0": "100.00",
                 "amount_1": "BRL",
-                "payment_method": str(payment_method.pk),
                 "budget_plan": str(budget_plan.pk),
+                "payment_method": str(payment_method.pk),
                 "is_paid": "False",
                 "is_reconciled": "False",
                 "is_partial_payment": "True",
@@ -340,6 +340,7 @@ class PaymentReconciliationFormTests(TestCase):
         workshop = create_workshop(suffix=42)
         supplier = self._create_supplier(workshop=workshop, suffix=42)
         payment_method = self._create_payment_method(workshop=workshop)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[1], names=["Plano"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             supplier=supplier,
@@ -352,8 +353,18 @@ class PaymentReconciliationFormTests(TestCase):
         form = ReportMovementEditForm(
             data={
                 "supplier": str(supplier.pk), "description": "Peças", "entry_date": "2026-08-05", "due_date": "2026-08-05",
-                "direction": FinancialMovement.MovementDirection.DEBIT, "gross_amount_0": "100.00", "gross_amount_1": "BRL", "discount_mode": FinancialMovement.DiscountMode.NONE, "discount_value_0": "0.00", "discount_value_1": "BRL", "amount_0": "100.00", "amount_1": "BRL",
-                "payment_method": str(payment_method.pk), "is_paid": "True", "is_reconciled": "False",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "gross_amount_0": "100.00",
+                "gross_amount_1": "BRL",
+                "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "discount_value_0": "0.00",
+                "discount_value_1": "BRL",
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "budget_plan": str(budget_plan.pk),
+                "payment_method": str(payment_method.pk),
+                "is_paid": "True",
+                "is_reconciled": "False",
                 "is_partial_payment": "True", "partial_payment_amount_0": "100.00", "partial_payment_amount_1": "BRL",
             },
             instance=movement,

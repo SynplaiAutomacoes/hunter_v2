@@ -119,8 +119,8 @@ def _render_budget_items_rows(budget, step6=False):
                     kit_service_ids.add(override.service_id)
 
     if budget_for_render.pk:
-        avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
         is_locked = bool(getattr(budget_for_render, "is_status_locked", False))
+        avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
         if step6:
             review_display = build_budget_review_display(budget=budget_for_render)
             if not is_locked:

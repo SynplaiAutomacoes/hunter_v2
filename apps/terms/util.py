@@ -50,15 +50,24 @@ class TermModalUrls:
     signed_download_url: str
 
 
-def resolve_term_modal_urls(*, budget_id: int, template_id: int, can_toggle_signed_pdf: bool) -> TermModalUrls:
+def resolve_term_modal_urls(
+    *,
+    budget_id: int,
+    template_id: int,
+    can_toggle_signed_pdf: bool,
+    signing: BudgetTermSigning | None = None,
+) -> TermModalUrls:
     base_iframe_url = reverse("terms:budget_term_preview", args=[budget_id, template_id])
     signed_iframe_url = reverse("terms:budget_term_signed", args=[budget_id, template_id])
     signed_download_url = f"{signed_iframe_url}?download=1"
+    is_approved = signing is not None and signing.signature_request_status == TermSignatureStatus.APPROVED
     if can_toggle_signed_pdf:
+        initial_variant = "signed" if is_approved else "base"
+        default_url = signed_iframe_url if is_approved else base_iframe_url
         return TermModalUrls(
             can_toggle_signed_pdf=True,
-            initial_pdf_variant="signed",
-            default_iframe_url=signed_iframe_url,
+            initial_pdf_variant=initial_variant,
+            default_iframe_url=default_url,
             base_iframe_url=base_iframe_url,
             signed_iframe_url=signed_iframe_url,
             signed_download_url=signed_download_url,

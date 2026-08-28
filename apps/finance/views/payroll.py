@@ -56,7 +56,11 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, create_partial_payment_balance
+from apps.finance.services.financial_movement import (
+    BUDGET_PLAN_REQUIRED,
+    apply_payment_reconciliation_rules,
+    create_partial_payment_balance,
+)
 from apps.finance.views.commissions import MONTH_CHOICES, _parse_int_param, build_paid_status_indicator
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import can_view_payroll_details, get_active_workshop_or_404

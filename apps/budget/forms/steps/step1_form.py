@@ -8,7 +8,12 @@ from .common import *
 class BudgetStep1Form(BudgetStepBaseForm):
     workshop = forms.CharField(label="Empresa", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     cost_estimator = forms.CharField(label="Orçamentista", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
-    vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=True, widget=SearchableSelectInput())
+    vehicle = forms.ModelChoiceField(
+        label="Veículo",
+        queryset=Vehicle.objects.none(),
+        required=True,
+        widget=SearchableSelectInput(),
+    )
     confirm_entry_km_mismatch = forms.BooleanField(required=False, widget=forms.HiddenInput())
 
     class Meta:
@@ -571,11 +576,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
             self.add_error("vehicle", "O veículo selecionado não pertence ao cliente informado no orçamento.")
 
         if budget_entry_km_is_below_cadastro(current_km=current_km, registered_km=registered_km):
-            formatted_previous_km = f"{registered_km:,}".replace(",", ".")
-            self.add_error(
-                "current_km",
-                f"{BUDGET_KM_BELOW_CADASTRO_MESSAGE} (KM cadastrado: {formatted_previous_km}).",
-            )
+            self.add_error("current_km", BUDGET_KM_BELOW_CADASTRO_MESSAGE)
 
         cleaned_data["workshop"] = self.workshop
         if self.request and self.request.user:

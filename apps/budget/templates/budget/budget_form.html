@@ -1,5 +1,5 @@
 {% extends 'crud/page.html' %}
-{% load l10n %}
+{% load l10n static %}
 {% block crud_content %}
 
     <div class="flex items-center justify-between gap-4 w-full">
@@ -378,4 +378,6 @@
     })();
     </script>
     {% endif %}
+
+    <script defer src="{% static 'js/budget_term_signing.js' %}"></script>
 {% endblock %}

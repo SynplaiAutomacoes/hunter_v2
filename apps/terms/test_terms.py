@@ -93,8 +93,16 @@ class TermSignatureDisplayTests(SimpleTestCase):
         )
         self.assertTrue(can_toggle_term_signed_pdf(signing))
 
-    def test_resolve_modal_urls_defaults_to_signed_when_toggle_enabled(self) -> None:
-        urls = resolve_term_modal_urls(budget_id=10, template_id=3, can_toggle_signed_pdf=True)
+    def test_resolve_modal_urls_defaults_to_base_when_sent(self) -> None:
+        signing = SimpleNamespace(signature_request_status=TermSignatureStatus.SENT)
+        urls = resolve_term_modal_urls(budget_id=10, template_id=3, can_toggle_signed_pdf=True, signing=signing)
+        self.assertTrue(urls.can_toggle_signed_pdf)
+        self.assertEqual(urls.initial_pdf_variant, "base")
+        self.assertNotIn("/signed/", urls.default_iframe_url)
+
+    def test_resolve_modal_urls_defaults_to_signed_when_approved(self) -> None:
+        signing = SimpleNamespace(signature_request_status=TermSignatureStatus.APPROVED)
+        urls = resolve_term_modal_urls(budget_id=10, template_id=3, can_toggle_signed_pdf=True, signing=signing)
         self.assertTrue(urls.can_toggle_signed_pdf)
         self.assertEqual(urls.initial_pdf_variant, "signed")
         self.assertIn("/signed/", urls.default_iframe_url)
@@ -271,3 +279,28 @@ class TermSignatureSendTests(SimpleTestCase):
         send_request = service.send_document.call_args.args[0]
         self.assertEqual(send_request.content_type, "text/html")
         self.assertIn(b"sign-box", send_request.document_bytes)
+
+
+class BudgetTermSignedPdfViewTests(SimpleTestCase):
+    def test_get_allows_iframe_embedding(self) -> None:
+        from django.test import RequestFactory
+
+        from apps.terms.views import BudgetTermSignedPdfView
+
+        request = RequestFactory().get("/terms/budgets/1/receipt/1/signed/")
+        view = BudgetTermSignedPdfView()
+        workshop = SimpleNamespace(pk=1)
+        view.workshop = workshop
+        budget = SimpleNamespace(pk=1, workshop=workshop)
+        template = SimpleNamespace(pk=1)
+        signing = SimpleNamespace(signature_external_id="env-1", signature_document_id="env-1")
+
+        with (
+            patch.object(view, "_get_budget", return_value=budget),
+            patch("apps.terms.views.get_object_or_404", side_effect=[template, signing]),
+            patch("apps.terms.views.get_workshop_synplaisign_api_key", return_value="sk"),
+            patch("apps.terms.views.download_signed_pdf", return_value=b"%PDF"),
+        ):
+            response = view.get(request, budget_id=1, template_id=1)
+
+        self.assertTrue(getattr(response, "xframe_options_exempt", False))

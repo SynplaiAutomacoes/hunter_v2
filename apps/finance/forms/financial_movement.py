@@ -18,7 +18,12 @@ from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement, FinancialMovementInstallmentPlan
 from apps.finance.services.installments import InstallmentScheduleError, build_installments, parse_installment_schedule
-from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, create_partial_payment_balance, generate_card_fee_movement
+from apps.finance.services.financial_movement import (
+    BUDGET_PLAN_REQUIRED,
+    apply_payment_reconciliation_rules,
+    create_partial_payment_balance,
+    generate_card_fee_movement,
+)
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreModelForm
