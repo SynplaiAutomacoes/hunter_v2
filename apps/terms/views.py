@@ -30,7 +30,6 @@ from apps.terms.services.files import (
     TermFileStorageError,
     delete_term_pdf_file,
     read_term_pdf_file,
-    save_term_pdf_file,
 )
 from apps.terms.services.signature import TermSignatureError, send_term_for_signature
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -165,37 +164,22 @@ class TermTemplateCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScop
         return kwargs
 
     def form_valid(self, form):
-        source = form.cleaned_data["source"]
         try:
             sections = extract_term_sections(self.request.POST)
         except ValueError as error:
             form.add_error(None, str(error))
             return self.form_invalid(form)
-        if source == TermSource.HTML and not sections:
+        if not sections:
             form.add_error(None, "Adicione pelo menos um tópico com texto.")
             return self.form_invalid(form)
 
-        uploaded_pdf = form.cleaned_data.get("imported_pdf")
-        staged_file: StoredTermFile | None = None
-        if source == TermSource.PDF and uploaded_pdf is not None:
-            try:
-                staged_file = save_term_pdf_file(workshop_id=self.workshop.pk, uploaded_file=uploaded_pdf)
-            except TermFileStorageError as error:
-                form.add_error("imported_pdf", str(error))
-                return self.form_invalid(form)
-
         with transaction.atomic():
-            try:
-                term = cast(TermTemplate, form.save(commit=False))
-                term.workshop = self.workshop
-                _apply_source_fields(template=term, source=source, staged_file=staged_file)
-                term.save()
-                _replace_term_sections(template=term, source=source, post_data=self.request.POST)
-                self.object = term
-            except Exception:
-                if staged_file is not None:
-                    _safe_delete_term_file(file_id=staged_file.file_id)
-                raise
+            term = cast(TermTemplate, form.save(commit=False))
+            term.workshop = self.workshop
+            _apply_source_fields(template=term, source=TermSource.HTML, staged_file=None)
+            term.save()
+            _replace_term_sections(template=term, source=TermSource.HTML, post_data=self.request.POST)
+            self.object = term
         return HttpResponseRedirect(self.get_success_url())
 
 
@@ -212,49 +196,27 @@ class TermTemplateUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
 
     def form_valid(self, form):
         previous_file_id = str(self.object.pdf_file_key or "").strip()
-        source = form.cleaned_data["source"]
         try:
             sections = extract_term_sections(self.request.POST)
         except ValueError as error:
             form.add_error(None, str(error))
             return self.form_invalid(form)
-        if source == TermSource.HTML and not sections:
+        if not sections:
             form.add_error(None, "Adicione pelo menos um tópico com texto.")
             return self.form_invalid(form)
 
-        uploaded_pdf = form.cleaned_data.get("imported_pdf")
-        staged_file: StoredTermFile | None = None
-        if source == TermSource.PDF and uploaded_pdf is not None:
-            try:
-                staged_file = save_term_pdf_file(workshop_id=self.workshop.pk, uploaded_file=uploaded_pdf)
-            except TermFileStorageError as error:
-                form.add_error("imported_pdf", str(error))
-                return self.form_invalid(form)
-
         files_to_remove: list[str] = []
         with transaction.atomic():
-            try:
-                term = cast(TermTemplate, form.save(commit=False))
-                term.workshop = self.workshop
-                _apply_source_fields(template=term, source=source, staged_file=staged_file)
-                if source == TermSource.PDF and staged_file is None:
-                    term.pdf_file_key = self.object.pdf_file_key
-                    term.pdf_file_name = self.object.pdf_file_name
-                    term.pdf_content_type = self.object.pdf_content_type
-                    term.pdf_uploaded_at = self.object.pdf_uploaded_at
-                if source == TermSource.HTML and previous_file_id:
-                    files_to_remove.append(previous_file_id)
-                elif staged_file is not None and previous_file_id and previous_file_id != staged_file.file_id:
-                    files_to_remove.append(previous_file_id)
-                term.save()
-                _replace_term_sections(template=term, source=source, post_data=self.request.POST)
-                self.object = term
-                if files_to_remove:
-                    transaction.on_commit(lambda: _delete_files_after_commit(files_to_remove))
-            except Exception:
-                if staged_file is not None:
-                    _safe_delete_term_file(file_id=staged_file.file_id)
-                raise
+            term = cast(TermTemplate, form.save(commit=False))
+            term.workshop = self.workshop
+            _apply_source_fields(template=term, source=TermSource.HTML, staged_file=None)
+            if previous_file_id:
+                files_to_remove.append(previous_file_id)
+            term.save()
+            _replace_term_sections(template=term, source=TermSource.HTML, post_data=self.request.POST)
+            self.object = term
+            if files_to_remove:
+                transaction.on_commit(lambda: _delete_files_after_commit(files_to_remove))
         return HttpResponseRedirect(self.get_success_url())
 
 

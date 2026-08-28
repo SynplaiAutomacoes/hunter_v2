@@ -17,6 +17,30 @@ import sys
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _load_local_dotenv() -> None:
+    env_path = BASE_DIR / ".env"
+    if not env_path.is_file():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        key, separator, value = line.partition("=")
+        if not separator:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
+_load_local_dotenv()
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
 
 DEBUG = os.getenv("DJANGO_DEBUG", "1").lower() in ("1", "true", "yes")

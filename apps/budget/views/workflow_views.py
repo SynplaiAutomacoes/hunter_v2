@@ -660,6 +660,17 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         kwargs["workshop"] = self.workshop
         kwargs["instance"] = self.get_object()
 
+        if self.get_current_step() == 2:
+            from apps.terms.models import TermKind, TermTemplate
+
+            kwargs["receipt_terms"] = list(
+                TermTemplate.objects.filter(
+                    workshop=self.workshop,
+                    is_active=True,
+                    kind=TermKind.RECEIPT,
+                ).order_by("name")
+            )
+
         obj = kwargs["instance"]
         if not obj and self.get_current_step() == 6:
             last_observation = (Budget.objects.filter(workshop=self.workshop).exclude(observations="").order_by("-criado_em").values_list("observations", flat=True).first()) or ""
@@ -697,13 +708,6 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if budget and budget.is_status_locked:
             context["max_reached_step"] = total_steps
         context["origin_appointment_id"] = self._get_origin_appointment_id()
-        from apps.terms.models import TermKind, TermTemplate
-
-        context["has_receipt_term"] = TermTemplate.objects.filter(
-            workshop=self.workshop,
-            is_active=True,
-            kind=TermKind.RECEIPT,
-        ).exists()
         return context
 
     def _block_step5_advance_if_needed(self, current_step):

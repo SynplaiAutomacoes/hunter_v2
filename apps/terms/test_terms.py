@@ -144,10 +144,33 @@ class TermWebhookIsolationTests(TestCase):
         self.assertEqual(context["plate_label"], "TRM1A23")
         self.assertEqual(context["document_title_line1"], "Termo de recebimento")
         self.assertEqual(context["document_title_line2"], "de veículo")
+        self.assertEqual(context["primary_color"], "#000000")
+        self.assertEqual(context["accent_color"], "#e30613")
         html = render_term_signature_html(template=self.template, budget=self.budget)
         self.assertIn("#e30613", html)
+        self.assertIn("#000000", html)
         self.assertIn("topic-number", html)
         self.assertNotIn("Iowan", html)
+
+    def test_document_uses_custom_colors(self) -> None:
+        self.template.primary_color = "#1a1a1a"
+        self.template.accent_color = "#3366cc"
+        self.template.save(update_fields=["primary_color", "accent_color"])
+        context = build_term_document_context(template=self.template, budget=self.budget)
+        self.assertEqual(context["primary_color"], "#1a1a1a")
+        self.assertEqual(context["accent_color"], "#3366cc")
+        html = render_term_signature_html(template=self.template, budget=self.budget)
+        self.assertIn("#1a1a1a", html)
+        self.assertIn("#3366cc", html)
+
+    @patch("apps.terms.documents.resolve_workshop_logo_src", return_value="data:image/png;base64,abc")
+    def test_document_uses_workshop_logo(self, logo_mock: Mock) -> None:
+        from django.test import RequestFactory
+
+        request = RequestFactory().get("/")
+        context = build_term_document_context(template=self.template, budget=self.budget, request=request)
+        self.assertEqual(context["workshop_logo_data_uri"], "data:image/png;base64,abc")
+        logo_mock.assert_called_once_with(workshop=self.workshop, request=request)
 
 
 class TermSignatureSendTests(SimpleTestCase):

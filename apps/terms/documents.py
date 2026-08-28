@@ -3,9 +3,9 @@ from __future__ import annotations
 from django.http import HttpRequest
 from django.template.loader import render_to_string
 
-from apps.budget.pdf_context import build_workshop_logo_data_uri
+from apps.budget.pdf_context import resolve_workshop_logo_src
 from apps.terms.content import DEFAULT_CLOSING_TEXT
-from apps.terms.models import TermKind
+from apps.terms.models import TERM_DEFAULT_ACCENT_COLOR, TERM_DEFAULT_PRIMARY_COLOR, TermKind
 from apps.terms.placeholders import merge_term_placeholders
 
 
@@ -13,7 +13,7 @@ def _merged(text: str, *, budget) -> str:
     return merge_term_placeholders(text, budget=budget)
 
 
-def build_term_document_context(*, template, budget=None) -> dict:
+def build_term_document_context(*, template, budget=None, request: HttpRequest | None = None) -> dict:
     workshop = getattr(budget, "workshop", None) or getattr(template, "workshop", None)
     topics = []
     topic_queryset = template.topics.prefetch_related("bullets").all()
@@ -37,13 +37,17 @@ def build_term_document_context(*, template, budget=None) -> dict:
         title_line2 = ""
     logo = ""
     if workshop is not None:
-        logo = build_workshop_logo_data_uri(workshop=workshop)
+        logo = resolve_workshop_logo_src(workshop=workshop, request=request)
+    primary_color = str(getattr(template, "primary_color", "") or TERM_DEFAULT_PRIMARY_COLOR)
+    accent_color = str(getattr(template, "accent_color", "") or TERM_DEFAULT_ACCENT_COLOR)
     return {
         "term_name": template.name,
         "document_kind_label": template.get_kind_display(),
         "document_title_line1": title_line1,
         "document_title_line2": title_line2,
         "workshop_logo_data_uri": logo,
+        "primary_color": primary_color,
+        "accent_color": accent_color,
         "workshop": workshop,
         "budget": budget,
         "intro_text": _merged(template.intro_text, budget=budget),
@@ -59,7 +63,7 @@ def build_term_document_context(*, template, budget=None) -> dict:
 def render_term_signature_html(*, template, budget=None, request: HttpRequest | None = None) -> str:
     return render_to_string(
         "terms/pdf/term_signature.html",
-        build_term_document_context(template=template, budget=budget),
+        build_term_document_context(template=template, budget=budget, request=request),
         request=request,
     )
 

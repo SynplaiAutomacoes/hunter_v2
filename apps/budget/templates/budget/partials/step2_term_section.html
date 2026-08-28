@@ -1,0 +1,59 @@
+{% load l10n %}
+
+<div class="flex flex-col h-full w-full" data-receipt-term-panel>
+    <label class="label p-0 mb-2" for="receipt-term-select">
+        <span class="label-text font-semibold">Termo de Recebimento</span>
+    </label>
+    <select
+        id="receipt-term-select"
+        class="select select-bordered w-full bg-base-200 mb-3"
+        data-receipt-term-select
+    >
+        {% for term in receipt_terms %}
+            <option value="{{ term.pk|unlocalize }}" {% if forloop.first %}selected{% endif %}>{{ term.name }}</option>
+        {% endfor %}
+    </select>
+    <button
+        type="button"
+        class="btn btn-outline w-full sm:w-auto"
+        id="receipt-term-open-btn"
+        data-url-template="{{ term_modal_url_template }}"
+        hx-get="{{ initial_term_modal_url }}"
+        hx-target="#modal-container"
+        hx-swap="innerHTML"
+    >
+        <span class="material-icons text-base">description</span>
+        Visualizar termo
+    </button>
+</div>
+
+<script>
+    (function () {
+        const panel = document.querySelector('[data-receipt-term-panel]');
+        if (!panel || panel.dataset.bound === '1') {
+            return;
+        }
+
+        panel.dataset.bound = '1';
+
+        const select = panel.querySelector('[data-receipt-term-select]');
+        const button = panel.querySelector('#receipt-term-open-btn');
+        if (!select || !button) {
+            return;
+        }
+
+        const urlTemplate = button.dataset.urlTemplate || '';
+
+        const updateModalUrl = function () {
+            if (!urlTemplate) {
+                return;
+            }
+            button.setAttribute('hx-get', urlTemplate.replace('{id}', select.value));
+            if (window.htmx) {
+                window.htmx.process(button);
+            }
+        };
+
+        select.addEventListener('change', updateModalUrl);
+    })();
+</script>

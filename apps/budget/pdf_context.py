@@ -396,6 +396,27 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
+def resolve_workshop_logo_src(*, workshop, request=None) -> str:
+    from django.urls import reverse
+
+    from apps.workshops.services.files import WorkshopFileStorageError, build_workshop_logo_public_url, workshop_has_logo
+
+    if workshop is None or not workshop_has_logo(workshop):
+        return ""
+
+    data_uri = build_workshop_logo_data_uri(workshop=workshop)
+    if data_uri:
+        return data_uri
+
+    if request is not None:
+        return request.build_absolute_uri(reverse("workshops:logo", kwargs={"pk": workshop.pk}))
+
+    try:
+        return build_workshop_logo_public_url(workshop=workshop)
+    except WorkshopFileStorageError:
+        return ""
+
+
 def resolve_expected_delivery_at(*, budget):
     return budget.customer_agreed_departure_at or budget.service_expected_completion_at
 
