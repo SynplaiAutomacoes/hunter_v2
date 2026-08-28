@@ -952,6 +952,31 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
         benefit_tab = next((tab for tab in component_tabs if tab["is_benefit_tab"]), None)
         default_benefit_movement_id = benefit_tab["default_movement_id"] if benefit_tab is not None else None
 
+        from apps.workorder.models import WorkOrder
+        from apps.collaborators.models import CollaboratorCommissionEntry
+        
+        warranty_wos_qs = WorkOrder.objects.filter(
+            workshop=payroll.workshop,
+            budget_type="warranty",
+            warranty_origin__isnull=False,
+            criado_em__year=payroll.reference_year,
+            criado_em__month=payroll.reference_month
+        ).select_related("warranty_origin")
+        
+        prejuizo_total = Decimal("0.00")
+        warranty_wos = []
+        for w_wo in warranty_wos_qs:
+            entries = CollaboratorCommissionEntry.objects.filter(
+                collaborator=payroll.collaborator,
+                workorder=w_wo.warranty_origin
+            )
+            loss = sum((e.commission_amount.amount for e in entries if e.commission_amount), start=Decimal("0.00"))
+            if loss > 0:
+                prejuizo_total += loss
+                warranty_wos.append(w_wo)
+                
+        prejuizo_money = Money(-prejuizo_total, "BRL")
+
         return render(
             request,
             "finance/payroll/partials/edit_modal.html",
@@ -963,6 +988,8 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 "fallback_tab": fallback_tab,
                 "continue_without_create": True,
                 "default_benefit_movement_id": default_benefit_movement_id,
+                "warranty_wos": warranty_wos,
+                "prejuizo_total": prejuizo_money,
                 "workshop_default_work_days": get_workshop_work_days(
                     workshop=payroll.workshop,
                     reference_date=date(payroll.reference_year, payroll.reference_month, 1),

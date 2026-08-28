@@ -21,7 +21,7 @@ from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderCourtesyReasonType, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderWarrantyPlan
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderCourtesyReasonType, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus, WorkOrderWarrantyPlan
 from apps.workshops.models.review_plans import ReviewPlan
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 
@@ -785,6 +785,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
     last_oil_change_date = forms.DateField(label="Data da última troca de óleo", required=False, widget=CalendarDateInput())
     last_oil_change_km = forms.IntegerField(label="KM da última troca de óleo", required=False, min_value=0, widget=NumberInput())
     review_plan = forms.ModelChoiceField(label="Plano de revisão", queryset=ReviewPlan.objects.none(), required=False, widget=SearchableSelectInput())
+    warranty_origin = forms.ModelChoiceField(label="WO de venda que originou a garantia", queryset=WorkOrder.objects.none(), required=False, widget=SearchableSelectInput())
     unsigned_delivery_reason = forms.CharField(
         label="Justificativa da entrega sem assinatura",
         required=False,
@@ -830,6 +831,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             "previous_mechanic",
             "courtesy_reason_type",
             "courtesy_reason_description",
+            "warranty_origin",
         }
     )
 
@@ -880,6 +882,20 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         else:
             for field_name in ("previous_mechanic", "courtesy_reason_type", "courtesy_reason_description"):
                 self.fields[field_name].disabled = True
+
+        if self.workorder and self.workorder.budget_type == "warranty":
+            warranty_origin_field = cast(forms.ModelChoiceField, self.fields["warranty_origin"])
+            warranty_origin_qs = WorkOrder.objects.none()
+            if workshop and vehicle:
+                warranty_origin_qs = WorkOrder.objects.filter(
+                    workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED, budget__vehicle_id=vehicle.id
+                ).select_related("budget__customer", "budget__vehicle").order_by("-criado_em")
+            warranty_origin_field.queryset = warranty_origin_qs
+            warranty_origin_field.label_from_instance = lambda obj: f"#{obj.get_id} - {obj.budget.customer.name if obj.budget.customer else ''} - {obj.budget.vehicle.plate if obj.budget.vehicle else ''} - {obj.get_status_display()}"
+            if self.workorder.warranty_origin_id and not self.is_bound:
+                self.fields["warranty_origin"].initial = self.workorder.warranty_origin_id
+        else:
+            self.fields["warranty_origin"].disabled = True
 
         if self.workorder and not self.is_bound:
             has_workorder_oil_data = bool(self.workorder.last_oil_change_date or self.workorder.last_oil_change_km is not None or self.workorder.review_plan_id)
@@ -997,6 +1013,24 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                     )
                 ]
                 if getattr(self, "is_courtesy_or_warranty", False)
+                else []
+            ),
+            *(
+                [
+                    Div(
+                        Div(
+                            Field(
+                                "warranty_origin", 
+                                wrapper_class="mb-0",
+                            ),
+                            HTML(f'<div id="warranty-origin-detail" hx-get="{reverse("workorder:warranty_origin_detail", args=[self.workorder.pk]) if self.workorder and self.workorder.pk else ""}" hx-include="#id_warranty_origin" hx-trigger="change from:#id_warranty_origin, load" hx-target="#warranty-origin-detail"></div>'),
+                            css_class="col-span-12",
+                        ),
+                        css_id="warranty-origin-section",
+                        css_class="mt-4 grid grid-cols-12 gap-4 rounded-box border border-info/25 bg-info/10 p-4 text-base-content [&_label]:text-base-content [&_.label-text]:text-base-content",
+                    )
+                ]
+                if self.workorder and self.workorder.budget_type == "warranty"
                 else []
             ),
         )

@@ -30,6 +30,9 @@
                     {{ tab.label }}
                     {% if tab.is_missing %}<span class="badge badge-warning badge-xs ml-1">faltando</span>{% endif %}
                 </button>
+                {% if tab.is_commission_tab %}
+                <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
+                {% endif %}
             {% endfor %}
             <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
             <button type="button" class="btn btn-sm" :class="activeTab === 'summary' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'summary'">Resumo</button>
@@ -99,6 +102,15 @@
 
                 <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4">
                     <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">history</span>Histórico de comissões</h3>
+                    
+                    {% if warranty_wos %}
+                    <div class="alert alert-error shadow-sm bg-opacity-20 border-error">
+                        <div class="flex flex-col gap-1 text-error">
+                            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
+                            <span class="text-sm text-gray-900">Este colaborador gerou prejuízo de {{ prejuizo_total }} para as WOs de garantia {% for w in warranty_wos %}#{{ w.get_id }}{% if not forloop.last %}, {% endif %}{% endfor %}.</span>
+                        </div>
+                    </div>
+                    {% endif %}
 
                     <div class="overflow-x-auto rounded-xl border border-base-300">
                         <table class="table table-sm">
@@ -270,6 +282,14 @@
                                 <p class="rounded-xl border border-dashed border-base-300 bg-base-200/40 px-4 py-6 text-center text-sm text-base-content/60">Nenhum benefício nesta competência. Use Lançar benefício para um valor só deste mês.</p>
                             {% endif %}
                         {% else %}
+                            {% if tab.is_commission_tab and warranty_wos %}
+                            <div class="alert alert-error shadow-sm bg-opacity-20 border-error mb-4">
+                                <div class="flex flex-col gap-1 text-error">
+                                    <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
+                                    <span class="text-sm text-gray-900">Este colaborador gerou prejuízo de {{ prejuizo_total }} para as WOs de garantia {% for w in warranty_wos %}#{{ w.get_id }}{% if not forloop.last %}, {% endif %}{% endfor %}.</span>
+                                </div>
+                            </div>
+                            {% endif %}
                             <div class="flex items-center justify-between gap-3">
                                 <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
                                 <div class="flex flex-wrap items-center gap-2">
