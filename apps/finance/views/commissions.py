@@ -243,11 +243,17 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         for entry in entries:
             is_manual = entry.is_manual or entry.workorder_id is None
             customer = getattr(getattr(entry.workorder, "budget", None), "customer", None) if entry.workorder_id else None
+            if is_manual or entry.workorder is None:
+                workorder_id = None
+                workorder_url = ""
+            else:
+                workorder_id = entry.workorder.get_id
+                workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": entry.workorder_id})
             rows.append(
                 {
                     "collaborator_name": entry.collaborator.name,
-                    "workorder_id": entry.workorder.get_id,
-                    "workorder_url": reverse("workorder:workorder_detail", kwargs={"pk": entry.workorder_id}),
+                    "workorder_id": workorder_id,
+                    "workorder_url": workorder_url,
                     "workorder_label": "Manual" if is_manual else "",
                     "customer_name": customer.name if customer is not None else "-",
                     "description": self._resolve_workorder_description(entry),
