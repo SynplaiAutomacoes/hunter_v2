@@ -2,13 +2,29 @@
 <input type="checkbox" id="budget-term-modal" class="modal-toggle" checked />
 
 <div class="modal" role="dialog" aria-modal="true">
-    <div class="modal-box h-[92vh] w-[98vw] max-w-7xl p-0 overflow-hidden">
+    <div
+        id="budget-term-modal-box"
+        class="modal-box h-[92vh] w-[98vw] max-w-7xl p-0 overflow-hidden"
+        {% if term_modal_urls %}
+        data-can-toggle="{{ term_modal_urls.can_toggle_signed_pdf|yesno:'true,false' }}"
+        data-initial-variant="{{ term_modal_urls.initial_pdf_variant }}"
+        data-base-url="{{ term_modal_urls.base_iframe_url }}"
+        data-signed-url="{{ term_modal_urls.signed_iframe_url }}"
+        data-signed-download-url="{{ term_modal_urls.signed_download_url }}"
+        {% endif %}
+    >
         <div class="flex items-center justify-between border-b border-base-200 px-6 py-4 bg-base-100 gap-4">
-            <div>
-                <h3 class="text-lg font-bold text-base-content">Termo de Recebimento</h3>
-                <p class="text-sm text-base-content/70">
+            <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="text-lg font-bold text-base-content">
+                        {% if selected %}{{ selected.get_kind_display }}{% else %}Termo{% endif %}
+                    </h3>
+                    <span class="badge {{ signature_status_badge.class }} font-semibold uppercase">
+                        {{ signature_status_badge.text }}
+                    </span>
+                </div>
+                <p class="text-sm text-base-content/70 truncate">
                     {% if selected %}{{ selected.name }}{% else %}Selecione um termo cadastrado{% endif %}
-                    {% if signing %} · {{ signing.get_signature_request_status_display }}{% endif %}
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap justify-end">
@@ -23,7 +39,8 @@
                         >{{ term.name }}</button>
                     {% endfor %}
                 {% endif %}
-                {% if selected and selected.can_send_for_signature and not signing.is_signed %}
+                {% if selected and selected.can_send_for_signature %}
+                    {% if not signing or not signing.is_signed %}
                     <button
                         type="button"
                         class="btn btn-sm btn-primary"
@@ -33,9 +50,23 @@
                     >
                         {% if signing and signing.can_resend %}Reenviar para assinatura{% else %}Enviar para assinatura{% endif %}
                     </button>
+                    {% endif %}
                 {% endif %}
-                {% if signing and signing.is_signed %}
-                    <a class="btn btn-sm btn-outline" href="{% url 'terms:budget_term_signed' budget.pk selected.pk %}" target="_blank" rel="noopener">PDF assinado</a>
+                {% if term_modal_urls and term_modal_urls.can_toggle_signed_pdf %}
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline hidden"
+                        data-term-pdf-toggle
+                    >
+                        Ver não assinado
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-success"
+                        data-term-pdf-download
+                    >
+                        Baixar PDF assinado
+                    </button>
                 {% endif %}
                 <label for="budget-term-modal" class="btn btn-sm btn-ghost">Fechar</label>
             </div>
@@ -43,14 +74,61 @@
         <div class="h-[calc(92vh-73px)] bg-[#2a2d31]">
             {% if selected %}
                 <iframe
-                    src="{% url 'terms:budget_term_preview' budget.pk selected.pk %}"
+                    data-term-preview-frame
+                    src="{% if term_modal_urls %}{{ term_modal_urls.default_iframe_url }}{% else %}{% url 'terms:budget_term_preview' budget.pk selected.pk %}{% endif %}"
                     class="h-full w-full bg-[#2a2d31]"
                     frameborder="0"
                 ></iframe>
             {% else %}
-                <div class="p-8 text-base-content/70">Nenhum termo de recebimento ativo cadastrado para esta oficina.</div>
+                <div class="p-8 text-base-content/70">Nenhum termo ativo cadastrado para esta oficina.</div>
             {% endif %}
         </div>
     </div>
     <label class="modal-backdrop" for="budget-term-modal">Close</label>
 </div>
+
+{% if term_modal_urls %}
+<script>
+    (function () {
+        const root = document.getElementById('budget-term-modal-box');
+        if (!root || root.dataset.termPdfReady === 'true') {
+            return;
+        }
+        root.dataset.termPdfReady = 'true';
+
+        const iframe = root.querySelector('[data-term-preview-frame]');
+        const toggleButton = root.querySelector('[data-term-pdf-toggle]');
+        const downloadButton = root.querySelector('[data-term-pdf-download]');
+        const canToggle = root.dataset.canToggle === 'true';
+        const baseUrl = root.dataset.baseUrl || '';
+        const signedUrl = root.dataset.signedUrl || '';
+        const signedDownloadUrl = root.dataset.signedDownloadUrl || '';
+        let variant = root.dataset.initialVariant || 'base';
+
+        const applyVariant = function () {
+            if (!iframe) {
+                return;
+            }
+            iframe.src = variant === 'signed' ? signedUrl : baseUrl;
+            if (toggleButton) {
+                toggleButton.textContent = variant === 'signed' ? 'Ver não assinado' : 'Ver assinado';
+            }
+        };
+
+        if (toggleButton && canToggle) {
+            toggleButton.classList.remove('hidden');
+            applyVariant();
+            toggleButton.addEventListener('click', function () {
+                variant = variant === 'signed' ? 'base' : 'signed';
+                applyVariant();
+            });
+        }
+
+        if (downloadButton && signedDownloadUrl) {
+            downloadButton.addEventListener('click', function () {
+                window.open(signedDownloadUrl, '_blank');
+            });
+        }
+    })();
+</script>
+{% endif %}

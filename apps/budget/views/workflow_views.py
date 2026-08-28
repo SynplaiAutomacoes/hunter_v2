@@ -654,25 +654,35 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return None
 
-    def get_form_kwargs(self):
+    def get_form_kwargs(self, for_step: int | None = None):
         kwargs = super().get_form_kwargs()
         kwargs["request"] = self.request
         kwargs["workshop"] = self.workshop
         kwargs["instance"] = self.get_object()
 
-        if self.get_current_step() == 2:
-            from apps.terms.models import TermKind, TermTemplate
+        resolved_step = for_step if for_step is not None else self.get_current_step()
 
-            kwargs["receipt_terms"] = list(
+        if resolved_step == 2:
+            from apps.terms.models import BudgetTermSigning, TermKind, TermTemplate
+
+            receipt_terms = list(
                 TermTemplate.objects.filter(
                     workshop=self.workshop,
                     is_active=True,
-                    kind=TermKind.RECEIPT,
+                    kind__in=[TermKind.RECEIPT, TermKind.WARRANTY],
                 ).order_by("name")
             )
+            kwargs["receipt_terms"] = receipt_terms
+            obj = kwargs["instance"]
+            kwargs["term_signings_by_template_id"] = {}
+            if obj and obj.pk and receipt_terms:
+                kwargs["term_signings_by_template_id"] = {
+                    signing.template_id: signing
+                    for signing in BudgetTermSigning.objects.filter(budget=obj, template__in=receipt_terms)
+                }
 
         obj = kwargs["instance"]
-        if not obj and self.get_current_step() == 6:
+        if not obj and resolved_step == 6:
             last_observation = (Budget.objects.filter(workshop=self.workshop).exclude(observations="").order_by("-criado_em").values_list("observations", flat=True).first()) or ""
             if last_observation:
                 initial = kwargs.get("initial") or {}
@@ -688,7 +698,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if form_class is None:
             raise ValueError(f"Nenhum form configurado para etapa {step}.")
 
-        form_kwargs = self.get_form_kwargs()
+        form_kwargs = self.get_form_kwargs(for_step=step)
         form_kwargs["instance"] = self.object
         next_form = form_class(**form_kwargs)
         self._model_instance = self.object

@@ -2,13 +2,79 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from django.http import QueryDict
+from django.urls import reverse
+
+from apps.terms.models import BudgetTermSigning, TermSignatureStatus
 
 
 def new_topic_key() -> str:
     return uuid.uuid4().hex[:12]
+
+
+_TERM_SIGNATURE_STATUS_BADGES: dict[str, tuple[str, str]] = {
+    TermSignatureStatus.NOT_SENT: ("Não enviado", "badge-ghost"),
+    TermSignatureStatus.SENDING: ("Enviando", "badge-info"),
+    TermSignatureStatus.SENT: ("Enviado", "badge-warning"),
+    TermSignatureStatus.FAILED: ("Falha no envio", "badge-error"),
+    TermSignatureStatus.APPROVED: ("Assinado", "badge-success"),
+    TermSignatureStatus.DECLINED: ("Recusado", "badge-error"),
+}
+
+
+def term_signature_status_badge(signing: BudgetTermSigning | None) -> dict[str, str]:
+    if signing is None:
+        return {"text": "Não enviado", "class": "badge-ghost"}
+    text, css_class = _TERM_SIGNATURE_STATUS_BADGES.get(signing.signature_request_status, ("Desconhecido", "badge-ghost"))
+    return {"text": text, "class": css_class}
+
+
+def can_toggle_term_signed_pdf(signing: BudgetTermSigning | None) -> bool:
+    if signing is None:
+        return False
+    return signing.signature_request_status in {TermSignatureStatus.SENT, TermSignatureStatus.APPROVED} and bool(
+        signing.signature_external_id or signing.signature_document_id
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TermModalUrls:
+    can_toggle_signed_pdf: bool
+    initial_pdf_variant: str
+    default_iframe_url: str
+    base_iframe_url: str
+    signed_iframe_url: str
+    signed_download_url: str
+
+
+def resolve_term_modal_urls(*, budget_id: int, template_id: int, can_toggle_signed_pdf: bool) -> TermModalUrls:
+    base_iframe_url = reverse("terms:budget_term_preview", args=[budget_id, template_id])
+    signed_iframe_url = reverse("terms:budget_term_signed", args=[budget_id, template_id])
+    signed_download_url = f"{signed_iframe_url}?download=1"
+    if can_toggle_signed_pdf:
+        return TermModalUrls(
+            can_toggle_signed_pdf=True,
+            initial_pdf_variant="signed",
+            default_iframe_url=signed_iframe_url,
+            base_iframe_url=base_iframe_url,
+            signed_iframe_url=signed_iframe_url,
+            signed_download_url=signed_download_url,
+        )
+    return TermModalUrls(
+        can_toggle_signed_pdf=False,
+        initial_pdf_variant="base",
+        default_iframe_url=base_iframe_url,
+        base_iframe_url=base_iframe_url,
+        signed_iframe_url=signed_iframe_url,
+        signed_download_url=signed_download_url,
+    )
+
+
+def build_term_signing_status_map(*, terms: list[Any], signings_by_template_id: dict[int, BudgetTermSigning]) -> dict[str, dict[str, str]]:
+    return {str(term.pk): term_signature_status_badge(signings_by_template_id.get(term.pk)) for term in terms}
 
 
 def extract_term_sections(post_data: QueryDict) -> list[dict[str, Any]]:

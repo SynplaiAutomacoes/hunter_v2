@@ -1,5 +1,9 @@
 # ruff: noqa: F403,F405
+import json
+
 from django.urls import reverse
+
+from apps.terms.util import build_term_signing_status_map, term_signature_status_badge
 
 from .base import BudgetStepBaseForm
 from .common import *
@@ -30,6 +34,7 @@ class BudgetStep2Form(BudgetStepBaseForm):
 
     def __init__(self, *args, **kwargs):
         self.receipt_terms = kwargs.pop("receipt_terms", [])
+        self.term_signings_by_template_id = kwargs.pop("term_signings_by_template_id", {})
         super().__init__(*args, **kwargs)
 
         self.investigative_questions = InvestigativeQuestion.objects.filter(workshop=self.workshop, is_active=True).order_by("order")
@@ -76,6 +81,10 @@ class BudgetStep2Form(BudgetStepBaseForm):
                 "terms:budget_term_modal_selected",
                 kwargs={"budget_id": self.instance.pk, "template_id": 999999999},
             ).replace("999999999", "{id}")
+            term_signing_status_map = build_term_signing_status_map(
+                terms=self.receipt_terms,
+                signings_by_template_id=self.term_signings_by_template_id,
+            )
             term_section_html = render_to_string(
                 "budget/partials/step2_term_section.html",
                 {
@@ -85,6 +94,8 @@ class BudgetStep2Form(BudgetStepBaseForm):
                         "terms:budget_term_modal_selected",
                         kwargs={"budget_id": self.instance.pk, "template_id": first_term.pk},
                     ),
+                    "term_signing_status_map_json": json.dumps(term_signing_status_map),
+                    "initial_term_status_badge": term_signing_status_map.get(str(first_term.pk), term_signature_status_badge(None)),
                 },
                 request=self.request,
             )

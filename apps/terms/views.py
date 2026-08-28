@@ -24,7 +24,14 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.terms.documents import render_term_signature_html
 from apps.terms.forms import TermTemplateForm
 from apps.terms.models import BudgetTermSigning, TermBullet, TermKind, TermSource, TermSignatureStatus, TermTemplate, TermTopic
-from apps.terms.util import build_showtoast_trigger, extract_term_sections, new_topic_key
+from apps.terms.util import (
+    build_showtoast_trigger,
+    can_toggle_term_signed_pdf,
+    extract_term_sections,
+    new_topic_key,
+    resolve_term_modal_urls,
+    term_signature_status_badge,
+)
 from apps.terms.services.files import (
     StoredTermFile,
     TermFileStorageError,
@@ -274,7 +281,13 @@ class BudgetTermMixin(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 
 def _render_budget_term_modal(*, request, workshop, budget, template_id: int | None = None):
-    templates = list(TermTemplate.objects.filter(workshop=workshop, is_active=True, kind=TermKind.RECEIPT).order_by("name"))
+    templates = list(
+        TermTemplate.objects.filter(
+            workshop=workshop,
+            is_active=True,
+            kind__in=[TermKind.RECEIPT, TermKind.WARRANTY],
+        ).order_by("name")
+    )
     selected = None
     if template_id is not None:
         selected = next((item for item in templates if item.pk == template_id), None)
@@ -282,8 +295,17 @@ def _render_budget_term_modal(*, request, workshop, budget, template_id: int | N
         selected = templates[0]
 
     signing = None
+    term_modal_urls = None
+    signature_status_badge = term_signature_status_badge(None)
     if selected is not None:
         signing = BudgetTermSigning.objects.filter(budget=budget, template=selected).first()
+        signature_status_badge = term_signature_status_badge(signing)
+        can_toggle = can_toggle_term_signed_pdf(signing)
+        term_modal_urls = resolve_term_modal_urls(
+            budget_id=budget.pk,
+            template_id=selected.pk,
+            can_toggle_signed_pdf=can_toggle,
+        )
 
     return render(
         request,
@@ -293,6 +315,8 @@ def _render_budget_term_modal(*, request, workshop, budget, template_id: int | N
             "templates": templates,
             "selected": selected,
             "signing": signing,
+            "signature_status_badge": signature_status_badge,
+            "term_modal_urls": term_modal_urls,
         },
     )
 
@@ -393,6 +417,8 @@ class BudgetTermSignedPdfView(BudgetTermMixin):
             )
         except (WorkshopSynplaiSignError, SignatureServiceError) as exc:
             return HttpResponse(str(exc) or "Erro ao carregar PDF assinado", status=502)
+        should_download = request.GET.get("download") == "1"
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        response["Content-Disposition"] = f'inline; filename="termo-{template.pk}-orcamento-{budget.pk}.pdf"'
+        disposition = "attachment" if should_download else "inline"
+        response["Content-Disposition"] = f'{disposition}; filename="termo-{template.pk}-orcamento-{budget.pk}.pdf"'
         return response
