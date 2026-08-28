@@ -7,14 +7,19 @@ import logging
 from typing import Any
 
 from django.conf import settings
+from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
-from apps.workorder.approval import approve_workorder_with_stock
-from apps.workorder.models import WorkOrder, WorkOrderError, WorkOrderStatus
+from apps.workorder.approval import (
+    WorkOrderApprovalError,
+    approve_workorder_with_stock,
+    workorder_can_finalize_after_signature,
+)
+from apps.workorder.models import WorkOrder, WorkOrderError, WorkOrderStatus, WorkOrderWarrantyPlan
 
 
 logger = logging.getLogger(__name__)
@@ -35,24 +40,59 @@ def _find_first_string(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
     return ""
 
 
+SIGNATURE_COMPLETED_EVENTS = frozenset(
+    {
+        "ENVELOPE_COMPLETED",
+        "DOCUMENT_SIGNED",
+        "DOCUMENT_COMPLETED",
+        "ENVELOPE_COMPLETE",
+        "SIGNED",
+        "COMPLETED",
+    }
+)
+SIGNATURE_DECLINED_EVENTS = frozenset(
+    {
+        "DOCUMENT_DECLINED",
+        "DOCUMENT_DECLINE",
+        "ENVELOPE_DECLINED",
+        "DECLINED",
+    }
+)
+
+
 def _normalize_event_name(raw_event: str) -> str:
     normalized = raw_event.strip().upper().replace(".", "_").replace("-", "_")
-    alias_map = {
-        "ENVELOPE_COMPLETED": "ENVELOPE_COMPLETED",
-        "DOCUMENT_COMPLETED": "ENVELOPE_COMPLETED",
-        "ENVELOPE_COMPLETE": "ENVELOPE_COMPLETED",
-        "DOCUMENT_DECLINED": "DOCUMENT_DECLINED",
-        "DOCUMENT_DECLINE": "DOCUMENT_DECLINED",
-        "ENVELOPE_DECLINED": "DOCUMENT_DECLINED",
-    }
-    return alias_map.get(normalized, normalized)
+    if normalized in SIGNATURE_COMPLETED_EVENTS:
+        return "ENVELOPE_COMPLETED"
+    if normalized in SIGNATURE_DECLINED_EVENTS:
+        return "DOCUMENT_DECLINED"
+    return normalized
 
 
-def extract_signature_event(payload: dict[str, Any]) -> str:
-    raw_event = _find_first_string(payload, ("event", "eventType", "type", "name", "status"))
+def _normalized_payload_event(payload: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return _normalize_event_name(value)
+    raw_event = _find_first_string(payload, keys)
     if not raw_event:
         return ""
     return _normalize_event_name(raw_event)
+
+
+def extract_signature_event(payload: dict[str, Any], *, header_event: str = "") -> str:
+    if header_event.strip():
+        return _normalize_event_name(header_event)
+
+    named_event = _normalized_payload_event(payload, ("event", "eventType"))
+    if named_event:
+        return named_event
+
+    status_event = _normalized_payload_event(payload, ("status",))
+    if status_event in {"ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"}:
+        return status_event
+
+    return _normalized_payload_event(payload, ("type",))
 
 
 def _payload_structure(payload: Any, depth: int = 0, max_depth: int = 3) -> str:
@@ -72,7 +112,7 @@ def _payload_structure(payload: Any, depth: int = 0, max_depth: int = 3) -> str:
 
 
 def extract_signature_envelope_id(payload: dict[str, Any]) -> str:
-    direct = _find_first_string(payload, ("envelopeId", "envelope_id", "envelopeID"))
+    direct = _find_first_string(payload, ("envelopeId", "envelope_id", "envelopeID", "documentId", "document_id"))
     if direct:
         return direct
 
@@ -90,6 +130,9 @@ def extract_signature_envelope_id(payload: dict[str, Any]) -> str:
                     queue.append(value)
         elif isinstance(current, list):
             queue.extend(current)
+    top_id = payload.get("id")
+    if isinstance(top_id, str) and top_id.strip():
+        return top_id.strip()
     return ""
 
 
@@ -98,17 +141,29 @@ def build_synplaisign_webhook_signature(*, body: bytes, secret: str) -> str:
     return f"sha256={digest}"
 
 
+def _hmac_digest_hex(*, body: bytes, secret: str) -> str:
+    return hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+
+
 def validate_signature_webhook_hmac(*, body: bytes, secret: str, received_signature: str) -> bool:
-    expected = build_synplaisign_webhook_signature(body=body, secret=secret)
-    return hmac.compare_digest(expected, received_signature)
+    received = str(received_signature or "").strip()
+    if received.lower().startswith("sha256="):
+        received = received.split("=", 1)[1].strip()
+    received = received.lower()
+    expected = _hmac_digest_hex(body=body, secret=secret)
+    if len(received) != len(expected):
+        return False
+    return hmac.compare_digest(expected, received)
 
 
 def validate_signature_webhook_request(request: HttpRequest, *, workshop_secret: str = "") -> HttpResponse | None:
     """Validate HMAC using workshop secret, with optional global fallback."""
-    expected_secret = str(workshop_secret or "").strip()
-    if not expected_secret:
-        expected_secret = str(getattr(settings, "SYNPLAISIGN_WEBHOOK_SECRET", "") or "").strip()
-    if not expected_secret:
+    secrets: list[str] = []
+    for candidate in (workshop_secret, getattr(settings, "SYNPLAISIGN_WEBHOOK_SECRET", "")):
+        normalized = str(candidate or "").strip()
+        if normalized and normalized not in secrets:
+            secrets.append(normalized)
+    if not secrets:
         return None
 
     received = str(request.headers.get("x-synplai-signature") or "").strip()
@@ -116,11 +171,12 @@ def validate_signature_webhook_request(request: HttpRequest, *, workshop_secret:
         logger.warning("signature_webhook_missing_hmac", extra={"ip": request.META.get("REMOTE_ADDR")})
         return JsonResponse({"error": "invalid_signature"}, status=403)
 
-    if not validate_signature_webhook_hmac(body=request.body or b"", secret=expected_secret, received_signature=received):
-        logger.warning("signature_webhook_hmac_failed", extra={"ip": request.META.get("REMOTE_ADDR")})
-        return JsonResponse({"error": "invalid_signature"}, status=403)
+    body = request.body or b""
+    if any(validate_signature_webhook_hmac(body=body, secret=secret, received_signature=received) for secret in secrets):
+        return None
 
-    return None
+    logger.warning("signature_webhook_hmac_failed", extra={"ip": request.META.get("REMOTE_ADDR")})
+    return JsonResponse({"error": "invalid_signature"}, status=403)
 
 
 def parse_signature_webhook_body(request: HttpRequest) -> dict[str, Any]:
@@ -137,15 +193,11 @@ def _find_term_signing(envelope_id: str):
 def _resolve_workshop_for_envelope(envelope_id: str):
     from apps.budget.models import Budget
 
-    term_signing = _find_term_signing(envelope_id)
-    if term_signing is not None:
-        return term_signing.workshop, None, None, term_signing
-
-    budget = Budget.objects.select_related("workshop").filter(signature_external_id=envelope_id).first()
+    budget = Budget.objects.select_related("workshop").filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id)).first()
     if budget is not None:
         return budget.workshop, budget, None, None
 
-    workorder = WorkOrder.objects.select_related("workshop").filter(signature_external_id=envelope_id).first()
+    workorder = WorkOrder.objects.select_related("workshop").filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id)).first()
     if workorder is not None:
         return workorder.workshop, None, workorder, None
     return None, None, None, None
@@ -208,11 +260,11 @@ def _reject_workorder_from_decline(*, workorder, envelope_id: str) -> None:
     logger.info("signature_webhook_workorder_rejected", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
 
 
-def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, workorder=None, term_signing=None) -> HttpResponse:
+def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, workorder=None, header_event: str = "") -> HttpResponse:
     from apps.budget.models import Budget, SignatureStatus
     from apps.workorder.models import WorkOrderSignatureStatus
 
-    event_name = extract_signature_event(payload)
+    event_name = extract_signature_event(payload, header_event=header_event)
     envelope_id = extract_signature_envelope_id(payload)
     logger.info(
         "signature_webhook_parsed",
@@ -223,41 +275,9 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
         logger.warning("signature_webhook_missing_envelope_id", extra={"event": event_name, "payload_keys": list(payload.keys())})
         return HttpResponse(status=200)
 
-    if budget is None and workorder is None and term_signing is None:
-        term_signing = _find_term_signing(envelope_id)
-        budget = Budget.objects.filter(signature_external_id=envelope_id).first()
-        workorder = WorkOrder.objects.filter(signature_external_id=envelope_id).first()
-        if term_signing is not None:
-            budget = None
-            workorder = None
-
-    if term_signing is not None:
-        try:
-            if event_name == "DOCUMENT_DECLINED":
-                term_signing.mark_signature_declined()
-                logger.info(
-                    "signature_webhook_term_declined",
-                    extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id},
-                )
-                return HttpResponse(status=200)
-            if event_name != "ENVELOPE_COMPLETED":
-                logger.info(
-                    "signature_webhook_event_ignored",
-                    extra={"event": event_name, "term_signing_id": term_signing.pk},
-                )
-                return HttpResponse(status=200)
-            term_signing.mark_signature_approved()
-            logger.info(
-                "signature_webhook_term_approved",
-                extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id},
-            )
-        except Exception:
-            logger.exception(
-                "signature_webhook_term_processing_failed",
-                extra={"term_signing_id": term_signing.pk, "envelope_id": envelope_id},
-            )
-            return HttpResponse(status=500)
-        return HttpResponse(status=200)
+    if budget is None and workorder is None:
+        budget = Budget.objects.filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id)).first()
+        workorder = WorkOrder.objects.filter(Q(signature_external_id=envelope_id) | Q(signature_document_id=envelope_id)).first()
 
     if budget is None and workorder is None:
         recent_budget = Budget.objects.filter(signature_request_status=SignatureStatus.SENT).order_by("-signature_sent_at").values("id", "signature_external_id", "signature_document_id", "signature_sent_at")[:3]
@@ -312,9 +332,30 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
 
         if workorder is not None:
             can_finalize_workorder = workorder.is_fully_paid or workorder.budget_type in ("warranty", "courtesy")
-            has_warranty_plan = bool(workorder.warranty_plan)
-            if (can_finalize_workorder and has_warranty_plan) or workorder.status == WorkOrderStatus.APPROVED:
-                approve_workorder_with_stock(workorder=workorder, signature_approved=True)
+            if (can_finalize_workorder or workorder.status == WorkOrderStatus.APPROVED) and workorder.warranty_plan is None:
+                # Default warranty only when finalization will be attempted; unpaid WOs stay unchanged.
+                workorder.warranty_plan = WorkOrderWarrantyPlan.DAYS_90
+                workorder.save(update_fields=["warranty_plan"])
+
+            if workorder_can_finalize_after_signature(workorder):
+                try:
+                    approve_workorder_with_stock(workorder=workorder, signature_approved=True)
+                except WorkOrderApprovalError as exc:
+                    logger.warning(
+                        "workorder_stock_approval_blocked",
+                        extra={"workorder_id": workorder.pk, "envelope_id": envelope_id, "error": str(exc)},
+                    )
+                    workorder.mark_signature_approved()
+                    logger.info(
+                        "signature_webhook_workorder_signature_approved_pending_completion",
+                        extra={
+                            "workorder_id": workorder.pk,
+                            "envelope_id": envelope_id,
+                            "missing_warranty_plan": workorder.warranty_plan is None,
+                        },
+                    )
+                    return HttpResponse(status=200)
+
                 sync_workorder_financial_movement(workorder=workorder)
                 from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
 
@@ -328,7 +369,7 @@ def process_signature_webhook_payload(*, payload: dict[str, Any], budget=None, w
                     extra={
                         "workorder_id": workorder.pk,
                         "envelope_id": envelope_id,
-                        "missing_warranty_plan": not has_warranty_plan,
+                        "missing_warranty_plan": workorder.warranty_plan is None,
                     },
                 )
     except Exception:
@@ -375,7 +416,13 @@ class SignatureWebhookView(View):
         if validation_response is not None:
             return validation_response
 
-        return process_signature_webhook_payload(payload=payload, budget=budget, workorder=workorder, term_signing=term_signing)
+        header_event = str(request.headers.get("x-synplai-event") or "").strip()
+        return process_signature_webhook_payload(
+            payload=payload,
+            budget=budget,
+            workorder=workorder,
+            header_event=header_event,
+        )
 
 
 # Backward-compatible aliases during SuperSign → SynplaiSign cutover.

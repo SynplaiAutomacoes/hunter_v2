@@ -18,6 +18,8 @@ from apps.core.infrastructure.services.signature import build_signature_whatsapp
 from apps.core.infrastructure.services.signature_webhook import (
     SignatureWebhookView,
     build_synplaisign_webhook_signature,
+    extract_signature_envelope_id,
+    extract_signature_event,
     process_signature_webhook_payload,
 )
 from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
@@ -213,7 +215,7 @@ class SynplaiSignSignatureServiceTests(SimpleTestCase):
 
     @patch(
         "apps.core.infrastructure.services.signature_synplaisign.gateway.list_webhooks",
-        return_value=[{"id": "wh-existing", "url": "https://app/webhook", "events": ["ENVELOPE_COMPLETED"]}],
+        return_value=[{"id": "wh-existing", "url": "https://app/webhook", "events": ["ENVELOPE_COMPLETED", "DOCUMENT_SIGNED", "DOCUMENT_DECLINED"]}],
     )
     @patch("apps.core.infrastructure.services.signature_synplaisign.gateway.create_webhook")
     def test_ensure_webhook_reuses_existing(self, create_mock: Mock, _list_mock: Mock) -> None:
@@ -328,6 +330,25 @@ class SignatureWebhookHmacTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         process_mock.assert_called_once()
 
+    @override_settings(SYNPLAISIGN_WEBHOOK_SECRET="whsec_test")
+    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None))
+    @patch(
+        "apps.core.infrastructure.services.signature_webhook.process_signature_webhook_payload",
+        return_value=HttpResponse(status=200),
+    )
+    def test_accepts_hmac_without_sha256_prefix(self, process_mock: Mock, _resolve_mock: Mock) -> None:
+        body = json.dumps({"event": "DOCUMENT_SIGNED", "envelopeId": "env-1"}).encode("utf-8")
+        digest = build_synplaisign_webhook_signature(body=body, secret="whsec_test").removeprefix("sha256=")
+        request = self.factory.post(
+            "/budget/signature/webhook/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_SYNPLAI_SIGNATURE=digest,
+        )
+        response = self.view(request)
+        self.assertEqual(response.status_code, 200)
+        process_mock.assert_called_once()
+
 
 class SignatureWebhookProcessingTests(SimpleTestCase):
     @patch("apps.workorder.models.WorkOrder.objects.filter")
@@ -350,14 +371,110 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         budget_filter.return_value.first.return_value = budget
         workorder_filter.return_value.first.return_value = None
 
-        response = process_signature_webhook_payload(payload={"event": "DOCUMENT_SIGNED", "envelopeId": "env-1"})
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_VIEWED", "envelopeId": "env-1"}
+        )
         self.assertEqual(response.status_code, 200)
         budget.approve.assert_not_called()
 
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
-    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
-    def test_document_declined_rejects_budget(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
+    def test_document_signed_approves_budget(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+        budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
+        budget_filter.return_value.first.return_value = budget
+        workorder_filter.return_value.first.return_value = None
+
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_SIGNED", "envelopeId": "env-1"}
+        )
+        self.assertEqual(response.status_code, 200)
+        budget.approve.assert_called_once()
+
+    @patch("apps.workorder.models.WorkOrder.objects.filter")
+    @patch("apps.budget.models.Budget.objects.filter")
+    def test_header_event_completes_when_payload_status_is_signed(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+        budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
+        budget_filter.return_value.first.return_value = budget
+        workorder_filter.return_value.first.return_value = None
+
+        response = process_signature_webhook_payload(
+            payload={"envelopeId": "env-1", "data": {"status": "SIGNED", "signatoryName": "Maria"}},
+            header_event="ENVELOPE_COMPLETED",
+        )
+        self.assertEqual(response.status_code, 200)
+        budget.approve.assert_called_once()
+
+    @patch("apps.workorder.models.WorkOrder.objects.filter")
+    @patch("apps.budget.models.Budget.objects.filter")
+    def test_nested_signed_status_approves_budget_without_event_name(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+        budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
+        budget_filter.return_value.first.return_value = budget
+        workorder_filter.return_value.first.return_value = None
+
+        response = process_signature_webhook_payload(
+            payload={"envelopeId": "env-1", "data": {"status": "SIGNED", "signatoryName": "Maria"}},
+        )
+        self.assertEqual(response.status_code, 200)
+        budget.approve.assert_called_once()
+
+    @patch("apps.workorder.models.WorkOrder.objects.filter")
+    @patch("apps.budget.models.Budget.objects.filter")
+    def test_envelope_type_with_completed_status_approves_budget(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+        budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
+        budget_filter.return_value.first.return_value = budget
+        workorder_filter.return_value.first.return_value = None
+
+        response = process_signature_webhook_payload(
+            payload={"id": "env-1", "type": "envelope", "status": "COMPLETED"},
+        )
+        self.assertEqual(response.status_code, 200)
+        budget.approve.assert_called_once()
+
+    def test_extract_event_prefers_status_over_generic_type(self) -> None:
+        self.assertEqual(
+            extract_signature_event({"type": "envelope", "status": "SIGNED"}),
+            "ENVELOPE_COMPLETED",
+        )
+        self.assertEqual(extract_signature_envelope_id({"id": "env-99", "type": "envelope"}), "env-99")
+
+    @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=False)
+    @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")
+    def test_workorder_signature_is_approved_when_completion_is_pending(
+        self,
+        approve_mock: Mock,
+        _can_finalize_mock: Mock,
+    ) -> None:
+        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", mark_signature_approved=Mock())
+
+        response = process_signature_webhook_payload(
+            payload={"event": "DOCUMENT_SIGNED", "envelopeId": "env-os-685"},
+            workorder=workorder,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workorder.mark_signature_approved.assert_called_once()
+        approve_mock.assert_not_called()
+
+    @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=True)
+    @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock", side_effect=RuntimeError("estoque insuficiente"))
+    def test_workorder_signature_is_approved_even_when_finalize_fails(
+        self,
+        _approve_mock: Mock,
+        _can_finalize_mock: Mock,
+    ) -> None:
+        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", mark_signature_approved=Mock())
+
+        response = process_signature_webhook_payload(
+            payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "env-os-685"},
+            workorder=workorder,
+        )
+
+        self.assertEqual(response.status_code, 500)
+        workorder.mark_signature_approved.assert_called_once()
+
+    @patch("apps.workorder.models.WorkOrder.objects.filter")
+    @patch("apps.budget.models.Budget.objects.filter")
+    def test_document_declined_rejects_budget(self, budget_filter: Mock, workorder_filter: Mock) -> None:
         from apps.budget.models import BudgetStatus
 
         workorders = Mock()
@@ -453,6 +570,7 @@ class BudgetSignatureSendTests(SimpleTestCase):
 
         budget = SimpleNamespace(
             id=1,
+            number=1,
             customer=SimpleNamespace(name="Cliente", email="c@example.com", phone="+5511988887777", pk=9),
             workshop=SimpleNamespace(pk=2, whatsapp_instance_name="workshop_2", synplaisign_api_key="sk_live_x"),
             service_expected_completion_at="2026-01-01",

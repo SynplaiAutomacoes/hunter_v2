@@ -76,10 +76,11 @@
                     <div class="min-w-0">
                         <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Relatorio gerencial</p>
                         <h1 class="mt-1 text-[20px] font-bold uppercase">{{ stock_report_pdf_title }}</h1>
-                        <p class="mt-2 text-[12px] font-semibold">{{ workshop.pdf_name|default:"-" }}</p>
+                        <p class="mt-2 text-[12px] font-bold uppercase">{{ workshop.nome_fantasia_display|default:workshop.name|default:"-" }}</p>
+                        <p class="text-[11px] text-gray-600">{{ workshop.razao_social_display|default:"-" }}</p>
                         <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
-                        <p class="text-[11px] text-gray-600">Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
                         <p class="text-[11px] text-gray-600">{{ workshop.address|default:"-" }}</p>
+                        <p class="text-[11px] text-gray-600">Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
                         {% if stock_report_filter_descriptions %}
                             <p class="mt-3 text-[10px] text-gray-500">{{ stock_report_filter_descriptions|join:", " }}</p>
                         {% endif %}

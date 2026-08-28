@@ -1,9 +1,11 @@
 import logging
+from decimal import Decimal
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import format_workorder_reference
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +147,10 @@ class FiscalDocumentPurpose(models.TextChoices):
     REVERSAL = "reversal", "Estorno"
 
 
+class FiscalDocumentComplementaryType(models.TextChoices):
+    PRICE_QUANTITY = "price_quantity", "Preço/quantidade"
+
+
 class FiscalDocumentLinkRole(models.TextChoices):
     RETURNS = "returns", "Devolve"
     REVERSES = "reverses", "Estorna"
@@ -275,6 +281,7 @@ class TaxClassNfse(TimeStampedModel):
     exigibilidade_iss = models.CharField(verbose_name="Exigibilidade ISS", max_length=10, blank=True, default="")
     iss_retido = models.CharField(verbose_name="ISS retido", max_length=10, blank=True, default="")
     responsavel_retencao = models.CharField(verbose_name="Responsável retenção", max_length=10, blank=True, default="")
+    codigo_nbs = models.CharField(verbose_name="Código NBS", max_length=9, blank=True, default="", help_text="Código NBS da classe NFS-e (Padrão Nacional: 9 dígitos).")
     codigo_cnae = models.CharField(verbose_name="Código CNAE", max_length=20, blank=True, default="")
 
     iss = models.DecimalField(verbose_name="Alíquota ISS", max_digits=7, decimal_places=2, null=True, blank=True)
@@ -447,7 +454,9 @@ class WebmaniaCompany(TimeStampedModel):
 
 class NfseRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
-    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE, null=True, blank=True)
+    recipient_snapshot = models.JSONField(verbose_name="Snapshot do destinatário", blank=True, default=dict)
+    recipient_name = models.CharField(verbose_name="Nome do destinatário", max_length=255, blank=True, default="", db_index=True)
     current_step = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=NfseRequestStatus.choices, default=NfseRequestStatus.WAITING_WO)
     pricing_slider = models.SmallIntegerField(
@@ -492,10 +501,22 @@ class NfseRequest(TimeStampedModel):
 
     @property
     def customer_name(self) -> str:
+        if self.recipient_name:
+            return self.recipient_name
         customer = getattr(getattr(self.workorder, "budget", None), "customer", None)
         if not customer:
             return "-"
         return customer.name
+
+    @property
+    def workorder_reference(self) -> str:
+        if self.workorder_id is None:
+            return "Avulsa"
+        return format_workorder_reference(self.workorder)
+
+    @property
+    def is_standalone(self) -> bool:
+        return self.workorder_id is None
 
     @property
     def nfse_request_status_badge(self) -> dict[str, str]:
@@ -540,8 +561,7 @@ class NfseRequest(TimeStampedModel):
         return True
 
     def __str__(self):
-        workorder_pk = getattr(self, "workorder_id", None) or "-"
-        return f"NFS-e Request #{self.pk} - OS #{workorder_pk}"
+        return f"NFS-e Request #{self.pk} - {self.workorder_reference}"
 
     @property
     def rps_number_display(self) -> str:
@@ -563,7 +583,9 @@ class NfseRequest(TimeStampedModel):
 
 class NfeRequest(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
-    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE, null=True, blank=True)
+    recipient_snapshot = models.JSONField(verbose_name="Snapshot do destinatário", blank=True, default=dict)
+    recipient_name = models.CharField(verbose_name="Nome do destinatário", max_length=255, blank=True, default="", db_index=True)
     current_step = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=20, choices=NfeRequestStatus.choices, default=NfeRequestStatus.WAITING_WO)
     pricing_slider = models.SmallIntegerField(
@@ -606,10 +628,22 @@ class NfeRequest(TimeStampedModel):
 
     @property
     def customer_name(self) -> str:
+        if self.recipient_name:
+            return self.recipient_name
         customer = getattr(getattr(self.workorder, "budget", None), "customer", None)
         if not customer:
             return "-"
         return customer.name
+
+    @property
+    def workorder_reference(self) -> str:
+        if self.workorder_id is None:
+            return "Avulsa"
+        return format_workorder_reference(self.workorder)
+
+    @property
+    def is_standalone(self) -> bool:
+        return self.workorder_id is None
 
     @property
     def nfe_request_status_badge(self) -> dict[str, str]:
@@ -655,8 +689,7 @@ class NfeRequest(TimeStampedModel):
         return True
 
     def __str__(self):
-        workorder_pk = getattr(self, "workorder_id", None) or "-"
-        return f"NF-e Request #{self.pk} - OS #{workorder_pk}"
+        return f"NF-e Request #{self.pk} - {self.workorder_reference}"
 
     @property
     def number_display(self) -> str:
@@ -676,9 +709,56 @@ class NfeRequest(TimeStampedModel):
         return self.number_display
 
 
+class StandaloneNfeLine(TimeStampedModel):
+    nfe_request = models.ForeignKey(NfeRequest, verbose_name="Requisição NF-e", on_delete=models.CASCADE, related_name="standalone_lines")
+    product = models.ForeignKey("catalog.Product", verbose_name="Produto", on_delete=models.SET_NULL, null=True, blank=True, related_name="standalone_nfe_lines")
+    description = models.CharField(verbose_name="Descrição", max_length=255)
+    product_code = models.CharField(verbose_name="Código", max_length=120)
+    ncm = models.CharField(verbose_name="NCM", max_length=10)
+    cest = models.CharField(verbose_name="CEST", max_length=10, blank=True, default="")
+    unit = models.CharField(verbose_name="Unidade", max_length=12, default="UN")
+    origin = models.PositiveSmallIntegerField(verbose_name="Origem tributária", default=0)
+    quantity = models.DecimalField(verbose_name="Quantidade", max_digits=15, decimal_places=4, validators=[MinValueValidator(Decimal("0.0001"))])
+    unit_value = models.DecimalField(verbose_name="Valor unitário", max_digits=15, decimal_places=4, validators=[MinValueValidator(Decimal("0"))])
+    sort_order = models.PositiveIntegerField(verbose_name="Ordem", default=0)
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Linha avulsa de NF-e"
+        verbose_name_plural = "Linhas avulsas de NF-e"
+        ordering = ("sort_order", "id")
+
+    @property
+    def total_value(self) -> Decimal:
+        return self.quantity * self.unit_value
+
+    def __str__(self) -> str:
+        return f"{self.description} x {self.quantity}"
+
+
+class StandaloneNfseLine(TimeStampedModel):
+    nfse_request = models.ForeignKey(NfseRequest, verbose_name="Requisição NFS-e", on_delete=models.CASCADE, related_name="standalone_lines")
+    service = models.ForeignKey("catalog.Service", verbose_name="Serviço", on_delete=models.SET_NULL, null=True, blank=True, related_name="standalone_nfse_lines")
+    description = models.CharField(verbose_name="Descrição", max_length=255)
+    quantity = models.DecimalField(verbose_name="Quantidade", max_digits=15, decimal_places=4, default=Decimal("1"), validators=[MinValueValidator(Decimal("0.0001"))])
+    unit_value = models.DecimalField(verbose_name="Valor unitário", max_digits=15, decimal_places=4, validators=[MinValueValidator(Decimal("0"))])
+    sort_order = models.PositiveIntegerField(verbose_name="Ordem", default=0)
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Linha avulsa de NFS-e"
+        verbose_name_plural = "Linhas avulsas de NFS-e"
+        ordering = ("sort_order", "id")
+
+    @property
+    def total_value(self) -> Decimal:
+        return self.quantity * self.unit_value
+
+    def __str__(self) -> str:
+        return f"{self.description} x {self.quantity}"
+
+
 class NfseBatch(models.Model):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
-    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE, null=True, blank=True)
     request = models.ForeignKey(NfseRequest, verbose_name="Requisição de NFS-e", related_name="batches", on_delete=models.SET_NULL, null=True)
     uuid = models.UUIDField(db_index=True)  # UUID do lote
     model = models.CharField(max_length=255, default="lote_rps")
@@ -695,7 +775,7 @@ class NfseBatch(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["workorder", "uuid"], name="unique_nfse_batch_per_workorder"),
+            models.UniqueConstraint(fields=["uuid"], name="unique_nfse_batch_uuid"),
         ]
 
         indexes = [
@@ -705,7 +785,7 @@ class NfseBatch(models.Model):
 
 class NfseItem(models.Model):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
-    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE, null=True, blank=True)
     request = models.ForeignKey(NfseRequest, verbose_name="Requisição de NFS-e", related_name="items", on_delete=models.SET_NULL, null=True)
     batch = models.ForeignKey(NfseBatch, verbose_name="Lote", related_name="items", on_delete=models.SET_NULL, null=True)
     uuid = models.UUIDField(db_index=True)  # UUID da NFS-e
@@ -728,7 +808,7 @@ class NfseItem(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["workorder", "uuid"], name="unique_nfse_item_per_workorder"),
+            models.UniqueConstraint(fields=["uuid"], name="unique_nfse_item_uuid"),
         ]
 
         indexes = [
@@ -738,7 +818,7 @@ class NfseItem(models.Model):
 
 class NfeItem(models.Model):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
-    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE, null=True, blank=True)
     request = models.ForeignKey(NfeRequest, verbose_name="Requisição de NF-e", related_name="items", on_delete=models.SET_NULL, null=True)
     uuid = models.UUIDField(db_index=True)
     model = models.CharField(max_length=255, default="nfe")
@@ -760,7 +840,7 @@ class NfeItem(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["workorder", "uuid"], name="unique_nfe_item_per_workorder"),
+            models.UniqueConstraint(fields=["uuid"], name="unique_nfe_item_uuid"),
         ]
 
         indexes = [
@@ -774,6 +854,7 @@ class FiscalDocument(TimeStampedModel):
     document_type = models.CharField(max_length=12, choices=FiscalDocumentType.choices, default=FiscalDocumentType.NFE, db_index=True)
     origin = models.CharField(max_length=16, choices=FiscalDocumentOrigin.choices, default=FiscalDocumentOrigin.LOCAL, db_index=True)
     purpose = models.CharField(max_length=24, choices=FiscalDocumentPurpose.choices, default=FiscalDocumentPurpose.NORMAL, db_index=True)
+    complementary_type = models.CharField(max_length=32, choices=FiscalDocumentComplementaryType.choices, blank=True, default="", db_index=True)
     legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, null=True, blank=True, related_name="fiscal_document")
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
     access_key = models.CharField(max_length=80, blank=True, default="", db_index=True)
@@ -792,6 +873,8 @@ class FiscalDocument(TimeStampedModel):
     external_confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TimeStampedModel.Meta):
+        verbose_name = "Documento fiscal"
+        verbose_name_plural = "Documentos fiscais"
         constraints = [
             models.UniqueConstraint(fields=["workshop", "legacy_nfe_item"], name="unique_fiscal_document_per_legacy_nfe_item"),
             models.UniqueConstraint(fields=["workshop", "document_type", "remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_remote_uuid_per_workshop"),
@@ -848,6 +931,8 @@ class FiscalDocumentEvent(TimeStampedModel):
     confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TimeStampedModel.Meta):
+        verbose_name = "Evento fiscal"
+        verbose_name_plural = "Eventos fiscais"
         constraints = [
             models.UniqueConstraint(fields=["document", "event_type", "event_sequence"], name="unique_fiscal_document_event_sequence"),
             models.UniqueConstraint(fields=["remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_event_remote_uuid"),

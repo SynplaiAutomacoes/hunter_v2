@@ -13,7 +13,7 @@ from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetStatus
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
-from apps.collaborators.services import get_reference_work_days, sync_collaborator_commission_entries, sync_collaborator_payroll, sync_workorder_collaborator_payrolls
+from apps.collaborators.services import add_manual_payroll_commission, get_reference_work_days, sync_collaborator_commission_entries, sync_collaborator_payroll, sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.payroll import _mark_payroll_as_paid, _mark_payroll_commissions_as_paid, _unmark_payroll_commissions_as_paid
@@ -794,6 +794,23 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertTrue(refreshed_payroll.financial_movement.is_paid)
         self.assertEqual(commission_entry.status, CollaboratorCommissionEntry.Status.PAID)
         self.assertIsNotNone(commission_entry.paid_at)
+
+    def test_os_sync_does_not_delete_manual_commission_entries(self) -> None:
+        workshop = create_workshop(suffix=55)
+        collaborator = create_collaborator(workshop=workshop, suffix=55)
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+        entry = add_manual_payroll_commission(payroll=payroll, amount=Money(75, "BRL"), notes="Ajuste")
+
+        sync_collaborator_commission_entries(collaborator=collaborator, reference_date=date(2026, 8, 1))
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.origin, CollaboratorCommissionEntry.Origin.MANUAL)
+        self.assertEqual(entry.commission_amount, Money(75, "BRL"))
+        self.assertEqual(entry.notes, "Ajuste")
+        self.assertIsNone(entry.workorder_id)
+        payroll.refresh_from_db()
+        commission_item = payroll.items.get(item_type="COMMISSION")
+        self.assertEqual(commission_item.description, "Ajuste")
 
 
 class CommissionAndPayrollCommandTests(TestCase):

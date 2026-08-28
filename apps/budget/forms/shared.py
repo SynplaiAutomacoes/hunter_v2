@@ -86,21 +86,14 @@ def _render_budget_items_rows(budget, step6=False):
     kit_service_ids = set()
     if budget_for_render and budget_for_render.pk:
         for item in budget_for_render.items.all():
-            if not item.kit:
+            if not item.kit_id:
                 continue
-
-            product_overrides, service_overrides = item._get_kit_override_maps()
-            for kit_product in item._iter_kit_products():
-                override = product_overrides.get(kit_product.product_id)
-                quantity = override.quantity if override else kit_product.quantity
-                if quantity > 0:
-                    kit_product_ids.add(kit_product.product_id)
-
-            for kit_service in item._iter_kit_services():
-                override = service_overrides.get(kit_service.service_id)
-                quantity = override.quantity if override else kit_service.quantity
-                if quantity > 0:
-                    kit_service_ids.add(kit_service.service_id)
+            for override in item._iter_frozen_kit_product_overrides():
+                if int(getattr(override, "quantity", 0) or 0) > 0 and override.product_id:
+                    kit_product_ids.add(override.product_id)
+            for override in item._iter_frozen_kit_service_overrides():
+                if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False) and override.service_id:
+                    kit_service_ids.add(override.service_id)
 
     if budget_for_render.pk:
         if step6:

@@ -4,11 +4,23 @@ from .financial_group import FinancialGroupBulkDeleteView, FinancialGroupCreateV
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .fiscal_gateway import FiscalOperationGatewayView
+from .standalone_emission import StandaloneEmissionCreateView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportPdfView, CommissionReportView
 from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
-from .payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollSyncComponentView
+from .payroll import (
+    PayrollAddManualBenefitView,
+    PayrollAddManualCommissionView,
+    PayrollBulkConciliateView,
+    PayrollBulkPayView,
+    PayrollBulkUnpayView,
+    PayrollDeleteManualCommissionView,
+    PayrollEditModalView,
+    PayrollListView,
+    PayrollSyncComponentView,
+)
+from .purchase_return import PurchaseReturnCreateView, PurchaseReturnPreviewPdfView, PurchaseReturnPreviewView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassDeleteView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -33,6 +45,7 @@ __all__ = [
     "EmissionPreviewView",
     "EmissionRequestCreateView",
     "FiscalOperationGatewayView",
+    "StandaloneEmissionCreateView",
     "EmissionWorkOrderKitComponentUpdateView",
     "EmissionWorkOrderItemUpdateView",
     "FinancialGroupCreateView",
@@ -42,12 +55,20 @@ __all__ = [
     "FinancialReportsHomeView",
     "ReportMovementEditView",
     "ReportMovementDeleteView",
+    "PayrollAddManualBenefitView",
+    "PayrollAddManualCommissionView",
     "PayrollBulkConciliateView",
     "PayrollBulkPayView",
     "PayrollBulkUnpayView",
+    "PayrollDeleteManualCommissionView",
     "PayrollEditModalView",
     "PayrollListView",
     "PayrollSyncComponentView",
+    "PurchaseReturnCreateView",
+    "PurchaseReturnPreviewPdfView",
+    "PurchaseReturnPreviewView",
+    "PurchaseReturnTransmitView",
+    "PurchaseReturnWorkflowView",
     "FinancialGroupUpdateView",
     "IssuedDocumentsArchiveDownloadView",
     "IssuedDocumentsListView",

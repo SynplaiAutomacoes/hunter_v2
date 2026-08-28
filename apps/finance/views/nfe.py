@@ -7,7 +7,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.urls import reverse
@@ -35,8 +35,12 @@ from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
-from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
-from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
+from apps.finance.views.ncm_validation import (
+    build_invalid_ncm_modal_context_for_nfe_request,
+    pop_invalid_ncm_modal_context,
+    store_invalid_ncm_modal_context,
+)
+from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url, build_issued_documents_list_url
 from apps.finance.views.request_workflow import (
     SharedEmissionRequestCreateBaseView,
     SharedEmissionRequestUpdateBaseView,
@@ -130,8 +134,8 @@ class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRe
         context["fields"] = [
             TableColumn("ID", attr="id"),
             TableColumn("Numero", attr="number_display_listing", search_by="reserved_number"),
-            TableColumn("Ordem de Servico", attr="workorder", search_by="workorder__id"),
-            TableColumn("Cliente", attr="customer_name", search_by="workorder__budget__customer__name"),
+            TableColumn("Ordem de Servico", attr="workorder_reference", search_by="workorder__id"),
+            TableColumn("Cliente", attr="customer_name", search_by=("recipient_name", "workorder__budget__customer__name")),
             TableColumn("Criado em", attr=NfeRequest.criado_em.field.name),
             TableColumn("Status", attr="nfe_request_status_badge", search_by="status", format="status_badge"),
         ]
@@ -159,37 +163,28 @@ def _build_field(label: str, value: object) -> dict[str, str]:
     return {"label": label, "value": normalized}
 
 
-def _user_can_issue_cce(*, user, workshop, request) -> bool:
+def _user_can_manage_fiscal_emission(*, user, workshop, request) -> bool:
+    """Same gate as Emitir Nota / NF-e detail: no per-operation special permission."""
     return has_workshop_perm(
         user=user,
         workshop=workshop,
         app_label="finance",
-        model="fiscaldocumentevent",
-        codename="issue_nfe_correction",
+        model="nfserequest",
+        codename="view_nfserequest",
         request=request,
     )
+
+
+def _user_can_issue_cce(*, user, workshop, request) -> bool:
+    return _user_can_manage_fiscal_emission(user=user, workshop=workshop, request=request)
 
 
 def _user_can_issue_return(*, user, workshop, request) -> bool:
-    return has_workshop_perm(
-        user=user,
-        workshop=workshop,
-        app_label="finance",
-        model="fiscaldocument",
-        codename="issue_nfe_return",
-        request=request,
-    )
+    return _user_can_manage_fiscal_emission(user=user, workshop=workshop, request=request)
 
 
 def _user_can_issue_reversal(*, user, workshop, request) -> bool:
-    return has_workshop_perm(
-        user=user,
-        workshop=workshop,
-        app_label="finance",
-        model="fiscaldocument",
-        codename="issue_nfe_reversal",
-        request=request,
-    )
+    return _user_can_manage_fiscal_emission(user=user, workshop=workshop, request=request)
 
 
 class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
@@ -227,7 +222,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 .distinct()
                 .order_by("criado_em")
             )
-        fallback_back_url = reverse("finance:nfe_list")
+        fallback_back_url = build_issued_documents_list_url(note_type="nfe")
         context.update(
             {
                 "back_url": build_issued_documents_back_url(query_params=self.request.GET, fallback_url=fallback_back_url),
@@ -235,7 +230,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "can_cancel": can_cancel,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
-                    _build_field("Ordem de serviço", self.object.workorder),
+                    _build_field("Ordem de serviço", self.object.workorder_reference),
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),
                     _build_field("Número da Nota Fiscal de Produto", self.object.reserved_number),
@@ -259,8 +254,8 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
 
 class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "fiscaldocumentevent"
-    workshop_permission_codename = "issue_nfe_correction"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
 
     def post(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -380,7 +375,7 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         nfe_request.set_status(NfeRequestStatus.CANCELED)
         messages.success(request, "Nota Fiscal de Produto cancelada com sucesso.")
-        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+        return redirect(build_issued_documents_back_url(query_params=request.GET, fallback_url=build_issued_documents_list_url(note_type="nfe")))
 
 
 class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -498,8 +493,8 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "fiscaldocumentevent"
-    workshop_permission_codename = "download_nfe_correction"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
 
     document_fields = {
         "xml": ("xml_url", "xml"),
@@ -535,8 +530,8 @@ class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class NfeReturnDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "fiscaldocument"
-    workshop_permission_codename = "download_nfe_return"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
 
     document_fields = {
         "xml": ("xml_url", "xml"),
@@ -586,7 +581,17 @@ class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "nfe_preview_download_failed",
                 extra={"nfe_request_id": nfe_request.pk, "workshop_id": self.workshop.pk},
             )
-            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+            response = render(
+                request,
+                "finance/partials/preview_error.html",
+                {
+                    "title": "Não foi possível gerar a prévia da NF-e",
+                    "message": str(exc),
+                },
+            )
+            response["Cache-Control"] = "no-store"
+            response.status_code = 422
+            return response
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         response["Content-Disposition"] = self._build_content_disposition(nfe_request=nfe_request)
@@ -611,7 +616,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
     preview_initial_fields = ("pricing_slider", "tax_class", "additional_information")
     tax_class_kind = "nfe"
     tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal de Produto: {error}"
-    success_redirect_name = "finance:nfe_emit"
+    success_redirect_name = "finance:issued_documents_list"
     status_by_step = {
         1: NfeRequestStatus.CHECKING_CLIENT,
         2: NfeRequestStatus.CHECKING_PRODUCTS,
@@ -629,7 +634,10 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
         return context
 
     def _finalize_emission(self) -> bool:
-        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        invalid_ncm_modal = build_invalid_ncm_modal_context_for_nfe_request(
+            nfe_request=self.object,
+            return_url=self.request.get_full_path(),
+        )
         if invalid_ncm_modal is not None:
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             return False
@@ -650,7 +658,10 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
             return False
 
     def _build_preview_response(self, *, form) -> HttpResponse:
-        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        invalid_ncm_modal = build_invalid_ncm_modal_context_for_nfe_request(
+            nfe_request=self.object,
+            return_url=self.request.get_full_path(),
+        )
         if invalid_ncm_modal is not None:
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             step_url = self._step_url(step=self.get_current_step())
@@ -672,4 +683,4 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
 
 class NfeRequestUpdateView(SharedEmissionRequestUpdateBaseView, NfeRequestCreateView):
     update_url_name = "finance:nfe_update"
-    missing_update_redirect_name = "finance:nfe_emit"
+    missing_update_redirect_name = "finance:issued_documents_list"
