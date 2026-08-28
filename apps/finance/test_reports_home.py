@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -9,8 +9,12 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
+from apps.budget.models import Budget
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.payment_method import PaymentMethod
+from apps.finance.services.reports import build_monthly_financial_overview_with_open_workorder_credits, open_credits
 from apps.finance.views.reports import FinancialReportsHomeView
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.models.workshops import Workshop
 
 User = get_user_model()
@@ -94,6 +98,62 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertIn("direction=CREDIT", cards[1]["filter_url"])
         self.assertIn("paid_status=unpaid", cards[1]["filter_url"])
         year_card = cards[4]
-        self.assertIn(f"data_inicial={today.replace(month=1, day=1).isoformat()}", year_card["filter_url"])
-        self.assertNotIn("direction=", year_card["filter_url"])
-        self.assertIn("paid_status=paid", year_card["rows"][1]["filter_url"])
+        self.assertEqual(year_card["title"], "Resultado do ano")
+        self.assertFalse(year_card.get("filter_url"))
+        for row in year_card["rows"]:
+            self.assertFalse(row.get("filter_url"))
+
+    def test_unpaid_month_credit_filter_includes_open_workorder_payments(self) -> None:
+        workshop = create_workshop(suffix=10)
+        today = timezone.localdate()
+        month_start = today.replace(day=1)
+        month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+
+        create_movement(
+            workshop=workshop,
+            amount=Decimal("80.00"),
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            due_date=today,
+            description="Credito avulso",
+        )
+
+        payment_method = PaymentMethod.objects.create(workshop=workshop, description="Pix")
+        budget = Budget.objects.create(workshop=workshop, entry_date=today)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money(Decimal("1720.00"), "BRL"),
+            remaining_installments_amount=Money(Decimal("0.00"), "BRL"),
+            due_date=today,
+        )
+        FinancialMovement.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            description="OS parent",
+            amount=Money(Decimal("1720.00"), "BRL"),
+            due_date=today,
+            is_paid=False,
+        )
+
+        month_overview = build_monthly_financial_overview_with_open_workorder_credits(workshop=workshop, reference_date=today)
+        expected_open = open_credits(month_overview).amount
+
+        view = build_reports_view(
+            workshop=workshop,
+            query={
+                "data_inicial": month_start.isoformat(),
+                "data_final": month_end.isoformat(),
+                "direction": FinancialMovement.MovementDirection.CREDIT,
+                "paid_status": "unpaid",
+            },
+        )
+        context = view.get_context_data()
+        total_row = next(row for row in context["selection_summary"]["rows"] if row["label"] == "Contas a receber (total)")
+
+        self.assertEqual(expected_open, Decimal("1800.00"))
+        self.assertIn("1.800,00", total_row["value"])
+        self.assertEqual(len(context["financial_movement_report_rows"]), 2)

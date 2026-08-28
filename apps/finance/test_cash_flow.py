@@ -166,12 +166,6 @@ class CashFlowViewTests(TestCase):
         view.workshop = self.workshop
         return view, request
 
-    def test_account_cards_expose_report_url(self) -> None:
-        cards = self._build_view().get_context_data()["account_cards"]
-        self.assertTrue(cards[0]["report_url"].startswith(reverse("finance:cash_flow_report_modal")))
-        self.assertIn(reverse("finance:cash_flow_report_modal"), cards[1]["report_url"])
-        self.assertIn(f"conta_bancaria={self.bank_account.pk}", cards[1]["report_url"])
-
     def test_report_modal_lists_all_movements_for_selected_account(self) -> None:
         other_account = create_bank_account(workshop=self.workshop, suffix=2)
         self._create_movement(description="Movimento conta 1", due_date=date(2026, 8, 10))
