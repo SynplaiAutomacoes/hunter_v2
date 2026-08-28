@@ -666,8 +666,7 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
 
 
 class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    """HTMX endpoint para atualizar Base (%) do pool por escopo (v3)."""
-
+    model = WorkOrder
     workshop_permission_codename = "change_workorder"
 
     def post(self, request, pk):
@@ -710,18 +709,61 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         if pct > Decimal("1"):
             pct = Decimal("1")
 
-        # Verificar se a O.S. já tem comissão PAID — bloquear edição (apenas alertas, mas PAID é imutável no orquestrador; alocação pode ser editada para previsão, mas não altera PAID)
-        # Permitir edição de alocação mesmo com PAID, pois é só previsão; orquestrador congelará valores.
+        # Validação de bloqueio: Base% não pode exceder cap (rule% / max%) e Σ ≤100% — rejeitar e obrigar corrigir
+        from apps.collaborators.models import CollaboratorCommissionRule, WorkOrderCommissionAllocation
+
         try:
             with transaction.atomic():
-                # lock workorder e alocação
                 locked_wo = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
+                # Buscar regras de todos os participantes para calcular max_pct e cap correto
+                wo_collab_ids = list(locked_wo.collaborators.values_list("id", flat=True))
+                all_rules = list(
+                    CollaboratorCommissionRule.objects.filter(
+                        collaborator_id__in=wo_collab_ids,
+                        scope=scope,
+                        is_active=True,
+                        modality=CollaboratorCommissionRule.Modality.PERCENTAGE,
+                        apply_scope=CollaboratorCommissionRule.ApplyScope.PARTICIPATION,
+                    )
+                )
+                max_pct = max((r.percentage or Decimal("0") for r in all_rules), default=Decimal("0"))
+                rule = next((r for r in all_rules if r.collaborator_id == collaborator.pk), None)
+                if pct > Decimal("0") and rule is None:
+                    return JsonResponse({"ok": False, "error": "Colaborador não possui regra de percentual por participação neste escopo."}, status=400)
+                if rule is not None and max_pct > Decimal("0"):
+                    cap = (rule.percentage or Decimal("0")) / max_pct if max_pct else Decimal("1")
+                    if pct - cap > Decimal("0.000001"):
+                        cap_display = (cap * Decimal("100")).quantize(Decimal("0.01"))
+                        try:
+                            from apps.collaborators.commission.calculators import calculate_total_for_scope
+                            total_S = calculate_total_for_scope(workorder=locked_wo, workshop=locked_wo.workshop, scope=scope)
+                        except Exception:
+                            total_S = Decimal("0")
+                        pool_S = (total_S * max_pct).quantize(Decimal("0.01")) if max_pct else Decimal("0")
+                        cap_val = (cap * pool_S).quantize(Decimal("0.01")) if pool_S else Decimal("0")
+                        pool_val = pool_S.quantize(Decimal("0.01"))
+                        msg = f"Base% de {collaborator.name} ultrapassa o máximo permitido de {cap_display}% (R$ {cap_val} de R$ {pool_val} no montante). Corrija."
+                        return JsonResponse({"ok": False, "error": msg}, status=400, headers={"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})})
+                # Validar soma Σ Base% ≤100% (considerando novo valor)
+                existing_allocs = list(WorkOrderCommissionAllocation.objects.select_for_update().filter(workorder=locked_wo, scope=scope))
+                old_val = next((Decimal(str(a.distribution_percentage or 0)) for a in existing_allocs if a.collaborator_id == collaborator.pk), Decimal("0"))
+                sum_others = sum((Decimal(str(a.distribution_percentage or 0)) for a in existing_allocs if a.collaborator_id != collaborator.pk), Decimal("0"))
+                new_sum = sum_others + pct
+                if new_sum - Decimal("1") > Decimal("0.000001"):
+                    sum_display = (new_sum * Decimal("100")).quantize(Decimal("0.01"))
+                    return JsonResponse(
+                        {"ok": False, "error": f"Soma das Bases ({sum_display}%) ultrapassa 100%. Ajuste as porcentagens."},
+                        status=400,
+                        headers={"HX-Trigger": json.dumps({"showToast": {"message": f"Soma das Bases ({sum_display}%) ultrapassa 100%.", "type": "error"}})},
+                    )
                 allocation = CommissionAllocationService.upsert(workorder=locked_wo, collaborator=collaborator, scope=scope, distribution_percentage=pct)
-                # Validar caps e soma (só alertas)
-                validation = CommissionAllocationService.validate(workorder=locked_wo, scope=scope)
-                # Se violação, retornar com toast
-                has_warnings = bool(validation.get("cap")) or bool(validation.get("sum"))
+                has_warnings = False
+        except ValidationError as exc:
+            return JsonResponse({"ok": False, "error": str(exc.message if hasattr(exc, 'message') else str(exc))}, status=400)
         except Exception as exc:
+            # Se já retornamos JsonResponse, não cair aqui
+            if isinstance(exc, JsonResponse):
+                raise
             return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
         context = _build_edit_items_context(workorder)
@@ -1413,6 +1455,20 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if workorder.has_completion_blockers:
                 response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
+                return response
+
+            # Comissão v3 — bloquear approve se Base% excede cap ou Σ>100% (rejeitar e obrigar corrigir)
+            from apps.collaborators.commission.allocation import CommissionAllocationService
+            commission_errors = []
+            for _scope in ("service", "product"):
+                _v = CommissionAllocationService.validate(workorder=workorder, scope=_scope)
+                commission_errors.extend(_v.get("cap", []))
+                commission_errors.extend(_v.get("sum", []))
+            if commission_errors:
+                msg = "Há colaborador com comissão maior que o permitido. Corrija a Base% na previsão de comissão."
+                detail = commission_errors[0]
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": f"{msg} {detail}", "type": "error"}})
                 return response
 
             approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)

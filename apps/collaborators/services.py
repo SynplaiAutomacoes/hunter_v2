@@ -284,6 +284,8 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
         cap = (pct_for_cap / max_pct) if (is_pct and max_pct > 0) else (Decimal("1") if is_pct else ZERO)
         cap_pct_display = (cap * Decimal("100")).quantize(Decimal("0.01")) if is_pct else ZERO
         base_pct_display = (base_pct * Decimal("100")).quantize(Decimal("0.01"))
+        cap_amount = _quantize(pool_S * cap) if is_pct else ZERO
+        cap_amount_money = Money(cap_amount, "BRL")
 
         if is_global:
             # Preview global: total_S × rule.percentage (fora do pool), não depende de Base%
@@ -312,6 +314,8 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
                 "base_pct_display": base_pct_display,
                 "cap": cap,
                 "cap_display": cap_pct_display,
+                "cap_amount": cap_amount_money,
+                "cap_amount_display": cap_amount,
                 "preview_amount": preview_money,
                 "preview_cents": str(preview_money.amount),
                 "alloc": alloc,

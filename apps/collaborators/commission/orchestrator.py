@@ -143,11 +143,13 @@ class WorkOrderCommissionOrchestrator:
                     if entry:
                         synced.append(entry)
 
-                # Para Pct Pool (participação)
+                # Para Pct Pool (participação) — truncar ao teto individual (cap) por segurança
                 for rule in P_pct:
                     alloc = allocations_by_scope.get(scope, {}).get(rule.collaborator_id)
                     dist_pct = Decimal(str(alloc.distribution_percentage or 0)) if alloc else ZERO
-                    commission_amount = _quantize(pool_S * dist_pct)
+                    raw_commission = pool_S * dist_pct
+                    cap_commission = total_S * Decimal(str(rule.percentage or 0))
+                    commission_amount = _quantize(min(raw_commission, cap_commission))
                     origin = ORIGIN_MAP[(scope, "pct_pool")]
                     entry = self._upsert_entry(
                         collaborator=rule.collaborator,

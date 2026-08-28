@@ -518,6 +518,20 @@ class WorkOrder(TimeStampedModel):
     def approve(self) -> None:
         if self.status == WorkOrderStatus.APPROVED:
             return
+        # Comissão v3 — validar caps antes de aprovar (rejeitar e obrigar corrigir)
+        try:
+            from apps.collaborators.commission.allocation import CommissionAllocationService
+            _c_errors = []
+            for _scope in ("service", "product"):
+                _v = CommissionAllocationService.validate(workorder=self, scope=_scope)
+                _c_errors.extend(_v.get("cap", []))
+                _c_errors.extend(_v.get("sum", []))
+            if _c_errors:
+                raise WorkOrderError("Há colaborador com comissão maior que o permitido. Corrija a Base% na previsão de comissão. " + _c_errors[0])
+        except WorkOrderError:
+            raise
+        except Exception:
+            pass  # não bloquear por erro de validação inesperado
         self.status = WorkOrderStatus.APPROVED
         self.current_step = max(int(self.current_step or 1), 4)
         if self.pk and not getattr(self, "_skip_stock_consumption_guard", False):
