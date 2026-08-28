@@ -785,7 +785,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
     last_oil_change_date = forms.DateField(label="Data da última troca de óleo", required=False, widget=CalendarDateInput())
     last_oil_change_km = forms.IntegerField(label="KM da última troca de óleo", required=False, min_value=0, widget=NumberInput())
     review_plan = forms.ModelChoiceField(label="Plano de revisão", queryset=ReviewPlan.objects.none(), required=False, widget=SearchableSelectInput())
-    warranty_origin = forms.ModelChoiceField(label="WO de venda que originou a garantia", queryset=WorkOrder.objects.none(), required=False, widget=SearchableSelectInput())
+    warranty_origin = forms.ModelChoiceField(label="OS de venda que originou a garantia", queryset=WorkOrder.objects.none(), required=False, widget=SearchableSelectInput())
     unsigned_delivery_reason = forms.CharField(
         label="Justificativa da entrega sem assinatura",
         required=False,
@@ -796,12 +796,6 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                 "class": "min-h-[10.5rem] h-full resize-y",
             },
         ),
-    )
-    previous_mechanic = forms.ModelChoiceField(
-        label="Mecânico responsável pelo serviço anterior",
-        queryset=WorkshopCollaborator.objects.none(),
-        required=False,
-        widget=SearchableSelectInput(),
     )
     courtesy_reason_type = forms.ChoiceField(
         label="Motivo da cortesia/garantia",
@@ -828,7 +822,6 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             "last_oil_change_km",
             "review_plan",
             "unsigned_delivery_reason",
-            "previous_mechanic",
             "courtesy_reason_type",
             "courtesy_reason_description",
             "warranty_origin",
@@ -870,17 +863,12 @@ class WorkOrderCustomerApprovalForm(CoreForm):
 
         self.is_courtesy_or_warranty = bool(self.workorder and self.workorder.budget_type in ("courtesy", "warranty"))
         if self.is_courtesy_or_warranty:
-            previous_mechanic_field = cast(forms.ModelChoiceField, self.fields["previous_mechanic"])
-            previous_mechanic_field.queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name") if workshop else WorkshopCollaborator.objects.none()
-            previous_mechanic_field.label_from_instance = lambda obj: obj.name
-            if self.workorder and self.workorder.previous_mechanic_id and not self.is_bound:
-                self.fields["previous_mechanic"].initial = self.workorder.previous_mechanic_id
             if self.workorder and self.workorder.courtesy_reason_type and not self.is_bound:
                 self.fields["courtesy_reason_type"].initial = self.workorder.courtesy_reason_type
             if self.workorder and self.workorder.courtesy_reason_description and not self.is_bound:
                 self.fields["courtesy_reason_description"].initial = self.workorder.courtesy_reason_description
         else:
-            for field_name in ("previous_mechanic", "courtesy_reason_type", "courtesy_reason_description"):
+            for field_name in ("courtesy_reason_type", "courtesy_reason_description"):
                 self.fields[field_name].disabled = True
 
         if self.workorder and self.workorder.budget_type == "warranty":
@@ -993,29 +981,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                 css_id="delivery-oil-reason-row",
                 css_class="mt-4 grid grid-cols-12 gap-4 items-stretch",
             ),
-            *(
-                [
-                    Div(
-                        Div(
-                            Field("previous_mechanic", wrapper_class="mb-0"),
-                            css_class="col-span-12 lg:col-span-6",
-                        ),
-                        Div(
-                            Field("courtesy_reason_type", wrapper_class="mb-0"),
-                            css_class="col-span-12 lg:col-span-6",
-                        ),
-                        Div(
-                            Field("courtesy_reason_description", wrapper_class="mb-0"),
-                            css_class="col-span-12",
-                        ),
-                        css_id="courtesy-reason-section",
-                        css_class="mt-4 grid grid-cols-12 gap-4 rounded-box border border-warning/25 bg-warning/10 p-4 text-base-content [&_label]:text-base-content [&_.label-text]:text-base-content",
-                    )
-                ]
-                if getattr(self, "is_courtesy_or_warranty", False)
-                else []
-            ),
-            *(
+            *( 
                 [
                     Div(
                         Div(
@@ -1031,6 +997,24 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                     )
                 ]
                 if self.workorder and self.workorder.budget_type == "warranty"
+                else []
+            ),
+            *(
+                [
+                    Div(
+                        Div(
+                            Field("courtesy_reason_type", wrapper_class="mb-0"),
+                            css_class="col-span-12",
+                        ),
+                        Div(
+                            Field("courtesy_reason_description", wrapper_class="mb-0"),
+                            css_class="col-span-12",
+                        ),
+                        css_id="courtesy-reason-section",
+                        css_class="mt-4 grid grid-cols-12 gap-4 rounded-box border border-warning/25 bg-warning/10 p-4 text-base-content [&_label]:text-base-content [&_.label-text]:text-base-content",
+                    )
+                ]
+                if getattr(self, "is_courtesy_or_warranty", False)
                 else []
             ),
         )
