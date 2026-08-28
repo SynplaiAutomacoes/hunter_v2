@@ -952,18 +952,21 @@ class DashboardQueryService:
 
     @staticmethod
     def _calculate_total_sold(*, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
-        result = WorkOrder.objects.filter(
-            workshop_id=workshop_id,
-            status=WorkOrderStatus.APPROVED,
-            budget_type="sale",
-            delivered_at__month=selected_month,
-            delivered_at__year=selected_year,
-        ).aggregate(
-            total=Coalesce(
-                Sum("stored_total_amount"),
-                Value(Decimal("0.00")),
-                output_field=DecimalField(max_digits=14, decimal_places=2),
+        result = (
+            WorkOrderPaymentMethod.objects.filter(
+                workorder__workshop_id=workshop_id,
+                workorder__status__in=WORKORDER_REVENUE_STATUSES,
+                workorder__budget_type="sale",
+                due_date__month=selected_month,
+                due_date__year=selected_year,
             )
+            .annotate(
+                payment_total=ExpressionWrapper(
+                    F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
+            )
+            .aggregate(total=Sum("payment_total"))
         )
         return result["total"] or Decimal("0.00")
 
@@ -1250,23 +1253,38 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
 
 
 def _get_total_sold_workorders(*, workshop: Workshop, month: int, year: int) -> tuple[list[WorkOrder], str]:
-    """Return delivered sale work orders that compose the Total Vendido card."""
-    items = list(
-        WorkOrder.objects.filter(
-            workshop=workshop,
-            status=WorkOrderStatus.APPROVED,
-            budget_type="sale",
-            delivered_at__month=month,
-            delivered_at__year=year,
+    """Return the exact payment-plan totals that compose the Total Vendido card.
+
+    A work order can have several payment methods; their full plan values are
+    consolidated under one O.S. so the detailed report and its export always
+    close with the dashboard total.
+    """
+    payment_total_expression = ExpressionWrapper(
+        F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
+        output_field=DecimalField(max_digits=14, decimal_places=2),
+    )
+    amounts_by_workorder = {
+        row["workorder_id"]: row["total"] or Decimal("0.00")
+        for row in WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop=workshop,
+            workorder__status__in=WORKORDER_REVENUE_STATUSES,
+            workorder__budget_type="sale",
+            due_date__month=month,
+            due_date__year=year,
         )
+        .values("workorder_id")
+        .annotate(total=Sum(payment_total_expression))
+    }
+    items = list(
+        WorkOrder.objects.filter(pk__in=amounts_by_workorder)
         .select_related("budget__customer", "budget__vehicle")
         .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
-        .order_by("delivered_at", "pk")
+        .order_by("criado_em", "pk")
     )
     for item in items:
-        setattr(item, "dashboard_report_amount", resolve_decimal_amount(item.stored_total_amount))
+        setattr(item, "dashboard_report_amount", amounts_by_workorder[item.pk])
 
-    total = sum((item.dashboard_report_amount for item in items), Decimal("0.00"))
+    total = sum(amounts_by_workorder.values(), Decimal("0.00"))
     return items, _format_brl(total)
 
 
