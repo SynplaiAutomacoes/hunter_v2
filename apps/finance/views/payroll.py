@@ -87,7 +87,14 @@ class PayrollPaymentForm(forms.ModelForm):
         widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
         initial=False,
     )
-    is_partial_payment = forms.BooleanField(label="Pagamento parcial", required=False)
+    is_partial_payment = forms.TypedChoiceField(
+        label="Pagamento parcial",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Não"), (True, "Sim")),
+        widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]),
+        initial=False,
+    )
     partial_payment_amount = MoneyField(label="Valor pago", required=False, widget=MoneyInput())
 
     class Meta:
@@ -238,19 +245,18 @@ class PayrollPaymentForm(forms.ModelForm):
             else:
                 self.add_error("discount_mode", "Informe se esta movimentação possui desconto.")
 
-        for field, message in apply_payment_reconciliation_rules(cleaned_data):
-            self.add_error(field, message)
         if cleaned_data.get("is_partial_payment"):
+            cleaned_data["is_paid"] = True
             paid_amount = cleaned_data.get("partial_payment_amount")
             total_amount = cleaned_data.get("amount")
-            if not cleaned_data.get("is_paid"):
-                self.add_error("is_paid", "Marque a conta como paga para registrar um pagamento parcial.")
             if paid_amount is None:
                 self.add_error("partial_payment_amount", "Informe o valor efetivamente pago.")
             elif total_amount is not None and (paid_amount <= Money(0, paid_amount.currency) or paid_amount >= total_amount):
                 self.add_error("partial_payment_amount", "O valor pago deve ser maior que zero e menor que o valor total da conta.")
             if self._was_paid:
                 self.add_error("is_partial_payment", "Não é possível dividir uma conta que já foi paga.")
+        for field, message in apply_payment_reconciliation_rules(cleaned_data):
+            self.add_error(field, message)
         return cleaned_data
 
     def save(self, commit: bool = True) -> FinancialMovement:
