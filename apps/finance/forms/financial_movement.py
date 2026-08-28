@@ -1096,7 +1096,14 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
         initial=False,
     )
-    is_partial_payment = forms.BooleanField(label="Pagamento parcial", required=False)
+    is_partial_payment = forms.TypedChoiceField(
+        label="Pagamento parcial",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Não"), (True, "Sim")),
+        widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]),
+        initial=False,
+    )
     partial_payment_amount = MoneyField(label="Valor pago", required=False, widget=MoneyInput())
 
     class Meta:
@@ -1301,8 +1308,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("payment_method", css_class="col-span-12 lg:col-span-4"),
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("is_reconciled", css_class="col-span-12 lg:col-span-4"),
-                Div("is_partial_payment", css_class="col-span-12 lg:col-span-4 partial-payment-field"),
-                Div("partial_payment_amount", css_class="col-span-12 lg:col-span-4 partial-payment-field"),
+                Div("is_partial_payment", css_class="col-span-12 lg:col-span-4 partial-payment-option"),
+                Div("partial_payment_amount", css_class="col-span-12 lg:col-span-4 partial-payment-amount"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
                 HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-12 lg:col-span-4"),
@@ -1420,22 +1427,23 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         if getattr(self.instance, "movement_kind", None) != FinancialMovement.MovementKind.WORKORDER_CARD_FEE and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
 
-        for field, message in apply_payment_reconciliation_rules(cleaned_data):
-            self.add_error(field, message)
-
         if cleaned_data.get("is_partial_payment"):
+            # A partial settlement always settles the paid portion. The user
+            # should not need to mark the same payment as paid a second time.
+            cleaned_data["is_paid"] = True
             paid_amount = cleaned_data.get("partial_payment_amount")
             total_amount = cleaned_data.get("amount")
             if direction != FinancialMovement.MovementDirection.DEBIT:
                 self.add_error("is_partial_payment", "Pagamento parcial está disponível apenas para contas a pagar.")
-            if not cleaned_data.get("is_paid"):
-                self.add_error("is_paid", "Marque a conta como paga para registrar um pagamento parcial.")
             if paid_amount is None:
                 self.add_error("partial_payment_amount", "Informe o valor efetivamente pago.")
             elif total_amount is not None and (paid_amount <= Money(0, paid_amount.currency) or paid_amount >= total_amount):
                 self.add_error("partial_payment_amount", "O valor pago deve ser maior que zero e menor que o valor total da conta.")
             if self._was_paid:
                 self.add_error("is_partial_payment", "Não é possível dividir uma conta que já foi paga.")
+
+        for field, message in apply_payment_reconciliation_rules(cleaned_data):
+            self.add_error(field, message)
 
         return cleaned_data
 
