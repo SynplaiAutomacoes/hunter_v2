@@ -23,6 +23,7 @@ from django.db import transaction
 
 from djmoney.forms import MoneyField as MoneyFormField
 from djmoney.money import Money
+from djmoney.forms import MoneyField
 
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import (
@@ -55,7 +56,11 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules
+from apps.finance.services.financial_movement import (
+    BUDGET_PLAN_REQUIRED,
+    apply_payment_reconciliation_rules,
+    create_partial_payment_balance,
+)
 from apps.finance.views.commissions import MONTH_CHOICES, _parse_int_param, build_paid_status_indicator
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import can_view_payroll_details, get_active_workshop_or_404
@@ -86,6 +91,15 @@ class PayrollPaymentForm(forms.ModelForm):
         widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
         initial=False,
     )
+    is_partial_payment = forms.TypedChoiceField(
+        label="Pagamento parcial",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Não"), (True, "Sim")),
+        widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]),
+        initial=False,
+    )
+    partial_payment_amount = MoneyField(label="Valor pago", required=False, widget=MoneyInput())
 
     class Meta:
         model = FinancialMovement
@@ -152,6 +166,7 @@ class PayrollPaymentForm(forms.ModelForm):
             else:
                 kwargs["data"] = data
         super().__init__(*args, **kwargs)
+        self._was_paid = bool(self.instance.pk and self.instance.is_paid)
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
         self.fields["budget_plan"].required = True
@@ -234,9 +249,28 @@ class PayrollPaymentForm(forms.ModelForm):
             else:
                 self.add_error("discount_mode", "Informe se esta movimentação possui desconto.")
 
+        if cleaned_data.get("is_partial_payment"):
+            cleaned_data["is_paid"] = True
+            paid_amount = cleaned_data.get("partial_payment_amount")
+            total_amount = cleaned_data.get("amount")
+            if paid_amount is None:
+                self.add_error("partial_payment_amount", "Informe o valor efetivamente pago.")
+            elif total_amount is not None and (paid_amount.amount <= 0 or paid_amount >= total_amount):
+                self.add_error("partial_payment_amount", "O valor pago deve ser maior que zero e menor que o valor total da conta.")
+            if self._was_paid:
+                self.add_error("is_partial_payment", "Não é possível dividir uma conta que já foi paga.")
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
         return cleaned_data
+
+    def save(self, commit: bool = True) -> FinancialMovement:
+        instance = super().save(commit=commit)
+        if commit and self.cleaned_data.get("is_partial_payment"):
+            create_partial_payment_balance(
+                paid_movement=instance,
+                paid_amount=self.cleaned_data["partial_payment_amount"],
+            )
+        return instance
 
 
 def _bind_widgets_to_html_form(form: forms.Form, form_id: str) -> None:
