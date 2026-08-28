@@ -20,6 +20,12 @@ class WorkOrderApprovalError(Exception):
     pass
 
 
+def workorder_can_finalize_after_signature(workorder: WorkOrder) -> bool:
+    can_finalize_workorder = workorder.is_fully_paid or workorder.budget_type in ("warranty", "courtesy")
+    has_warranty_plan = bool(workorder.warranty_plan)
+    return (can_finalize_workorder and has_warranty_plan) or workorder.status == WorkOrderStatus.APPROVED
+
+
 def _collect_required_products(workorder: WorkOrder) -> tuple[dict[int, int], dict[int, str], list[str]]:
     required_quantities: defaultdict[int, int] = defaultdict(int)
     product_names: dict[int, str] = {}

@@ -1,4 +1,10 @@
 # ruff: noqa: F403,F405
+import json
+
+from django.urls import reverse
+
+from apps.terms.util import build_term_signing_status_map, term_signature_status_badge
+
 from .base import BudgetStepBaseForm
 from .common import *
 
@@ -27,6 +33,8 @@ class BudgetStep2Form(BudgetStepBaseForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self.receipt_terms = kwargs.pop("receipt_terms", [])
+        self.term_signings_by_template_id = kwargs.pop("term_signings_by_template_id", {})
         super().__init__(*args, **kwargs)
 
         self.investigative_questions = InvestigativeQuestion.objects.filter(workshop=self.workshop, is_active=True).order_by("order")
@@ -66,6 +74,41 @@ class BudgetStep2Form(BudgetStepBaseForm):
         # 3. Configurar Layout dinâmico do Crispy
         question_layout_fields = [Field(name, wrapper_class="mb-4") for name in self.question_field_names]
 
+        term_section_html = ""
+        if self.instance.pk and self.receipt_terms:
+            first_term = self.receipt_terms[0]
+            term_modal_url_template = reverse(
+                "terms:budget_term_modal_selected",
+                kwargs={"budget_id": self.instance.pk, "template_id": 999999999},
+            ).replace("999999999", "{id}")
+            term_signing_status_map = build_term_signing_status_map(
+                terms=self.receipt_terms,
+                signings_by_template_id=self.term_signings_by_template_id,
+            )
+            term_section_html = render_to_string(
+                "budget/partials/step2_term_section.html",
+                {
+                    "receipt_terms": self.receipt_terms,
+                    "term_modal_url_template": term_modal_url_template,
+                    "initial_term_modal_url": reverse(
+                        "terms:budget_term_modal_selected",
+                        kwargs={"budget_id": self.instance.pk, "template_id": first_term.pk},
+                    ),
+                    "term_signing_status_map_json": json.dumps(term_signing_status_map),
+                    "initial_term_status_badge": term_signing_status_map.get(str(first_term.pk), term_signature_status_badge(None)),
+                },
+                request=self.request,
+            )
+
+        notes_column_class = "col-span-12 lg:col-span-6 flex flex-col" if term_section_html else "col-span-12"
+        notes_term_row_fields = [
+            Div(Field("notes", wrapper_class="w-full flex-1", css_class="bg-base-200 h-full"), css_class=notes_column_class),
+        ]
+        if term_section_html:
+            notes_term_row_fields.append(
+                Div(HTML(term_section_html), css_class="col-span-12 lg:col-span-6 flex flex-col"),
+            )
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -79,8 +122,10 @@ class BudgetStep2Form(BudgetStepBaseForm):
                     Div(*question_layout_fields, css_class="border bg-base-200 px-4 py-2 rounded-lg pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400", style="border-color: var(--color-input-ring); height: 40vh; min-height: 40vh; max-height: 40vh;"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
-                # Observações
-                Div(Field("notes", wrapper_class="w-full", css_class="bg-base-200"), css_class="col-span-12"),
+                Div(
+                    *notes_term_row_fields,
+                    css_class="col-span-12 grid grid-cols-12 gap-6 items-stretch",
+                ),
                 css_class="budget-step2-client-report grid grid-cols-12 gap-6",
             ),
         )

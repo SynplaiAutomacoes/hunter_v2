@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from django import forms
 from django.urls import reverse
+from urllib.parse import urlencode
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
@@ -46,12 +47,22 @@ class KitForm(CoreModelForm):
             "is_active": CheckboxInput(),
         }
 
-    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+    def __init__(self, *args, workshop: Workshop | None = None, next_url: str = "", budget_id: int | str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
+        self.next_url = str(next_url or "").strip()
+        raw_budget_id = str(budget_id or "").strip()
+        self.budget_id = raw_budget_id if raw_budget_id.isdigit() else ""
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
+        action_query: dict[str, str] = {}
+        if self.next_url:
+            action_query["next"] = self.next_url
+        if self.budget_id:
+            action_query["budget_id"] = self.budget_id
+        if action_query:
+            self.helper.form_action = f"{reverse('catalog:kits_create')}?{urlencode(action_query)}"
         self.helper.layout = self.get_layout()
 
     def clean_name(self) -> str:
@@ -284,7 +295,7 @@ class KitForm(CoreModelForm):
         return amount.quantize(Decimal("0.01"))
 
     def get_layout(self):
-        cancel_url = reverse("catalog:kits_list")
+        cancel_url = escape(self.next_url or reverse("catalog:kits_list"), quote=True)
         product_search_url = reverse("catalog:kits_product_search")
         service_search_url = reverse("catalog:kits_service_search")
         service_bulk_pricing_url = reverse("catalog:kits_service_bulk_pricing")
@@ -496,6 +507,7 @@ class KitForm(CoreModelForm):
                             class="col-span-12"
                             x-data="kitItemsManager()"
                             @kit-service-updated.window="applyUpdatedService($event.detail)"
+                            @kit-product-updated.window="applyUpdatedProduct($event.detail)"
                         >
                             <div class="p-4 bg-base-300 rounded-box mb-4">
                                 <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -1478,6 +1490,20 @@ class KitForm(CoreModelForm):
                                         const modalToggle = document.getElementById('edit-item-modal');
                                         if (modalToggle) modalToggle.checked = false;
                                     }},
+                                    applyUpdatedProduct(payload) {{
+                                        if (!payload || payload.id === undefined || payload.id === null) return;
+                                        const product = this.selectedProducts.find(item => String(item.id) === String(payload.id));
+                                        if (!product) return;
+
+                                        product.name = [payload.code, payload.name].filter(Boolean).join(' - ') || product.name;
+                                        product.cost = payload.cost ?? product.cost;
+                                        product.sell = payload.sell ?? product.sell;
+
+                                        this.resetEditModalContent();
+
+                                        const modalToggle = document.getElementById('edit-item-modal');
+                                        if (modalToggle) modalToggle.checked = false;
+                                    }},
                                     handleServiceEditDurationInput(event) {{
                                         const formatted = this.normalizeDistributionTime(event.target.value);
                                         this.serviceEditForm.duration = formatted;
@@ -2048,6 +2074,8 @@ class KitForm(CoreModelForm):
             ),
             HTML('<div class="divider"></div>'),
             Div(
+                HTML(f'<input type="hidden" name="next" value="{escape(self.next_url, quote=True)}">') if self.next_url else HTML(""),
+                HTML(f'<input type="hidden" name="budget_id" value="{escape(self.budget_id, quote=True)}">') if self.budget_id else HTML(""),
                 HTML(f'<a href="{cancel_url}" class="btn-form-cancel">Cancelar</a>'),
                 Submit("submit", "Salvar", css_class="btn-form-save"),
                 css_class="flex items-center justify-end gap-2",
@@ -2799,3 +2827,5 @@ class QuickServiceEditForm(CoreModelForm):
             if qs.exists():
                 raise forms.ValidationError("Já existe um serviço com este nome.")
         return name
+
+

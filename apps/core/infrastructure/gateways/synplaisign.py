@@ -404,7 +404,7 @@ def list_webhooks(*, api_key: str) -> list[dict[str, Any]]:
 
 def create_webhook(*, api_key: str, url: str, events: list[str] | None = None) -> dict[str, Any]:
     base_url = _require_base_url()
-    expected_events = list(events or ["ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"])
+    expected_events = list(events or ["ENVELOPE_COMPLETED", "DOCUMENT_SIGNED", "DOCUMENT_DECLINED"])
     payload = {"url": url, "events": expected_events}
 
     logger.info("synplaisign_webhook_create_start", extra={"url": url, "events": expected_events})

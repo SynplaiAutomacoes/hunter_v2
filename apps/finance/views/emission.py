@@ -24,7 +24,6 @@ from apps.finance.forms import (
     EmissionStep2Form,
     EmissionStep3Form,
     EmissionStep4Form,
-    EmissionStep5Form,
 )
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.providers import get_fiscal_service
@@ -58,6 +57,13 @@ def _empty_nfse_config() -> dict[str, str]:
     return {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": ""}
 
 
+def bind_emission_request_view(*, request, workshop) -> EmissionRequestCreateView:
+    view = EmissionRequestCreateView()
+    view.setup(request)
+    view.workshop = workshop
+    return view
+
+
 class EmissionCreateRedirectBaseView(LoginRequiredMixin, WorkshopScopedMixin, RedirectView):
     permanent = False
     query_string = False
@@ -68,11 +74,12 @@ class EmissionCreateRedirectBaseView(LoginRequiredMixin, WorkshopScopedMixin, Re
 
     def get_redirect_url(self, *args, **kwargs) -> str:
         note_mode = _normalize_note_mode(self.emission_note_type) or "nfe"
-        return f"{reverse('finance:emission_create')}?tipo={note_mode}&reset=1"
+        return f"{reverse('finance:emission_normal')}?tipo={note_mode}&reset=1"
 
 
 class NfeCreateRedirectView(EmissionCreateRedirectBaseView):
-    emission_note_type = "nfe"
+    def get_redirect_url(self, *args, **kwargs) -> str:
+        return reverse("finance:emission_create")
 
 
 class NfseCreateRedirectView(EmissionCreateRedirectBaseView):
@@ -119,7 +126,6 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         {"key": "customer", "title": "Conferir Cliente", "form_class": EmissionStep2Form},
         {"key": "items", "title": "Conferir Produtos/Servicos", "form_class": EmissionStep3Form},
         {"key": "summary", "title": "Resumo", "form_class": EmissionStep4Form},
-        {"key": "note_mode", "title": "Emitir Nota", "form_class": EmissionStep5Form},
     ]
 
     dynamic_steps_by_mode = {
@@ -157,6 +163,15 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         "both": "Produtos e Serviços",
     }
 
+    @staticmethod
+    def _empty_nfe_config() -> dict[str, Any]:
+        return {
+            "tax_class": "",
+            "additional_information": "",
+            "freight_mode": "9",
+            "transport_snapshot": {},
+        }
+
     def _default_state(self) -> dict[str, Any]:
         return {
             "current_step": 1,
@@ -165,7 +180,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "pricing_slider": None,
             "discount_type_override": "",
             "note_mode": "",
-            "nfe_config": {"tax_class": "", "additional_information": ""},
+            "nfe_config": self._empty_nfe_config(),
             "nfse_config": _empty_nfse_config(),
             "nfe_request_id": None,
             "nfse_request_id": None,
@@ -180,7 +195,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state.update(stored_state)
 
         if not isinstance(state.get("nfe_config"), dict):
-            state["nfe_config"] = {"tax_class": "", "additional_information": ""}
+            state["nfe_config"] = self._empty_nfe_config()
         if not isinstance(state.get("nfse_config"), dict):
             state["nfse_config"] = _empty_nfse_config()
         else:
@@ -230,11 +245,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         return actions
 
     def _resolve_close_redirect(self, *, state: dict[str, Any]) -> str:
-        if state.get("nfse_request_id") and not state.get("nfse_done"):
-            return reverse("finance:nfse_list")
-        if state.get("nfe_request_id") and not state.get("nfe_done"):
-            return reverse("finance:nfe_emit")
-        return reverse("workshops:emission_history")
+        from apps.finance.views.navigation import build_issued_documents_list_url
+
+        if state.get("nfse_request_id") and not state.get("nfse_done") and not state.get("nfe_request_id"):
+            return build_issued_documents_list_url(note_type="nfse")
+        if state.get("nfe_request_id") and not state.get("nfe_done") and not state.get("nfse_request_id"):
+            return build_issued_documents_list_url(note_type="nfe")
+        return build_issued_documents_list_url()
 
     def _close_wizard(self):
         state = self._load_state() if self._has_saved_state() else self._default_state()
@@ -244,7 +261,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         self._clear_state()
 
         if has_created_requests:
-            messages.info(self.request, "Emissao fechada. Voce pode ajustar as notas criadas pelas listagens.")
+            messages.info(self.request, "Emissao fechada. Voce pode acompanhar as notas na Central de Notas.")
         else:
             messages.info(self.request, "Emissao fechada. Voce pode iniciar uma nova quando quiser.")
 
@@ -420,7 +437,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "net_total": (raw_total - total_discount).quantize(Decimal("0.01")),
         }
 
-    def _render_discount_type_modal(self, *, workorder: WorkOrder, note_mode: str, suggested_override: str) -> HttpResponse:
+    def _render_discount_type_modal(self, *, workorder: WorkOrder, note_mode: str, suggested_override: str, form_action: str = "") -> HttpResponse:
         current_discount_type = workorder.discount_type
         if note_mode == "both":
             note_label = "ambos os tipos de nota"
@@ -440,6 +457,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         context = {
             "current_step": self._current_step(),
             "note_mode": note_mode,
+            "pricing_slider": self._selected_slider(state=self._load_state(), workorder=workorder),
+            "form_action": form_action,
+            "use_htmx": bool(getattr(self.request, "htmx", False)),
             "message": message,
             "current_label": self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type),
             "suggested_override": suggested_override,
@@ -462,8 +482,6 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         if step_key == "summary":
             initial["pricing_slider"] = self._selected_slider(state=state, workorder=workorder)
-
-        if step_key == "note_mode":
             selected_slider = self._selected_slider(state=state, workorder=workorder)
             allowed_note_modes, _ = self._note_mode_availability(workorder=workorder, selected_slider=selected_slider) if workorder is not None else ({"nfe", "nfse", "both"}, "")
             preferred_mode = state.get("note_mode") or _normalize_note_mode(self.request.GET.get("tipo"))
@@ -532,9 +550,10 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             selected_wo = self._selected_workorder(state)
             if selected_wo is not None:
                 kwargs["workorder"] = selected_wo
-        elif step_key in {"customer", "items", "summary"}:
+        elif step_key in {"customer", "items"}:
             kwargs["workorder"] = workorder
-        elif step_key == "note_mode":
+        elif step_key == "summary":
+            kwargs["workorder"] = workorder
             kwargs["note_mode_choices"] = EMISSION_NOTE_MODE_CHOICES
             if workorder is not None:
                 allowed_note_modes, availability_message = self._note_mode_availability(
@@ -557,7 +576,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         return kwargs
 
     def _submit_button_label(self, *, state: dict[str, Any], step_key: str) -> str:
-        if step_key in {"workorder", "customer", "items", "summary", "note_mode"}:
+        if step_key in {"workorder", "customer", "items", "summary"}:
             return "Salvar e continuar"
         if step_key == "nfe_config":
             return "Salvar e continuar" if state.get("note_mode") == "both" else "Ver prévia"
@@ -597,13 +616,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         context["retry_notice"] = self._retry_notice(state=state, step_key=current_step_key)
         context["wizard_state"] = state
         context["selected_workorder"] = self._selected_workorder(state)
-        context["close_emission_url"] = f"{reverse('finance:emission_create')}?close=1"
+        context["close_emission_url"] = f"{reverse('finance:emission_normal')}?close=1"
         context["created_request_actions"] = self._build_created_request_actions(state=state)
         context["ncm_invalid_modal"] = pop_invalid_ncm_modal_context(request=self.request)
         return context
 
     def _step_url(self, step: int) -> str:
-        return f"{reverse('finance:emission_create')}?step={step}"
+        return f"{reverse('finance:emission_normal')}?step={step}"
 
     def _redirect_to_step(self, step: int):
         target_url = self._step_url(step)
@@ -624,12 +643,14 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         cache.delete(self._submission_lock_key(state=state, note_key=note_key))
 
     def _redirect_to_success(self, *, note_mode: str):
-        if note_mode == "both":
-            target_url = reverse("workshops:emission_history")
+        from apps.finance.views.navigation import build_issued_documents_list_url
+
+        if note_mode == "nfse":
+            target_url = build_issued_documents_list_url(note_type="nfse")
         elif note_mode == "nfe":
-            target_url = reverse("finance:nfe_emit")
+            target_url = build_issued_documents_list_url(note_type="nfe")
         else:
-            target_url = reverse("finance:nfse_list")
+            target_url = build_issued_documents_list_url()
 
         if getattr(self.request, "htmx", False):
             response = HttpResponse()
@@ -659,6 +680,63 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         state["max_reached_step"] = max(min(total_steps, int(state.get("max_reached_step") or 1)), target_step)
         return target_step
 
+    def seed_state_at_summary(self, *, workorder: WorkOrder) -> dict[str, Any]:
+        stored_state = self.request.session.get(self._session_key(), {})
+        if isinstance(stored_state, dict) and stored_state.get("workorder_id") == workorder.pk:
+            state = self._load_state()
+        else:
+            state = self._default_state()
+            state["workorder_id"] = workorder.pk
+        self._set_current_step(state=state, step_key="summary")
+        self._write_state(state)
+        return state
+
+    def apply_summary_and_note_mode(self, *, form, workorder: WorkOrder, form_action: str = ""):
+        state = self._load_state()
+        selected_slider = int(form.cleaned_data["pricing_slider"])
+        if state.get("pricing_slider") != selected_slider:
+            state["pricing_slider"] = selected_slider
+            self._clear_submission_progress(state)
+
+        allowed_note_modes, _ = self._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
+        if not allowed_note_modes:
+            messages.error(self.request, "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual.")
+            self._write_state(state)
+            return self._redirect_to_step(self._get_step_number(step_key="summary", state=state) or 4)
+
+        selected_mode = str(form.cleaned_data["note_mode"])
+        if selected_mode not in allowed_note_modes:
+            messages.error(self.request, "Selecione um tipo de nota fiscal disponível para a configuração atual.")
+            self._write_state(state)
+            return self._redirect_to_step(self._get_step_number(step_key="summary", state=state) or 4)
+
+        override_from_post = self.request.POST.get("discount_type_override")
+        if override_from_post is None:
+            has_mismatch, suggested_override = self._detect_discount_type_mismatch(workorder=workorder, note_mode=selected_mode)
+            if has_mismatch:
+                state["note_mode"] = selected_mode
+                self._write_state(state)
+                return self._render_discount_type_modal(
+                    workorder=workorder,
+                    note_mode=selected_mode,
+                    suggested_override=suggested_override,
+                    form_action=form_action,
+                )
+
+        state["discount_type_override"] = override_from_post if override_from_post is not None else ""
+        previous_mode = str(state.get("note_mode") or "")
+        if selected_mode != previous_mode:
+            self._clear_submission_progress(state)
+            if selected_mode == "nfe":
+                state["nfse_config"] = _empty_nfse_config()
+            elif selected_mode == "nfse":
+                state["nfe_config"] = self._empty_nfe_config()
+        state["note_mode"] = selected_mode
+        next_key = "nfe_config" if selected_mode in {"nfe", "both"} else "nfse_config"
+        next_step = self._set_current_step(state=state, step_key=next_key)
+        self._write_state(state)
+        return self._redirect_to_step(next_step)
+
     def _get_or_create_nfe_request(self, *, state: dict[str, Any], workorder: WorkOrder) -> NfeRequest:
         request_id = state.get("nfe_request_id")
         nfe_request = None
@@ -673,6 +751,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfe_request.status = NfeRequestStatus.CHECKING_PRODUCTS
         nfe_request.tax_class = str((state.get("nfe_config") or {}).get("tax_class") or "")
         nfe_request.additional_information = str((state.get("nfe_config") or {}).get("additional_information") or "")
+        nfe_request.freight_mode = int((state.get("nfe_config") or {}).get("freight_mode") or 9)
+        nfe_request.transport_snapshot = dict((state.get("nfe_config") or {}).get("transport_snapshot") or {})
         nfe_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfe_request.discount_type_override = str(state.get("discount_type_override") or "")
         nfe_request.save()
@@ -870,7 +950,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                         "pricing_slider": None,
                         "discount_type_override": "",
                         "note_mode": _normalize_note_mode(self.request.GET.get("tipo")),
-                        "nfe_config": {"tax_class": "", "additional_information": ""},
+                        "nfe_config": self._empty_nfe_config(),
                         "nfse_config": _empty_nfse_config(),
                     }
                 )
@@ -894,50 +974,14 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return self._redirect_to_step(next_step)
 
         if current_step_key == "summary":
-            selected_slider = int(form.cleaned_data["pricing_slider"])
-            if state.get("pricing_slider") != selected_slider:
-                state["pricing_slider"] = selected_slider
-                self._clear_submission_progress(state)
-
-            allowed_note_modes, _ = self._note_mode_availability(workorder=workorder, selected_slider=selected_slider)
-            if not allowed_note_modes:
-                messages.error(self.request, "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual.")
-                self._write_state(state)
-                return self._redirect_to_step(self._current_step())
-
-            next_step = self._set_current_step(state=state, step_key="note_mode")
-            self._write_state(state)
-            return self._redirect_to_step(next_step)
-
-        if current_step_key == "note_mode":
-            selected_mode = str(form.cleaned_data["note_mode"])
-            override_from_post = self.request.POST.get("discount_type_override")
-
-            if override_from_post is None:
-                has_mismatch, suggested_override = self._detect_discount_type_mismatch(workorder=workorder, note_mode=selected_mode)
-                if has_mismatch:
-                    state["note_mode"] = selected_mode
-                    self._write_state(state)
-                    return self._render_discount_type_modal(workorder=workorder, note_mode=selected_mode, suggested_override=suggested_override)
-
-            state["discount_type_override"] = override_from_post if override_from_post is not None else ""
-            previous_mode = str(state.get("note_mode") or "")
-            if selected_mode != previous_mode:
-                self._clear_submission_progress(state)
-                if selected_mode == "nfe":
-                    state["nfse_config"] = _empty_nfse_config()
-                elif selected_mode == "nfse":
-                    state["nfe_config"] = {"tax_class": "", "additional_information": ""}
-            state["note_mode"] = selected_mode
-            next_key = "nfe_config" if selected_mode in {"nfe", "both"} else "nfse_config"
-            next_step = self._set_current_step(state=state, step_key=next_key)
-            self._write_state(state)
-            return self._redirect_to_step(next_step)
+            return self.apply_summary_and_note_mode(form=form, workorder=workorder)
 
         if current_step_key == "nfe_config":
             state["nfe_config"] = {
                 "tax_class": form.cleaned_data["tax_class"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
+                "freight_mode": form.cleaned_data.get("freight_mode", "9"),
+                "transport_snapshot": form.cleaned_data.get("transport_snapshot", {}),
             }
             self._write_state(state)
             if state.get("note_mode") == "both":

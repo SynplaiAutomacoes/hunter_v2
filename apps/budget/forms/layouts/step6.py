@@ -2,6 +2,7 @@
 from apps.budget.forms.layouts.step6_assets import build_step6_assets_html
 from apps.budget.forms.presenters.step6_context import build_step6_context
 from apps.budget.forms.steps.common import *
+from apps.collaborators.models import WorkshopCollaborator
 
 
 def configure_budget_step6_form(form):
@@ -36,6 +37,14 @@ def configure_budget_step6_form(form):
 
     budget = _get_budget_with_prefetched_items(form.instance)
     ctx = build_step6_context(budget, form)
+    service_responsibles = WorkshopCollaborator.objects.filter(
+        workshop=form.workshop,
+        is_active=True,
+        collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+    ).order_by("name", "pk")
+    responsible_options_html = "".join(
+        "<option value='{pk}'>{name}</option>".format(pk=collaborator.pk, name=escape(collaborator.name)) for collaborator in service_responsibles
+    )
 
     status_label = ctx.status_label
     status_class = ctx.status_class
@@ -63,7 +72,6 @@ def configure_budget_step6_form(form):
     reject_button_class = ctx.reject_button_class
     products_html = ctx.products_html
     services_html = ctx.services_html
-    kits_html = ctx.kits_html
 
     has_reopen_permission = bool(
         form.request and form.workshop and has_workshop_perm(
@@ -109,12 +117,19 @@ def configure_budget_step6_form(form):
         # =========================
         # MODAL DE CANCELAMENTO
         # =========================
-        HTML("""
+        HTML(f"""
                 <dialog id="cancelBudgetModal" class="modal">
                   <div class="modal-box">
                     <h3 class="font-bold text-lg">Cancelar Orçamento</h3>
                     <p class="py-4">Por favor, informe o motivo do cancelamento:</p>
                     <textarea id="cancellation-reason-input" class="textarea textarea-bordered w-full" rows="3" placeholder="Motivo do cancelamento..."></textarea>
+                    <label class="form-control w-full mt-4">
+                      <span class="label-text font-medium mb-2">Responsável pelo atendimento</span>
+                      <select id="cancellation-responsible-input" class="select select-bordered w-full">
+                        <option value="">Selecione o responsável</option>
+                        {responsible_options_html}
+                      </select>
+                    </label>
                     <div class="modal-action">
                       <button type="button" class="btn" onclick="document.getElementById('cancelBudgetModal').close()">Voltar</button>
                       <button type="button" class="btn btn-error" id="confirm-cancel-btn">Confirmar Cancelamento</button>
@@ -126,6 +141,13 @@ def configure_budget_step6_form(form):
                     <h3 class="font-bold text-lg">Reprovar Orçamento</h3>
                     <p class="py-4">Por favor, informe o motivo da reprovação:</p>
                     <textarea id="rejection-reason-input" class="textarea textarea-bordered w-full" rows="3" placeholder="Motivo da reprovação..."></textarea>
+                    <label class="form-control w-full mt-4">
+                      <span class="label-text font-medium mb-2">Responsável pelo atendimento</span>
+                      <select id="rejection-responsible-input" class="select select-bordered w-full">
+                        <option value="">Selecione o responsável</option>
+                        {responsible_options_html}
+                      </select>
+                    </label>
                     <div class="modal-action">
                       <button type="button" class="btn" onclick="document.getElementById('rejectBudgetModal').close()">Voltar</button>
                       <button type="button" class="btn btn-warning" id="confirm-reject-btn">Confirmar Reprovação</button>
@@ -151,13 +173,14 @@ def configure_budget_step6_form(form):
                                 <table class="table table-zebra table-fixed w-full">
                                   <thead class="bg-primary text-primary-content">
                                     <tr>
-                                      <th class="w-[18%]">NOME</th>
-                                      <th class="w-[18%]">APLICAÇÃO</th>
-                                      <th class="w-[18%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                                      <th class="w-[16%]">NOME</th>
+                                      <th class="w-[8%] text-center">ORIGEM</th>
+                                      <th class="w-[16%]">APLICAÇÃO</th>
+                                      <th class="w-[16%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                       <th class="w-[6%] text-center">QTD.</th>
                                       <th class="w-[10%]">CUSTO</th>
                                       <th class="w-[12%]">VALOR</th>
-                                      <th class="w-[8%]">FRETE</th>
+                                      <th class="w-[8%]">CUSTO DE FRETE</th>
                                       <th class="w-[10%]">TOTAL</th>
                                     </tr>
                                   </thead>
@@ -178,8 +201,12 @@ def configure_budget_step6_form(form):
                                     <table class="table table-zebra table-fixed w-full">
                                         <thead class="bg-primary text-primary-content">
                                             <tr>
-                                                <th class="w-[32%] whitespace-nowrap text-left">
+                                                <th class="w-[28%] whitespace-nowrap text-left">
                                                     NOME
+                                                </th>
+
+                                                <th class="w-[10%] whitespace-nowrap text-center">
+                                                    ORIGEM
                                                 </th>
                                                 
                                                 <th class="w-[8%] whitespace-nowrap text-center">
@@ -195,7 +222,7 @@ def configure_budget_step6_form(form):
                                                 </th>
 
                                                 <th class="w-[10%] whitespace-nowrap text-right">
-                                                    FRETE
+                                                    CUSTO DE FRETE
                                                 </th>
                                                 
                                                 <th class="w-[10%] whitespace-nowrap text-center">
@@ -213,46 +240,6 @@ def configure_budget_step6_form(form):
                                         </tbody>
                                     </table>
                                 </div>
-                            </div>
-                            """),
-                ),
-                # -------- KITS --------
-                Div(
-                    HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Kits Selecionados</h3>'),
-                    HTML(f"""
-                            <div class="mb-6 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
-                                <div class="overflow-x-auto">
-                                    <table class="table table-compact table-fixed w-full">
-                                        <thead class="bg-primary text-primary-content">
-                                            <tr>
-                                                <th class="w-[40%] whitespace-nowrap text-left">
-                                                NOME
-                                                </th>
-                                            
-                                                <th class="w-[10%] whitespace-nowrap text-center">
-                                                QTD.
-                                                </th>
-                                            
-                                                <th class="w-[15%] whitespace-nowrap text-center">
-                                                PRODUTOS
-                                                </th>
-                                            
-                                                <th class="w-[15%] whitespace-nowrap text-center">
-                                                SERVIÇOS
-                                                </th>
-                                            
-                                                <th class="w-[20%] whitespace-nowrap text-center">
-                                                AÇÕES
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                    
-                                        <tbody id="kit-list-body">
-                                        {kits_html}
-                                        </tbody>
-                                    </table>
-                                </div>
-
                             </div>
                             """),
                 ),
@@ -442,121 +429,5 @@ def configure_budget_step6_form(form):
                     <button>close</button>
                   </form>
                 </dialog>
-                """),
-        HTML("""
-                    <dialog
-                        id="kitModal"
-                        class="modal"
-                        onclick="if(event.target === this) closeKitModal()"
-                    >
-                      <div class="modal-box max-w-5xl w-full max-h-[75vh] p-0 flex flex-col">
-
-                        <!-- HEADER -->
-                        <div class="flex items-center justify-between px-8 py-5 border-b bg-base-200">
-                            <div class="flex items-center gap-4">
-                                <div class="p-3 rounded-lg bg-primary/10">
-                                    <span class="material-icons text-primary text-3xl">inventory_2</span>
-                                </div>
-
-                                <div>
-                                    <h3 class="text-2xl font-bold leading-tight" id="kit-modal-title"></h3>
-                                    <span class="badge badge-primary badge-outline mt-1">
-                                        Kit de Serviços
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- BODY -->
-                        <div class="p-8 grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 overflow-y-auto">
-
-                            <!-- PRODUTOS (CARD VERTICAL) -->
-                            <div class="card bg-base-100 shadow-md border lg:col-span-1">
-                                <div class="card-body gap-4">
-                                    <div class="flex items-center justify-between">
-                                        <h4 class="font-semibold text-base flex items-center gap-2">
-                                            <span class="material-icons text-info">build</span>
-                                            Produtos
-                                        </h4>
-                                        <span id="kit-products-count" class="badge badge-info"></span>
-                                    </div>
-
-                                    <div class="divider my-1"></div>
-
-                                    <ul
-                                        id="kit-modal-products"
-                                        class="flex flex-col gap-3 text-sm
-                                             max-h-64 overflow-y-auto pr-2
-                                             overflow-x-hidden"
-                                    ></ul>
-                                </div>
-                            </div>
-
-                            <!-- SERVIÇOS (CARD VERTICAL) -->
-                            <div class="card bg-base-100 shadow-md border lg:col-span-1">
-                                <div class="card-body gap-4">
-                                    <div class="flex items-center justify-between">
-                                        <h4 class="font-semibold text-base flex items-center gap-2">
-                                            <span class="material-icons text-success">engineering</span>
-                                            Serviços
-                                        </h4>
-                                        <span id="kit-services-count" class="badge badge-success"></span>
-                                    </div>
-
-                                    <div class="divider my-1"></div>
-
-                                    <ul
-                                        id="kit-modal-services"
-                                        class="flex flex-col gap-3 text-sm
-                                             max-h-64 overflow-y-auto pr-2
-                                             overflow-x-hidden"
-                                    ></ul>
-                                </div>
-                            </div>
-
-                            <!-- COLUNA DE CONTEXTO (PROFISSIONAL) -->
-                            <div class="card bg-base-200/60 border lg:col-span-1">
-                                <div class="card-body gap-4">
-                                    <h4 class="font-semibold text-base">
-                                        Informações do Kit
-                                    </h4>
-
-                                    <div class="flex flex-col gap-3 text-sm text-base-content/80">
-                                        <div class="flex justify-between">
-                                            <span>Total de Produtos</span>
-                                            <strong id="kit-products-count-side"></strong>
-                                        </div>
-
-                                        <div class="flex justify-between">
-                                            <span>Total de Serviços</span>
-                                            <strong id="kit-services-count-side"></strong>
-                                        </div>
-                                    </div>
-
-                                    <div class="divider"></div>
-
-                                    <p class="text-xs text-base-content/60 leading-relaxed">
-                                        Este kit agrupa produtos e serviços vinculados ao orçamento,
-                                        facilitando a visualização e conferência antes da aprovação.
-                                    </p>
-                                </div>
-                            </div>
-
-                        </div>
-
-                        <!-- FOOTER -->
-                        <div class="flex justify-end px-8 py-5 border-t bg-base-200">
-                            <button
-                                type="button"
-                                class="btn btn-primary"
-                                onclick="closeKitModal()"
-                            >
-                                <span class="material-icons text-sm">close</span>
-                                Fechar
-                            </button>
-                        </div>
-
-                      </div>
-                    </dialog>
                 """),
     )

@@ -7,6 +7,7 @@ from djmoney.money import Money
 
 from apps.finance.models.financial_movement import FinancialMovement
 
+BUDGET_PLAN_REQUIRED = "Selecione o plano orçamentário."
 BUDGET_PLAN_REQUIRED_FOR_RECONCILIATION = "Plano Orçamentário é obrigatório para conciliar. Preencha o campo no modal de edição."
 BANK_ACCOUNT_REQUIRED_FOR_RECONCILIATION = "Conta bancária é obrigatória para conciliar. Selecione a conta do lançamento."
 
@@ -53,19 +54,33 @@ def create_partial_payment_balance(*, paid_movement: FinancialMovement, paid_amo
 
     outstanding_amount = original_amount - paid_amount
     paid_movement.amount = paid_amount
-    paid_movement.save(update_fields=["amount", "updated_at"])
+    # The staging model derives ``amount`` from gross amount and adjustments.
+    # A partial settlement is a new final amount, so it must not retain the
+    # original discount calculation or a later save would restore the total.
+    paid_movement.gross_amount = paid_amount
+    paid_movement.discount_mode = FinancialMovement.DiscountMode.NONE
+    paid_movement.discount_value = Money(0, paid_amount.currency)
+    paid_movement.discount_percentage = Decimal("0.00")
+    paid_movement.save()
 
     balance = FinancialMovement.objects.get(pk=paid_movement.pk)
     balance.pk = None
     balance.id = None
     balance._state.adding = True
     balance.amount = outstanding_amount
+    balance.gross_amount = outstanding_amount
+    balance.discount_mode = FinancialMovement.DiscountMode.NONE
+    balance.discount_value = Money(0, outstanding_amount.currency)
+    balance.discount_percentage = Decimal("0.00")
     balance.is_paid = False
     balance.is_reconciled = False
     balance.partial_payment_of = paid_movement
     balance.payroll = None
     balance.payroll_component = None
     balance.payroll_benefit = None
+    balance.installment_plan = None
+    balance.installment_number = None
+    balance.installments_count = None
     balance.financial_observation = " ".join(
         value for value in [
             str(balance.financial_observation or "").strip(),

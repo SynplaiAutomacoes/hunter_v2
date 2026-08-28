@@ -8,7 +8,7 @@ from django.urls import reverse
 
 from apps.accounts.models import Account
 from apps.budget.models import Budget, BudgetStatus
-from apps.collaborators.models import WorkshopMember
+from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
 from apps.iam.utils import get_or_create_director_role
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
@@ -45,6 +45,21 @@ class BudgetReopenWorkOrderTests(TestCase):
         url = reverse("budget:update_budget_status", kwargs={"budget_id": budget.pk, "status": "reopen"})
         response = self.client.post(url, {"reopen_reason": "Correção de itens"})
         return response.status_code
+
+    def _create_administrative_collaborator(self, *, workshop: Workshop | None = None, is_active: bool = True) -> WorkshopCollaborator:
+        return WorkshopCollaborator.objects.create(
+            workshop=workshop or self.workshop,
+            name="Responsável Administrativo",
+            cpf="52998224725",
+            birth_date=date(1990, 1, 1),
+            admission_date=date(2020, 1, 1),
+            collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+            is_active=is_active,
+        )
+
+    def _post_status(self, budget: Budget, status: str, data: dict[str, str]) -> object:
+        url = reverse("budget:update_budget_status", kwargs={"budget_id": budget.pk, "status": status})
+        return self.client.post(url, data)
 
     def test_reopen_blocked_when_workorder_is_finalized(self) -> None:
         budget = self._create_budget()
@@ -90,3 +105,40 @@ class BudgetReopenWorkOrderTests(TestCase):
         self.assertEqual(self._post_reopen(budget), 200)
         budget.refresh_from_db()
         self.assertEqual(budget.status, BudgetStatus.WAITING_REVIEW)
+
+    def test_cancel_persists_active_administrative_responsible(self) -> None:
+        budget = self._create_budget(status=BudgetStatus.DRAFT)
+        responsible = self._create_administrative_collaborator()
+
+        response = self._post_status(
+            budget,
+            "cancel",
+            {"cancellation_reason": "Cliente desistiu", "cancellation_responsible_id": str(responsible.pk)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        budget.refresh_from_db()
+        self.assertEqual(budget.status, BudgetStatus.CANCELLED)
+        self.assertEqual(budget.cancellation_responsible, responsible)
+
+    def test_reject_requires_administrative_responsible(self) -> None:
+        budget = self._create_budget(status=BudgetStatus.DRAFT)
+
+        response = self._post_status(budget, "reject", {"rejection_reason": "Cliente não aprovou"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("responsável pelo atendimento", response.json()["error"])
+
+    def test_reject_rejects_inactive_administrative_responsible(self) -> None:
+        budget = self._create_budget(status=BudgetStatus.DRAFT)
+        responsible = self._create_administrative_collaborator(is_active=False)
+
+        response = self._post_status(
+            budget,
+            "reject",
+            {"rejection_reason": "Cliente não aprovou", "rejection_responsible_id": str(responsible.pk)},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        budget.refresh_from_db()
+        self.assertEqual(budget.status, BudgetStatus.DRAFT)

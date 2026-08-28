@@ -1,0 +1,24 @@
+{% for row in financial_movement_report_rows %}
+    <tr class="bg-base-100">
+        <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
+        <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
+        <td>{{ row.agent }}</td>
+        <td>{{ row.origin }}</td>
+        <td>{{ row.description }}</td>
+        <td>{{ row.budget_plan }}</td>
+        <td>{{ row.account }}</td>
+        <td>{{ row.payment_type }}</td>
+        <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
+    </tr>
+{% endfor %}
+{% if has_next_page and next_page_url %}
+    <tr
+        id="cashflow-infinite-sentinel"
+        hx-get="{{ next_page_url }}"
+        hx-trigger="revealed"
+        hx-swap="outerHTML"
+        hx-target="this"
+    >
+        <td colspan="9" class="py-4 text-center text-sm text-base-content/50">Carregando mais movimentações…</td>
+    </tr>
+{% endif %}
