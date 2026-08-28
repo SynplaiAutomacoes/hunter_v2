@@ -9,6 +9,7 @@ from apps.core.infrastructure.models import TimeStampedModel, Address
 from apps.core.infrastructure.runtime_environment import is_production_environment
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 
+from .cpf_cnpj_validator import normalize_cpf_or_cnpj
 from .vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
 from .vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
 
@@ -86,6 +87,7 @@ class Customer(TimeStampedModel, Address):
         return self.name
 
     def save(self, *args: object, **kwargs: object) -> None:
+        self.cpf_or_cnpj = normalize_cpf_or_cnpj(self.cpf_or_cnpj)
         if self.name:
             self.name = name_case(self.name)
         if self.fantasy_name:

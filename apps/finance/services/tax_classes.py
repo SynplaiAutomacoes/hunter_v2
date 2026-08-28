@@ -512,6 +512,7 @@ def _serialize_nfse_tax_class(tax_class: TaxClassNfse) -> dict[str, Any]:
         "exigibilidade_iss",
         "iss_retido",
         "responsavel_retencao",
+        "codigo_nbs",
         "codigo_cnae",
     )
     for field_name in text_fields:
@@ -611,6 +612,7 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
             "exigibilidade_iss": _clean_string(payload.get("exigibilidade_iss")),
             "iss_retido": _clean_string(payload.get("iss_retido") or payload.get("retencao_iss")),
             "responsavel_retencao": _clean_string(payload.get("responsavel_retencao")),
+            "codigo_nbs": _digits_only(payload.get("codigo_nbs")),
             "codigo_cnae": _clean_string(payload.get("codigo_cnae")),
             "iss": _to_decimal(payload.get("iss")),
             "pis": _to_decimal(payload.get("pis")),

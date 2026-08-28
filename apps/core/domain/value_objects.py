@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "State",
     "PhoneNumber",
     "Kilometers",
+    "parse_brl_decimal",
 ]
 
 
@@ -72,6 +73,31 @@ class Money:
         integer_part, decimal_part = f"{self.amount:.2f}".split(".")
         grouped = f"{int(integer_part):,}".replace(",", ".")
         return f"R$ {grouped},{decimal_part}"
+
+
+def parse_brl_decimal(raw_value: str) -> Decimal | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+
+    normalized = value.replace("R$", "").replace("\xa0", "").replace(" ", "")
+    if not normalized or normalized in {"-", ",", "."}:
+        return None
+
+    if "," in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    else:
+        normalized = normalized.replace(",", "")
+
+    try:
+        amount = Decimal(normalized)
+    except InvalidOperation:
+        return None
+
+    if amount < 0:
+        return None
+
+    return amount.quantize(Decimal("0.01"))
 
 
 # ---------------------------------------------------------------------------

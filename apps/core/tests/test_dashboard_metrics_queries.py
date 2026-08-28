@@ -9,7 +9,11 @@ from django.utils import timezone
 
 from apps.accounts.models import Account
 from apps.budget.models import Budget, BudgetStatus, BudgetType
-from apps.core.infrastructure.services.dashboard_query_service import DashboardQueryService, calculate_aggregate_markup
+from apps.core.infrastructure.services.dashboard_query_service import (
+    DashboardQueryService,
+    calculate_aggregate_markup,
+    get_financial_indicator_data,
+)
 from apps.customer.models import Customer, Vehicle
 from apps.finance.models import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
@@ -124,6 +128,30 @@ class DashboardMetricsQueryTests(TestCase):
 
         self.assertEqual(total_sold, Decimal("300.00"))
         self.assertEqual(today_sales, Decimal("150.00"))
+
+    def test_total_sold_report_includes_all_revenue_workorder_statuses(self) -> None:
+        customer = Customer.objects.get(workshop=self.workshop)
+        vehicle = Vehicle.objects.get(workshop=self.workshop)
+        payment_method = PaymentMethod.objects.get(workshop=self.workshop)
+        budget = self._create_budget(self.workshop, customer, vehicle, date(2026, 7, 18), BudgetStatus.APPROVED, BudgetType.SALE)
+        self._create_payment(budget, payment_method, WorkOrderStatus.WAITING_DELIVERY, date(2026, 7, 18), Decimal("75.00"), 1, Decimal("0.00"))
+
+        total_sold = DashboardQueryService._calculate_total_sold(
+            workshop_id=self.workshop.pk,
+            selected_month=7,
+            selected_year=2026,
+        )
+        items, is_budget_report, total_label = get_financial_indicator_data(
+            workshop=self.workshop,
+            indicator="total_vendido",
+            month=7,
+            year=2026,
+        )
+
+        self.assertFalse(is_budget_report)
+        self.assertEqual(total_sold, Decimal("425.00"))
+        self.assertEqual(total_label, "R$ 425,00")
+        self.assertIn(budget.pk, [item.budget_id for item in items])
 
     def test_revenue_queries_return_zero_for_empty_workshop(self) -> None:
         total_sold = DashboardQueryService._calculate_total_sold(

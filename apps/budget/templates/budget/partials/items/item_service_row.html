@@ -1,6 +1,6 @@
 {% load l10n %}
 <tr id="budget-item-{{ item.id|unlocalize }}"
-    class="{% if item.is_local %}bg-warning/20{% endif %}"
+    class="{% if item.is_local and not budget.is_status_locked %}bg-warning/20{% endif %}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     {% if not step6 %}
     <td class="budget-step4-select-col text-center">
@@ -20,7 +20,7 @@
             {% elif item.item_benefit_type == "courtesy" %}
                 <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
             {% endif %}
-            {% if item.is_local %}
+            {% if not budget.is_status_locked and item.is_local %}
                 <span class="tooltip tooltip-right shrink-0" data-tip="Item disponível somente neste orçamento. Cadastre-o para prosseguir com a aprovação do orçamento.">
                     <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
                 </span>
@@ -34,13 +34,18 @@
                     <span class="material-icons text-accent" style="font-size: 16px;">cloud_upload</span>
                 </button>
             {% endif %}
-            {% if show_kit_duplicate_warning or item.show_kit_duplicate_warning %}
-                <span class="tooltip tooltip-right shrink-0" data-tip="Serviço já registrado em um kit">
-                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
-                </span>
+            {% if not budget.is_status_locked %}
+                {% if show_kit_duplicate_warning or item.show_kit_duplicate_warning %}
+                    <span class="tooltip tooltip-right shrink-0" data-tip="Serviço já registrado em um kit">
+                        <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                    </span>
+                {% endif %}
             {% endif %}
         </div>
     </td>
+    {% if step6 %}
+    <td class="text-center">{{ origin_badge|safe }}</td>
+    {% endif %}
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-right">{{ service_mechanic_cost|default:item.service_cost_price }}</td>
     <td class="text-right">

@@ -76,10 +76,11 @@
                     <div class="min-w-0">
                         <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Relatorio gerencial</p>
                         <h1 class="mt-1 text-[20px] font-bold uppercase">{{ status_report_pdf_title }}</h1>
-                        <p class="mt-2 text-[12px] font-semibold">{{ workshop.pdf_name|default:"-" }}</p>
+                        <p class="mt-2 text-[12px] font-bold uppercase">{{ workshop.nome_fantasia_display|default:workshop.name|default:"-" }}</p>
+                        <p class="text-[11px] text-gray-600">{{ workshop.razao_social_display|default:"-" }}</p>
                         <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
-                        <p class="text-[11px] text-gray-600">Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
                         <p class="text-[11px] text-gray-600">{{ workshop.address|default:"-" }}</p>
+                        <p class="text-[11px] text-gray-600">Telefone: {{ workshop.pdf_phone|phone_br|default:"-" }}</p>
                     </div>
                 </div>
 
@@ -108,7 +109,7 @@
             <table class="report-table text-[11px]">
                 <thead class="bg-gray-100 text-left uppercase text-[10px] tracking-[0.16em] text-gray-600">
                     <tr>
-                        <th class="px-3 py-2 w-[10%]">ID</th>
+                        <th class="px-3 py-2 w-[10%]">Nº</th>
                         <th class="px-3 py-2 w-[24%]">Cliente</th>
                         <th class="px-3 py-2 w-[14%]">Criado em</th>
                         <th class="px-3 py-2 w-[22%]">Veiculo</th>
@@ -119,7 +120,7 @@
                 <tbody>
                     {% for workorder in report_workorders %}
                         <tr class="border-t border-gray-200 align-top">
-                            <td class="px-3 py-3 font-semibold">#{{ workorder.id }}</td>
+                            <td class="px-3 py-3 font-semibold">#{{ workorder.public_number }}</td>
                             <td class="px-3 py-3">{{ workorder.budget.customer|default:"-" }}</td>
                             <td class="px-3 py-3 text-gray-600">{{ workorder.criado_em|date:"d/m/Y"|default:"-" }}</td>
                             <td class="px-3 py-3">{{ workorder.budget.vehicle|default:"-" }}</td>

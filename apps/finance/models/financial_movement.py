@@ -1,3 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from django.db import models
 
@@ -5,6 +6,8 @@ from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
 from django.conf import settings
+from django.utils import timezone
+from djmoney.money import Money
 
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
@@ -24,6 +27,22 @@ def _format_money_for_report(value: Any) -> str:
     return f"R$ {grouped_integer},{decimal_part}"
 
 
+class FinancialMovementInstallmentPlan(TimeStampedModel):
+    """Auditable record for one financial operation split into installments."""
+
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="financial_movement_installment_plans")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    gross_amount = MoneyField(verbose_name="Valor Bruto Original", max_digits=14, decimal_places=2)
+    adjustment_mode = models.CharField(max_length=12, default="NONE")
+    adjustment_value = MoneyField(verbose_name="Ajuste Original", max_digits=14, decimal_places=2, default=0)
+    net_amount = MoneyField(verbose_name="Valor Líquido Original", max_digits=14, decimal_places=2)
+    installments_count = models.PositiveSmallIntegerField(verbose_name="Quantidade de Parcelas")
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Plano de Parcelamento Financeiro"
+        verbose_name_plural = "Planos de Parcelamento Financeiro"
+
+
 class FinancialMovement(TimeStampedModel):
     class MovementDirection(models.TextChoices):
         CREDIT = "CREDIT", "Contas a receber (receita)"
@@ -41,6 +60,13 @@ class FinancialMovement(TimeStampedModel):
         TRANSPORT = "TRANSPORT", "Vale Transporte"
         COMMISSION = "COMMISSION", "Comissão"
 
+    class DiscountMode(models.TextChoices):
+        NONE = "NONE", "Sem desconto ou acréscimo"
+        AMOUNT = "AMOUNT", "Desconto"
+        SURCHARGE = "SURCHARGE", "Acréscimo"
+        # Mantido somente para que lançamentos antigos continuem com o mesmo valor.
+        PERCENTAGE = "PERCENTAGE", "Desconto percentual (legado)"
+
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveSmallIntegerField(default=1)
@@ -49,6 +75,16 @@ class FinancialMovement(TimeStampedModel):
     workorder_payment = models.ForeignKey("workorder.WorkOrderPaymentMethod", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
     reversal_of = models.OneToOneField("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reversal_entry")
     movement_group = models.ForeignKey("finance.MovementGroup", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
+    installment_plan = models.ForeignKey(
+        "finance.FinancialMovementInstallmentPlan",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="financial_movements",
+        verbose_name="Parcelamento",
+    )
+    installment_number = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name="Número da Parcela")
+    installments_count = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name="Quantidade de Parcelas")
     payroll = models.ForeignKey("collaborators.CollaboratorPayroll", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
     payroll_component = models.CharField(max_length=32, choices=PayrollComponent.choices, null=True, blank=True)
     payroll_benefit = models.ForeignKey(
@@ -73,6 +109,11 @@ class FinancialMovement(TimeStampedModel):
     direction = models.CharField(max_length=50, verbose_name="Tipo", choices=MovementDirection.choices, blank=True, null=True)
     payment_method = models.ForeignKey(PaymentMethod, verbose_name="Forma de Pagamento", on_delete=models.PROTECT, blank=True, null=True)
     nf_number = models.CharField(max_length=50, verbose_name="Número da NF", blank=True, null=True)
+    entry_date = models.DateField(verbose_name="Data de Lançamento", default=timezone.localdate)
+    gross_amount = MoneyField(verbose_name="Valor Bruto", max_digits=14, decimal_places=2, null=True, blank=True)
+    discount_mode = models.CharField(verbose_name="Desconto ou Acréscimo", max_length=12, choices=DiscountMode.choices, default=DiscountMode.NONE)
+    discount_value = MoneyField(verbose_name="Ajuste (R$)", max_digits=14, decimal_places=2, default=0)
+    discount_percentage = models.DecimalField(verbose_name="Desconto (%)", max_digits=7, decimal_places=4, default=Decimal("0.00"))
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
     due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
     is_paid = models.BooleanField(verbose_name="Pago", default=False)
@@ -104,10 +145,61 @@ class FinancialMovement(TimeStampedModel):
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.gross_amount is None:
+            self.gross_amount = self.amount or Money(Decimal("0.00"), "BRL")
+        self._sync_net_amount_from_discount()
         if not self.budget_plan:
             self._auto_assign_budget_plan()
 
         super().save(*args, **kwargs)
+
+    def _sync_net_amount_from_discount(self) -> None:
+        gross_amount = self.gross_amount or Money(Decimal("0.00"), "BRL")
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        adjustment = Decimal("0.00")
+        is_surcharge = self.discount_mode == self.DiscountMode.SURCHARGE
+
+        if self.discount_mode == self.DiscountMode.AMOUNT:
+            adjustment = Decimal(str((self.discount_value or Money(0, gross_amount.currency)).amount or 0))
+        elif is_surcharge:
+            adjustment = Decimal(str((self.discount_value or Money(0, gross_amount.currency)).amount or 0))
+        elif self.discount_mode == self.DiscountMode.PERCENTAGE:
+            adjustment = gross_value * Decimal(str(self.discount_percentage or 0)) / Decimal("100")
+
+        adjustment = max(adjustment, Decimal("0.00"))
+        if not is_surcharge:
+            adjustment = min(adjustment, gross_value)
+
+        net_value = gross_value + adjustment if is_surcharge else gross_value - adjustment
+        self.amount = Money(
+            net_value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            gross_amount.currency,
+        )
+
+    @property
+    def resolved_discount_amount(self) -> Money:
+        """Return the effective discount recorded between gross and net values."""
+        gross_amount = self.gross_amount or self.amount or Money(Decimal("0.00"), "BRL")
+        net_amount = self.amount or Money(Decimal("0.00"), gross_amount.currency)
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        net_value = Decimal(str(net_amount.amount or 0))
+        return Money(
+            max(gross_value - net_value, Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            gross_amount.currency,
+        )
+
+    @property
+    def resolved_adjustment_amount(self) -> Money:
+        """Return the absolute value of the discount or surcharge applied."""
+        gross_amount = self.gross_amount or self.amount or Money(Decimal("0.00"), "BRL")
+        net_amount = self.amount or Money(Decimal("0.00"), gross_amount.currency)
+        gross_value = Decimal(str(gross_amount.amount or 0))
+        net_value = Decimal(str(net_amount.amount or 0))
+        return Money(abs(net_value - gross_value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), gross_amount.currency)
+
+    @property
+    def adjustment_label(self) -> str:
+        return "Acréscimo" if self.discount_mode == self.DiscountMode.SURCHARGE else "Desconto"
 
     def _auto_assign_budget_plan(self) -> None:
         """

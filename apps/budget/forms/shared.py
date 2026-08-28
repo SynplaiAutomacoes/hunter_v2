@@ -2,6 +2,15 @@ from django import forms
 from django.template.loader import render_to_string
 
 from apps.catalog.product_issues import annotate_product_issues
+from apps.budget.item_origin import (
+    AVULSO_ORIGIN_LABEL,
+    build_kit_component_product_item_from_exploded,
+    build_kit_component_service_item_from_exploded,
+    build_origin_badge,
+    origin_badge_for_item,
+)
+from apps.budget.pdf_context import _explode_kit_product_rows, _explode_kit_service_rows
+from apps.budget.pricing import kit_component_winning_item_ids
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
@@ -34,8 +43,8 @@ def _budget_item_type(item):
 
 
 def _empty_rows(step6=False):
-    product_colspan = 8 if step6 else 10
-    service_colspan = 6 if step6 else 7
+    product_colspan = 9 if step6 else 10
+    service_colspan = 7 if step6 else 7
     kit_colspan = 5 if step6 else 7
     return {
         "product": f'<tr><td colspan="{product_colspan}" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>',
@@ -77,6 +86,20 @@ def _get_budget_with_prefetched_items(budget):
     return prefetched_budget
 
 
+def _render_budget_item_row(*, template_name: str, item, budget, step6: bool, origin_badge: str, extra: dict | None = None) -> str:
+    extra_context = dict(extra or {})
+    context = {
+        "item": item,
+        "budget": budget,
+        "is_full_render": True,
+        "step6": step6,
+        "origin_badge": origin_badge,
+        "show_kit_duplicate_warning": extra_context.pop("show_kit_duplicate_warning", False),
+    }
+    context.update(extra_context)
+    return render_to_string(template_name, context)
+
+
 def _render_budget_items_rows(budget, step6=False):
     rows = {"product": "", "service": "", "kit": ""}
 
@@ -92,37 +115,48 @@ def _render_budget_items_rows(budget, step6=False):
                 if int(getattr(override, "quantity", 0) or 0) > 0 and override.product_id:
                     kit_product_ids.add(override.product_id)
             for override in item._iter_frozen_kit_service_overrides():
-                if int(getattr(override, "quantity", 0) or 0) > 0 and override.service_id:
+                if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False) and override.service_id:
                     kit_service_ids.add(override.service_id)
 
     if budget_for_render.pk:
+        avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
+        is_locked = bool(getattr(budget_for_render, "is_status_locked", False))
         if step6:
             review_display = build_budget_review_display(budget=budget_for_render)
-            annotate_product_issues(workshop=budget_for_render.workshop, items=[line.item for line in review_display.direct_products])
+            if not is_locked:
+                annotate_product_issues(workshop=budget_for_render.workshop, items=[line.item for line in review_display.direct_products])
+            else:
+                for line in review_display.direct_products:
+                    setattr(line.item, "has_product_issues", False)
+                    setattr(line.item, "product_issue_tooltip", "")
+                    setattr(line.item, "product_issue_messages", ())
+                    setattr(line.item, "excess_quantity", 0)
+                    setattr(line.item, "has_invalid_ncm", False)
+            winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget_for_render.items.all()))
 
             for line in review_display.direct_products:
-                rows["product"] += render_to_string(
-                    "budget/partials/items/item_product_row.html",
-                    {
-                        "item": line.item,
-                        "budget": budget_for_render,
-                        "is_full_render": True,
-                        "step6": True,
-                        "show_kit_duplicate_warning": bool((line.item.product_id and line.item.product_id in kit_product_ids) and not line.item.is_local),
+                rows["product"] += _render_budget_item_row(
+                    template_name="budget/partials/items/item_product_row.html",
+                    item=line.item,
+                    budget=budget_for_render,
+                    step6=True,
+                    origin_badge=avulso_badge,
+                    extra={
+                        "show_kit_duplicate_warning": False if is_locked else bool((line.item.product_id and line.item.product_id in kit_product_ids) and not line.item.is_local),
                         "slider_price": line.unit_price,
                         "slider_total_price": (line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price),
                     },
                 )
 
             for line in review_display.direct_services:
-                rows["service"] += render_to_string(
-                    "budget/partials/items/item_service_row.html",
-                    {
-                        "item": line.item,
-                        "budget": budget_for_render,
-                        "is_full_render": True,
-                        "step6": True,
-                        "show_kit_duplicate_warning": bool((line.item.service_id and line.item.service_id in kit_service_ids) and not line.item.is_local),
+                rows["service"] += _render_budget_item_row(
+                    template_name="budget/partials/items/item_service_row.html",
+                    item=line.item,
+                    budget=budget_for_render,
+                    step6=True,
+                    origin_badge=avulso_badge,
+                    extra={
+                        "show_kit_duplicate_warning": False if is_locked else bool((line.item.service_id and line.item.service_id in kit_service_ids) and not line.item.is_local),
                         "slider_price": line.unit_price,
                         "slider_total_price": (line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price),
                         "duration_display": line.duration_display,
@@ -131,12 +165,58 @@ def _render_budget_items_rows(budget, step6=False):
                 )
 
             for line in review_display.kits:
-                rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", {"item": line.item, "budget": budget_for_render, "is_full_render": True, "step6": True})
+                kit_item = line.item
+                _label, kit_badge, _is_kit = origin_badge_for_item(item=kit_item)
+
+                for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+                    if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                        continue
+                    component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
+                    rows["product"] += _render_budget_item_row(
+                        template_name="budget/partials/items/item_product_row.html",
+                        item=component,
+                        budget=budget_for_render,
+                        step6=True,
+                        origin_badge=kit_badge,
+                        extra={
+                            "slider_price": exploded.get("unit_price"),
+                            "slider_total_price": exploded.get("total_price"),
+                        },
+                    )
+
+                for exploded in _explode_kit_service_rows(budget=budget_for_render, kit_line=line, kit_item=kit_item):
+                    if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                        continue
+                    component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
+                    rows["service"] += _render_budget_item_row(
+                        template_name="budget/partials/items/item_service_row.html",
+                        item=component,
+                        budget=budget_for_render,
+                        step6=True,
+                        origin_badge=kit_badge,
+                        extra={
+                            "slider_price": exploded.get("unit_price"),
+                            "slider_total_price": exploded.get("total_price"),
+                            "duration_display": exploded.get("duration_display"),
+                            "service_mechanic_cost": component.mechanic_cost,
+                        },
+                    )
+
+                rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", {"item": kit_item, "budget": budget_for_render, "is_full_render": True, "step6": True})
         else:
-            annotate_product_issues(
-                workshop=budget_for_render.workshop,
-                items=[item for item in budget_for_render.items.all() if _budget_item_type(item) == "product"],
-            )
+            if not is_locked:
+                annotate_product_issues(
+                    workshop=budget_for_render.workshop,
+                    items=[item for item in budget_for_render.items.all() if _budget_item_type(item) == "product"],
+                )
+            else:
+                for item in budget_for_render.items.all():
+                    if _budget_item_type(item) == "product":
+                        setattr(item, "has_product_issues", False)
+                        setattr(item, "product_issue_tooltip", "")
+                        setattr(item, "product_issue_messages", ())
+                        setattr(item, "excess_quantity", 0)
+                        setattr(item, "has_invalid_ncm", False)
 
             for item in budget_for_render.items.all():
                 item_type = _budget_item_type(item)
@@ -145,7 +225,7 @@ def _render_budget_items_rows(budget, step6=False):
                     "budget": budget_for_render,
                     "is_full_render": True,
                     "step6": False,
-                    "show_kit_duplicate_warning": bool(((item.product_id and item.product_id in kit_product_ids) or (item.service_id and item.service_id in kit_service_ids)) and not item.is_local),
+                    "show_kit_duplicate_warning": False if is_locked else bool(((item.product_id and item.product_id in kit_product_ids) or (item.service_id and item.service_id in kit_service_ids)) and not item.is_local),
                 }
 
                 if item_type == "product":

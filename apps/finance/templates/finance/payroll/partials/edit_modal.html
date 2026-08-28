@@ -25,13 +25,13 @@
 
         <div class="mb-6 flex flex-wrap gap-2 rounded-2xl bg-base-200/70 p-2">
             <button type="button" class="btn btn-sm" :class="activeTab === 'collaborator' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'collaborator'">Dados do colaborador</button>
-            <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
             {% for tab in component_tabs %}
                 <button type="button" class="btn btn-sm" :class="activeTab === '{{ tab.key }}' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = '{{ tab.key }}'">
                     {{ tab.label }}
                     {% if tab.is_missing %}<span class="badge badge-warning badge-xs ml-1">faltando</span>{% endif %}
                 </button>
             {% endfor %}
+            <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
             <button type="button" class="btn btn-sm" :class="activeTab === 'summary' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'summary'">Resumo</button>
         </div>
 
@@ -39,6 +39,7 @@
         <form id="payroll-manual-benefit-form" hidden></form>
         <form method="post" hx-post="{{ modal_url }}" hx-target="closest .modal" hx-swap="outerHTML">
             {% csrf_token %}
+            <input type="hidden" name="tab" :value="activeTab">
 
             <div class="max-h-[60vh] overflow-y-auto px-1 py-2">
                 <section x-show="activeTab === 'collaborator'" x-cloak class="space-y-4">
@@ -96,49 +97,12 @@
                     <a href="{% url 'collaborators:collaborator_update' payroll.collaborator.pk %}" class="btn btn-outline"><span class="material-icons text-sm">open_in_new</span>Editar Colaborador</a>
                 </section>
 
-                <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4" x-data="{ showManualCommissionForm: {{ show_manual_commission_form|yesno:'true,false' }} }">
-                    <div class="flex items-center justify-between gap-3">
-                        <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">history</span>Histórico de comissões</h3>
-                        <button
-                            type="button"
-                            class="btn btn-primary btn-sm"
-                            {% if payroll_is_paid %}disabled title="Folha paga"{% else %}@click="showManualCommissionForm = true"{% endif %}
-                        >
-                            <span class="material-icons text-sm">add</span>Lançar comissão
-                        </button>
-                    </div>
-
-                    <div
-                        id="manual-commission-fields"
-                        class="rounded-xl border border-primary/30 bg-primary/5 p-4"
-                        x-show="showManualCommissionForm"
-                        x-cloak
-                    >
-                        {% csrf_token %}
-                        {% if manual_commission_form %}
-                        <div class="grid grid-cols-12 gap-4">
-                            <div class="col-span-12 lg:col-span-4">{{ manual_commission_form.amount|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-8">{{ manual_commission_form.notes|as_crispy_field }}</div>
-                        </div>
-                        <div class="mt-4 flex flex-wrap gap-2">
-                            <button
-                                type="button"
-                                class="btn btn-primary btn-sm"
-                                hx-post="{% url 'finance:payroll_add_manual_commission' payroll.pk %}"
-                                hx-include="#manual-commission-fields"
-                                hx-target="closest .modal"
-                                hx-swap="outerHTML"
-                            >
-                                <span class="material-icons text-sm">save</span>Confirmar lançamento
-                            </button>
-                            <button type="button" class="btn btn-ghost btn-sm" @click.prevent="showManualCommissionForm = false">Cancelar</button>
-                        </div>
-                        {% endif %}
-                    </div>
+                <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4">
+                    <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">history</span>Histórico de comissões</h3>
 
                     <div class="overflow-x-auto rounded-xl border border-base-300">
                         <table class="table table-sm">
-                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55"><tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55"><tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Motivo</th><th>Status</th><th></th></tr></thead>
                             <tbody>
                                 {% for commission in payroll.commission_entries.all %}
                                     <tr>
@@ -147,6 +111,7 @@
                                         <td>{% if commission.is_manual %}—{% else %}{{ commission.base_amount }}{% endif %}</td>
                                         <td>{{ commission.percentage_display }}</td>
                                         <td class="font-semibold">{{ commission.commission_amount }}</td>
+                                        <td class="max-w-xs whitespace-pre-wrap break-words">{{ commission.notes|default:"—" }}</td>
                                         <td>{% if commission.status == "PAID" %}Pago{% else %}Não Pago{% endif %}</td>
                                         <td class="text-right">
                                             {% if commission.is_manual and not payroll_is_paid %}
@@ -166,7 +131,7 @@
                                         </td>
                                     </tr>
                                 {% empty %}
-                                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>
+                                    <tr><td colspan="8" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -185,27 +150,25 @@
                 </section>
 
                 {% for tab in component_tabs %}
-                    <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4"{% if tab.is_benefit_tab %} x-data="{ showManualBenefitForm: {{ show_manual_benefit_form|yesno:'true,false' }} }"{% endif %}>
+                    <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4">
                         {% if tab.is_benefit_tab %}
                             <div class="flex items-center justify-between gap-3">
                                 <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
                                 <button
                                     type="button"
                                     class="btn btn-primary btn-sm"
-                                    {% if payroll_is_paid %}disabled title="Folha paga"{% else %}@click="showManualBenefitForm = true"{% endif %}
+                                    {% if payroll_is_paid %}disabled title="Folha paga"{% else %}hx-get="{{ tab.manual_launch_open_url }}" hx-target="closest .modal" hx-swap="outerHTML"{% endif %}
                                 >
                                     <span class="material-icons text-sm">add</span>Lançar benefício
                                 </button>
                             </div>
 
+                            {% if show_manual_benefit_form %}
                             <div
                                 id="manual-benefit-fields"
                                 class="rounded-xl border border-primary/30 bg-primary/5 p-4"
-                                x-show="showManualBenefitForm"
-                                x-cloak
                             >
                                 {% csrf_token %}
-                                {% if manual_benefit_form %}
                                 <div class="grid grid-cols-12 gap-4">
                                     <div class="col-span-12 lg:col-span-4">{{ manual_benefit_form.name|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ manual_benefit_form.amount|as_crispy_field }}</div>
@@ -223,10 +186,16 @@
                                     >
                                         <span class="material-icons text-sm">save</span>Confirmar lançamento
                                     </button>
-                                    <button type="button" class="btn btn-ghost btn-sm" @click.prevent="showManualBenefitForm = false">Cancelar</button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-ghost btn-sm"
+                                        hx-get="{{ tab.manual_launch_close_url }}"
+                                        hx-target="closest .modal"
+                                        hx-swap="outerHTML"
+                                    >Cancelar</button>
                                 </div>
-                                {% endif %}
                             </div>
+                            {% endif %}
 
                             {% if tab.is_missing and not tab.movements %}
                                 <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
@@ -280,7 +249,7 @@
                                                 <input type="hidden" name="tab_{{ tab.key }}_movement_id_{{ item.movement_id|unlocalize }}" value="{{ item.movement_id|unlocalize }}">
                                                 <div class="grid grid-cols-12 gap-4 pt-2{% if item.form.is_locked %} payroll-locked-fields{% endif %}">
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.due_date|as_crispy_field }}</div>
-                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.amount|as_crispy_field }}</div>
+                                                    {% include "finance/payroll/partials/discount_fields.html" with payment_form=item.form %}
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_paid|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_reconciled|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.payment_method|as_crispy_field }}</div>
@@ -299,14 +268,55 @@
                         {% else %}
                             <div class="flex items-center justify-between gap-3">
                                 <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
-                                {% if tab.movements|length > 1 %}
-                                    <div class="flex flex-wrap gap-2">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    {% if tab.is_commission_tab %}
+                                        <button
+                                            type="button"
+                                            class="btn btn-primary btn-sm"
+                                            {% if payroll_is_paid %}disabled title="Folha paga"{% else %}hx-get="{{ tab.manual_launch_open_url }}" hx-target="closest .modal" hx-swap="outerHTML"{% endif %}
+                                        >
+                                            <span class="material-icons text-sm">add</span>Lançar comissão
+                                        </button>
+                                    {% endif %}
+                                    {% if tab.movements|length > 1 %}
                                         {% for movement_option in tab.movements %}
                                             <button type="button" class="btn btn-xs" hx-get="{{ modal_url }}?tab={{ tab.key }}&movement_id={{ movement_option.pk|unlocalize }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML">{{ movement_option.description|default:tab.label }}</button>
                                         {% endfor %}
-                                    </div>
-                                {% endif %}
+                                    {% endif %}
+                                </div>
                             </div>
+
+                            {% if tab.is_commission_tab and show_manual_commission_form %}
+                            <div
+                                id="manual-commission-fields"
+                                class="rounded-xl border border-primary/30 bg-primary/5 p-4"
+                            >
+                                {% csrf_token %}
+                                <div class="grid grid-cols-12 gap-4">
+                                    <div class="col-span-12 lg:col-span-4">{{ manual_commission_form.amount|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-8">{{ manual_commission_form.notes|as_crispy_field }}</div>
+                                </div>
+                                <div class="mt-4 flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        class="btn btn-primary btn-sm"
+                                        hx-post="{% url 'finance:payroll_add_manual_commission' payroll.pk %}"
+                                        hx-include="#manual-commission-fields"
+                                        hx-target="closest .modal"
+                                        hx-swap="outerHTML"
+                                    >
+                                        <span class="material-icons text-sm">save</span>Confirmar lançamento
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-ghost btn-sm"
+                                        hx-get="{{ tab.manual_launch_close_url }}"
+                                        hx-target="closest .modal"
+                                        hx-swap="outerHTML"
+                                    >Cancelar</button>
+                                </div>
+                            </div>
+                            {% endif %}
 
                             {% if tab.is_missing and not tab.movements %}
                                 <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
@@ -320,7 +330,7 @@
                                 <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id|unlocalize }}">
                                 <div class="grid grid-cols-12 gap-4{% if tab.form.is_locked %} payroll-locked-fields{% endif %}">
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
-                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>
+                                    {% include "finance/payroll/partials/discount_fields.html" with payment_form=tab.form %}
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_paid|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_reconciled|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.payment_method|as_crispy_field }}</div>
@@ -360,8 +370,7 @@
                     </button>
                     <button type="button" class="btn btn-error btn-outline btn-sm ml-2"
                             x-show="activeTab !== 'BENEFIT'"
-                            hx-target="body" hx-swap="beforeend"
-                            x-bind:hx-get="removeUrlForTab(activeTab)">
+                            @click="htmx.ajax('GET', removeUrlForTab(activeTab), {target: document.body, swap: 'beforeend'})">
                         <span class="material-icons text-sm">link_off</span>
                         Excluir <span x-text="tabLabels[activeTab] || ''"></span>
                     </button>

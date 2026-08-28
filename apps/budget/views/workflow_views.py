@@ -253,6 +253,12 @@ def _parse_positive_int(raw_value: str | None) -> int | None:
     return parsed_value
 
 
+def _parse_budget_pk(raw_value: str | None) -> int | None:
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    return _parse_positive_int(clean_id(raw_value))
+
+
 class BudgetStatusReportDataMixin:
     status_report_pdf_title = BUDGET_STATUS_REPORT_PDF_TITLE
     request: HttpRequest
@@ -645,7 +651,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk") or self.request.GET.get("pk")
+        pk = _parse_budget_pk(self.kwargs.get("pk") or self.request.GET.get("pk"))
         if pk:
             return Budget.objects.get(pk=pk, workshop=self.workshop)
         return None
@@ -693,6 +699,13 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if budget and budget.is_status_locked:
             context["max_reached_step"] = total_steps
         context["origin_appointment_id"] = self._get_origin_appointment_id()
+        from apps.terms.models import TermKind, TermTemplate
+
+        context["has_receipt_term"] = TermTemplate.objects.filter(
+            workshop=self.workshop,
+            is_active=True,
+            kind=TermKind.RECEIPT,
+        ).exists()
         return context
 
     def _block_step5_advance_if_needed(self, current_step):

@@ -1,6 +1,7 @@
 from .customer_vehicle_views import CustomerDetailView, VehicleDetailView, VehicleListView
 from apps.core.infrastructure.services.signature_webhook import SignatureWebhookView, SuperSignWebhookView
 from .import_items_views import BudgetImportBudgetSearchView, BudgetImportItemsSearchModalView, BudgetImportItemsSelectModalView, BudgetImportItemsProcessView
+from .duplicate_service_views import CancelDuplicateServiceQueueView, ResolveDuplicateServiceStepView
 from .item_views import (
     AddItemToBudgetView,
     AddItemsBatchToBudgetView,
@@ -99,6 +100,8 @@ __all__ = [
     "RegisterLocalItemView",
     "CalculateLocalServiceView",
     "QuickCreateProductView",
+    "ResolveDuplicateServiceStepView",
+    "CancelDuplicateServiceQueueView",
     "reset_steps_after_step_4",
     "BudgetImportItemsSearchModalView",
     "BudgetImportItemsSelectModalView",

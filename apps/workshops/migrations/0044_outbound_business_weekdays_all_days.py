@@ -1,5 +1,7 @@
 # Generated manually — default outbound weekdays to all days
 
+import djmoney.models.fields
+from decimal import Decimal
 from django.db import migrations, models
 
 
@@ -21,6 +23,21 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AlterField(
+            model_name="workshopcost",
+            name="profit_margin",
+            field=models.DecimalField(blank=True, decimal_places=6, default=0, max_digits=7, null=True, verbose_name="Margem de Lucro Desejada Sobre a Hora"),
+        ),
+        migrations.AlterField(
+            model_name="workshopcost",
+            name="total_monthly_costs",
+            field=djmoney.models.fields.MoneyField(blank=True, decimal_places=2, default=Decimal("0"), max_digits=14, null=True, verbose_name="Total Despesas Mensais + Impostos + Taxas e Coeficiente de Risco"),
+        ),
+        migrations.AlterField(
+            model_name="workshopcost",
+            name="total_value",
+            field=djmoney.models.fields.MoneyField(blank=True, decimal_places=2, default=Decimal("0"), max_digits=14, null=True, verbose_name="Total"),
+        ),
         migrations.AlterField(
             model_name="workshop",
             name="outbound_business_weekdays",

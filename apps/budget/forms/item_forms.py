@@ -138,7 +138,7 @@ class LocalProductForm(CoreModelForm):
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["product_cost_price"].label = "Custo"
-        self.fields["shipping"].label = "Frete"
+        self.fields["shipping"].label = "Custo de Frete"
 
         # Disable item_benefit_type if budget is fixed
         if is_warranty_budget:
@@ -176,7 +176,7 @@ class LocalServiceForm(CoreModelForm):
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["service_cost_price"].label = "Custo"
-        self.fields["service_shipping"].label = "Frete"
+        self.fields["service_shipping"].label = "Custo de Frete"
         self.fields["service_shipping"].required = False
         self.fields["duration"].label = "Duração"
 

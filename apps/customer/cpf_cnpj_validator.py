@@ -1,7 +1,13 @@
 from django.core.exceptions import ValidationError
 
+
+def normalize_cpf_or_cnpj(value: object) -> str:
+    """Returns a CPF/CNPJ in its canonical, digits-only representation."""
+    return ''.join(char for char in str(value or '') if char.isdigit())
+
+
 def is_valid_cpf(cpf: str) -> bool:
-    cpf = ''.join(c for c in cpf if c.isdigit())
+    cpf = normalize_cpf_or_cnpj(cpf)
 
     if len(cpf) != 11:
         return False
@@ -19,7 +25,7 @@ def is_valid_cpf(cpf: str) -> bool:
 
 
 def is_valid_cnpj(cnpj: str) -> bool:
-    cnpj = ''.join(c for c in cnpj if c.isdigit())
+    cnpj = normalize_cpf_or_cnpj(cnpj)
 
     if len(cnpj) != 14:
         return False
@@ -42,7 +48,7 @@ def is_valid_cnpj(cnpj: str) -> bool:
 
 
 def is_valid_cpf_or_cnpj(value: str) -> bool:
-    value = ''.join(c for c in value if c.isdigit())
+    value = normalize_cpf_or_cnpj(value)
 
     if len(value) == 11:
         return is_valid_cpf(value)

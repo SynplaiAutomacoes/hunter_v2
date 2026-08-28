@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlencode
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
@@ -21,6 +22,7 @@ from apps.accounts.models import User
 from apps.collaborators.models import WorkshopCollaborator
 from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements, sync_workorder_collaborator_payrolls
 from apps.core.presentation.widgets import SearchableSelectInput
+from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -437,9 +439,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "paid_status": self._resolve_simple_paid_status(is_paid=bool(payment_movement.is_paid)),
             "reconciliation_status": self._resolve_workorder_conciliation_status(is_reconciled=bool(payment_movement.is_reconciled)),
             "type_badge": payment_movement.report_direction_badge,
+            "entry_date": payment_movement.entry_date,
             "due_date": payment.due_date,
             "agent": agent,
-            "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
+            "origin": format_workorder_reference(workorder) if workorder is not None else "-",
             "description": self._resolve_workorder_description(workorder) if workorder is not None else description,
             "budget_plan": payment_movement.report_budget_plan_display,
             "account": payment_movement.report_bank_account_display,
@@ -452,6 +455,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 "text": f"+ {format_money(payment_amount)}",
                 "class": "text-success font-semibold whitespace-nowrap",
             },
+            "has_discount": False,
+            "gross_amount": format_money(payment_amount),
+            "discount_amount": format_money(Decimal("0.00")),
             "details": [],
             "summary_direction": FinancialMovement.MovementDirection.CREDIT,
             "summary_amount": resolved_amount,
@@ -510,10 +516,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "title": title,
             "is_placeholder": False,
             "rows": [
-                {"label": "Créditos Totais", "value": format_money(total_credits), "small": False, "tone": "credit"},
-                {"label": "Créditos Pagos", "value": format_money(paid_credits), "small": True, "tone": "credit"},
-                {"label": "Débitos Totais", "value": format_money(total_debits), "small": False, "tone": "debit"},
-                {"label": "Débitos Pagos", "value": format_money(paid_debits), "small": True, "tone": "debit"},
+                {"label": "Contas a receber (total)", "value": format_money(total_credits), "small": False, "tone": "credit"},
+                {"label": "Contas a receber (pagas)", "value": format_money(paid_credits), "small": True, "tone": "credit"},
+                {"label": "Contas a pagar (total)", "value": format_money(total_debits), "small": False, "tone": "debit"},
+                {"label": "Contas a pagar (pagas)", "value": format_money(paid_debits), "small": True, "tone": "debit"},
             ],
             "results": [
                 {"label": "Resultado Total", "value": format_money(total_result), "accent": True, "tone": self._resolve_result_tone(total_result)},
@@ -522,19 +528,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         }
 
     def _build_selection_summary_card(self, *, rows: list[dict[str, object]]) -> dict[str, object]:
-        title = "Créditos e Débitos da Filtragem"
-        if self._has_active_filters():
-            title = "Créditos e Débitos da Página Filtrada"
-        if not self._has_active_filters():
-            return {
-                "title": title,
-                "is_placeholder": True,
-                "description": "Nenhum filtro ou busca ativo",
-                "rows": [],
-                "results": [],
-            }
-
-        return self._build_summary_card_from_rows(title=title, rows=rows)
+        return self._build_summary_card_from_rows(title="Resumo da listagem", rows=rows)
 
     def _build_financial_movement_row(self, movement: FinancialMovement) -> dict[str, object]:
         workorder = getattr(movement, "workorder", None)
@@ -550,6 +544,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})
         is_workorder = False
         is_group_parent = False
+        gross_amount = movement.gross_amount or movement.amount
+        adjustment_amount = movement.resolved_adjustment_amount
         workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}) if movement.workorder_id else None
 
         if movement.workorder_id:
@@ -569,7 +565,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             edit_modal_url = f"{edit_modal_url}?payment_id={movement.workorder_payment_id}"
         elif movement.movement_kind == FinancialMovement.MovementKind.GROUP_PARENT and movement.movement_group_id:
             is_group_parent = True
-            children = movement.movement_group.financial_movements.exclude(pk=movement.pk)
+            children = movement.movement_group.financial_movements.exclude(
+                movement_kind=FinancialMovement.MovementKind.GROUP_PARENT
+            )
             for child in children:
                 details.append(
                     {
@@ -587,9 +585,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "paid_status": paid_status,
             "reconciliation_status": reconciliation_status,
             "type_badge": movement.report_direction_badge,
+            "entry_date": movement.entry_date,
             "due_date": due_date,
             "agent": agent,
-            "origin": movement.report_origin_display if not movement.workorder_id else f"OS #{movement.workorder_id}",
+            "origin": movement.report_origin_display if not movement.workorder_id else format_workorder_reference(movement.workorder),
             "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
@@ -599,6 +598,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "is_workorder": is_workorder,
             "is_group_parent": is_group_parent,
             "total": movement.report_total_display,
+            "has_discount": Decimal(str(adjustment_amount.amount or 0)) > 0,
+            "gross_amount": format_money(gross_amount),
+            "discount_amount": format_money(adjustment_amount),
+            "adjustment_label": movement.adjustment_label,
+            "adjustment_is_surcharge": movement.discount_mode == FinancialMovement.DiscountMode.SURCHARGE,
             "details": details,
             "summary_direction": movement.direction,
             "summary_amount": self._resolve_money_amount(movement.amount),
@@ -775,13 +779,31 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             seen_components.add(component)
         return rows
 
-    def _build_indicator_card(self, *, title: str, value: str, tone: str, rows: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    def _build_indicator_card(self, *, title: str, value: str, tone: str, rows: list[dict[str, str]] | None = None, filter_url: str = "") -> dict[str, Any]:
         return {
             "title": title,
             "value": value,
             "tone": tone,
             "rows": rows or [],
+            "filter_url": filter_url,
         }
+
+    def _build_card_filter_url(self, *, start_date: date, end_date: date, direction: str = "", paid_status: str = "") -> str:
+        params: dict[str, str] = {
+            "data_inicial": start_date.isoformat(),
+            "data_final": end_date.isoformat(),
+        }
+        if direction:
+            params["direction"] = direction
+        if paid_status:
+            params["paid_status"] = paid_status
+        return f"{reverse('finance:reports_home')}?{urlencode(params)}"
+
+    @staticmethod
+    def _month_bounds(*, reference_date: date) -> tuple[date, date]:
+        month_start = reference_date.replace(day=1)
+        next_month = (reference_date.replace(day=28) + date.resolution * 4).replace(day=1)
+        return month_start, next_month - date.resolution
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -792,25 +814,55 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         page_obj, paginator = self._get_financial_movements_page(entry_refs=report_entry_refs)
         paginated_movements = self._get_paginated_report_movements(entry_refs=list(page_obj.object_list))
         page_rows = self._get_financial_movement_report_rows(movements=paginated_movements)
+        listing_summary_rows = page_rows
+        if not self._has_active_filters() and len(report_entry_refs) > self.MOVEMENTS_PER_PAGE:
+            listing_summary_rows = self._get_financial_movement_report_rows(movements=self._get_paginated_report_movements(entry_refs=report_entry_refs))
+
+        month_start, month_end = self._month_bounds(reference_date=reference_date)
+        year_start = reference_date.replace(month=1, day=1)
+        year_end = reference_date.replace(month=12, day=31)
+        credit = FinancialMovement.MovementDirection.CREDIT
+        debit = FinancialMovement.MovementDirection.DEBIT
 
         context["top_summary_cards"] = [
-            self._build_indicator_card(title="Contas a pagar do dia", value=format_money(open_debits(day_overview)), tone="debit"),
-            self._build_indicator_card(title="Contas a receber do dia", value=format_money(open_credits(day_overview)), tone="credit"),
-            self._build_indicator_card(title="Contas a pagar do mês", value=format_money(open_debits(month_overview)), tone="debit"),
-            self._build_indicator_card(title="Contas a receber do mês", value=format_money(open_credits(month_overview)), tone="credit"),
+            self._build_indicator_card(
+                title="Contas a pagar do dia",
+                value=format_money(open_debits(day_overview)),
+                tone="debit",
+                filter_url=self._build_card_filter_url(start_date=reference_date, end_date=reference_date, direction=debit, paid_status="unpaid"),
+            ),
+            self._build_indicator_card(
+                title="Contas a receber do dia",
+                value=format_money(open_credits(day_overview)),
+                tone="credit",
+                filter_url=self._build_card_filter_url(start_date=reference_date, end_date=reference_date, direction=credit, paid_status="unpaid"),
+            ),
+            self._build_indicator_card(
+                title="Contas a pagar do mês",
+                value=format_money(open_debits(month_overview)),
+                tone="debit",
+                filter_url=self._build_card_filter_url(start_date=month_start, end_date=month_end, direction=debit, paid_status="unpaid"),
+            ),
+            self._build_indicator_card(
+                title="Contas a receber do mês",
+                value=format_money(open_credits(month_overview)),
+                tone="credit",
+                filter_url=self._build_card_filter_url(start_date=month_start, end_date=month_end, direction=credit, paid_status="unpaid"),
+            ),
             self._build_indicator_card(
                 title="Resultado do ano",
                 value=format_money(year_overview.total_result),
                 tone=self._resolve_result_tone(year_overview.total_result),
+                filter_url=self._build_card_filter_url(start_date=year_start, end_date=year_end),
                 rows=[
-                    {"label": "Total a receber", "value": format_money(year_overview.total_credits), "tone": "credit"},
-                    {"label": "Total recebido", "value": format_money(year_overview.paid_credits), "tone": "credit"},
-                    {"label": "Total a pagar", "value": format_money(year_overview.total_debits), "tone": "debit"},
-                    {"label": "Total pago", "value": format_money(year_overview.paid_debits), "tone": "debit"},
+                    {"label": "Total a receber", "value": format_money(year_overview.total_credits), "tone": "credit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=credit)},
+                    {"label": "Total recebido", "value": format_money(year_overview.paid_credits), "tone": "credit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=credit, paid_status="paid")},
+                    {"label": "Total a pagar", "value": format_money(year_overview.total_debits), "tone": "debit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=debit)},
+                    {"label": "Total pago", "value": format_money(year_overview.paid_debits), "tone": "debit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=debit, paid_status="paid")},
                 ],
             ),
         ]
-        context["selection_summary"] = self._build_selection_summary_card(rows=page_rows)
+        context["selection_summary"] = self._build_selection_summary_card(rows=listing_summary_rows)
         context["financial_movement_report_rows"] = page_rows
         context["financial_group_filters"] = self._get_financial_groups_queryset()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()
@@ -885,6 +937,10 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["movement"] = self.object
+        if self.object.installment_plan_id:
+            context["installments"] = self.object.installment_plan.financial_movements.order_by(
+                "installment_number", "pk"
+            )
         fallback_payment_id = ""
         if getattr(self.object, "workorder_payment_id", None):
             fallback_payment_id = str(self.object.workorder_payment_id)
@@ -1139,7 +1195,8 @@ class BatchConciliateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if movement.workorder_id:
             customer = getattr(getattr(movement.workorder, "budget", None), "customer", None)
             name = customer.name if customer else ""
-            return f"OS #{movement.workorder_id} — {name}" if name else f"OS #{movement.workorder_id}"
+            reference = format_workorder_reference(movement.workorder)
+            return f"{reference} — {name}" if name else reference
         return movement.description or f"Movimentação #{movement.pk}"
 
 

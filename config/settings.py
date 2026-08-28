@@ -153,6 +153,7 @@ INSTALLED_APPS = [
     "apps.suppliers",
     "apps.quote",
     "apps.checklist",
+    "apps.terms",
     "apps.budget",
     "apps.customer",
     "apps.workorder",
