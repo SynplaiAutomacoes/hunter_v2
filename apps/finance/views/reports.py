@@ -374,9 +374,6 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         paid_status = filter_params["paid_status"]
         reconciliation_status = filter_params["reconciliation_status"]
 
-        if paid_status == "unpaid":
-            return []
-
         for payment in payments:
             payment_amount = self._resolve_money_amount(payment.total_paid)
             if payment_amount <= Decimal("0.00"):
@@ -395,6 +392,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             if payment_movement is None:
                 continue
             payment_movement_by_payment_id[payment.pk] = payment_movement
+            if paid_status == "paid" and not payment_movement.is_paid:
+                continue
+            if paid_status == "unpaid" and payment_movement.is_paid:
+                continue
             is_reconciled = bool(getattr(payment_movement, "is_reconciled", False))
             if reconciliation_status == "reconciled" and not is_reconciled:
                 continue
@@ -819,8 +820,6 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             listing_summary_rows = self._get_financial_movement_report_rows(movements=self._get_paginated_report_movements(entry_refs=report_entry_refs))
 
         month_start, month_end = self._month_bounds(reference_date=reference_date)
-        year_start = reference_date.replace(month=1, day=1)
-        year_end = reference_date.replace(month=12, day=31)
         credit = FinancialMovement.MovementDirection.CREDIT
         debit = FinancialMovement.MovementDirection.DEBIT
 
@@ -853,12 +852,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 title="Resultado do ano",
                 value=format_money(year_overview.total_result),
                 tone=self._resolve_result_tone(year_overview.total_result),
-                filter_url=self._build_card_filter_url(start_date=year_start, end_date=year_end),
                 rows=[
-                    {"label": "Total a receber", "value": format_money(year_overview.total_credits), "tone": "credit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=credit)},
-                    {"label": "Total recebido", "value": format_money(year_overview.paid_credits), "tone": "credit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=credit, paid_status="paid")},
-                    {"label": "Total a pagar", "value": format_money(year_overview.total_debits), "tone": "debit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=debit)},
-                    {"label": "Total pago", "value": format_money(year_overview.paid_debits), "tone": "debit", "filter_url": self._build_card_filter_url(start_date=year_start, end_date=year_end, direction=debit, paid_status="paid")},
+                    {"label": "Total a receber", "value": format_money(year_overview.total_credits), "tone": "credit"},
+                    {"label": "Total recebido", "value": format_money(year_overview.paid_credits), "tone": "credit"},
+                    {"label": "Total a pagar", "value": format_money(year_overview.total_debits), "tone": "debit"},
+                    {"label": "Total pago", "value": format_money(year_overview.paid_debits), "tone": "debit"},
                 ],
             ),
         ]
