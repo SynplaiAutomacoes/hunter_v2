@@ -25,13 +25,13 @@
 
         <div class="mb-6 flex flex-wrap gap-2 rounded-2xl bg-base-200/70 p-2">
             <button type="button" class="btn btn-sm" :class="activeTab === 'collaborator' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'collaborator'">Dados do colaborador</button>
-            <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
             {% for tab in component_tabs %}
                 <button type="button" class="btn btn-sm" :class="activeTab === '{{ tab.key }}' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = '{{ tab.key }}'">
                     {{ tab.label }}
                     {% if tab.is_missing %}<span class="badge badge-warning badge-xs ml-1">faltando</span>{% endif %}
                 </button>
             {% endfor %}
+            <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
             <button type="button" class="btn btn-sm" :class="activeTab === 'summary' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'summary'">Resumo</button>
         </div>
 
@@ -150,27 +150,25 @@
                 </section>
 
                 {% for tab in component_tabs %}
-                    <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4"{% if tab.is_benefit_tab %} x-data="{ showManualBenefitForm: {{ show_manual_benefit_form|yesno:'true,false' }} }"{% elif tab.is_commission_tab %} x-data="{ showManualCommissionForm: {{ show_manual_commission_form|yesno:'true,false' }} }"{% endif %}>
+                    <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4">
                         {% if tab.is_benefit_tab %}
                             <div class="flex items-center justify-between gap-3">
                                 <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
                                 <button
                                     type="button"
                                     class="btn btn-primary btn-sm"
-                                    {% if payroll_is_paid %}disabled title="Folha paga"{% else %}@click="showManualBenefitForm = true"{% endif %}
+                                    {% if payroll_is_paid %}disabled title="Folha paga"{% else %}hx-get="{{ tab.manual_launch_open_url }}" hx-target="closest .modal" hx-swap="outerHTML"{% endif %}
                                 >
                                     <span class="material-icons text-sm">add</span>Lançar benefício
                                 </button>
                             </div>
 
+                            {% if show_manual_benefit_form %}
                             <div
                                 id="manual-benefit-fields"
                                 class="rounded-xl border border-primary/30 bg-primary/5 p-4"
-                                x-show="showManualBenefitForm"
-                                x-cloak
                             >
                                 {% csrf_token %}
-                                {% if manual_benefit_form %}
                                 <div class="grid grid-cols-12 gap-4">
                                     <div class="col-span-12 lg:col-span-4">{{ manual_benefit_form.name|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ manual_benefit_form.amount|as_crispy_field }}</div>
@@ -188,10 +186,16 @@
                                     >
                                         <span class="material-icons text-sm">save</span>Confirmar lançamento
                                     </button>
-                                    <button type="button" class="btn btn-ghost btn-sm" @click.prevent="showManualBenefitForm = false">Cancelar</button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-ghost btn-sm"
+                                        hx-get="{{ tab.manual_launch_close_url }}"
+                                        hx-target="closest .modal"
+                                        hx-swap="outerHTML"
+                                    >Cancelar</button>
                                 </div>
-                                {% endif %}
                             </div>
+                            {% endif %}
 
                             {% if tab.is_missing and not tab.movements %}
                                 <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
@@ -247,6 +251,10 @@
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.due_date|as_crispy_field }}</div>
                                                     {% include "finance/payroll/partials/discount_fields.html" with payment_form=item.form %}
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_paid|as_crispy_field }}</div>
+                                                    {% if not item.form.is_locked %}
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.is_partial_payment|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.partial_payment_amount|as_crispy_field }}</div>
+                                                    {% endif %}
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.is_reconciled|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.payment_method|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.budget_plan|as_crispy_field }}</div>
@@ -269,7 +277,7 @@
                                         <button
                                             type="button"
                                             class="btn btn-primary btn-sm"
-                                            {% if payroll_is_paid %}disabled title="Folha paga"{% else %}@click="showManualCommissionForm = true"{% endif %}
+                                            {% if payroll_is_paid %}disabled title="Folha paga"{% else %}hx-get="{{ tab.manual_launch_open_url }}" hx-target="closest .modal" hx-swap="outerHTML"{% endif %}
                                         >
                                             <span class="material-icons text-sm">add</span>Lançar comissão
                                         </button>
@@ -282,15 +290,12 @@
                                 </div>
                             </div>
 
-                            {% if tab.is_commission_tab %}
+                            {% if tab.is_commission_tab and show_manual_commission_form %}
                             <div
                                 id="manual-commission-fields"
                                 class="rounded-xl border border-primary/30 bg-primary/5 p-4"
-                                x-show="showManualCommissionForm"
-                                x-cloak
                             >
                                 {% csrf_token %}
-                                {% if manual_commission_form %}
                                 <div class="grid grid-cols-12 gap-4">
                                     <div class="col-span-12 lg:col-span-4">{{ manual_commission_form.amount|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-8">{{ manual_commission_form.notes|as_crispy_field }}</div>
@@ -306,9 +311,14 @@
                                     >
                                         <span class="material-icons text-sm">save</span>Confirmar lançamento
                                     </button>
-                                    <button type="button" class="btn btn-ghost btn-sm" @click.prevent="showManualCommissionForm = false">Cancelar</button>
+                                    <button
+                                        type="button"
+                                        class="btn btn-ghost btn-sm"
+                                        hx-get="{{ tab.manual_launch_close_url }}"
+                                        hx-target="closest .modal"
+                                        hx-swap="outerHTML"
+                                    >Cancelar</button>
                                 </div>
-                                {% endif %}
                             </div>
                             {% endif %}
 
@@ -326,6 +336,10 @@
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
                                     {% include "finance/payroll/partials/discount_fields.html" with payment_form=tab.form %}
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_paid|as_crispy_field }}</div>
+                                    {% if not tab.form.is_locked %}
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.is_partial_payment|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.partial_payment_amount|as_crispy_field }}</div>
+                                    {% endif %}
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.is_reconciled|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.payment_method|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.budget_plan|as_crispy_field }}</div>
@@ -400,6 +414,18 @@
 
 <script>
 (function() {
+    document.querySelectorAll('input[name$="is_partial_payment"]').forEach(function(partialPaymentInput) {
+        var grid = partialPaymentInput.closest('.grid');
+        if (!grid) return;
+        var amountInput = grid.querySelector('input[name$="partial_payment_amount_0"]');
+        var amountWrapper = amountInput && amountInput.closest('[class*="col-span"]');
+        function syncPartialPaymentAmount() {
+            if (amountWrapper) amountWrapper.style.display = partialPaymentInput.value === 'True' ? '' : 'none';
+        }
+        partialPaymentInput.addEventListener('change', syncPartialPaymentAmount);
+        syncPartialPaymentAmount();
+    });
+
     // Intercept clicks on disabled fields inside locked payment forms.
     document.querySelectorAll('.payroll-locked-fields').forEach(function(container) {
         container.addEventListener('click', function(e) {

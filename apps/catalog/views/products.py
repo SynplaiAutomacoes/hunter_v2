@@ -188,9 +188,19 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=product)
 
         context["stock_obj"] = stock_obj
-        context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).select_related(
-            "workorder__budget"
-        ).order_by("-criado_em")
+        movements = list(
+            StockMovement.objects.filter(stock_product=stock_obj)
+            .select_related(
+                "supplier",
+                "workorder__budget",
+                "workorder__budget__customer",
+                "workorder__budget__vehicle",
+                "transcation_by",
+            )
+            .order_by("-criado_em")
+        )
+        self._annotate_movements_with_historical_supplier(movements, stock_obj)
+        context["movements"] = movements
 
         budget_items = BudgetItem.objects.filter(product=product, workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle")
         budget_kit_items = BudgetKitItemOverride.objects.filter(product=product, workshop=self.workshop).select_related("budget_item", "budget_item__budget", "budget_item__budget__customer", "budget_item__budget__vehicle")
@@ -312,6 +322,39 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             )
 
         return product_suppliers
+
+    def _annotate_movements_with_historical_supplier(self, movements: list[StockMovement], stock_obj: StockProduct) -> None:
+        entry_movements = list(
+            StockMovement.objects.filter(
+                stock_product=stock_obj,
+                type=StockMovement.MovementType.ENTRY,
+                supplier__isnull=False,
+            )
+            .select_related("supplier")
+            .order_by("criado_em")
+        )
+        if not entry_movements and stock_obj.supplier:
+            for movement in movements:
+                if movement.type == StockMovement.MovementType.ENTRY:
+                    movement.historical_supplier = movement.supplier
+                else:
+                    movement.historical_supplier = stock_obj.supplier
+            return
+
+        for movement in movements:
+            if movement.type == StockMovement.MovementType.ENTRY:
+                movement.historical_supplier = movement.supplier
+                continue
+            target_date = movement.display_date
+            historical_supplier = None
+            for entry in reversed(entry_movements):
+                entry_date = entry.criado_em
+                if entry_date is not None and target_date is not None and entry_date <= target_date:
+                    historical_supplier = entry.supplier
+                    break
+            if historical_supplier is None and entry_movements:
+                historical_supplier = entry_movements[0].supplier
+            movement.historical_supplier = historical_supplier
 
 
 class ProductDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):

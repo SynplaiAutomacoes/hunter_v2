@@ -6,8 +6,10 @@ from decimal import Decimal, ROUND_HALF_UP
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.template.loader import render_to_string
+from djmoney.forms import MoneyField
 from djmoney.money import Money
 
 from apps.collaborators.models import WorkshopCollaborator
@@ -16,7 +18,12 @@ from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement, FinancialMovementInstallmentPlan
 from apps.finance.services.installments import InstallmentScheduleError, build_installments, parse_installment_schedule
-from apps.finance.services.financial_movement import BUDGET_PLAN_REQUIRED, apply_payment_reconciliation_rules, generate_card_fee_movement
+from apps.finance.services.financial_movement import (
+    BUDGET_PLAN_REQUIRED,
+    apply_payment_reconciliation_rules,
+    create_partial_payment_balance,
+    generate_card_fee_movement,
+)
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreModelForm
@@ -280,8 +287,23 @@ class MovementStep1Form(FinancialMovementBaseForm):
             self.suppliers_choices = [(s.id, s.name) for s in suppliers]
             self.collaborators_choices = [(c.id, str(c)) for c in collaborators]
 
-        # Bind dinâmico (POST ou edição)
-        person_type = self.data.get("person_type")
+        # Em um POST, os valores enviados têm precedência. Em um retorno ao
+        # passo 1, estes campos auxiliares precisam ser reconstruídos a partir
+        # da origem que já foi persistida no lançamento.
+        person_type = self.data.get("person_type") if self.is_bound else None
+        entity_id = self.data.get("entity") if self.is_bound else None
+        if not person_type:
+            if self.instance.supplier_id:
+                person_type = "supplier"
+                entity_id = str(self.instance.supplier_id)
+            elif self.instance.collaborator_id:
+                person_type = "collaborator"
+                entity_id = str(self.instance.collaborator_id)
+
+        if person_type:
+            self.initial.setdefault("person_type", person_type)
+        if entity_id:
+            self.initial.setdefault("entity", str(entity_id))
 
         self.fields["direction"].label = ""
 
@@ -295,7 +317,8 @@ class MovementStep1Form(FinancialMovementBaseForm):
         self.helper.layout = Layout(
             HTML("""
             <script>
-                document.addEventListener('DOMContentLoaded', function() {
+                (function initMovementStep1() {
+                    function bindMovementStep1() {
                     const personType = document.querySelector('[name="person_type"]');
                     const entityField = document.querySelector('[name="entity"]');
                     const directionField = document.querySelector('[name="direction"]');
@@ -307,6 +330,42 @@ class MovementStep1Form(FinancialMovementBaseForm):
 
                     const personTitle = document.getElementById('person-title');
                     const resumeContainer = document.getElementById('entity-details');
+
+                    function getSearchableData(input) {
+                        const container = input && input.closest('[x-data]');
+                        if (!container || !window.Alpine) return null;
+                        try {
+                            return Alpine.$data(container);
+                        } catch (error) {
+                            return null;
+                        }
+                    }
+
+                    function clearSearchable(input, { clearOptions = false } = {}) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.clear === 'function') {
+                            alpineData.clear();
+                            if (clearOptions && typeof alpineData.setOptions === 'function') {
+                                alpineData.setOptions([]);
+                            }
+                            return;
+                        }
+                        if (input) input.value = '';
+                    }
+
+                    function setSearchableOptions(input, options) {
+                        const alpineData = getSearchableData(input);
+                        if (alpineData && typeof alpineData.setOptions === 'function') {
+                            alpineData.setOptions(options);
+                            return;
+                        }
+                        const container = input && input.closest('[x-data]');
+                        if (container) {
+                            container.dispatchEvent(new CustomEvent('searchable-set-options', {
+                                detail: { options }, bubbles: true,
+                            }));
+                        }
+                    }
 
                     function updateTitles() {
                         const direction = directionField.value;
@@ -346,42 +405,21 @@ class MovementStep1Form(FinancialMovementBaseForm):
                             step3.classList.add('hidden');
                             step4.classList.add('hidden');
 
-                            personType.value = "";
-                            entityField.innerHTML = "";
+                            clearSearchable(personType);
+                            clearSearchable(entityField, { clearOptions: true });
                             resumeContainer.innerHTML = "";
                             syncSupplierQuickButton();
                         }
                     }
 
-                    function selectEntityOption(entityId, entityName) {
+                    function selectEntityOption(entityId) {
                         if (!entityId) return;
 
-                        const container = entityField.closest('[x-data]');
-                        if (!container || !window.Alpine) return;
-
-                        const alpineData = Alpine.$data(container);
-                        const optionsList = container.querySelector('[x-ref="options"]');
-                        if (!optionsList || !alpineData || typeof alpineData.select !== 'function') return;
-
-                        const selectedId = String(entityId);
-                        const selectedName = entityName || 'Fornecedor';
-                        let option = optionsList.querySelector(`li[data-value='${selectedId}']`);
-
-                        if (!option) {
-                            option = document.createElement('li');
-                            option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
-                            option.dataset.value = selectedId;
-                            option.dataset.label = selectedName;
-                            option.dataset.searchText = selectedName.toLowerCase();
-                            option.setAttribute('x-show', "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                            option.setAttribute('@click', 'select($el)');
-                            option.innerHTML = `<span class="block truncate" :class="{'font-bold': value == '${selectedId}'}">${selectedName}</span>`;
-                            optionsList.appendChild(option);
+                        const alpineData = getSearchableData(entityField);
+                        if (alpineData && typeof alpineData.setValue === 'function') {
+                            alpineData.setValue(entityId);
                         }
-
-                        alpineData.select(option);
                         syncSupplierQuickButton();
-                        loadDetails();
                     }
 
                     function loadEntities(selectedEntity) {
@@ -412,52 +450,16 @@ class MovementStep1Form(FinancialMovementBaseForm):
                         })
                         .then(r => r.json())
                         .then(data => {
-                            // Encontra o container do SearchableSelectInput (tem x-data)
-                            const container = entityField.closest('[x-data]');
-                            if (!container) return;
-
-                            // Acessa os dados do Alpine se possível, ou apenas manipula o DOM
-                            const optionsList = container.querySelector('[x-ref="options"]');
-                            if (!optionsList) return;
-
-                            // Limpa o valor atual no componente Alpine
-                            if (window.Alpine) {
-                                const alpineData = Alpine.$data(container);
-                                if (alpineData && typeof alpineData.clear === 'function') {
-                                    alpineData.clear();
-                                }
-                            }
-
-                            optionsList.innerHTML = "";
-
-                            data.forEach(item => {
-                                const li = document.createElement("li");
-                                li.setAttribute("x-show", "!search || $el.dataset.searchText.includes(search.toLowerCase())");
-                                li.setAttribute("@click", "select($el)");
-                                li.dataset.value = item.id;
-                                li.dataset.label = item.name;
-                                li.dataset.searchText = item.name.toLowerCase();
-                                li.className = "relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group";
-                                
-                                const span = document.createElement("span");
-                                span.className = "block truncate";
-                                span.setAttribute(":class", `{'font-bold': value == '${item.id}'}`);
-                                span.textContent = item.name;
-                                
-                                li.appendChild(span);
-                                optionsList.appendChild(li);
-                            });
-
-                            // Adiciona a mensagem de "Nenhum resultado"
-                            const noResults = document.createElement("li");
-                            noResults.setAttribute("x-show", "search && $refs.options.querySelectorAll('li[data-value]:not([style*=\\'display: none\\'])').length === 0");
-                            noResults.className = "py-2 pl-3 text-gray-500 italic";
-                            noResults.textContent = "Nenhum resultado encontrado...";
-                            optionsList.appendChild(noResults);
+                            const options = (Array.isArray(data) ? data : []).map((item) => ({
+                                value: item.id,
+                                label: item.name,
+                            }));
+                            setSearchableOptions(entityField, options);
 
                             if (selectedEntity && selectedEntity.id) {
-                                selectEntityOption(selectedEntity.id, selectedEntity.name);
+                                selectEntityOption(selectedEntity.id);
                             } else {
+                                clearSearchable(entityField);
                                 syncSupplierQuickButton();
                             }
                         });
@@ -548,10 +550,17 @@ class MovementStep1Form(FinancialMovementBaseForm):
 
                     // Estado inicial
                     handleDirection();
-                    loadEntities();
+                    loadEntities(entityField.value ? { id: entityField.value } : null);
                     loadDetails();
                     syncSupplierQuickButton();
-                });
+                    }
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', bindMovementStep1);
+                    } else {
+                        bindMovementStep1();
+                    }
+                })();
             </script>"""),
             Div(
                 Div(
@@ -1098,6 +1107,15 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
         initial=False,
     )
+    is_partial_payment = forms.TypedChoiceField(
+        label="Pagamento parcial",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Não"), (True, "Sim")),
+        widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]),
+        initial=False,
+    )
+    partial_payment_amount = MoneyField(label="Valor pago", required=False, widget=MoneyInput())
 
     class Meta:
         model = FinancialMovement
@@ -1147,6 +1165,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self._was_paid = bool(self.instance.pk and self.instance.is_paid)
         self.payment_method_filter_data = {"CREDIT": [], "DEBIT": []}
         self.selected_workorder_payment: WorkOrderPaymentMethod | None = None
 
@@ -1163,6 +1182,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["bank_account"].required = False
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(getattr(self.instance, "is_reconciled", False)) if self.instance.pk else False
+        self.fields["partial_payment_amount"].widget.attrs["data-partial-payment-amount"] = "true"
 
         if getattr(self.instance, "workorder_id", None):
             raw_payment_id = ""
@@ -1299,6 +1319,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("payment_method", css_class="col-span-12 lg:col-span-4"),
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("is_reconciled", css_class="col-span-12 lg:col-span-4"),
+                Div("is_partial_payment", css_class="col-span-12 lg:col-span-4 partial-payment-option"),
+                Div("partial_payment_amount", css_class="col-span-12 lg:col-span-4 partial-payment-amount"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
                 HTML('<div class="col-span-12 mt-2 border-t border-base-300 pt-5"><h3 class="text-base font-semibold">Valores e ajuste</h3><p class="text-sm text-base-content/60">Informe se este lançamento possui desconto ou acréscimo. O valor líquido será calculado automaticamente.</p></div>'),
                 Div("gross_amount", css_class="col-span-12 lg:col-span-4"),
@@ -1416,6 +1438,19 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         if getattr(self.instance, "movement_kind", None) != FinancialMovement.MovementKind.WORKORDER_CARD_FEE and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
 
+        if cleaned_data.get("is_partial_payment"):
+            cleaned_data["is_paid"] = True
+            paid_amount = cleaned_data.get("partial_payment_amount")
+            total_amount = cleaned_data.get("amount")
+            if direction != FinancialMovement.MovementDirection.DEBIT:
+                self.add_error("is_partial_payment", "Pagamento parcial está disponível apenas para contas a pagar.")
+            if paid_amount is None:
+                self.add_error("partial_payment_amount", "Informe o valor efetivamente pago.")
+            elif total_amount is not None and (paid_amount.amount <= 0 or paid_amount >= total_amount):
+                self.add_error("partial_payment_amount", "O valor pago deve ser maior que zero e menor que o valor total da conta.")
+            if self._was_paid:
+                self.add_error("is_partial_payment", "Não é possível dividir uma conta que já foi paga.")
+
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
 
@@ -1468,5 +1503,13 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         if commit:
             instance.save()
             self.save_m2m()
+            if self.cleaned_data.get("is_partial_payment"):
+                try:
+                    create_partial_payment_balance(
+                        paid_movement=instance,
+                        paid_amount=self.cleaned_data["partial_payment_amount"],
+                    )
+                except ValidationError as exc:
+                    raise ValueError(str(exc)) from exc
 
         return instance

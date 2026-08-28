@@ -1,6 +1,8 @@
 from decimal import Decimal
 from typing import Any
 
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from djmoney.money import Money
 
 from apps.finance.models.financial_movement import FinancialMovement
@@ -32,6 +34,63 @@ def apply_payment_reconciliation_rules(cleaned_data: dict[str, Any]) -> list[tup
         errors.append(("bank_account", BANK_ACCOUNT_REQUIRED_FOR_RECONCILIATION))
 
     return errors
+
+
+@transaction.atomic
+def create_partial_payment_balance(*, paid_movement: FinancialMovement, paid_amount: Money) -> FinancialMovement:
+    """Split a debit into its settled amount and a new pending balance.
+
+    Payroll links are intentionally not copied to the balance: their unique component
+    constraints represent the original payroll item, while the new movement is the
+    outstanding payable generated from it.
+    """
+    original_amount = paid_movement.amount
+    if paid_movement.direction != FinancialMovement.MovementDirection.DEBIT:
+        raise ValidationError("Pagamento parcial está disponível apenas para contas a pagar.")
+    if not paid_movement.is_paid:
+        raise ValidationError("Marque a conta como paga para registrar um pagamento parcial.")
+    if paid_amount.currency != original_amount.currency or paid_amount <= Money(0, original_amount.currency) or paid_amount >= original_amount:
+        raise ValidationError("O valor pago deve ser maior que zero e menor que o valor total da conta.")
+
+    outstanding_amount = original_amount - paid_amount
+    paid_movement.amount = paid_amount
+    paid_movement.gross_amount = paid_amount
+    paid_movement.discount_mode = FinancialMovement.DiscountMode.NONE
+    paid_movement.discount_value = Money(0, paid_amount.currency)
+    paid_movement.discount_percentage = Decimal("0.00")
+    paid_movement.save(
+        update_fields=[
+            "gross_amount",
+            "amount",
+            "discount_mode",
+            "discount_value",
+            "discount_percentage",
+        ]
+    )
+
+    balance = FinancialMovement.objects.get(pk=paid_movement.pk)
+    balance.pk = None
+    balance.id = None
+    balance._state.adding = True
+    balance.amount = outstanding_amount
+    balance.gross_amount = outstanding_amount
+    balance.discount_mode = FinancialMovement.DiscountMode.NONE
+    balance.discount_value = Money(0, outstanding_amount.currency)
+    balance.discount_percentage = Decimal("0.00")
+    balance.is_paid = False
+    balance.is_reconciled = False
+    balance.partial_payment_of = paid_movement
+    balance.payroll = None
+    balance.payroll_component = None
+    balance.payroll_benefit = None
+    balance.financial_observation = " ".join(
+        value for value in [
+            str(balance.financial_observation or "").strip(),
+            f"Saldo remanescente do pagamento parcial da movimentação #{paid_movement.pk}.",
+        ] if value
+    )
+    balance.save()
+    return balance
 
 
 def generate_card_fee_movement(instance: FinancialMovement):

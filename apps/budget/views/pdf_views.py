@@ -18,9 +18,6 @@ from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
 from apps.core.infrastructure.pdf import render_pdf_from_html
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.infrastructure.providers import get_signature_service
-from apps.core.infrastructure.services.dashboard_query_service import (
-    _prepare_budget_for_dashboard_pricing,
-)
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -43,10 +40,7 @@ def _get_budget_for_pdf(*, pk: int, workshop) -> Budget:
 
 
 def _prepare_budget_for_pdf_pricing(budget: Budget) -> Budget:
-    # Manager PDFs expose costs, profit, profitability and markup, so their
-    # pricing must use the budget's own frozen Step 5 reference. Injecting the
-    # current month's dashboard context would change historical results.
-    _prepare_budget_for_dashboard_pricing(budget, for_totals_only=False)
+    budget.get_frozen_pricing_context()
     return budget
 
 
