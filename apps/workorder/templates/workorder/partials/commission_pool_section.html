@@ -1,0 +1,113 @@
+{% load l10n %}
+<div id="commission-pool-section" class="w-full rounded-xl border border-base-300 bg-base-100 p-4 space-y-6">
+    <h4 class="font-bold text-lg">Previsão de comissão</h4>
+    {% if not commission_is_sale %}
+        <p class="text-sm text-base-content/70">Comissão não se aplica a orçamentos de garantia ou cortesia.</p>
+    {% elif not commission_consolidates %}
+        <p class="text-sm text-base-content/70 mb-2">Os valores abaixo são uma previsão. A comissão só é consolidada após a entrega do veículo. Distribua o pool manualmente por colaborador.</p>
+    {% else %}
+        <p class="text-sm text-base-content/70 mb-2">Comissão consolidada a partir desta O.S. entregue. A distribuição do pool permanece editável apenas para previsão; entradas PAID são imutáveis.</p>
+    {% endif %}
+
+    {% for pool in pool_sections %}
+        {% with scope=pool.scope scope_label=pool.scope_label %}
+        <div class="rounded-xl border border-base-200 p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h5 class="font-semibold text-base">{{ scope_label }}</h5>
+                <span class="text-sm">Total da comissão p/ WO: <strong>{{ pool.total_commission }}</strong> <span class="text-xs text-base-content/60">(pool {{ pool.pool_S }} + fixos {{ pool.fixed_total }})</span></span>
+            </div>
+            {% if pool.sum_base_pct > 1 %}
+                <div class="alert alert-warning text-xs mb-3">
+                    <span>Soma das Bases ({{ pool.sum_base_pct_display }}%) ultrapassa 100%. Ajuste as porcentagens.</span>
+                </div>
+            {% endif %}
+            <div class="overflow-x-auto">
+                <table class="table table-zebra w-full table-sm">
+                    <thead>
+                        <tr>
+                            <th>Colaborador</th>
+                            <th>Comissão (cadastro)</th>
+                            <th>Base (%)</th>
+                            <th>Previsão</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in pool.rows %}
+                            <tr {% if row.is_editable and row.base_pct > row.cap %}class="bg-warning/10"{% endif %}>
+                                <td>
+                                    <div class="flex flex-col">
+                                        <span>{{ row.name }}</span>
+                                        {% if row.is_global %}<span class="text-xs text-info">Global (fora do pool)</span>{% endif %}
+                                    </div>
+                                </td>
+                                <td>
+                                    {{ row.commission_display }}
+                                </td>
+                                <td>
+                                    {% if row.is_editable %}
+                                        <input
+                                            type="number"
+                                            name="distribution_percentage"
+                                            value="{{ row.base_pct_display|unlocalize }}"
+                                            min="0"
+                                            max="100"
+                                            step="0.01"
+                                            placeholder="0"
+                                            class="input input-bordered input-sm w-24"
+                                            hx-post="{% url 'workorder:update_allocation' workorder.pk %}"
+                                            hx-vals='{"scope": "{{ scope }}", "collaborator_id": "{{ row.collaborator_id|unlocalize }}"}'
+                                            hx-include="this"
+                                            hx-trigger="change"
+                                            hx-target="#commission-pool-section"
+                                            hx-swap="innerHTML"
+                                            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                            {% if commission_is_paid %}disabled{% endif %}
+                                        >
+                                        {% if row.base_pct > row.cap %}
+                                            <div class="text-xs text-error mt-1">Ultrapassa previsão permitida (máx {{ row.cap_display }}%); altere.</div>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-xs text-base-content/60">{% if row.is_fixed %}Fixo{% elif row.is_global %}Global{% else %}—{% endif %}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="font-semibold">
+                                    {{ row.preview_amount }}
+                                </td>
+                                <td>
+                                    {% if row.is_editable and row.base_pct > row.cap %}
+                                        <span class="badge badge-warning badge-sm">cap excedido</span>
+                                    {% endif %}
+                                    {% if forloop.parentloop.counter == 1 and forloop.counter == 1 and pool.sum_base_pct > 1 %}
+                                        <!-- sum warning já exibido no header -->
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-base-content/60 italic py-4">Nenhum colaborador vinculado a este escopo.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-xs text-base-content/60 mt-2">Pool = Total {{ scope_label }} ({{ pool.total_S }}) × maior % ({{ pool.max_pct_display }}%) = {{ pool.pool_S }}. Base (%) distribui o pool; fixos somam fora do pool; global não entra no total exibido.</p>
+        </div>
+        {% endwith %}
+    {% empty %}
+        <p class="text-sm text-base-content/60">Sem dados de pool para exibir.</p>
+    {% endfor %}
+</div>
+<script>
+    (function(){
+        // Mostrar toast se houver alertas de cap/sum (apenas informativo)
+        const section = document.getElementById('commission-pool-section');
+        if (!section) return;
+        const warnings = section.querySelectorAll('.bg-warning\\/10, .alert-warning');
+        // Não bloquear, apenas log
+        if (warnings.length > 0) {
+            // Opcional: dispatch toast
+            // document.body.dispatchEvent(new CustomEvent('showToast', {detail:{message:'Ajuste as Bases (%) — há alertas de cap ou soma >100%.', type:'warning'}}));
+        }
+    })();
+</script>

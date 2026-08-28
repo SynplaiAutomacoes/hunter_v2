@@ -24,6 +24,7 @@ from apps.core.presentation.widgets import (
     EmailInput,
     ImageInput,
     NumberInput,
+    PercentageInput,
     PhoneInput,
     SearchableSelectInput,
     TextInput,
@@ -467,6 +468,61 @@ class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
             "deduzir_desconto_ipi": CheckboxInput(),
             "email_automatico_nfse": CheckboxInput(),
         }
+
+
+class WorkshopCommissionSectionForm(CoreModelForm):
+    """Aba Comissão — limites e base de cálculo por escopo (v3)."""
+
+    class Meta:
+        model = Workshop
+        fields = [
+            "service_commission_max_percentage",
+            "service_commission_base",
+            "product_commission_max_percentage",
+            "product_commission_base",
+        ]
+        widgets = {
+            "service_commission_max_percentage": PercentageInput(decimal_places=2),
+            "service_commission_base": SearchableSelectInput(),
+            "product_commission_max_percentage": PercentageInput(decimal_places=2),
+            "product_commission_base": SearchableSelectInput(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Labels e help_text específicos da aba Comissão
+        if "service_commission_max_percentage" in self.fields:
+            self.fields["service_commission_max_percentage"].label = "Limite máximo de comissão por colaborador (Serviço)"
+            self.fields["service_commission_max_percentage"].help_text = "Limite bloqueia o % cadastrado no colaborador. Vazio = sem limite."
+            self.fields["service_commission_max_percentage"].required = False
+        if "service_commission_base" in self.fields:
+            self.fields["service_commission_base"].label = "Base (Serviço)"
+            self.fields["service_commission_base"].help_text = "Bruto = valor de venda total; Lucro = venda - custo."
+            self.fields["service_commission_base"].required = False
+            self.fields["service_commission_base"].widget = SearchableSelectInput(
+                choices=[("", "Selecione"), ("gross", "Bruto"), ("profit", "Lucro")],
+            )
+        if "product_commission_max_percentage" in self.fields:
+            self.fields["product_commission_max_percentage"].label = "Limite máximo de comissão por colaborador (Produto)"
+            self.fields["product_commission_max_percentage"].help_text = "Limite bloqueia o % cadastrado no colaborador. Vazio = sem limite."
+            self.fields["product_commission_max_percentage"].required = False
+        if "product_commission_base" in self.fields:
+            self.fields["product_commission_base"].label = "Base (Produto)"
+            self.fields["product_commission_base"].help_text = "Bruto = valor de venda total; Lucro = venda - custo."
+            self.fields["product_commission_base"].required = False
+            self.fields["product_commission_base"].widget = SearchableSelectInput(
+                choices=[("", "Selecione"), ("gross", "Bruto"), ("profit", "Lucro")],
+            )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean()
+        # Se limite preenchido, base é opcional mas recomendada; não bloqueia.
+        # Converter string vazia para None
+        for field_name in ("service_commission_base", "product_commission_base"):
+            value = cleaned.get(field_name)
+            if value == "":
+                cleaned[field_name] = None
+        return cleaned
 
 
 class WorkshopPdfObservationSectionForm(CoreModelForm):

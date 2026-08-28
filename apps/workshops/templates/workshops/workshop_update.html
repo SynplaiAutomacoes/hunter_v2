@@ -263,6 +263,7 @@
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'certificado' }" @click="activeTab = 'certificado'">Certificados</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'opcionais' }" @click="activeTab = 'opcionais'">Opcionais</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'pdf_observation' }" @click="activeTab = 'pdf_observation'">Observacoes PDF</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'comissao' }" @click="activeTab = 'comissao'">Comissão</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'credenciais' }" @click="activeTab = 'credenciais'">Credenciais</button>
             </div>
 
@@ -759,6 +760,40 @@
                 <div class="flex items-center justify-end gap-2">
                     {% if can_change_workshop %}
                         <button type="submit" class="btn-form-save">Salvar observacao</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <form method="post" enctype="multipart/form-data" x-show="activeTab === 'comissao'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="comissao">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                {% if commission_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in commission_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="alert alert-info mb-4 text-sm">
+                    <span>Configure os limites máximos de comissão por colaborador e escolha se a base será <strong>Bruto</strong> (valor de venda total, com frete) ou <strong>Lucro</strong> (venda - custo). O limite bloqueia o cadastro do colaborador.</span>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-3">{{ commission_form.service_commission_max_percentage|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ commission_form.service_commission_base|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ commission_form.product_commission_max_percentage|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ commission_form.product_commission_base|as_crispy_field }}</div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_workshop %}
+                        <button type="submit" class="btn-form-save">Salvar comissão</button>
                     {% else %}
                         <span class="text-sm text-warning">Voce nao possui permissao para alterar dados desta oficina.</span>
                     {% endif %}

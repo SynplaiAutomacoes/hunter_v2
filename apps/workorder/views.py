@@ -665,6 +665,80 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
         return response
 
 
+class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """HTMX endpoint para atualizar Base (%) do pool por escopo (v3)."""
+
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        from decimal import Decimal, InvalidOperation
+
+        from apps.collaborators.commission.allocation import CommissionAllocationService
+        from apps.collaborators.models import WorkshopCollaborator
+
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
+        # Comissão PAID é imutável — bloquear mutação mesmo que WO ainda editável (só alerta no resto)
+        from apps.collaborators.models import CollaboratorCommissionEntry
+
+        if CollaboratorCommissionEntry.objects.filter(workorder=workorder, status=CollaboratorCommissionEntry.Status.PAID).exists():
+            return JsonResponse({"ok": False, "error": "Comissão já está paga e não pode ser alterada."}, status=409)
+
+        scope = str(request.POST.get("scope") or "").strip().lower()
+        if scope not in ("service", "product"):
+            return JsonResponse({"ok": False, "error": "Escopo inválido."}, status=400)
+        collaborator_id = str(request.POST.get("collaborator_id") or "").strip()
+        if not collaborator_id.isdigit():
+            return JsonResponse({"ok": False, "error": "Colaborador inválido."}, status=400)
+        collaborator = WorkshopCollaborator.objects.filter(pk=int(collaborator_id), workshop=self.workshop).first()
+        if collaborator is None:
+            return JsonResponse({"ok": False, "error": "Colaborador não encontrado."}, status=404)
+        if collaborator.pk not in set(workorder.collaborators.values_list("pk", flat=True)):
+            return JsonResponse({"ok": False, "error": "Colaborador não vinculado à O.S."}, status=400)
+
+        raw_pct = str(request.POST.get("distribution_percentage") or "").strip().replace(",", ".")
+        try:
+            pct = Decimal(raw_pct) if raw_pct else Decimal("0")
+        except (InvalidOperation, ValueError, TypeError):
+            pct = Decimal("0")
+        # Converter 0..100 para 0..1 se necessário (ver comentário no template)
+        if pct > Decimal("1"):
+            pct = pct / Decimal("100")
+        if pct < Decimal("0"):
+            pct = Decimal("0")
+        if pct > Decimal("1"):
+            pct = Decimal("1")
+
+        # Verificar se a O.S. já tem comissão PAID — bloquear edição (apenas alertas, mas PAID é imutável no orquestrador; alocação pode ser editada para previsão, mas não altera PAID)
+        # Permitir edição de alocação mesmo com PAID, pois é só previsão; orquestrador congelará valores.
+        try:
+            with transaction.atomic():
+                # lock workorder e alocação
+                locked_wo = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
+                allocation = CommissionAllocationService.upsert(workorder=locked_wo, collaborator=collaborator, scope=scope, distribution_percentage=pct)
+                # Validar caps e soma (só alertas)
+                validation = CommissionAllocationService.validate(workorder=locked_wo, scope=scope)
+                # Se violação, retornar com toast
+                has_warnings = bool(validation.get("cap")) or bool(validation.get("sum"))
+        except Exception as exc:
+            return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+        context = _build_edit_items_context(workorder)
+        context["workorder"] = workorder
+        context["collaborator_form"] = __import__("apps.workorder.forms", fromlist=["WorkOrderCollaboratorForm"]).WorkOrderCollaboratorForm(instance=workorder, workorder=workorder)
+        context.update(workorder_stepper_context(request=request, workorder=workorder))
+        response = render(request, "workorder/partials/commission_pool_section.html", context)
+        response["Cache-Control"] = "no-store"
+        if has_warnings:
+            messages = []
+            messages.extend(validation.get("cap", []))
+            messages.extend(validation.get("sum", []))
+            msg_text = " ".join(messages)[:500]
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": msg_text, "type": "warning"}})
+        return response
+
+
 class WorkOrderPaymentSectionView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkOrder
     workshop_permission_codename = "view_workorder"

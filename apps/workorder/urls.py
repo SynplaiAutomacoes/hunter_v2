@@ -11,6 +11,7 @@ urlpatterns = [
     path("<int:pk>/", views.WorkOrderDetailView.as_view(), name="workorder_detail"),
     path("<int:pk>/resume-section/", views.WorkOrderResumeSectionView.as_view(), name="resume_section"),
     path("<int:pk>/update-collaborators/", views.UpdateWorkOrderCollaboratorsView.as_view(), name="update_collaborators"),
+    path("<int:pk>/allocation/", views.UpdateWorkOrderCommissionAllocationView.as_view(), name="update_allocation"),
     path("<int:pk>/payment-section/", views.WorkOrderPaymentSectionView.as_view(), name="payment_section"),
     path("<int:pk>/update-discount/", views.UpdateWorkOrderDiscountView.as_view(), name="update_discount"),
     path("<int:pk>/update-km-final/", views.UpdateWorkOrderKmFinalView.as_view(), name="update_km_final"),
