@@ -682,19 +682,44 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         from apps.collaborators.models import CollaboratorCommissionEntry
 
         if CollaboratorCommissionEntry.objects.filter(workorder=workorder, status=CollaboratorCommissionEntry.Status.PAID).exists():
-            return JsonResponse({"ok": False, "error": "Comissão já está paga e não pode ser alterada."}, status=409)
+            msg = "Comissão já está paga e não pode ser alterada."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=409)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=409)
 
         scope = str(request.POST.get("scope") or "").strip().lower()
         if scope not in ("service", "product"):
-            return JsonResponse({"ok": False, "error": "Escopo inválido."}, status=400)
+            msg = "Escopo inválido."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=400)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
         collaborator_id = str(request.POST.get("collaborator_id") or "").strip()
         if not collaborator_id.isdigit():
-            return JsonResponse({"ok": False, "error": "Colaborador inválido."}, status=400)
+            msg = "Colaborador inválido."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=400)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
         collaborator = WorkshopCollaborator.objects.filter(pk=int(collaborator_id), workshop=self.workshop).first()
         if collaborator is None:
-            return JsonResponse({"ok": False, "error": "Colaborador não encontrado."}, status=404)
+            msg = "Colaborador não encontrado."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=404)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=404)
         if collaborator.pk not in set(workorder.collaborators.values_list("pk", flat=True)):
-            return JsonResponse({"ok": False, "error": "Colaborador não vinculado à O.S."}, status=400)
+            msg = "Colaborador não vinculado à O.S."
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=400)
+                resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
 
         raw_pct = str(request.POST.get("distribution_percentage") or "").strip().replace(",", ".")
         try:
@@ -729,7 +754,12 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                 max_pct = max((r.percentage or Decimal("0") for r in all_rules), default=Decimal("0"))
                 rule = next((r for r in all_rules if r.collaborator_id == collaborator.pk), None)
                 if pct > Decimal("0") and rule is None:
-                    return JsonResponse({"ok": False, "error": "Colaborador não possui regra de percentual por participação neste escopo."}, status=400)
+                    msg = "Colaborador não possui regra de percentual por participação neste escopo."
+                    if request.headers.get("HX-Request") == "true":
+                        resp = HttpResponse(status=400)
+                        resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                        return resp
+                    return JsonResponse({"ok": False, "error": msg}, status=400)
                 if rule is not None and max_pct > Decimal("0"):
                     cap = (rule.percentage or Decimal("0")) / max_pct if max_pct else Decimal("1")
                     if pct - cap > Decimal("0.000001"):
@@ -743,6 +773,10 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                         cap_val = (cap * pool_S).quantize(Decimal("0.01")) if pool_S else Decimal("0")
                         pool_val = pool_S.quantize(Decimal("0.01"))
                         msg = f"Base% de {collaborator.name} ultrapassa o máximo permitido de {cap_display}% (R$ {cap_val} de R$ {pool_val} no montante). Corrija."
+                        if request.headers.get("HX-Request") == "true":
+                            resp = HttpResponse(status=400)
+                            resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                            return resp
                         return JsonResponse({"ok": False, "error": msg}, status=400, headers={"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})})
                 # Validar soma Σ Base% ≤100% (considerando novo valor)
                 existing_allocs = list(WorkOrderCommissionAllocation.objects.select_for_update().filter(workorder=locked_wo, scope=scope))
@@ -751,20 +785,35 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                 new_sum = sum_others + pct
                 if new_sum - Decimal("1") > Decimal("0.000001"):
                     sum_display = (new_sum * Decimal("100")).quantize(Decimal("0.01"))
+                    msg = f"Soma das Bases ({sum_display}%) ultrapassa 100%. Ajuste as porcentagens."
+                    if request.headers.get("HX-Request") == "true":
+                        resp = HttpResponse(status=400)
+                        resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                        return resp
                     return JsonResponse(
-                        {"ok": False, "error": f"Soma das Bases ({sum_display}%) ultrapassa 100%. Ajuste as porcentagens."},
+                        {"ok": False, "error": msg},
                         status=400,
-                        headers={"HX-Trigger": json.dumps({"showToast": {"message": f"Soma das Bases ({sum_display}%) ultrapassa 100%.", "type": "error"}})},
+                        headers={"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})},
                     )
                 allocation = CommissionAllocationService.upsert(workorder=locked_wo, collaborator=collaborator, scope=scope, distribution_percentage=pct)
                 has_warnings = False
         except ValidationError as exc:
-            return JsonResponse({"ok": False, "error": str(exc.message if hasattr(exc, 'message') else str(exc))}, status=400)
+            msg = str(exc.message if hasattr(exc, 'message') else str(exc))
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=400)
+                resp["HX-Trigger"] = __import__("json").dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
         except Exception as exc:
             # Se já retornamos JsonResponse, não cair aqui
             if isinstance(exc, JsonResponse):
                 raise
-            return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+            msg = str(exc)
+            if request.headers.get("HX-Request") == "true":
+                resp = HttpResponse(status=400)
+                resp["HX-Trigger"] = __import__("json").dumps({"showToast": {"message": msg, "type": "error"}})
+                return resp
+            return JsonResponse({"ok": False, "error": msg}, status=400)
 
         context = _build_edit_items_context(workorder)
         context["workorder"] = workorder
