@@ -684,7 +684,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         if CollaboratorCommissionEntry.objects.filter(workorder=workorder, status=CollaboratorCommissionEntry.Status.PAID).exists():
             msg = "Comissão já está paga e não pode ser alterada."
             if request.headers.get("HX-Request") == "true":
-                resp = HttpResponse(status=409)
+                resp = HttpResponse(status=204)
                 resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                 return resp
             return JsonResponse({"ok": False, "error": msg}, status=409)
@@ -693,7 +693,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         if scope not in ("service", "product"):
             msg = "Escopo inválido."
             if request.headers.get("HX-Request") == "true":
-                resp = HttpResponse(status=400)
+                resp = HttpResponse(status=204)
                 resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                 return resp
             return JsonResponse({"ok": False, "error": msg}, status=400)
@@ -701,7 +701,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         if not collaborator_id.isdigit():
             msg = "Colaborador inválido."
             if request.headers.get("HX-Request") == "true":
-                resp = HttpResponse(status=400)
+                resp = HttpResponse(status=204)
                 resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                 return resp
             return JsonResponse({"ok": False, "error": msg}, status=400)
@@ -709,14 +709,14 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         if collaborator is None:
             msg = "Colaborador não encontrado."
             if request.headers.get("HX-Request") == "true":
-                resp = HttpResponse(status=404)
+                resp = HttpResponse(status=204)
                 resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                 return resp
             return JsonResponse({"ok": False, "error": msg}, status=404)
         if collaborator.pk not in set(workorder.collaborators.values_list("pk", flat=True)):
             msg = "Colaborador não vinculado à O.S."
             if request.headers.get("HX-Request") == "true":
-                resp = HttpResponse(status=400)
+                resp = HttpResponse(status=204)
                 resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                 return resp
             return JsonResponse({"ok": False, "error": msg}, status=400)
@@ -756,7 +756,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                 if pct > Decimal("0") and rule is None:
                     msg = "Colaborador não possui regra de percentual por participação neste escopo."
                     if request.headers.get("HX-Request") == "true":
-                        resp = HttpResponse(status=400)
+                        resp = HttpResponse(status=204)
                         resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                         return resp
                     return JsonResponse({"ok": False, "error": msg}, status=400)
@@ -774,7 +774,32 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                         pool_val = pool_S.quantize(Decimal("0.01"))
                         msg = f"Base% de {collaborator.name} ultrapassa o máximo permitido de {cap_display}% (R$ {cap_val} de R$ {pool_val} no montante). Corrija."
                         if request.headers.get("HX-Request") == "true":
-                            resp = HttpResponse(status=400)
+                            # Render pool section with attempted value to show yellow line + title, but do not persist
+                            # Build temporary context with override
+                            from apps.collaborators.services import _build_pool_scope_context
+                            # Create a fake allocation for rendering
+                            _tmp_alloc = type("TmpAlloc", (), {"collaborator_id": collaborator.pk, "distribution_percentage": pct, "scope": scope})()
+                            # Build context manually with override: we will inject the attempted pct into the row
+                            # For HTMX, return 200 with rendered HTML and toast, so swap occurs and blank page is avoided
+                            # Use existing pool context but override the specific row's base_pct for display
+                            # Simpler: render normal pool_section (with old DB values) and rely on client-side JS to show yellow for input value
+                            # But to show server-side yellow for attempted value, we need to pass it via context
+                            # Approach: render with a flag that indicates attempted error, and template will show attempted value
+                            # For now, return a normal pool_section but with HX-Trigger error; the input will remain at invalid value client-side
+                            # To avoid blank page, return 200 with HX-Trigger and let client-side JS handle yellow
+                            resp = HttpResponse(status=200)
+                            resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
+                            # HTMX will not swap on 200 without body, so we need to provide body that keeps the pool_section
+                            # Instead, we return the current pool_section HTML (old values) with 200, so swap occurs but keeps old values
+                            # The input's invalid value (100%) will remain client-side, and JS will add yellow
+                            # To make server render with attempted value, we would need to override, but we can keep simple: return 200 with empty body and let JS handle
+                            # For now, return 200 with HX-Trigger and let the client-side input stay at invalid value
+                            # To prevent blank page, we must return a valid HTMX response that swaps, so we render the pool_section
+                            # Render the pool_section with current DB (old) values, but the input's value is still 100% client-side, so after swap it would revert to old
+                            # To avoid revert, we should NOT swap on error — keep the invalid input client-side and just show toast
+                            # Therefore, return 200 with no swap (HX-Retarget to none) and just toast
+                            # HTMX will not swap if we use 204 No Content, but we need to avoid blank page, so return 204 with HX-Trigger
+                            resp = HttpResponse(status=204)
                             resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                             return resp
                         return JsonResponse({"ok": False, "error": msg}, status=400, headers={"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})})
@@ -787,7 +812,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                     sum_display = (new_sum * Decimal("100")).quantize(Decimal("0.01"))
                     msg = f"Soma das Bases ({sum_display}%) ultrapassa 100%. Ajuste as porcentagens."
                     if request.headers.get("HX-Request") == "true":
-                        resp = HttpResponse(status=400)
+                        resp = HttpResponse(status=204)
                         resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                         return resp
                     return JsonResponse(
@@ -800,7 +825,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         except ValidationError as exc:
             msg = str(exc.message if hasattr(exc, 'message') else str(exc))
             if request.headers.get("HX-Request") == "true":
-                resp = HttpResponse(status=400)
+                resp = HttpResponse(status=204)
                 resp["HX-Trigger"] = __import__("json").dumps({"showToast": {"message": msg, "type": "error"}})
                 return resp
             return JsonResponse({"ok": False, "error": msg}, status=400)
@@ -810,7 +835,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                 raise
             msg = str(exc)
             if request.headers.get("HX-Request") == "true":
-                resp = HttpResponse(status=400)
+                resp = HttpResponse(status=204)
                 resp["HX-Trigger"] = __import__("json").dumps({"showToast": {"message": msg, "type": "error"}})
                 return resp
             return JsonResponse({"ok": False, "error": msg}, status=400)
