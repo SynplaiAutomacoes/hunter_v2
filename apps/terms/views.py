@@ -306,6 +306,7 @@ def _render_budget_term_modal(*, request, workshop, budget, template_id: int | N
             budget_id=budget.pk,
             template_id=selected.pk,
             can_toggle_signed_pdf=can_toggle,
+            signing=signing,
         )
 
     return render(
@@ -406,9 +407,11 @@ class BudgetTermSigningStatusView(BudgetTermMixin):
         return JsonResponse(term_signature_status_badge(signing))
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
 class BudgetTermSignedPdfView(BudgetTermMixin):
     workshop_permission_codename = "view_budget"
 
+    @xframe_options_exempt
     def get(self, request, budget_id: int, template_id: int):
         budget = self._get_budget(budget_id)
         template = get_object_or_404(TermTemplate, pk=template_id, workshop=self.workshop)

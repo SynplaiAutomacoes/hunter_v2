@@ -12,6 +12,11 @@
         data-signed-url="{{ term_modal_urls.signed_iframe_url }}"
         data-signed-download-url="{{ term_modal_urls.signed_download_url }}"
         {% endif %}
+        {% if selected %}
+        data-status-url="{% url 'terms:budget_term_status' budget.pk selected.pk %}"
+        data-modal-url="{% url 'terms:budget_term_modal_selected' budget.pk selected.pk %}"
+        data-signature-status="{{ signature_status_badge.text }}"
+        {% endif %}
     >
         <div class="flex items-center justify-between border-b border-base-200 px-6 py-4 bg-base-100 gap-4">
             <div class="min-w-0">
@@ -19,7 +24,10 @@
                     <h3 class="text-lg font-bold text-base-content">
                         {% if selected %}{{ selected.get_kind_display }}{% else %}Termo{% endif %}
                     </h3>
-                    <span class="badge {{ signature_status_badge.class }} font-semibold uppercase">
+                    <span
+                        class="badge {{ signature_status_badge.class }} font-semibold uppercase"
+                        data-term-modal-status-badge
+                    >
                         {{ signature_status_badge.text }}
                     </span>
                 </div>
@@ -86,49 +94,3 @@
     </div>
     <label class="modal-backdrop" for="budget-term-modal">Close</label>
 </div>
-
-{% if term_modal_urls %}
-<script>
-    (function () {
-        const root = document.getElementById('budget-term-modal-box');
-        if (!root || root.dataset.termPdfReady === 'true') {
-            return;
-        }
-        root.dataset.termPdfReady = 'true';
-
-        const iframe = root.querySelector('[data-term-preview-frame]');
-        const toggleButton = root.querySelector('[data-term-pdf-toggle]');
-        const downloadButton = root.querySelector('[data-term-pdf-download]');
-        const canToggle = root.dataset.canToggle === 'true';
-        const baseUrl = root.dataset.baseUrl || '';
-        const signedUrl = root.dataset.signedUrl || '';
-        const signedDownloadUrl = root.dataset.signedDownloadUrl || '';
-        let variant = root.dataset.initialVariant || 'base';
-
-        const applyVariant = function () {
-            if (!iframe) {
-                return;
-            }
-            iframe.src = variant === 'signed' ? signedUrl : baseUrl;
-            if (toggleButton) {
-                toggleButton.textContent = variant === 'signed' ? 'Ver não assinado' : 'Ver assinado';
-            }
-        };
-
-        if (toggleButton && canToggle) {
-            toggleButton.classList.remove('hidden');
-            applyVariant();
-            toggleButton.addEventListener('click', function () {
-                variant = variant === 'signed' ? 'base' : 'signed';
-                applyVariant();
-            });
-        }
-
-        if (downloadButton && signedDownloadUrl) {
-            downloadButton.addEventListener('click', function () {
-                window.open(signedDownloadUrl, '_blank');
-            });
-        }
-    })();
-</script>
-{% endif %}
