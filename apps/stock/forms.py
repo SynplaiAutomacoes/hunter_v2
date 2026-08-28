@@ -25,20 +25,34 @@ from djmoney.money import Money
 
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
-from apps.catalog.price_tracking import build_product_price_warning, record_product_last_purchase_price, record_product_last_used_price
+from apps.catalog.price_tracking import apply_product_import_prices, build_product_price_warning
 from apps.core.presentation.forms import address_layout, AddressFormMixin, CoreForm, CoreModelForm
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.core.utils import alert_confirm_layout
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 
-from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type, sync_payment_entries_with_financial_movements
+from apps.stock.financial_entries import (
+    ADDITIONAL_CHARGE_ENTRY_TYPE,
+    MISSING_BUDGET_PLAN_MESSAGE,
+    PAYMENT_ENTRY_TYPE,
+    apply_budget_plan_to_payment_entries,
+    calculate_import_totals,
+    get_entry_amount,
+    get_entry_reason,
+    normalize_entry_type,
+    payment_entries_missing_budget_plan,
+    sync_payment_entries_if_budget_plans_ready,
+    sync_payment_entries_with_financial_movements,
+)
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
 
 from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
 from apps.stock.services.files import StockImportFileStorageError, _extract_nfe_xml_from_sefaz_response, save_import_xml_file
+from apps.stock.services.purchase_fiscal import ensure_purchase_fiscal_foundation
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -152,13 +166,17 @@ class ImportStep1Form(CoreModelForm):
             obj.items_data = data.get("items", [])
             obj.payments_data = data.get("payments", [])
             obj.xml_file_key = data.get("xml_file_key", "")
+            obj.fiscal_snapshot = data.get("fiscal_snapshot", {})
+            if obj.fiscal_snapshot:
+                obj.fiscal_validation_status = StockImport.FiscalValidationStatus.VALIDATED
+                obj.fiscal_validated_at = timezone.now()
 
         if method in ["XML", "KEY"] and not obj.nf_key:
             raise ValueError("A chave da NF-e é obrigatória para este método de importação.")
 
         if commit:
             obj.save()
-            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+            synced_entries, payments_updated = sync_payment_entries_if_budget_plans_ready(
                 stock_import=obj,
                 entries=list(obj.payments_data or []),
                 user=self.request.user,
@@ -479,6 +497,7 @@ class ImportStepItemsForm(CoreModelForm):
 
 class ImportStepPaymentForm(CoreModelForm):
     payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SearchableSelectInput, required=False, empty_label="Selecione uma forma")
+    budget_plan = forms.ModelChoiceField(queryset=FinancialGroup.objects.none(), label="Plano Orçamentário", widget=SearchableSelectInput, required=False, empty_label="---------")
     installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=forms.HiddenInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
     payment_date = forms.DateField(label="Data de Vencimento", widget=CalendarDateInput, required=False)
@@ -501,6 +520,7 @@ class ImportStepPaymentForm(CoreModelForm):
 
         if self.workshop:
             self.fields["payment_method"].queryset = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True).order_by("description")
+            self.fields["budget_plan"].queryset = FinancialGroup.objects.filter(workshop=self.workshop).order_by("name")
 
         totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
         valor_total = totals.total_value
@@ -526,6 +546,7 @@ class ImportStepPaymentForm(CoreModelForm):
             self.fields[field_name].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
         self.fields["payment_method"].label = mark_safe('Forma de Pagamento <span class="text-error">*</span>')
+        self.fields["budget_plan"].label = mark_safe('Plano Orçamentário <span class="text-error">*</span>')
         self.fields["first_amount"].label = mark_safe('Valor a ser pago <span class="text-error">*</span>')
         self.fields["payment_date"].label = mark_safe('Data de Vencimento <span class="text-error">*</span>')
         self.fields["total_allocated_display"].label = "Valor Pago"
@@ -663,9 +684,10 @@ class ImportStepPaymentForm(CoreModelForm):
                 Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
                 #
                 Div(
-                    Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("first_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("payment_method", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("budget_plan", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("first_amount", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("payment_date", wrapper_class="col-span-12 lg:col-span-3"),
                     css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
                 ),
                 Div(
@@ -698,7 +720,28 @@ class ImportStepPaymentForm(CoreModelForm):
         totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
         if totals.pending_value > 0:
             self.add_error(None, f"Não é possível avançar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
+
+        missing_budget_plan_entries = payment_entries_missing_budget_plan(list(self.import_payments or []))
+        if missing_budget_plan_entries and not cleaned_data.get("budget_plan"):
+            self.add_error("budget_plan", "Selecione o plano orçamentário dos pagamentos importados da nota.")
         return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        budget_plan = self.cleaned_data.get("budget_plan")
+        if budget_plan is not None:
+            payments_data, payments_updated = apply_budget_plan_to_payment_entries(
+                entries=list(instance.payments_data or []),
+                budget_plan_id=budget_plan.pk,
+            )
+            if payments_updated:
+                instance.payments_data = payments_data
+                if commit:
+                    instance.save(update_fields=["payments_data"])
+                    return instance
+        if commit:
+            instance.save()
+        return instance
 
     def _generate_payments_table_html(self):
         rows = ""
@@ -896,10 +939,16 @@ class ImportStepSummaryForm(CoreModelForm):
         if instance.supplier_cnpj:
             supplier, _ = Supplier.objects.get_or_create(cnpj=instance.supplier_cnpj, workshop=workshop, defaults={"name": instance.supplier_name})
 
-        for item in instance.items_data:
+        fiscal_items = ensure_purchase_fiscal_foundation(stock_import=instance, requested_by=self.request.user)
+        for index, item in enumerate(instance.items_data, start=1):
             product_id = item.get("linked_product_id")
             product = Product.objects.get(id=product_id, workshop=workshop)
             stock_product, _created = StockProduct.objects.get_or_create(workshop=workshop, product=product, defaults={"supplier": supplier, "last_nf": resolved_nf_number})
+            item_sequence = int(item.get("nitem") or item.get("sequence") or index)
+            fiscal_item = fiscal_items.get(item_sequence)
+            if fiscal_item is not None and fiscal_item.stock_product_id != stock_product.pk:
+                fiscal_item.stock_product = stock_product
+                fiscal_item.save(update_fields=["stock_product", "atualizado_em"])
 
             quantity = Decimal(str(item.get("qtd", 0)))
             purchase_price = _money_from_value(item.get("valor"))
@@ -911,6 +960,7 @@ class ImportStepSummaryForm(CoreModelForm):
                 type=StockMovement.MovementType.ENTRY,
                 supplier=supplier,
                 transcation_by=self.request.user,
+                source_import_item=fiscal_item,
                 quantity=quantity,
                 status=StockMovement.MovementStatus.APPROVED,
             )
@@ -923,8 +973,7 @@ class ImportStepSummaryForm(CoreModelForm):
                 update_fields.append("supplier")
             stock_product.save(update_fields=update_fields)
 
-            record_product_last_purchase_price(product=product, price=purchase_price)
-            record_product_last_used_price(product=product, price=selling_price)
+            apply_product_import_prices(product=product, purchase_price=purchase_price, selling_price=selling_price)
 
         payments_data = list(instance.payments_data or [])
         for pay in payments_data:
@@ -971,6 +1020,9 @@ class ImportStepSummaryForm(CoreModelForm):
         totals = calculate_import_totals(items=self.instance.items_data or [], entries=self.instance.payments_data or [])
         if totals.pending_value > 0:
             self.add_error(None, f"Não é possível finalizar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
+
+        if payment_entries_missing_budget_plan(list(self.instance.payments_data or [])):
+            self.add_error(None, MISSING_BUDGET_PLAN_MESSAGE)
 
         return cleaned_data
 
@@ -1137,6 +1189,10 @@ class ImportSefazListForm(CoreModelForm):
                 instance.items_data = nf_data["items"]
                 instance.payments_data = nf_data["payments"]
                 instance.xml_file_key = nf_data.get("xml_file_key", "")
+                instance.fiscal_snapshot = nf_data.get("fiscal_snapshot", {})
+                if instance.fiscal_snapshot:
+                    instance.fiscal_validation_status = StockImport.FiscalValidationStatus.VALIDATED
+                    instance.fiscal_validated_at = timezone.now()
                 instance.method = "SEFAZ"
 
                 SefazZipCache.objects.filter(workshop=self.workshop, key=instance.nf_key).update(
@@ -1151,7 +1207,7 @@ class ImportSefazListForm(CoreModelForm):
 
         if commit:
             instance.save()
-            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+            synced_entries, payments_updated = sync_payment_entries_if_budget_plans_ready(
                 stock_import=instance,
                 entries=list(instance.payments_data or []),
                 user=self.request.user,
@@ -1522,14 +1578,25 @@ class ManualLinkItemEditForm(CoreForm):
         quantity = Decimal(str(self.cleaned_data["quantity"] or 0))
         unit_cost = self.cleaned_data["unit_cost"]
         selling_price = self.cleaned_data["selling_price"]
+        selling_price_amount = selling_price.amount.quantize(MONEY_QUANTIZER)
+        confirm_lower_price = str(self.cleaned_data.get("confirm_lower_price") or "").strip() == "1"
 
         item_data = dict(existing_item or {})
         item_data.setdefault("ref", str(self.product.code))
         item_data.setdefault("desc", str(self.product.name))
         item_data["qtd"] = str(quantity)
         item_data["valor"] = str(unit_cost.amount.quantize(MONEY_QUANTIZER))
-        item_data["selling_price"] = str(selling_price.amount.quantize(MONEY_QUANTIZER))
+        item_data["selling_price"] = str(selling_price_amount)
         item_data["linked_product_id"] = str(self.product.pk)
+
+        warning = build_product_price_warning(product=self.product, attempted_price=selling_price)
+        if warning and confirm_lower_price:
+            item_data["lower_price_confirmed"] = True
+            item_data["lower_price_confirmed_selling_price"] = str(selling_price_amount)
+        else:
+            item_data.pop("lower_price_confirmed", None)
+            item_data.pop("lower_price_confirmed_selling_price", None)
+
         return item_data
 
     def clean_product_id(self) -> int:
@@ -1608,19 +1675,28 @@ class ImportManualItemsForm(CoreModelForm):
                 HTML(f'<input type="hidden" name="confirm_lower_price" id="manual-confirm-lower-price-input" value="{confirm_lower_price_value}">'),
                 HTML("""
                     {% if form.non_field_errors %}
-                        <div class="alert alert-warning mb-4">
-                            <span class="material-icons">warning</span>
-                            <div class="space-y-1 text-sm">
-                                {% for error in form.non_field_errors %}
-                                    <p>{{ error }}</p>
-                                {% endfor %}
+                        <div class="alert alert-warning mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div class="flex items-start gap-2">
+                                <span class="material-icons">warning</span>
+                                <div class="space-y-1 text-sm">
+                                    {% for error in form.non_field_errors %}
+                                        <p>{{ error }}</p>
+                                    {% endfor %}
+                                    <p class="opacity-80">O valor de venda está abaixo do último valor utilizado. Você pode continuar mesmo assim.</p>
+                                </div>
                             </div>
+                            <button type="submit"
+                                    form="import-form"
+                                    name="confirm_lower_price_btn"
+                                    value="1"
+                                    class="btn btn-warning btn-sm whitespace-nowrap">
+                                Continuar mesmo assim
+                            </button>
                         </div>
                     {% endif %}
                 """),
                 HTML(self._generate_manual_table_html()),
                 HTML(self._build_lower_price_warning_modal()),
-                HTML(self._build_lower_price_warning_script()),
                 css_class="mt-4",
             )
         )
@@ -1696,13 +1772,34 @@ class ImportManualItemsForm(CoreModelForm):
 
         return rows
 
-    def _sync_instance_items_from_rows(self, rows: list[dict[str, Any]]) -> None:
+    @staticmethod
+    def _item_has_lower_price_confirmation(item: dict[str, Any], selling_price: Decimal) -> bool:
+        if not item.get("lower_price_confirmed"):
+            return False
+
+        confirmed_price = _parse_decimal_value(item.get("lower_price_confirmed_selling_price"))
+        if confirmed_price is None:
+            return False
+
+        return confirmed_price.quantize(MONEY_QUANTIZER) == selling_price
+
+    def _sync_instance_items_from_rows(self, rows: list[dict[str, Any]], *, confirm_lower_price: bool = False) -> None:
         items = [dict(item) for item in (self.instance.items_data or [])]
         for row in rows:
             item = items[row["idx"]]
+            selling_price = str(row["selling_price"])
             item["qtd"] = str(row["quantity"])
             item["valor"] = str(row["unit_cost"])
-            item["selling_price"] = str(row["selling_price"])
+            item["selling_price"] = selling_price
+
+            warning = build_product_price_warning(product=row["product"], attempted_price=Money(row["selling_price"], "BRL"))
+            if warning and (confirm_lower_price or self._item_has_lower_price_confirmation(item, row["selling_price"])):
+                item["lower_price_confirmed"] = True
+                item["lower_price_confirmed_selling_price"] = selling_price
+            elif not warning:
+                item.pop("lower_price_confirmed", None)
+                item.pop("lower_price_confirmed_selling_price", None)
+
         self.instance.items_data = items
 
     def _generate_manual_table_html(self) -> str:
@@ -1720,13 +1817,20 @@ class ImportManualItemsForm(CoreModelForm):
 
             estoque_atual = product.stock_products.current_quantity if hasattr(product, "stock_products") else 0
             last_used_price = getattr(product, "last_used_price", None)
+            selling_price_amount = str(selling_price.quantize(MONEY_QUANTIZER))
+            last_used_amount = ""
+            if last_used_price is not None:
+                last_used_amount = str(last_used_price.amount.quantize(MONEY_QUANTIZER))
 
             quantity_html = f'<div class="w-full text-center font-medium">{escape(str(quantidade))}</div>'
             unit_cost_html = f'<div class="w-full text-right whitespace-nowrap">{_format_money_display(Money(valor, "BRL"))}</div>'
             selling_price_html = f'<div class="w-full text-right whitespace-nowrap">{_format_money_display(Money(selling_price, "BRL"))}</div>'
 
             rows += f"""
-                <tr class="h-16 border-b border-base-300">
+                <tr class="js-manual-price-row h-16 border-b border-base-300"
+                    data-product-name="{escape(product.name)}"
+                    data-selling-price="{escape(selling_price_amount)}"
+                    data-last-used-price="{escape(last_used_amount)}">
                     <td>
                         <div class="font-medium">{escape(product.name)}</div>
                         <div class="text-xs opacity-50">{escape(product.code)}</div>
@@ -1815,128 +1919,32 @@ class ImportManualItemsForm(CoreModelForm):
             </form>
         </dialog>"""
 
-    @staticmethod
-    def _build_lower_price_warning_script() -> str:
-        return """
-        <script>
-            (function() {
-                const form = document.getElementById('import-form');
-                const confirmInput = document.getElementById('manual-confirm-lower-price-input');
-                const modal = document.getElementById('manual-import-lower-price-modal');
-                const productLabel = document.getElementById('manual-import-lower-price-product');
-                const lastUsedLabel = document.getElementById('manual-import-lower-price-last-used');
-
-                if (!form || !confirmInput || form.dataset.manualLowerPriceWarningReady === '1') {
-                    return;
-                }
-
-                form.dataset.manualLowerPriceWarningReady = '1';
-
-                let pendingSubmitter = null;
-
-                const getSellingInputs = () => Array.from(form.querySelectorAll('.js-manual-selling-price-input'));
-                const formatCurrency = (value) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-                const getRawValue = (input) => {
-                    const hiddenId = input.id ? input.id.replace(/_display$/, '') : '';
-                    const hiddenInput = hiddenId ? document.getElementById(hiddenId) : null;
-                    return Number.parseFloat(hiddenInput?.value || '0') || 0;
-                };
-                const findLowerPriceInput = () => getSellingInputs().find((input) => {
-                    const lastUsedPrice = Number.parseFloat(input.dataset.lastUsedPrice || '0') || 0;
-                    const sellingPrice = getRawValue(input);
-                    return lastUsedPrice > 0 && sellingPrice > 0 && sellingPrice < lastUsedPrice;
-                }) || null;
-                const closeModal = () => {
-                    if (modal?.open) {
-                        modal.close();
-                    }
-                };
-                const submitForm = () => {
-                    if (pendingSubmitter) {
-                        form.requestSubmit(pendingSubmitter);
-                        return;
-                    }
-                    form.requestSubmit();
-                };
-                const openModal = (input) => {
-                    const lastUsedPrice = Number.parseFloat(input.dataset.lastUsedPrice || '0') || 0;
-
-                    if (!modal || typeof modal.showModal !== 'function') {
-                        return window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este produto. Deseja continuar mesmo assim?');
-                    }
-
-                    if (productLabel) {
-                        productLabel.textContent = input.dataset.productName || 'este produto';
-                    }
-
-                    if (lastUsedLabel) {
-                        lastUsedLabel.textContent = `Último valor usado: ${formatCurrency(lastUsedPrice)}`;
-                    }
-
-                    if (!modal.open) {
-                        modal.showModal();
-                    }
-
-                    return null;
-                };
-                const resetConfirmation = () => {
-                    confirmInput.value = '';
-                };
-                const cancelConfirmation = () => {
-                    resetConfirmation();
-                    pendingSubmitter = null;
-                    closeModal();
-                };
-
-                getSellingInputs().forEach((input) => {
-                    input.addEventListener('input', resetConfirmation);
-                });
-
-                form.addEventListener('submit', (event) => {
-                    if (confirmInput.value === '1') {
-                        return;
-                    }
-
-                    const lowerPriceInput = findLowerPriceInput();
-                    if (!lowerPriceInput) {
-                        return;
-                    }
-
-                    event.preventDefault();
-                    pendingSubmitter = event.submitter || null;
-
-                    const fallbackConfirmed = openModal(lowerPriceInput);
-                    if (fallbackConfirmed === true) {
-                        confirmInput.value = '1';
-                        submitForm();
-                    }
-                });
-
-                document.getElementById('manual-import-lower-price-cancel')?.addEventListener('click', cancelConfirmation);
-                document.getElementById('manual-import-lower-price-close')?.addEventListener('click', cancelConfirmation);
-                document.getElementById('manual-import-lower-price-continue')?.addEventListener('click', () => {
-                    confirmInput.value = '1';
-                    closeModal();
-                    submitForm();
-                });
-            })();
-        </script>"""
-
     def clean(self):
         cleaned_data = super().clean()
         rows = self._build_manual_rows()
-        self._sync_instance_items_from_rows(rows)
 
         if not rows:
             raise forms.ValidationError("Adicione pelo menos um item para prosseguir.")
 
-        confirm_lower_price = str(self.data.get("confirm_lower_price") or "").strip() == "1"
+        confirm_lower_price = (
+            str(self.data.get("confirm_lower_price") or "").strip() == "1"
+            or str(self.data.get("confirm_lower_price_btn") or "").strip() == "1"
+        )
+        items = list(self.instance.items_data or [])
+
         for row in rows:
             warning = build_product_price_warning(product=row["product"], attempted_price=Money(row["selling_price"], "BRL"))
-            if warning and not confirm_lower_price:
-                self.add_error(None, f"{row['product'].name}: {warning.message}")
-                break
+            if not warning:
+                continue
 
+            item = items[row["idx"]] if 0 <= row["idx"] < len(items) else {}
+            if confirm_lower_price or self._item_has_lower_price_confirmation(item, row["selling_price"]):
+                continue
+
+            self.add_error(None, f"{row['product'].name}: {warning.message}")
+            break
+
+        self._sync_instance_items_from_rows(rows, confirm_lower_price=confirm_lower_price)
         return cleaned_data
 
 

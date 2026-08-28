@@ -12,7 +12,12 @@ from django.utils import timezone
 from apps.budget.models import Budget
 from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.infrastructure.models.dashboard_monthly_snapshot import DashboardMonthlySnapshot
-from apps.core.infrastructure.services.dashboard_query_service import DashboardQueryService, MONTH_LABELS_PT
+from apps.core.infrastructure.services.dashboard_query_service import (
+    MONTH_LABELS_PT,
+    DashboardQueryService,
+    calculate_markup_progress,
+    resolve_markup_gauge_tone,
+)
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
@@ -165,6 +170,14 @@ def metrics_from_snapshot(snapshot: DashboardMonthlySnapshot, *, now: datetime |
         current = timezone.make_aware(current, SAO_PAULO_TZ)
     local_today: date = timezone.localtime(current, SAO_PAULO_TZ).date()
 
+    workshop_cost = WorkshopCost.objects.filter(
+        workshop_id=snapshot.workshop_id,
+        month=snapshot.month,
+        year=snapshot.year,
+    ).first()
+    markup_target = workshop_cost.profitability_multiplier if workshop_cost is not None else None
+    accumulated_markup = _as_decimal(snapshot.accumulated_markup)
+
     return DashboardMetrics(
         workshop_id=snapshot.workshop_id,
         selected_month=snapshot.month,
@@ -184,8 +197,10 @@ def metrics_from_snapshot(snapshot: DashboardMonthlySnapshot, *, now: datetime |
         business_holidays=snapshot.business_holidays,
         total_sold_to_date=snapshot.total_sold_to_date,
         accumulated_profitability=snapshot.accumulated_profitability,
-        accumulated_markup=snapshot.accumulated_markup,
-        accumulated_markup_progress=snapshot.accumulated_markup_progress,
+        accumulated_markup=accumulated_markup,
+        accumulated_markup_progress=calculate_markup_progress(accumulated_markup, markup_target),
+        accumulated_markup_tone=resolve_markup_gauge_tone(accumulated_markup, markup_target),
+        markup_target=markup_target,
         warranty_return_rate=snapshot.warranty_return_rate,
         approval_rate=snapshot.approval_rate,
         total_pending_receivable=snapshot.total_pending_receivable,

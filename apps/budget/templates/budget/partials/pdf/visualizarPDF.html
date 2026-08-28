@@ -252,26 +252,31 @@
                 </div>
                 {% endif %}
                 <div class="min-w-0">
-                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.pdf_name }}</h3>
-                    <p class="field-row"><span class="field-label">CNPJ:</span> <span class="field-value fit-important">{{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
+                    <h3 class="text-[18px] font-bold uppercase m-0 field-value fit-important">{{ budget.workshop.nome_fantasia_display }}</h3>
+                    <p class="field-row"><span class="field-value">{{ budget.workshop.razao_social_display }}</span></p>
+                    <p class="field-row"><span class="field-value">CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</span></p>
                     <p class="field-row multiline"><span class="field-value field-value-multiline fit-important-multiline">{{ budget.workshop.address|default:"-" }}</span></p>
-                    <p class="field-row"><span class="field-label">Fone:</span> <span class="field-value fit-important">{{ budget.workshop.pdf_phone|phone_br|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-value">Fone: {{ budget.workshop.pdf_phone|phone_br|default:"-" }}</span></p>
                 </div>
             </div>
             <div class="text-right w-[180px] flex-shrink-0">
-                <h4 class="font-bold">ORDEM DE SERVIÇO</h4>
+                <h4 class="font-bold">{{ document_title }}</h4>
                 <p class="text-2xl font-bold leading-none m-0">#{{ budget.number }}</p>
-                {% if workorder.delivered_at %}
-                    <p class="text-[11px]">Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }}</p>
+                {% if workorder %}
+                    {% if pdf_delivered_at %}
+                    <p class="text-[11px] mt-1">Entrega do veículo feita no dia</p>
+                    <p class="text-[11px]">{{ pdf_delivered_at|date:"d/m/Y" }} às {{ pdf_delivered_at|date:"H:i" }}</p>
                     {% if service_warranty_status_label %}
                     <p class="text-[11px] mt-1">
-                        Garantia: {{ service_warranty_plan_label }}
-                        {% if service_warranty_expires_at %} — válida até {{ service_warranty_expires_at|date:"d/m/Y" }}{% endif %}
-                        — <strong>{{ service_warranty_status_label }}</strong>
+                        Garantia: {{ service_warranty_plan_label }}{% if service_warranty_expires_at %} — válida até{% endif %}
+                    </p>
+                    <p class="text-[11px]">
+                        {% if service_warranty_expires_at %}{{ service_warranty_expires_at|date:"d/m/Y" }} — {% endif %}<strong>{{ service_warranty_status_label }}</strong>
                     </p>
                     {% endif %}
-                {% elif budget.customer_agreed_departure_at %}
-                    <p class="text-[11px] mt-1">Data prevista de entrega: {{ budget.customer_agreed_departure_at|date:"d/m/Y" }}</p>
+                    {% endif %}
+                {% elif expected_delivery_at %}
+                    <p class="text-[11px] mt-1">Data prevista de entrega: {{ expected_delivery_at|date:"d/m/Y" }}</p>
                     <small class="block text-[10px] text-gray-500 leading-tight mt-1">Essa data pode ser alterada caso haja algum imprevisto. O cliente será informado caso ocorra qualquer mudança.</small>
                 {% endif %}
 
@@ -300,6 +305,10 @@
                     <p class="field-row"><span class="field-label">Motor:</span> <span class="field-value">{{ budget.vehicle.engine|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Combustível:</span> <span class="field-value">{{ budget.vehicle.fuel|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
+                    <p class="field-row"><span class="field-label">KM de Entrada:</span> <span class="field-value">{{ budget.current_km|default:"-" }}</span></p>
+                    {% if workorder and workorder.km_final is not None %}
+                    <p class="field-row"><span class="field-label">KM de Saída:</span> <span class="field-value">{{ workorder.km_final }}</span></p>
+                    {% endif %}
                 </div>
             </div>
             <div class="signature-block" >
@@ -490,9 +499,9 @@
         </div>
 
         <div class="footer-section pt-3 border-t border-gray-200 text-[11px] text-gray-500">
-            <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
-            {% if workorder and workorder.delivered_at %}
-            <p>Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }} hrs</p>
+            <p>Aberto por: {{ opened_by_name }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
+            {% if workorder and pdf_delivered_at %}
+            <p>Entrega do veículo feita no dia {{ pdf_delivered_at|date:"d/m/Y" }} às {{ pdf_delivered_at|date:"H:i" }} hrs</p>
             {% if service_warranty_status_label %}
             <p>
                 Garantia: {{ service_warranty_plan_label }}

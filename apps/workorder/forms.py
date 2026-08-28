@@ -16,10 +16,10 @@ from django.forms import CheckboxInput, RadioSelect
 
 from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
+from apps.collaborators.services import work_assignable_collaborators
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
-from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderCourtesyReasonType, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderWarrantyPlan
 from apps.workshops.models.review_plans import ReviewPlan
@@ -59,7 +59,8 @@ class WorkOrderCollaboratorForm(CoreModelForm):
         workshop = getattr(self.workorder, "workshop", None)
         queryset = WorkshopCollaborator.objects.none()
         if workshop is not None:
-            queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name")
+            include_ids = list(self.workorder.collaborators.values_list("id", flat=True)) if getattr(self.workorder, "pk", None) else []
+            queryset = work_assignable_collaborators(workshop=workshop, include_ids=include_ids)
         self.fields["collaborators"].queryset = queryset
         self.fields["collaborators"].help_text = "Selecione os colaboradores responsaveis por esta O.S. A comissao prevista sera calculada a partir desta vinculacao."
 
@@ -198,7 +199,6 @@ class WorkOrderPaymentForm(CoreModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            alert_confirm_layout(title="Deseja remover este registro?"),
             HTML(f"""
                 <div id="payment-success-workorder-js" class="{payment_success_container_class}">
                     <div class="alert alert-success shadow-lg border-2 border-success">
@@ -818,11 +818,25 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             },
         ),
     )
+    DRAFT_FIELD_NAMES = frozenset(
+        {
+            "km_final",
+            "warranty_plan",
+            "last_oil_change_date",
+            "last_oil_change_km",
+            "review_plan",
+            "unsigned_delivery_reason",
+            "previous_mechanic",
+            "courtesy_reason_type",
+            "courtesy_reason_description",
+        }
+    )
 
     def __init__(self, *args, **kwargs):
         self.workorder = kwargs.pop("workorder", None)
         self.require_unsigned_delivery_reason = kwargs.pop("require_unsigned_delivery_reason", True)
         self.require_warranty_plan = kwargs.pop("require_warranty_plan", True)
+        self.require_km_final = kwargs.pop("require_km_final", True)
         super().__init__(*args, **kwargs)
 
         km_initial_value = 0
@@ -836,6 +850,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         self.fields["km_final"].error_messages["required"] = "Preencha o KM final para concluir a entrega do veículo."
         self.fields["warranty_plan"].error_messages["required"] = "Selecione o plano de garantia para concluir a entrega do veículo."
         self.fields["unsigned_delivery_reason"].error_messages["required"] = "Informe a justificativa para entregar o veículo sem a assinatura da O.S."
+        self.fields["km_final"].required = self.require_km_final
         self.fields["warranty_plan"].required = self.require_warranty_plan
 
         vehicle = getattr(getattr(self.workorder, "budget", None), "vehicle", None)
@@ -910,7 +925,6 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            alert_confirm_layout(),
             Div(
                 Div(
                     Field("km_initial", wrapper_class="mb-0"),
@@ -986,16 +1000,17 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             ),
         )
 
-    def clean_km_final(self) -> int:
+    def clean_km_final(self) -> int | None:
         km_final = self.cleaned_data.get("km_final")
         if km_final is None:
-            return 0
+            return None
 
+        km_final_value = int(km_final)
         km_initial = int(getattr(self.workorder.budget, "current_km", 0) or 0) if self.workorder else 0
-        if km_final < km_initial:
+        if km_final_value < km_initial:
             raise ValidationError(f"O KM final não pode ser menor que o KM inicial ({km_initial:,}).".replace(",", "."))
 
-        return km_final
+        return km_final_value
 
     def clean_unsigned_delivery_reason(self) -> str:
         reason = str(self.cleaned_data.get("unsigned_delivery_reason") or "").strip()

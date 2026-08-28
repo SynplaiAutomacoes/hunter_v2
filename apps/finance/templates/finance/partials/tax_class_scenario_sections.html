@@ -1,5 +1,5 @@
 {% for section in nfe_formset_sections %}
-    <section class="rounded-xl bg-base-100 p-4 shadow-sm">
+    <section class="rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm">
         <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
                 <h3 class="font-semibold">{{ section.title }}</h3>
@@ -12,42 +12,141 @@
                 data-container="{{ section.key }}-rows"
                 data-template-id="{{ section.key }}-empty-row"
             >
-                Adicionar Cenário
+                Adicionar cenário
             </button>
         </div>
 
         {{ section.formset.management_form }}
 
-        <div class="space-y-2">
-            <p class="text-xs text-base-content/60 md:hidden">Arraste a tabela na horizontal para visualizar todas as colunas.</p>
-            <div class="overflow-x-auto rounded-lg bg-base-100">
-                <table class="table table-zebra w-full min-w-[48rem]">
-                    <thead class="bg-base-200/60">
-                    <tr>
-                        {% for field in section.formset.empty_form.visible_fields %}
-                            {% if field.name != 'DELETE' %}
-                                <th class="whitespace-nowrap align-top">
-                                    {{ field.label }}
-                                    {% if field.name in section.required_fields %}
-                                        <span class="text-error">*</span>
-                                    {% endif %}
-                                </th>
-                            {% endif %}
-                        {% endfor %}
-                        <th class="w-20 whitespace-nowrap text-center align-top">Remover</th>
-                    </tr>
-                    </thead>
-                    <tbody id="{{ section.key }}-rows">
-                        {% for row_form in section.formset.forms %}
-                            {% include 'finance/partials/tax_class_scenario_row.html' with row_form=row_form show_field_errors=show_field_errors %}
-                        {% endfor %}
-                    </tbody>
-                </table>
+        {% if section.formset.non_form_errors %}
+            <div class="alert alert-error mb-3 text-sm">
+                {% for error in section.formset.non_form_errors %}
+                    <span>{{ error }}</span>
+                {% endfor %}
             </div>
+        {% endif %}
+
+        <p class="tax-class-scenario-empty mb-3 text-sm text-base-content/60 {% if section.formset.forms %}hidden{% endif %}">
+            Nenhum cenário. Clique em "Adicionar cenário".
+        </p>
+
+        <div id="{{ section.key }}-rows" class="space-y-3">
+            {% for row_form in section.formset.forms %}
+                {% include 'finance/partials/tax_class_scenario_row.html' with row_form=row_form show_field_errors=show_field_errors required_fields=section.required_fields scenario_index=forloop.counter %}
+            {% endfor %}
         </div>
 
-        <template id="{{ section.key }}-empty-row">
-            {% include 'finance/partials/tax_class_scenario_row.html' with row_form=section.formset.empty_form show_field_errors=show_field_errors %}
-        </template>
+        {# text/template keeps nested Alpine <template> tags inert so they are not submitted with the form. #}
+        <script type="text/template" id="{{ section.key }}-empty-row">
+            {% include 'finance/partials/tax_class_scenario_row.html' with row_form=section.formset.empty_form show_field_errors=show_field_errors required_fields=section.required_fields scenario_index='' %}
+        </script>
     </section>
 {% endfor %}
+
+<script>
+(function bindTaxClassScenarioRows() {
+    if (window.__hunterTaxClassScenarioRowsBound) {
+        return;
+    }
+    window.__hunterTaxClassScenarioRowsBound = true;
+
+    function visibleScenarioCards(container) {
+        return Array.from(container.querySelectorAll(".tax-class-scenario-card")).filter((card) => !card.classList.contains("hidden"));
+    }
+
+    function renumberScenarioCards(container) {
+        visibleScenarioCards(container).forEach((card, index) => {
+            const indexEl = card.querySelector("[data-scenario-index]");
+            if (indexEl) {
+                indexEl.textContent = String(index + 1);
+            }
+        });
+    }
+
+    function syncEmptyState(container) {
+        const section = container.closest("section");
+        const emptyState = section ? section.querySelector(".tax-class-scenario-empty") : null;
+        if (!emptyState) {
+            return;
+        }
+        emptyState.classList.toggle("hidden", visibleScenarioCards(container).length > 0);
+    }
+
+    function forEachScenarioContainer(callback) {
+        document.querySelectorAll(".add-scenario-row[data-container]").forEach((button) => {
+            const container = document.getElementById(button.dataset.container);
+            if (container) {
+                callback(container);
+            }
+        });
+    }
+
+    forEachScenarioContainer(renumberScenarioCards);
+
+    document.addEventListener("click", function (event) {
+        const removeButton = event.target.closest(".remove-scenario-row");
+        if (removeButton) {
+            const card = removeButton.closest(".tax-class-scenario-card");
+            if (!card) {
+                return;
+            }
+
+            const checkbox = card.querySelector('input[name$="-DELETE"]');
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+            card.classList.add("hidden");
+
+            const container = card.parentElement;
+            if (container) {
+                renumberScenarioCards(container);
+                syncEmptyState(container);
+            }
+            return;
+        }
+
+        const button = event.target.closest(".add-scenario-row");
+        if (!button) {
+            return;
+        }
+
+        event.preventDefault();
+
+        const prefix = button.dataset.prefix;
+        const containerId = button.dataset.container;
+        const templateId = button.dataset.templateId;
+
+        const totalFormsInput = document.getElementById(`id_${prefix}-TOTAL_FORMS`);
+        const container = document.getElementById(containerId);
+        const template = document.getElementById(templateId);
+
+        if (!totalFormsInput || !container || !template) {
+            return;
+        }
+
+        const nextIndex = Number.parseInt(totalFormsInput.value, 10);
+        if (!Number.isFinite(nextIndex) || nextIndex < 0) {
+            return;
+        }
+
+        const rowHtml = (template.innerHTML || template.textContent || "").replaceAll("__prefix__", String(nextIndex));
+        const insertRow = function () {
+            container.insertAdjacentHTML("beforeend", rowHtml);
+        };
+        if (window.Alpine && typeof window.Alpine.mutateDom === "function") {
+            window.Alpine.mutateDom(insertRow);
+        } else {
+            insertRow();
+        }
+        totalFormsInput.value = String(nextIndex + 1);
+
+        const inserted = container.lastElementChild;
+        if (inserted && window.Alpine && typeof window.Alpine.initTree === "function") {
+            window.Alpine.initTree(inserted);
+        }
+
+        renumberScenarioCards(container);
+        syncEmptyState(container);
+    });
+})();
+</script>

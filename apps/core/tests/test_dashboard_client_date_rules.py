@@ -59,7 +59,7 @@ class DashboardClientDateRulesTests(TestCase):
             color="Azul",
         )
 
-        # Approved in July (first_approved_at), edited conceptually in August — stays July for taxa.
+        # Entry in July; first_approved_at in July. Delivered in August → rentability in August.
         cls.july_approved = Budget.objects.create(
             workshop=cls.workshop,
             customer=customer,
@@ -70,7 +70,6 @@ class DashboardClientDateRulesTests(TestCase):
             budget_type=BudgetType.SALE,
             first_approved_at=timezone.make_aware(datetime(2026, 7, 6, 10, 0, 0)),
         )
-        # Delivered in August → rentability counts in August, not July.
         WorkOrder.objects.create(
             workshop=cls.workshop,
             budget=cls.july_approved,
@@ -79,7 +78,7 @@ class DashboardClientDateRulesTests(TestCase):
             delivered_at=timezone.make_aware(datetime(2026, 8, 2, 15, 0, 0)),
         )
 
-        # Approved in August by first_approved_at, entry in July.
+        # Entry in July; first_approved_at in August — taxa still counts July (entry_date, as of 31/07).
         cls.august_approved = Budget.objects.create(
             workshop=cls.workshop,
             customer=customer,
@@ -98,7 +97,7 @@ class DashboardClientDateRulesTests(TestCase):
             delivered_at=timezone.make_aware(datetime(2026, 7, 25, 12, 0, 0)),
         )
 
-    def test_approval_rate_uses_first_approved_at(self) -> None:
+    def test_approval_rate_uses_entry_date(self) -> None:
         july = DashboardQueryService._get_approval_rate_metrics(
             workshop_id=self.workshop.pk,
             selected_month=7,
@@ -109,11 +108,11 @@ class DashboardClientDateRulesTests(TestCase):
             selected_month=8,
             selected_year=2026,
         )
-        # Both budgets have entry_date in July (sale, non-cancelled).
+        # Both budgets have entry_date in July (sale, non-cancelled); approved count follows entry_date.
         self.assertEqual(july.created_count, 2)
-        self.assertEqual(july.approved_count, 1)
+        self.assertEqual(july.approved_count, 2)
         self.assertEqual(august.created_count, 0)
-        self.assertEqual(august.approved_count, 1)
+        self.assertEqual(august.approved_count, 0)
 
     @patch("apps.core.infrastructure.services.dashboard_query_service.calculate_aggregate_markup", return_value=Decimal("1.50"))
     def test_rentability_uses_delivered_workorders(self, _markup_mock) -> None:
@@ -129,4 +128,34 @@ class DashboardClientDateRulesTests(TestCase):
         )
         # august_approved delivered in July; july_approved delivered in August.
         self.assertEqual(july.approved_count, 1)
+        self.assertEqual(august.approved_count, 1)
+
+    @patch("apps.core.infrastructure.services.dashboard_query_service.calculate_aggregate_markup", return_value=Decimal("1.50"))
+    def test_rentability_excludes_warranty_and_courtesy(self, _markup_mock) -> None:
+        customer = self.july_approved.customer
+        vehicle = self.july_approved.vehicle
+        for budget_type in (BudgetType.WARRANTY, BudgetType.COURTESY):
+            budget = Budget.objects.create(
+                workshop=self.workshop,
+                customer=customer,
+                vehicle=vehicle,
+                entry_date=date(2026, 8, 3),
+                expiration_date=date(2026, 8, 10),
+                status=BudgetStatus.APPROVED,
+                budget_type=budget_type,
+            )
+            WorkOrder.objects.create(
+                workshop=self.workshop,
+                budget=budget,
+                status=WorkOrderStatus.APPROVED,
+                budget_type=budget_type,
+                delivered_at=timezone.make_aware(datetime(2026, 8, 4, 11, 0, 0)),
+            )
+
+        august = DashboardQueryService._get_approved_budget_metrics(
+            workshop_id=self.workshop.pk,
+            selected_month=8,
+            selected_year=2026,
+        )
+        # Only the sale OS delivered in August counts; warranty/courtesy are ignored.
         self.assertEqual(august.approved_count, 1)

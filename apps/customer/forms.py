@@ -1,6 +1,8 @@
 from collections.abc import Callable
 
 from django import forms
+from django.db.models import F, Value
+from django.db.models.functions import Replace
 from django.forms import inlineformset_factory
 from django.forms.models import BaseInlineFormSet
 from crispy_forms.helper import FormHelper
@@ -11,7 +13,7 @@ from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicl
 from .models import Customer, Vehicle
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.core.presentation.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
-from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
+from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj, normalize_cpf_or_cnpj
 from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from .vehicle_fuel import normalize_vehicle_fuel_choice
 from ..workshops.models.workshops import Workshop
@@ -34,6 +36,20 @@ def _with_selected_choice(choices: list[tuple[str, str]], selected_value: object
         return choices
 
     return [*choices, (normalized_selected_value, normalized_selected_value)]
+
+
+def _customers_with_normalized_document(*, workshop: Workshop, document: str):
+    """Finds both legacy masked documents and canonical digits-only documents."""
+    normalized_document = Replace(
+        Replace(
+            Replace(Replace(F("cpf_or_cnpj"), Value("."), Value("")), Value("/"), Value("")),
+            Value("-"),
+            Value(""),
+        ),
+        Value(" "),
+        Value(""),
+    )
+    return Customer.objects.filter(workshop=workshop).annotate(_normalized_document=normalized_document).filter(_normalized_document=document)
 
 
 def _vehicle_brand_form_choices() -> list[tuple[str, str]]:
@@ -262,6 +278,12 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
         self.fields["customer_type"].initial = initial_customer_type
         self.initial["customer_type"] = initial_customer_type
         self.fields["cpf_or_cnpj"].widget.mode = "cnpj" if initial_customer_type == "PJ" else "cpf"
+        self.fields["cpf_or_cnpj"].widget.attrs.update(
+            {
+                "data-document-duplicate-url": reverse("customer:check-document"),
+                "data-customer-id": str(self.instance.pk or ""),
+            }
+        )
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
@@ -495,7 +517,7 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
 
         # Unicidade do documento por oficina
         if documento:
-            queryset = Customer.objects.filter(workshop=self.workshop, cpf_or_cnpj=documento)
+            queryset = _customers_with_normalized_document(workshop=self.workshop, document=documento)
 
             if self.instance.pk:
                 queryset = queryset.exclude(pk=self.instance.pk)
@@ -504,6 +526,9 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
                 self.add_error("cpf_or_cnpj", "Já existe um cliente cadastrado com este documento nesta oficina.")
 
         return cleaned_data
+
+    def clean_cpf_or_cnpj(self):
+        return normalize_cpf_or_cnpj(self.cleaned_data.get("cpf_or_cnpj"))
 
     def clean_name(self):
         value = self.cleaned_data.get("name")
@@ -539,6 +564,8 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
             "name",
             "phone",
             "email",
+            "birth_date",
+            "sex",
             "cep",
             "logradouro",
             "numero",
@@ -551,6 +578,8 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
             "name": TextInput(),
             "phone": PhoneInput(),
             "email": EmailInput(),
+            "birth_date": CalendarDateInput(),
+            "sex": SearchableSelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -566,6 +595,12 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
         self.fields["customer_type"].initial = initial_customer_type
         self.initial["customer_type"] = initial_customer_type
         self.fields["cpf_or_cnpj"].widget.mode = "cnpj" if initial_customer_type == "PJ" else "cpf"
+        self.fields["cpf_or_cnpj"].widget.attrs.update(
+            {
+                "data-document-duplicate-url": reverse("customer:check-document"),
+                "data-customer-id": str(self.instance.pk or ""),
+            }
+        )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -660,6 +695,12 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
                 ),
                 Field("phone", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("email", wrapper_class="col-span-12 lg:col-span-6"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-6">'),
+                Field("birth_date", wrapper_class="col-span-12"),
+                HTML("</div>"),
+                HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-6">'),
+                Field("sex", wrapper_class="col-span-12"),
+                HTML("</div>"),
                 HTML('<div class="col-span-12 divider my-1"></div>'),
                 address_layout(include_complemento=False),
                 HTML("</div>"),
@@ -697,7 +738,7 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
             self.add_error("customer_type", "Selecione o tipo de cliente (PF ou PJ).")
 
         if document and self.workshop:
-            queryset = Customer.objects.filter(workshop=self.workshop, cpf_or_cnpj=document)
+            queryset = _customers_with_normalized_document(workshop=self.workshop, document=document)
             if self.instance.pk:
                 queryset = queryset.exclude(pk=self.instance.pk)
 
@@ -705,6 +746,9 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
                 self.add_error("cpf_or_cnpj", "Já existe um cliente cadastrado com este documento nesta oficina.")
 
         return cleaned_data
+
+    def clean_cpf_or_cnpj(self):
+        return normalize_cpf_or_cnpj(self.cleaned_data.get("cpf_or_cnpj"))
 
     def clean_name(self):
         value = self.cleaned_data.get("name")
@@ -731,7 +775,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
 
     class Meta:
         model = Vehicle
-        fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color"]
+        fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color", "km"]
         widgets = {
             "plate": PlateInput(),
             "brand": SearchableSelectInput(choices=[]),
@@ -741,6 +785,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
             "year_fabrication": TextInput(),
             "year_model": TextInput(),
             "color": TextInput(),
+            "km": NumberInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -1221,6 +1266,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                 Field("year_fabrication", wrapper_class="col-span-12 sm:col-span-6 xl:col-span-2"),
                 Field("year_model", wrapper_class="col-span-12 sm:col-span-6 xl:col-span-2"),
                 Field("color", wrapper_class="col-span-12 md:col-span-6 xl:col-span-2"),
+                Field("km", wrapper_class="col-span-12 md:col-span-6 xl:col-span-2"),
                 css_class="customer-vehicle-catalog-form grid grid-cols-12 gap-x-4 gap-y-3 items-start",
             ),
         )

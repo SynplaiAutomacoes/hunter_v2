@@ -9,10 +9,6 @@
                 <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
             </div>
             <div class="flex items-center gap-2">
-                <button type="button" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% else %}hx-post="{% url 'finance:payroll_refresh' %}" hx-include="#payroll-filter-form [name]" hx-vals='{"mes": "{{ selected_month|unlocalize }}", "ano": "{{ selected_year|unlocalize }}", "search": "{{ request.GET.search|default:""|escapejs }}", "data_inicial": "{{ request.GET.data_inicial|default:""|escapejs }}", "data_final": "{{ request.GET.data_final|default:""|escapejs }}", "collaborator": "{{ selected_collaborator_id|default:""|unlocalize }}", "status": "{{ selected_status|default:""|escapejs }}"}' hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"{% endif %}>
-                    <span class="material-icons">sync</span>
-                    Atualizar folha
-                </button>
                 <button type="button" class="btn btn-info" id="btn-conciliar-selecionados" disabled @click="$refs.payrollBulkConciliateModal.showModal()">
                     <span class="material-icons">account_balance</span>
                     Conciliar selecionados
@@ -226,19 +222,9 @@
             </div>
         </form>
 
-        <div class="grid gap-4 md:grid-cols-2">
-            <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
-                <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">Total Pendente</p>
-                <p class="mt-2 text-3xl font-black">R$ {{ pending_amount|floatformat:2 }}</p>
-            </div>
-            <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
-                <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">Total pago</p>
-                <p class="mt-2 text-3xl font-black">R$ {{ paid_amount|floatformat:2 }}</p>
-            </div>
-        </div>
-
         <div
             id="payroll-section"
+            class="space-y-6"
             hx-get="{% url 'finance:payroll_list' %}"
             hx-trigger="payrollListRefresh from:body"
             hx-include="#payroll-filter-form"
@@ -247,6 +233,17 @@
             hx-swap="outerHTML"
             hx-disinherit="*"
         >
+            <div class="grid gap-4 md:grid-cols-2">
+                <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
+                    <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">Total Pendente</p>
+                    <p class="mt-2 text-3xl font-black">R$ {{ pending_amount|floatformat:2 }}</p>
+                </div>
+                <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
+                    <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">Total pago</p>
+                    <p class="mt-2 text-3xl font-black">R$ {{ paid_amount|floatformat:2 }}</p>
+                </div>
+            </div>
+
             <div class="card border border-base-300 bg-base-100 shadow-xl">
                 <div class="card-body gap-4 p-5 md:p-6">
                     {% if payroll_rows %}

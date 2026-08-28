@@ -23,6 +23,7 @@ from apps.catalog.models.kits import KitProduct
 from apps.catalog.models.products import Product
 from apps.stock.models import StockProduct
 from apps.catalog.util import build_product_kits_assignment_context
+from apps.suppliers.models import Supplier
 from apps.core.utils import clean_id
 from apps.core.presentation.navigation import PRODUCT_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
@@ -34,7 +35,7 @@ from apps.stock.models import StockMovement
 from apps.stock.services.adjust_stock import adjust_stock_quantity
 from apps.workshops.mixin import WorkshopScopedMixin
 
-_PRODUCT_ACTIVE_TABS = frozenset({"cadastro", "atribuicao_kit", "estoque", "historico", "movimentacao"})
+_PRODUCT_ACTIVE_TABS = frozenset({"cadastro", "atribuicao_kit", "estoque", "historico", "movimentacao", "fornecedor"})
 
 
 PRODUCT_LIST_BASE_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -187,9 +188,19 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=product)
 
         context["stock_obj"] = stock_obj
-        context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).select_related(
-            "workorder__budget"
-        ).order_by("-criado_em")
+        movements = list(
+            StockMovement.objects.filter(stock_product=stock_obj)
+            .select_related(
+                "supplier",
+                "workorder__budget",
+                "workorder__budget__customer",
+                "workorder__budget__vehicle",
+                "transcation_by",
+            )
+            .order_by("-criado_em")
+        )
+        self._annotate_movements_with_historical_supplier(movements, stock_obj)
+        context["movements"] = movements
 
         budget_items = BudgetItem.objects.filter(product=product, workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle")
         budget_kit_items = BudgetKitItemOverride.objects.filter(product=product, workshop=self.workshop).select_related("budget_item", "budget_item__budget", "budget_item__budget__customer", "budget_item__budget__vehicle")
@@ -255,6 +266,8 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
         context["history_list"] = history_list
+
+        context["product_suppliers"] = self._build_product_suppliers_context(stock_obj)
         context["back_url"] = self._get_next_url() or reverse_lazy("catalog:product_list")
         requested_tab = str(self.request.GET.get("active_tab") or "").strip()
         if requested_tab in _PRODUCT_ACTIVE_TABS:
@@ -267,6 +280,81 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         )
 
         return context
+
+    def _build_product_suppliers_context(self, stock_obj: StockProduct) -> list[dict]:
+        current_supplier = stock_obj.supplier
+        entry_movements = StockMovement.objects.filter(
+            stock_product=stock_obj,
+            type=StockMovement.MovementType.ENTRY,
+            supplier__isnull=False,
+        ).select_related("supplier").order_by("-criado_em")
+
+        supplier_ids: set[int] = set()
+        last_entry_by_supplier: dict[int, StockMovement] = {}
+        for movement in entry_movements:
+            supplier_id = movement.supplier_id
+            if supplier_id not in last_entry_by_supplier:
+                last_entry_by_supplier[supplier_id] = movement
+            supplier_ids.add(supplier_id)
+
+        if current_supplier is not None:
+            supplier_ids.add(current_supplier.id)
+
+        suppliers_by_id = {supplier.id: supplier for supplier in Supplier.objects.filter(id__in=supplier_ids, workshop=self.workshop)}
+
+        product_suppliers: list[dict] = []
+        for supplier in sorted(suppliers_by_id.values(), key=lambda item: item.name):
+            last_entry = last_entry_by_supplier.get(supplier.id)
+            unit_cost = stock_obj.unit_cost
+            if last_entry is not None and last_entry.quantity:
+                unit_cost = last_entry.total_value / last_entry.quantity
+
+            product_suppliers.append(
+                {
+                    "supplier": supplier,
+                    "is_current": current_supplier is not None and current_supplier.id == supplier.id,
+                    "last_unit_cost": unit_cost,
+                    "last_total_value": last_entry.total_value if last_entry is not None else None,
+                    "last_purchase_date": last_entry.display_date if last_entry is not None else None,
+                    "last_purchase_quantity": last_entry.quantity if last_entry is not None else None,
+                    "last_purchase_nf": stock_obj.last_nf,
+                }
+            )
+
+        return product_suppliers
+
+    def _annotate_movements_with_historical_supplier(self, movements: list[StockMovement], stock_obj: StockProduct) -> None:
+        entry_movements = list(
+            StockMovement.objects.filter(
+                stock_product=stock_obj,
+                type=StockMovement.MovementType.ENTRY,
+                supplier__isnull=False,
+            )
+            .select_related("supplier")
+            .order_by("criado_em")
+        )
+        if not entry_movements and stock_obj.supplier:
+            for movement in movements:
+                if movement.type == StockMovement.MovementType.ENTRY:
+                    movement.historical_supplier = movement.supplier
+                else:
+                    movement.historical_supplier = stock_obj.supplier
+            return
+
+        for movement in movements:
+            if movement.type == StockMovement.MovementType.ENTRY:
+                movement.historical_supplier = movement.supplier
+                continue
+            target_date = movement.display_date
+            historical_supplier = None
+            for entry in reversed(entry_movements):
+                entry_date = entry.criado_em
+                if entry_date is not None and target_date is not None and entry_date <= target_date:
+                    historical_supplier = entry.supplier
+                    break
+            if historical_supplier is None and entry_movements:
+                historical_supplier = entry_movements[0].supplier
+            movement.historical_supplier = historical_supplier
 
 
 class ProductDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):

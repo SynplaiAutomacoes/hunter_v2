@@ -23,6 +23,8 @@ urlpatterns = [
     path("selection/<int:budget_id>/<str:item_type>/", views.ItemSelectionModalView.as_view(), name="item_selection"),
     path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.AddItemToBudgetView.as_view(), name="add_item_to_budget"),
     path("<int:budget_id>/add-items-batch/<str:item_type>/", views.AddItemsBatchToBudgetView.as_view(), name="add_items_batch"),
+    path("<int:budget_id>/resolve-duplicate-service/", views.ResolveDuplicateServiceStepView.as_view(), name="resolve_duplicate_service"),
+    path("<int:budget_id>/cancel-duplicate-service-queue/", views.CancelDuplicateServiceQueueView.as_view(), name="cancel_duplicate_service_queue"),
     path("<int:budget_id>/remove-item/<int:item_id>/<str:item_type>/", views.RemoveItemFromBudgetView.as_view(), name="remove_item_from_budget"),
     path("<int:budget_id>/remove-budget-item/<int:item_id>/", views.RemoveBudgetItemView.as_view(), name="remove_budget_item"),
     path("<int:budget_id>/remove-products-batch/", views.RemoveProductItemsBatchFromBudgetView.as_view(), name="remove_products_batch"),
@@ -73,6 +75,7 @@ urlpatterns = [
     path("<int:pk>/unlink-modal/", views.BudgetUnlinkModalView.as_view(), name="budget_unlink_modal"),
     path("<int:pk>/unlink/", views.BudgetUnlinkProcessView.as_view(), name="budget_unlink_process"),
     path("<int:pk>/import-items-search-modal/", views.BudgetImportItemsSearchModalView.as_view(), name="import_items_search_modal"),
+    path("<int:pk>/import-items/budget-search/", views.BudgetImportBudgetSearchView.as_view(), name="import_items_budget_search"),
     path("<int:pk>/import-items-select-modal/", views.BudgetImportItemsSelectModalView.as_view(), name="import_items_select_modal"),
     path("<int:pk>/import-items-process/", views.BudgetImportItemsProcessView.as_view(), name="import_items_process"),
 ]

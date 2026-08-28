@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from apps.finance.models import FinancialMovement, MovementGroup
 from apps.finance.forms.movement_group import GroupMovementStep3Form
+from apps.finance.services.movement_grouping import build_group_installments
 from apps.suppliers.models import Supplier
 from apps.collaborators.models import WorkshopCollaborator
 from apps.customer.models import Customer
@@ -17,6 +18,7 @@ from apps.workorder.models import WorkOrderPaymentMethod
 class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = MovementGroup
     workshop_permission_codename = "add_financialmovement"
+    workshop_permission_model = "financialmovement"
 
     def get(self, request, *args, **kwargs):
         return HttpResponse("Método não permitido", status=405)
@@ -25,10 +27,29 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
         step = request.POST.get("step")
 
         if step == "3":
-            form = GroupMovementStep3Form(request.POST)
             movement_ids = request.POST.getlist("movements")
             entity_type = request.POST.get("entity_type")
             entity_id = request.POST.get("entity_id")
+
+            fm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("fm_")]
+            pm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("pm_")]
+            fms = FinancialMovement.objects.filter(id__in=fm_ids, workshop=self.workshop)
+            pms = WorkOrderPaymentMethod.objects.filter(id__in=pm_ids, workorder__workshop=self.workshop)
+
+            direction = FinancialMovement.MovementDirection.DEBIT
+            first_movement = fms.first()
+            if first_movement is not None:
+                direction = first_movement.direction
+            elif pms.exists():
+                direction = FinancialMovement.MovementDirection.CREDIT
+
+            total_amount = sum((Decimal(str(movement.amount.amount)) for movement in fms), Decimal("0.00")) + sum((Decimal(str(payment.total_paid.amount)) for payment in pms), Decimal("0.00"))
+            form = GroupMovementStep3Form(
+                request.POST,
+                workshop=self.workshop,
+                direction=direction,
+                total_amount=total_amount,
+            )
 
             # We need to fetch the entity name to display it on form validation error
             entity_name = ""
@@ -53,46 +74,49 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                     group.save()
 
-                    fm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("fm_")]
-                    pm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("pm_")]
-
-                    total_amount = Decimal("0.00")
                     first_direction = FinancialMovement.MovementDirection.DEBIT
                     
                     if fm_ids:
-                        fms = FinancialMovement.objects.filter(id__in=fm_ids, workshop=self.workshop)
                         first_mv = fms.first()
                         if first_mv:
                             first_direction = first_mv.direction
                         for mv in fms:
                             mv.movement_group = group
-                            total_amount += Decimal(str(mv.amount.amount))
                             mv.save()
                     
                     if pm_ids:
-                        pms = WorkOrderPaymentMethod.objects.filter(id__in=pm_ids, workorder__workshop=self.workshop)
                         if pms:
                             first_direction = FinancialMovement.MovementDirection.CREDIT
                         for pm in pms:
                             pm.movement_group = group
-                            total_amount += Decimal(str(pm.total_paid.amount))
                             pm.save()
 
-                    # Create Parent Movement
-                    FinancialMovement.objects.create(
-                        workshop=self.workshop,
-                        user=request.user,
-                        movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
-                        movement_group=group,
-                        description=f"Agrupamento - {group.name}",
-                        financial_observation=group.description,
-                        due_date=group.due_date,
-                        amount=total_amount,
-                        direction=first_direction,
-                        supplier_id=group.supplier_id,
-                        collaborator_id=group.collaborator_id,
-                        is_paid=False,
+                    payment_method = form.cleaned_data["payment_method"]
+                    installments = build_group_installments(
+                        total_amount=Decimal(str(group.net_amount.amount)),
+                        first_due_date=group.due_date,
+                        installments_count=payment_method.installments_count,
                     )
+                    for installment in installments:
+                        installment_label = ""
+                        if installment.total > 1:
+                            installment_label = f" - Parcela {installment.number}/{installment.total}"
+                        FinancialMovement.objects.create(
+                            workshop=self.workshop,
+                            user=request.user,
+                            movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
+                            movement_group=group,
+                            description=f"Agrupamento - {group.name}{installment_label}",
+                            financial_observation=group.description,
+                            due_date=installment.due_date,
+                            amount=installment.amount,
+                            gross_amount=installment.amount,
+                            direction=first_direction,
+                            payment_method=payment_method,
+                            supplier_id=group.supplier_id,
+                            collaborator_id=group.collaborator_id,
+                            is_paid=False,
+                        )
 
                 response = HttpResponse()
                 response["HX-Refresh"] = "true"
@@ -103,7 +127,9 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "movement_ids": movement_ids,
                 "entity_type": entity_type,
                 "entity_id": entity_id,
-                "entity_name": entity_name
+                "entity_name": entity_name,
+                "total_amount": total_amount,
+                "payment_method_installments": form.payment_method_installments,
             })
 
         # No step - entry point from reports_home.html checkbox selection
@@ -207,7 +233,8 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         normalized_movement_ids = [f"fm_{fm.id}" for fm in fms] + [f"pm_{pm.id}" for pm in pms]
 
-        form = GroupMovementStep3Form()
+        direction = next(iter(directions), FinancialMovement.MovementDirection.DEBIT)
+        form = GroupMovementStep3Form(workshop=self.workshop, direction=direction, total_amount=total_amount)
         return render(request, "finance/reports/partials/group_step3.html", {
             "form": form,
             "movement_ids": normalized_movement_ids,
@@ -215,15 +242,26 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "entity_id": entity_id,
             "total_amount": total_amount,
             "entity_name": entity_name,
+            "payment_method_installments": form.payment_method_installments,
         })
 
 
 class GroupMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = MovementGroup
     workshop_permission_codename = "delete_financialmovement"
+    workshop_permission_model = "financialmovement"
 
     def post(self, request, pk, *args, **kwargs):
         group = get_object_or_404(MovementGroup, pk=pk, workshop=self.workshop)
+
+        if group.financial_movements.filter(
+            movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
+            is_paid=True,
+        ).exists():
+            response = HttpResponse()
+            response["HX-Reswap"] = "none"
+            response["HX-Trigger"] = '{"showToast":{"message":"Não é possível desagrupar: existe uma parcela já paga.","type":"warning"}}'
+            return response
 
         with transaction.atomic():
             # Detach original children so they are not deleted

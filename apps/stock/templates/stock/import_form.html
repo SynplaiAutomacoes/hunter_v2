@@ -36,6 +36,128 @@
                 childContainer.innerHTML = '';
             }
         };
+
+        if (!window.__stockSupplierSavedBound) {
+            window.__stockSupplierSavedBound = true;
+            document.body.addEventListener('supplierSaved', function () {
+                window.closeStockParentModal();
+                window.location.reload();
+            });
+        }
+
+        if (window.__manualImportLowerPriceGuardReady) {
+            return;
+        }
+        window.__manualImportLowerPriceGuardReady = true;
+
+        let pendingSubmitter = null;
+
+        const formatCurrency = (value) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+        const getImportForm = () => document.getElementById('import-form');
+        const getConfirmInput = () => document.getElementById('manual-confirm-lower-price-input');
+        const getModal = () => document.getElementById('manual-import-lower-price-modal');
+
+        const findLowerPriceRow = (form) => Array.from(form.querySelectorAll('.js-manual-price-row')).find((row) => {
+            const lastUsedPrice = Number.parseFloat(row.dataset.lastUsedPrice || '0') || 0;
+            const sellingPrice = Number.parseFloat(row.dataset.sellingPrice || '0') || 0;
+            return lastUsedPrice > 0 && sellingPrice > 0 && sellingPrice < lastUsedPrice;
+        }) || null;
+
+        const closeModal = () => {
+            const modal = getModal();
+            if (modal?.open) {
+                modal.close();
+            }
+        };
+
+        const submitForm = (form) => {
+            if (pendingSubmitter) {
+                form.requestSubmit(pendingSubmitter);
+                return;
+            }
+            form.requestSubmit();
+        };
+
+        const openModal = (row) => {
+            const modal = getModal();
+            const productLabel = document.getElementById('manual-import-lower-price-product');
+            const lastUsedLabel = document.getElementById('manual-import-lower-price-last-used');
+            const lastUsedPrice = Number.parseFloat(row.dataset.lastUsedPrice || '0') || 0;
+
+            if (!modal || typeof modal.showModal !== 'function') {
+                return window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este produto. Deseja continuar mesmo assim?');
+            }
+
+            if (productLabel) {
+                productLabel.textContent = row.dataset.productName || 'este produto';
+            }
+            if (lastUsedLabel) {
+                lastUsedLabel.textContent = `Último valor usado: ${formatCurrency(lastUsedPrice)}`;
+            }
+            if (!modal.open) {
+                modal.showModal();
+            }
+            return null;
+        };
+
+        document.addEventListener('submit', (event) => {
+            const form = event.target;
+            if (!(form instanceof HTMLFormElement) || form.id !== 'import-form') {
+                return;
+            }
+
+            const confirmInput = getConfirmInput();
+            if (!confirmInput) {
+                return;
+            }
+
+            if (event.submitter?.name === 'confirm_lower_price_btn' || confirmInput.value === '1') {
+                confirmInput.value = '1';
+                return;
+            }
+
+            const lowerPriceRow = findLowerPriceRow(form);
+            if (!lowerPriceRow) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            pendingSubmitter = event.submitter || null;
+
+            const fallbackConfirmed = openModal(lowerPriceRow);
+            if (fallbackConfirmed === true) {
+                confirmInput.value = '1';
+                submitForm(form);
+            }
+        }, true);
+
+        document.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) {
+                return;
+            }
+
+            const form = getImportForm();
+            const confirmInput = getConfirmInput();
+            if (!form || !confirmInput) {
+                return;
+            }
+
+            if (target.closest('#manual-import-lower-price-continue')) {
+                confirmInput.value = '1';
+                closeModal();
+                submitForm(form);
+                return;
+            }
+
+            if (target.closest('#manual-import-lower-price-cancel') || target.closest('#manual-import-lower-price-close')) {
+                confirmInput.value = '';
+                pendingSubmitter = null;
+                closeModal();
+            }
+        });
     })();
 </script>
 {% endblock %}

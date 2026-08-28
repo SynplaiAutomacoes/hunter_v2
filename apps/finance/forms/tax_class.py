@@ -9,6 +9,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 from django.forms import formset_factory
 
+from apps.core.infrastructure.services.webmania.emission import normalize_codigo_nbs
 from apps.core.presentation.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import TaxClassPreset
 from apps.core.presentation.forms import CoreForm, CoreModelForm
@@ -24,10 +25,10 @@ NFE_SCENARIO_CHOICES = (
     ("", "Selecione"),
     ("saida_dentro_estado", "Saída dentro do estado"),
     ("saida_fora_estado", "Saída fora do estado"),
-    ("saida_exterior", "Saída exterior"),
+    ("saida_exterior", "Saída para o exterior"),
     ("entrada_dentro_estado", "Entrada dentro do estado"),
     ("entrada_fora_estado", "Entrada fora do estado"),
-    ("entrada_exterior", "Entrada exterior"),
+    ("entrada_exterior", "Entrada do exterior"),
 )
 
 SCENARIO_PADRAO_CHOICES = (("", "Selecione"), ("padrao", "Padrão"), *NFE_SCENARIO_CHOICES[1:])
@@ -93,13 +94,25 @@ RETENCAO_PIS_COFINS_CHOICES = (
 )
 
 
+def _clean_suggestion_value(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _build_unique_suggestions(tax_classes: list[dict[str, object]], *, field_name: str) -> list[str]:
+    suggestions: list[str] = []
+    seen: set[str] = set()
+    for tax_class in tax_classes:
+        value = _clean_suggestion_value(tax_class.get(field_name))
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        suggestions.append(value)
+    return suggestions
+
+
 def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     quantizer = Decimal(1).scaleb(-places)
     return f"{value.quantize(quantizer):f}"
-
-
-def _service_code_digits(value: object) -> str:
-    return "".join(char for char in str(value or "") if char.isdigit())
 
 
 class TaxClassFormBase(CoreForm):
@@ -189,9 +202,9 @@ class NfseTaxClassForm(TaxClassFormBase):
         widget=TextInput(),
     )
     tipo_emissao = forms.ChoiceField(label="Tipo de emissão", required=False, choices=TIPO_EMISSAO_NFSE_CHOICES, widget=SearchableSelectInput(choices=TIPO_EMISSAO_NFSE_CHOICES))
-    codigo_tributacao_municipio = forms.CharField(label="Código tributação município", required=False, widget=TextInput())
+    codigo_tributacao_municipio = forms.CharField(label="Código de tributação do município", required=False, widget=TextInput())
     tributacao_iss = forms.ChoiceField(label="Tributação ISS", required=False, choices=TRIBUTACAO_ISS_CHOICES, widget=SearchableSelectInput(choices=TRIBUTACAO_ISS_CHOICES))
-    tipo_imunidade = forms.ChoiceField(label="Tipo imunidade", required=False, choices=TIPO_IMUNIDADE_CHOICES, widget=SearchableSelectInput(choices=TIPO_IMUNIDADE_CHOICES))
+    tipo_imunidade = forms.ChoiceField(label="Tipo de imunidade", required=False, choices=TIPO_IMUNIDADE_CHOICES, widget=SearchableSelectInput(choices=TIPO_IMUNIDADE_CHOICES))
     retencao_iss = forms.ChoiceField(label="Retenção ISS", required=False, choices=RETENCAO_ISS_NACIONAL_CHOICES, widget=SearchableSelectInput(choices=RETENCAO_ISS_NACIONAL_CHOICES))
     cst_pis_cofins = forms.ChoiceField(label="CST PIS/COFINS", required=False, choices=CST_PIS_COFINS_CHOICES, widget=SearchableSelectInput(choices=CST_PIS_COFINS_CHOICES))
     retencao_pis_cofins = forms.ChoiceField(label="Retenção PIS/COFINS", required=False, choices=RETENCAO_PIS_COFINS_CHOICES, widget=SearchableSelectInput(choices=RETENCAO_PIS_COFINS_CHOICES))
@@ -199,7 +212,8 @@ class NfseTaxClassForm(TaxClassFormBase):
     natureza_operacao = forms.ChoiceField(label="Natureza da operação (ABRASF)", required=False, choices=NATUREZA_OPERACAO_CHOICES, widget=SearchableSelectInput(choices=NATUREZA_OPERACAO_CHOICES))
     exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS (ABRASF)", required=True, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SearchableSelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
     iss_retido = forms.ChoiceField(label="ISS retido (ABRASF)", required=True, choices=ISS_RETIDO_CHOICES, widget=SearchableSelectInput(choices=ISS_RETIDO_CHOICES))
-    responsavel_retencao = forms.ChoiceField(label="Responsável retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SearchableSelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
+    responsavel_retencao = forms.ChoiceField(label="Responsável pela retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SearchableSelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
+    codigo_nbs = forms.CharField(label="Código NBS", required=False, help_text="Código NBS da classe NFS-e. Padrão Nacional: 9 dígitos.", widget=TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}))
     codigo_cnae = forms.CharField(label="Código CNAE", required=False, widget=TextInput())
 
     iss = forms.DecimalField(label="Alíquota ISS", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
@@ -211,12 +225,21 @@ class NfseTaxClassForm(TaxClassFormBase):
 
     ibs_situacao_tributaria = forms.CharField(label="IBS/CBS Situação tributária", required=False, widget=TextInput())
     ibs_classificacao_tributaria = forms.CharField(label="IBS/CBS Classificação tributária", required=False, widget=TextInput())
-    ibs_situacao_tributaria_regular = forms.CharField(label="IBS/CBS Situação regular", required=False, widget=TextInput())
-    ibs_classificacao_tributaria_regular = forms.CharField(label="IBS/CBS Classificação regular", required=False, widget=TextInput())
+    ibs_situacao_tributaria_regular = forms.CharField(label="IBS/CBS Situação tributária regular", required=False, widget=TextInput())
+    ibs_classificacao_tributaria_regular = forms.CharField(label="IBS/CBS Classificação tributária regular", required=False, widget=TextInput())
     ibs_credito_presumido = forms.CharField(label="IBS/CBS Crédito presumido", required=False, widget=TextInput())
-    ibs_aliquota_diferimento_estadual = forms.DecimalField(label="IBS estadual diferimento (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
-    ibs_aliquota_diferimento_municipal = forms.DecimalField(label="IBS municipal diferimento (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
-    cbs_aliquota_diferimento = forms.DecimalField(label="CBS diferimento (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+    ibs_aliquota_diferimento_estadual = forms.DecimalField(label="Diferimento IBS estadual (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+    ibs_aliquota_diferimento_municipal = forms.DecimalField(label="Diferimento IBS municipal (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+    cbs_aliquota_diferimento = forms.DecimalField(label="Diferimento CBS (%)", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+
+    def _apply_local_suggestions(self, tax_classes: list[dict[str, object]]) -> None:
+        self.codigo_servico_suggestions = _build_unique_suggestions(tax_classes, field_name="codigo_servico")
+        self.codigo_nbs_suggestions = _build_unique_suggestions(tax_classes, field_name="codigo_nbs")
+
+        if self.codigo_servico_suggestions:
+            self.fields["codigo_servico"].widget.attrs["list"] = "nfse-codigo-servico-suggestions"
+        if self.codigo_nbs_suggestions:
+            self.fields["codigo_nbs"].widget.attrs["list"] = "nfse-codigo-nbs-suggestions"
 
     @classmethod
     def initial_from_tax_class(cls, tax_class: dict[str, Any]) -> dict[str, str]:
@@ -236,6 +259,7 @@ class NfseTaxClassForm(TaxClassFormBase):
             "exigibilidade_iss",
             "iss_retido",
             "responsavel_retencao",
+            "codigo_nbs",
             "codigo_cnae",
             "iss",
             "pis",
@@ -277,7 +301,14 @@ class NfseTaxClassForm(TaxClassFormBase):
         return initial
 
     def __init__(self, *args, **kwargs):
+        nfse_suggestion_tax_classes = kwargs.pop("nfse_suggestion_tax_classes", None)
         super().__init__(*args, **kwargs)
+        if isinstance(nfse_suggestion_tax_classes, list):
+            self._apply_local_suggestions(nfse_suggestion_tax_classes)
+        else:
+            self.codigo_servico_suggestions = []
+            self.codigo_nbs_suggestions = []
+
         if not self.is_bound:
             self.initial.setdefault("natureza_operacao", "1")
             self.initial.setdefault("exigibilidade_iss", "1")
@@ -307,7 +338,7 @@ class NfseTaxClassForm(TaxClassFormBase):
                     css_class="grid grid-cols-12 gap-4",
                 ),
                 Field("retencao_pis_cofins"),
-                HTML("<h3 class='font-semibold mt-2'>Campos específicos de provedor (opcional)</h3>"),
+                HTML("<h3 class='font-semibold mt-2'>Campos específicos de provedor (opcional)</h3>"),
                 Div(
                     Field("natureza_operacao", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("exigibilidade_iss", wrapper_class="col-span-12 lg:col-span-3"),
@@ -316,6 +347,7 @@ class NfseTaxClassForm(TaxClassFormBase):
                     css_class="grid grid-cols-12 gap-4",
                 ),
                 Div(
+                    Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("codigo_cnae", wrapper_class="col-span-12 lg:col-span-4"),
                     css_class="grid grid-cols-12 gap-4 items-end",
                 ),
@@ -328,7 +360,7 @@ class NfseTaxClassForm(TaxClassFormBase):
                     Field("csll", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     css_class="grid grid-cols-12 gap-4",
                 ),
-                HTML("<h3 class='font-semibold mt-2'>IBS/CBS (Opcional)</h3>"),
+                HTML("<h3 class='font-semibold mt-2'>IBS/CBS (opcional)</h3>"),
                 Div(
                     Field("ibs_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("ibs_classificacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
@@ -362,13 +394,6 @@ class NfseTaxClassForm(TaxClassFormBase):
         elif codigo_servico:
             cleaned_data["codigo_servico"] = codigo_servico
 
-        codigo_tributacao = str(cleaned_data.get("codigo_tributacao_municipio") or "")
-        codigo_tributacao_digits = _service_code_digits(codigo_tributacao)
-        if codigo_tributacao_digits:
-            if len(codigo_tributacao_digits) != 3:
-                self.add_error("codigo_tributacao_municipio", "Informe o código de tributação com 3 dígitos.")
-            cleaned_data["codigo_tributacao_municipio"] = codigo_tributacao_digits
-
         if cleaned_data.get("tributacao_iss") == "2" and not cleaned_data.get("tipo_imunidade"):
             self.add_error("tipo_imunidade", "Informe o tipo de imunidade quando a tributação do ISS for Imunidade.")
 
@@ -380,6 +405,12 @@ class NfseTaxClassForm(TaxClassFormBase):
 
         if iss_retido != "1" and responsavel_retencao:
             self.add_error("responsavel_retencao", "Preencha apenas quando o ISS for retido.")
+
+        codigo_nbs = normalize_codigo_nbs(cleaned_data.get("codigo_nbs"))
+        if codigo_nbs and len(codigo_nbs) != 9:
+            self.add_error("codigo_nbs", "Informe o código NBS com 9 dígitos.")
+        elif codigo_nbs:
+            cleaned_data["codigo_nbs"] = codigo_nbs
 
         has_service_tax_data = any(
             cleaned_data.get(field_name) not in (None, "")
@@ -420,6 +451,7 @@ class NfseTaxClassForm(TaxClassFormBase):
             "exigibilidade_iss",
             "iss_retido",
             "responsavel_retencao",
+            "codigo_nbs",
             "codigo_cnae",
             "informacoes_fisco",
             "informacoes_complementares",
@@ -479,6 +511,10 @@ class ScenarioFormBase(CoreForm):
     required_fields: tuple[str, ...] = ()
     decimal_fields: dict[str, int] = {}
 
+    def __init__(self, *args, **kwargs):
+        kwargs["empty_permitted"] = False
+        super().__init__(*args, **kwargs)
+
     @staticmethod
     def _validate_tipo_pessoa_by_cenario(form: "ScenarioFormBase", cleaned_data: dict[str, Any]) -> None:
         cenario = str(cleaned_data.get("cenario") or "")
@@ -487,10 +523,10 @@ class ScenarioFormBase(CoreForm):
             return
 
         if cenario == "saida_exterior" and tipo_pessoa != "estrangeira":
-            form.add_error("tipo_pessoa", "Para cenário de saída exterior, o tipo de pessoa deve ser Estrangeira.")
+            form.add_error("tipo_pessoa", "Para cenário de saída para o exterior, o tipo de pessoa deve ser Estrangeira.")
 
         if cenario not in {"saida_exterior", "padrao"} and tipo_pessoa == "estrangeira":
-            form.add_error("tipo_pessoa", "Tipo de pessoa estrangeira é válido apenas para cenário de saída exterior ou padrão.")
+            form.add_error("tipo_pessoa", "Tipo de pessoa estrangeira é válido apenas para cenário de saída para o exterior ou padrão.")
 
     def _is_empty_row(self, cleaned_data: dict[str, Any]) -> bool:
         for field_name in self.payload_fields:
@@ -505,15 +541,11 @@ class ScenarioFormBase(CoreForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}
-        if self._is_empty_row(cleaned_data):
-            cleaned_data["_is_empty"] = True
-            return cleaned_data
-
         for field_name in self.required_fields:
             if cleaned_data.get(field_name) in (None, ""):
                 self.add_error(field_name, "Campo obrigatório para este cenário.")
 
-        cleaned_data["_is_empty"] = False
+        cleaned_data["_is_empty"] = self._is_empty_row(cleaned_data)
         return cleaned_data
 
     def to_payload(self) -> tuple[dict[str, Any], int | None]:
@@ -540,14 +572,14 @@ class ScenarioFormBase(CoreForm):
 
 
 class IcmsScenarioForm(ScenarioFormBase):
-    tipo_tributacao = forms.ChoiceField(required=False, choices=ICMS_TIPO_TRIBUTACAO_CHOICES, widget=SearchableSelectInput(choices=ICMS_TIPO_TRIBUTACAO_CHOICES))
-    cenario = forms.ChoiceField(required=False, choices=NFE_SCENARIO_CHOICES, widget=SearchableSelectInput(choices=NFE_SCENARIO_CHOICES))
-    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
-    nao_contribuinte = forms.BooleanField(required=False, widget=CheckboxInput())
-    codigo_cfop = forms.CharField(required=False, max_length=10, widget=TextInput())
-    situacao_tributaria = forms.CharField(required=False, max_length=3, widget=TextInput())
-    aliquota_credito = forms.DecimalField(required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
-    aliquota_importacao = forms.DecimalField(required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+    tipo_tributacao = forms.ChoiceField(label="Tipo de tributação", required=False, choices=ICMS_TIPO_TRIBUTACAO_CHOICES, widget=SearchableSelectInput(choices=ICMS_TIPO_TRIBUTACAO_CHOICES))
+    cenario = forms.ChoiceField(label="Cenário", required=False, choices=NFE_SCENARIO_CHOICES, widget=SearchableSelectInput(choices=NFE_SCENARIO_CHOICES))
+    tipo_pessoa = forms.ChoiceField(label="Tipo de pessoa", required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
+    nao_contribuinte = forms.BooleanField(label="Não contribuinte", required=False, widget=CheckboxInput())
+    codigo_cfop = forms.CharField(label="CFOP", required=False, max_length=10, widget=TextInput())
+    situacao_tributaria = forms.CharField(label="Situação tributária", required=False, max_length=3, widget=TextInput())
+    aliquota_credito = forms.DecimalField(label="Alíquota de crédito", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+    aliquota_importacao = forms.DecimalField(label="Alíquota de importação", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 
     payload_fields = (
         "tipo_tributacao",
@@ -575,7 +607,7 @@ class IcmsScenarioForm(ScenarioFormBase):
         situacao_tributaria = str(cleaned_data.get("situacao_tributaria") or "")
 
         if cenario == "entrada_exterior" and cleaned_data.get("aliquota_importacao") in (None, ""):
-            self.add_error("aliquota_importacao", "Obrigatório para cenário de importação (entrada exterior).")
+            self.add_error("aliquota_importacao", "Obrigatório para cenário de importação (entrada do exterior).")
 
         if situacao_tributaria in {"101", "201"} and cleaned_data.get("aliquota_credito") in (None, ""):
             self.add_error("aliquota_credito", "Obrigatório para CST 101 ou 201.")
@@ -584,26 +616,26 @@ class IcmsScenarioForm(ScenarioFormBase):
             self.add_error("nao_contribuinte", "Use esta opção apenas para destinatário pessoa jurídica.")
 
         if cenario == "saida_exterior" and tipo_pessoa != "estrangeira":
-            self.add_error("tipo_pessoa", "Para cenário de saída exterior, o tipo de pessoa deve ser Estrangeira.")
+            self.add_error("tipo_pessoa", "Para cenário de saída para o exterior, o tipo de pessoa deve ser Estrangeira.")
 
         if cenario != "saida_exterior" and tipo_pessoa == "estrangeira":
-            self.add_error("tipo_pessoa", "Tipo de pessoa estrangeira é válido apenas para cenário de saída exterior.")
+            self.add_error("tipo_pessoa", "Tipo de pessoa estrangeira é válido apenas para cenário de saída para o exterior.")
 
         codigo_cfop = str(cleaned_data.get("codigo_cfop") or "")
         if codigo_cfop:
             digits = "".join(char for char in codigo_cfop if char.isdigit())
             if len(digits) != 4:
-                self.add_error("codigo_cfop", "CFOP deve conter 4 dígitos.")
+                self.add_error("codigo_cfop", "O CFOP deve conter 4 dígitos.")
 
         return cleaned_data
 
 
 class IpiScenarioForm(ScenarioFormBase):
-    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
-    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
-    situacao_tributaria = forms.CharField(required=False, max_length=3, widget=TextInput())
-    codigo_enquadramento = forms.CharField(required=False, max_length=3, widget=TextInput())
-    aliquota = forms.DecimalField(required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+    cenario = forms.ChoiceField(label="Cenário", required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
+    tipo_pessoa = forms.ChoiceField(label="Tipo de pessoa", required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
+    situacao_tributaria = forms.CharField(label="Situação tributária", required=False, max_length=3, widget=TextInput())
+    codigo_enquadramento = forms.CharField(label="Código de enquadramento", required=False, max_length=3, widget=TextInput())
+    aliquota = forms.DecimalField(label="Alíquota", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 
     payload_fields = ("cenario", "tipo_pessoa", "situacao_tributaria", "codigo_enquadramento", "aliquota")
     required_fields = ("cenario", "tipo_pessoa", "situacao_tributaria", "codigo_enquadramento", "aliquota")
@@ -619,10 +651,10 @@ class IpiScenarioForm(ScenarioFormBase):
 
 
 class PisScenarioForm(ScenarioFormBase):
-    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
-    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
-    situacao_tributaria = forms.CharField(required=False, max_length=3, widget=TextInput())
-    aliquota = forms.DecimalField(required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+    cenario = forms.ChoiceField(label="Cenário", required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
+    tipo_pessoa = forms.ChoiceField(label="Tipo de pessoa", required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
+    situacao_tributaria = forms.CharField(label="Situação tributária", required=False, max_length=3, widget=TextInput())
+    aliquota = forms.DecimalField(label="Alíquota", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 
     payload_fields = ("cenario", "tipo_pessoa", "situacao_tributaria", "aliquota")
     required_fields = ("cenario", "tipo_pessoa", "situacao_tributaria", "aliquota")
@@ -638,10 +670,10 @@ class PisScenarioForm(ScenarioFormBase):
 
 
 class CofinsScenarioForm(ScenarioFormBase):
-    cenario = forms.ChoiceField(required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
-    tipo_pessoa = forms.ChoiceField(required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
-    situacao_tributaria = forms.CharField(required=False, max_length=3, widget=TextInput())
-    aliquota = forms.DecimalField(required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
+    cenario = forms.ChoiceField(label="Cenário", required=False, choices=SCENARIO_PADRAO_CHOICES, widget=SearchableSelectInput(choices=SCENARIO_PADRAO_CHOICES))
+    tipo_pessoa = forms.ChoiceField(label="Tipo de pessoa", required=False, choices=TIPO_PESSOA_CHOICES, widget=SearchableSelectInput(choices=TIPO_PESSOA_CHOICES))
+    situacao_tributaria = forms.CharField(label="Situação tributária", required=False, max_length=3, widget=TextInput())
+    aliquota = forms.DecimalField(label="Alíquota", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
 
     payload_fields = ("cenario", "tipo_pessoa", "situacao_tributaria", "aliquota")
     required_fields = ("cenario", "tipo_pessoa", "situacao_tributaria", "aliquota")
@@ -656,7 +688,7 @@ class CofinsScenarioForm(ScenarioFormBase):
         return cleaned_data
 
 
-IcmsScenarioFormSet = formset_factory(IcmsScenarioForm, extra=1, can_delete=True)
-IpiScenarioFormSet = formset_factory(IpiScenarioForm, extra=1, can_delete=True)
-PisScenarioFormSet = formset_factory(PisScenarioForm, extra=1, can_delete=True)
-CofinsScenarioFormSet = formset_factory(CofinsScenarioForm, extra=1, can_delete=True)
+IcmsScenarioFormSet = formset_factory(IcmsScenarioForm, extra=0, can_delete=True)
+IpiScenarioFormSet = formset_factory(IpiScenarioForm, extra=0, can_delete=True)
+PisScenarioFormSet = formset_factory(PisScenarioForm, extra=0, can_delete=True)
+CofinsScenarioFormSet = formset_factory(CofinsScenarioForm, extra=0, can_delete=True)

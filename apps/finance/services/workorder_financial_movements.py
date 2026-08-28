@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from apps.sources.models import Source
@@ -14,6 +15,27 @@ from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 
 
 _ZERO = Decimal("0.00")
+_REVENUE_DESCRIPTION_PREFIX = "Receita proveniente de ordem de serviço"
+
+
+def build_workorder_revenue_description(*, workorder: WorkOrder) -> str:
+    budget = getattr(workorder, "budget", None)
+    vehicle = getattr(budget, "vehicle", None) if budget is not None else None
+    if vehicle is None:
+        return f"{_REVENUE_DESCRIPTION_PREFIX} OS Nº {resolve_workorder_number(workorder)}"
+
+    brand = str(getattr(vehicle, "brand", "") or "").strip()
+    model = str(getattr(vehicle, "model", "") or "").strip()
+    plate = str(getattr(vehicle, "plate", "") or "").strip()
+    mid = " ".join(part for part in (brand, model) if part)
+
+    if mid and plate:
+        return f"{_REVENUE_DESCRIPTION_PREFIX} {mid} - {plate}"
+    if mid:
+        return f"{_REVENUE_DESCRIPTION_PREFIX} {mid}"
+    if plate:
+        return f"{_REVENUE_DESCRIPTION_PREFIX} {plate}"
+    return f"{_REVENUE_DESCRIPTION_PREFIX} OS Nº {resolve_workorder_number(workorder)}"
 
 
 def _get_reversed_financial_movement_ids() -> list[int]:
@@ -23,7 +45,7 @@ def _get_reversed_financial_movement_ids() -> list[int]:
 def _get_workorder_source(*, workorder: WorkOrder) -> Source:
     source, _ = Source.objects.get_or_create(
         workshop=workorder.workshop,
-        name=f"OS Nº {workorder.pk}",
+        name=f"OS Nº {resolve_workorder_number(workorder)}",
     )
     return source
 
@@ -117,13 +139,14 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         return None
 
     source = _get_workorder_source(workorder=workorder)
+    description = build_workorder_revenue_description(workorder=workorder)
 
     defaults = {
         "workshop": workorder.workshop,
         "user": workorder.budget.cost_estimator,
         "source": source,
         "direction": FinancialMovement.MovementDirection.CREDIT,
-        "description": str(workorder.budget.problem_description or workorder.budget.notes or f"OS Nº {workorder.pk}"),
+        "description": description,
         "amount": workorder.total_budget_value,
         "due_date": (workorder.criado_em or timezone.now()).date(),
         "movement_kind": FinancialMovement.MovementKind.WORKORDER_PARENT,
@@ -139,7 +162,7 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
             "user": workorder.budget.cost_estimator,
             "source": source,
             "direction": FinancialMovement.MovementDirection.CREDIT,
-            "description": str(workorder.budget.problem_description or workorder.budget.notes or f"OS Nº {workorder.pk}"),
+            "description": description,
             "amount": payment.total_paid,
             "due_date": payment.due_date,
             "payment_method": payment.payment_method,

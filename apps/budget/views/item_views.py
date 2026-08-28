@@ -3,8 +3,10 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.utils import DataError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.utils.html import escape
 from django.views import View
 from django.views.generic import TemplateView
@@ -24,6 +26,7 @@ from apps.core.presentation.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.budget.utils import HtmxResponseHelper
 
+from .duplicate_service_views import maybe_render_duplicate_service_queue_after_add
 from .shared import (
     LOCKED_BUDGET_EDIT_MESSAGE,
     _build_locked_budget_response,
@@ -136,7 +139,7 @@ def _render_modal_error(*, title: str, message: str, icon: str = "warning") -> H
     return HttpResponse(html)
 
 
-def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_items: set[int]) -> tuple[list[Kit], dict[str, object]]:
+def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_items: set[int], newly_created_id: int | None = None) -> tuple[list[Kit], dict[str, object]]:
     vehicle = budget.vehicle
     filter_active = vehicle_has_complete_application_context(vehicle)
 
@@ -153,7 +156,7 @@ def _prepare_kit_selection_items(*, kits: list[Kit], budget: Budget, existing_it
         kit.compatibility_badge_class = KIT_COMPATIBILITY_BADGE_CLASSES.get(compatibility.status, "badge-ghost")
         kit.application_lines = kit.application_preview_lines(limit=3)
 
-        hidden_by_default = compatibility.status in {"incompatible", "no_applications"} and kit.pk not in existing_items
+        hidden_by_default = compatibility.status in {"incompatible", "no_applications"} and kit.pk not in existing_items and kit.pk != newly_created_id
         kit.hidden_by_compatibility_filter = hidden_by_default
         kit.selection_disabled = not compatibility.selectable and kit.pk not in existing_items
 
@@ -226,10 +229,18 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
         elif item_type == "kit":
             existing_items = set(budget.items.filter(kit__isnull=False).values_list("kit_id", flat=True))
 
+        raw_newly_created_id = str(self.request.GET.get("newly_created_id", "")).strip()
+        newly_created_id = int(raw_newly_created_id) if raw_newly_created_id.isdigit() else None
+
         ordered_items = list(queryset)
         kit_context: dict[str, object] = {}
         if item_type == "kit":
-            ordered_items, kit_context = _prepare_kit_selection_items(kits=ordered_items, budget=budget, existing_items=existing_items)
+            ordered_items, kit_context = _prepare_kit_selection_items(
+                kits=ordered_items,
+                budget=budget,
+                existing_items=existing_items,
+                newly_created_id=newly_created_id,
+            )
         elif existing_items:
             ordered_items.sort(key=lambda item: item.pk not in existing_items)
 
@@ -239,9 +250,6 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
             value = str(raw_id).strip()
             if value.isdigit():
                 selected_ids.add(int(value))
-
-        raw_newly_created_id = str(self.request.GET.get("newly_created_id", "")).strip()
-        newly_created_id = int(raw_newly_created_id) if raw_newly_created_id.isdigit() else None
 
         if newly_created_id is not None:
             selected_ids.add(newly_created_id)
@@ -255,6 +263,7 @@ class ItemSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateVi
                 "existing_items": existing_items,
                 "selected_ids": selected_ids,
                 "newly_created_id": newly_created_id,
+                "budget_return_url": f"{reverse('budget:budget_update', kwargs={'pk': budget.pk})}?step=4",
             }
         )
         context.update(kit_context)
@@ -293,6 +302,15 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
         sync_linked_workorder_from_budget(budget)
+
+        if created and kwargs["item_type"] in {"kit", "service"}:
+            duplicate_response = maybe_render_duplicate_service_queue_after_add(
+                request,
+                budget=budget,
+                created_item_ids=[item.pk],
+            )
+            if duplicate_response is not None:
+                return duplicate_response
 
         return _step_redirect_response(request, budget, fallback_step=4)
 
@@ -768,6 +786,8 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         try:
             budget._skip_stored_total_refresh = True
+            created_items: list[int] = []
+            newly_created_item_ids: list[int] = []
             try:
                 if item_type == "kit":
                     incompatible_kits = _get_incompatible_budget_kits(workshop=self.workshop, budget=budget, selected_ids=selected_ids)
@@ -781,18 +801,28 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             icon="error",
                         )
 
+                    created_kit_item_ids: list[int] = []
                     for item_id in selected_ids:
                         item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
                         if not created:
                             item.quantity += 1
                             item.save()
+                        else:
+                            created_kit_item_ids.append(item.pk)
 
                     # Reset etapas 5 e 6 após modificar a etapa 4
                     reset_steps_after_step_4(budget)
 
+                    duplicate_response = maybe_render_duplicate_service_queue_after_add(
+                        request,
+                        budget=budget,
+                        created_item_ids=created_kit_item_ids,
+                    )
+                    if duplicate_response is not None:
+                        return duplicate_response
+
                     return _step_redirect_response(request, budget, fallback_step=4)
 
-                created_items = []
                 for item_id in selected_ids:
                     item_filter = {f"{item_type}_id": item_id}
 
@@ -800,12 +830,40 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     if not created:
                         budget_item.quantity += 1
                         budget_item.save()
+                    else:
+                        newly_created_item_ids.append(budget_item.pk)
 
                     created_items.append(budget_item.pk)
             finally:
                 budget._skip_stored_total_refresh = False
                 budget.invalidate_pricing_snapshot_cache()
                 budget.refresh_stored_total_amount()
+        except DataError as exc:
+            logger.exception(
+                "budget_items_batch_add_failed",
+                extra={
+                    "budget_id": budget_id,
+                    "item_type": item_type,
+                    "selected_count": len(raw_selected_ids),
+                    "selected_ids": raw_selected_ids[:20],
+                },
+            )
+            error_message = str(exc).lower()
+            if "too long" in error_message or "stringdatarighttruncation" in error_message:
+                return _render_modal_error(
+                    title="Nome muito longo",
+                    message=(
+                        "O nome do produto, serviço ou kit selecionado excede o tamanho máximo "
+                        "permitido na descrição do item do orçamento. Encurte o nome no catálogo "
+                        "e tente novamente."
+                    ),
+                    icon="error",
+                )
+            return _render_modal_error(
+                title="Não foi possível adicionar os itens",
+                message="Tente novamente em instantes. Se o problema persistir, contate o suporte.",
+                icon="error",
+            )
         except Exception:
             logger.exception("budget_items_batch_add_failed", extra={"budget_id": budget_id, "item_type": item_type, "selected_count": len(raw_selected_ids), "selected_ids": raw_selected_ids[:20]})
             error_html = """
@@ -823,6 +881,16 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
+
+        if item_type == "service" and newly_created_item_ids:
+            duplicate_response = maybe_render_duplicate_service_queue_after_add(
+                request,
+                budget=budget,
+                created_item_ids=newly_created_item_ids,
+                close_parent=modal_context == "child",
+            )
+            if duplicate_response is not None:
+                return duplicate_response
 
         current_step = _get_current_step_from_referer(request, budget.current_step)
 
