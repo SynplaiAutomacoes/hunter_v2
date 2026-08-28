@@ -9,8 +9,9 @@ from django.urls import reverse
 from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import delete_payroll_component_and_recalculate, sync_collaborator_commission_entries, sync_collaborator_payroll
+from apps.collaborators.services import add_manual_payroll_commission, delete_payroll_component_and_recalculate, sync_collaborator_commission_entries, sync_collaborator_payroll
 from apps.collaborators.test_commissions import create_financial_group_path, create_workorder
+from apps.collaborators.views import CollaboratorPayrollReceiptView
 from apps.core.presentation.navigation import get_navbar_menus
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -376,6 +377,9 @@ class PayrollEditModalViewTests(TestCase):
         self.assertIn("Excluir", content)
         self.assertIn('name="tab"', content)
         self.assertIn(':value="activeTab"', content)
+        self.assertIn("removeUrlForTab(activeTab)", content)
+        self.assertIn("htmx.ajax('GET', removeUrlForTab(activeTab)", content)
+        self.assertNotIn("x-bind:hx-get", content)
 
     def test_payroll_movements_store_named_agent_and_description(self) -> None:
         workshop = create_workshop(suffix=24)
@@ -1626,6 +1630,9 @@ class PayrollManualLaunchTests(TestCase):
         response = view.post(request)
 
         self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Bonus pontual", content)
+        self.assertNotIn('id="manual-benefit-fields"', content)
         one_off = CollaboratorBenefit.objects.get(collaborator=collaborator, source_payroll=august_payroll)
         self.assertEqual(one_off.monthly_amount, Money(150, "BRL"))
         self.assertIn(one_off.name, response.content.decode())
@@ -1651,9 +1658,62 @@ class PayrollManualLaunchTests(TestCase):
     def test_edit_modal_keeps_manual_launch_fields_out_of_the_save_form_until_opened(self) -> None:
         workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=77, month=8)
 
-        request = RequestFactory().get(
+        closed_request = RequestFactory().get(
             reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
             {"continue_without_create": "true"},
+        )
+        closed_request.user = SimpleNamespace(is_authenticated=False)
+        closed_view = PayrollEditModalView()
+        closed_view.request = closed_request
+        closed_view.kwargs = {"pk": payroll.pk}
+        closed_view.workshop = workshop
+
+        closed_response = closed_view.get(closed_request)
+
+        self.assertEqual(closed_response.status_code, 200)
+        closed_content = closed_response.content.decode()
+        self.assertNotIn('id="manual-benefit-fields"', closed_content)
+        self.assertNotIn('id="manual-commission-fields"', closed_content)
+
+        open_request = RequestFactory().get(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {
+                "tab": FinancialMovement.PayrollComponent.COMMISSION,
+                "show_manual_commission_form": "true",
+                "continue_without_create": "true",
+            },
+        )
+        open_request.user = SimpleNamespace(is_authenticated=False)
+        open_view = PayrollEditModalView()
+        open_view.request = open_request
+        open_view.kwargs = {"pk": payroll.pk}
+        open_view.workshop = workshop
+
+        open_response = open_view.get(open_request)
+
+        self.assertEqual(open_response.status_code, 200)
+        open_content = open_response.content.decode()
+        self.assertIn('form="payroll-manual-commission-form"', open_content)
+        self.assertIn('id="manual-commission-fields"', open_content)
+        self.assertIn("lancar-comissao", open_content)
+        self.assertIn("Lançar comissão", open_content)
+        self.assertIn("show_manual_commission_form=true", open_content)
+        commission_tab_index = open_content.index("activeTab = 'COMMISSION'")
+        history_tab_index = open_content.index("activeTab = 'commissions_history'")
+        summary_tab_index = open_content.index("activeTab = 'summary'")
+        self.assertLess(commission_tab_index, history_tab_index)
+        self.assertLess(history_tab_index, summary_tab_index)
+
+    def test_edit_modal_opens_manual_commission_panel_from_query_param(self) -> None:
+        workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=81, month=8)
+
+        request = RequestFactory().get(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {
+                "tab": FinancialMovement.PayrollComponent.COMMISSION,
+                "show_manual_commission_form": "true",
+                "continue_without_create": "true",
+            },
         )
         request.user = SimpleNamespace(is_authenticated=False)
         view = PayrollEditModalView()
@@ -1665,12 +1725,103 @@ class PayrollManualLaunchTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
-        self.assertIn('form="payroll-manual-benefit-form"', content)
-        self.assertIn('form="payroll-manual-commission-form"', content)
-        self.assertIn("lancar-beneficio", content)
-        self.assertIn('@click.prevent="showManualBenefitForm = false"', content)
-        self.assertIn("Lançar comissão", content)
-        self.assertIn('@click.prevent="showManualCommissionForm = false"', content)
+        self.assertIn('id="manual-commission-fields"', content)
+        self.assertIn("show_manual_commission_form=true", content)
+
+    def test_edit_modal_closes_manual_commission_panel_without_query_param(self) -> None:
+        workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=82, month=8)
+
+        request = RequestFactory().get(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {
+                "tab": FinancialMovement.PayrollComponent.COMMISSION,
+                "continue_without_create": "true",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('id="manual-commission-fields"', content)
+
+    def test_manual_commission_launch_closes_form_on_success(self) -> None:
+        workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=78, month=8)
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_commission", kwargs={"pk": payroll.pk}),
+            {
+                "manual_commission-amount_0": "50.00",
+                "manual_commission-amount_1": "BRL",
+                "manual_commission-notes": "Teste",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollAddManualCommissionView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('id="manual-commission-fields"', content)
+
+    def test_manual_benefit_launch_closes_form_on_success(self) -> None:
+        workshop, _collaborator, payroll, budget_plan = self._create_payroll(suffix=80, month=8)
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_benefit", kwargs={"pk": payroll.pk}),
+            {
+                "manual_benefit-name": "Bonus pontual",
+                "manual_benefit-amount_0": "150.00",
+                "manual_benefit-amount_1": "BRL",
+                "manual_benefit-budget_plan": str(budget_plan.pk),
+                "manual_benefit-description": "So agosto",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollAddManualBenefitView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('id="manual-benefit-fields"', content)
+
+    def test_payroll_receipt_consolidates_commission_items(self) -> None:
+        workshop, collaborator, payroll, _budget_plan = self._create_payroll(suffix=79, month=8)
+        add_manual_payroll_commission(payroll=payroll, amount=Money(100, "BRL"), notes="Teste 1")
+        add_manual_payroll_commission(payroll=payroll, amount=Money(100, "BRL"), notes="Teste 2")
+        payroll.refresh_from_db()
+
+        request = RequestFactory().get(
+            reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": collaborator.pk, "payroll_id": payroll.pk}),
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = CollaboratorPayrollReceiptView()
+        view.request = request
+        view.kwargs = {"pk": collaborator.pk, "payroll_id": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request, pk=collaborator.pk, payroll_id=payroll.pk)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Valor consolidado das comissões da competência.", content)
+        self.assertNotIn("Comissão manual", content)
+        self.assertEqual(payroll.commission_amount, Money(200, "BRL"))
 
     def test_manual_commission_shows_as_manual_and_survives_os_sync(self) -> None:
         workshop, collaborator, payroll, _budget_plan = self._create_payroll(suffix=72, month=8)

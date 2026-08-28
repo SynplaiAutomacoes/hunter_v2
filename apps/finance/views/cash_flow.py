@@ -424,7 +424,6 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "value": format_money(overview.confirmed_result),
             "tone": self._resolve_result_tone(overview.confirmed_result),
             "url": self._build_url(overrides={"conta_bancaria": account_id or None, "page": None}),
-            "report_url": self._build_report_url(view_name="finance:cash_flow_report_modal", account_id=account_id or None),
             "is_selected": (selected_account_id or "") == account_id,
         }
 
