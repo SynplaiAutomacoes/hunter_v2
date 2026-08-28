@@ -566,7 +566,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             edit_modal_url = f"{edit_modal_url}?payment_id={movement.workorder_payment_id}"
         elif movement.movement_kind == FinancialMovement.MovementKind.GROUP_PARENT and movement.movement_group_id:
             is_group_parent = True
-            children = movement.movement_group.financial_movements.exclude(pk=movement.pk)
+            children = movement.movement_group.financial_movements.exclude(
+                movement_kind=FinancialMovement.MovementKind.GROUP_PARENT
+            )
             for child in children:
                 details.append(
                     {

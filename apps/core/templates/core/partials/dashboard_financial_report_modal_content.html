@@ -10,10 +10,12 @@
                 <span class="material-icons text-sm">picture_as_pdf</span>
                 Exportar PDF
             </a>
+            {% if indicator == 'total_vendido' %}
             <a href="{{ excel_download_url }}" class="btn btn-sm btn-success gap-2 shadow-sm">
                 <span class="material-icons text-sm">table_view</span>
                 Exportar Excel
             </a>
+            {% endif %}
             <button type="button" class="btn btn-sm btn-ghost border border-base-300"
                     onclick="document.getElementById('dashboardFinancialReportModal').close()">
                 Fechar

@@ -210,11 +210,169 @@ def preview_workorder_collaborator_commissions(*, workorder: WorkOrder) -> list[
     return previews
 
 
-def workorder_commission_context(*, workorder: WorkOrder) -> dict[str, object]:
+def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, object]:
+    """Contexto para um escopo (service/product) — pool + alocações."""
+    from apps.collaborators.commission.calculators import calculate_total_for_scope
+    from apps.collaborators.models import CollaboratorCommissionRule, WorkOrderCommissionAllocation
+
+    workshop = workorder.workshop
+    try:
+        total_S = calculate_total_for_scope(workorder=workorder, workshop=workshop, scope=scope)
+    except Exception:
+        total_S = ZERO
+    total_S_money = Money(_quantize(total_S), "BRL")
+
+    # Regras por participação na WO
+    collab_ids_in_wo = list(workorder.collaborators.values_list("id", flat=True))
+    rules = list(
+        CollaboratorCommissionRule.objects.filter(
+            collaborator_id__in=collab_ids_in_wo, scope=scope, is_active=True
+        ).select_related("collaborator")
+    )
+    # Fix / Pct
+    fixed_rules = [r for r in rules if r.modality == CollaboratorCommissionRule.Modality.FIXED and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
+    pct_rules = [r for r in rules if r.modality == CollaboratorCommissionRule.Modality.PERCENTAGE and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
+
+    max_pct = max((Decimal(str(r.percentage or 0)) for r in pct_rules), default=ZERO)
+    pool_S = _quantize(total_S * max_pct) if max_pct > 0 else ZERO
+    pool_S_money = Money(pool_S, "BRL")
+
+    fixed_total = sum((Decimal(str(getattr(r.fixed_amount, "amount", 0) or 0)) for r in fixed_rules), start=ZERO)
+    fixed_total_money = Money(_quantize(fixed_total), "BRL")
+
+    allocations = {
+        (a.collaborator_id, a.scope): a
+        for a in WorkOrderCommissionAllocation.objects.filter(workorder=workorder, scope=scope).select_related("collaborator")
+    }
+
+    rows: list[dict[str, object]] = []
+    sum_base = ZERO
+    for collaborator in workorder.collaborators.all():
+        rule = next((r for r in rules if r.collaborator_id == collaborator.pk), None)
+        if rule is None:
+            # Sem regra — mostrar como 0% e sem alocação
+            commission_display = "—"
+            is_pct = False
+            is_fixed = False
+            pct_for_cap = ZERO
+            fixed_amount = Money(ZERO, "BRL")
+        else:
+            if rule.modality == CollaboratorCommissionRule.Modality.FIXED:
+                commission_display = f"R$ {rule.resolved_fixed_amount:.2f}".replace(".", ",")
+                is_pct = False
+                is_fixed = True
+                pct_for_cap = ZERO
+                fixed_amount = Money(_quantize(rule.resolved_fixed_amount), "BRL")
+            else:
+                pct_display = (Decimal(str(rule.percentage or 0)) * Decimal("100")).quantize(Decimal("0.01"))
+                commission_display = f"{str(pct_display).replace('.', ',')}%"
+                is_pct = True
+                is_fixed = False
+                pct_for_cap = Decimal(str(rule.percentage or 0))
+                fixed_amount = Money(ZERO, "BRL")
+
+        is_global = bool(rule and rule.apply_scope == CollaboratorCommissionRule.ApplyScope.GLOBAL)
+        is_editable = is_pct and not is_global
+
+        alloc = allocations.get((collaborator.pk, scope))
+        base_pct = Decimal(str(alloc.distribution_percentage or 0)) if alloc else ZERO
+        # Global não entra no pool nem na soma; apenas participação conta
+        if is_pct and not is_global:
+            sum_base += base_pct
+
+        # Cap individual
+        cap = (pct_for_cap / max_pct) if (is_pct and max_pct > 0) else (Decimal("1") if is_pct else ZERO)
+        cap_pct_display = (cap * Decimal("100")).quantize(Decimal("0.01")) if is_pct else ZERO
+        base_pct_display = (base_pct * Decimal("100")).quantize(Decimal("0.01"))
+        cap_amount = _quantize(pool_S * cap) if is_pct else ZERO
+        cap_amount_money = Money(cap_amount, "BRL")
+
+        if is_global:
+            # Preview global: total_S × rule.percentage (fora do pool), não depende de Base%
+            if is_fixed:
+                preview_amount = fixed_amount.amount
+            else:
+                preview_amount = _quantize(total_S * pct_for_cap)
+        elif is_pct:
+            preview_amount = _quantize(pool_S * base_pct)
+        else:
+            preview_amount = fixed_amount.amount if is_fixed else ZERO
+        preview_money = Money(preview_amount, "BRL")
+
+        rows.append(
+            {
+                "collaborator": collaborator,
+                "collaborator_id": collaborator.pk,
+                "name": collaborator.name,
+                "rule": rule,
+                "is_pct": is_pct,
+                "is_fixed": is_fixed,
+                "is_global": is_global,
+                "is_editable": is_editable,
+                "commission_display": commission_display,
+                "base_pct": base_pct,
+                "base_pct_display": base_pct_display,
+                "cap": cap,
+                "cap_display": cap_pct_display,
+                "cap_amount": cap_amount_money,
+                "cap_amount_display": cap_amount,
+                "preview_amount": preview_money,
+                "preview_cents": str(preview_money.amount),
+                "alloc": alloc,
+            }
+        )
+
+    total_commission_for_wo = _quantize(pool_S + fixed_total)
+
     return {
-        "commission_previews": preview_workorder_collaborator_commissions(workorder=workorder),
-        "commission_is_sale": _resolve_workorder_budget_type(workorder=workorder) == "sale",
-        "commission_consolidates": _workorder_can_generate_commission(workorder=workorder),
+        "scope": scope,
+        "total_S": total_S_money,
+        "total_S_decimal": total_S,
+        "pool_S": pool_S_money,
+        "pool_S_decimal": pool_S,
+        "fixed_total": fixed_total_money,
+        "fixed_total_decimal": fixed_total,
+        "total_commission": Money(total_commission_for_wo, "BRL"),
+        "total_commission_decimal": total_commission_for_wo,
+        "max_pct": max_pct,
+        "max_pct_display": (max_pct * Decimal("100")).quantize(Decimal("0.01")),
+        "sum_base_pct": sum_base,
+        "sum_base_pct_display": (sum_base * Decimal("100")).quantize(Decimal("0.01")),
+        "rows": rows,
+        "has_pct_rules": bool(pct_rules),
+    }
+
+
+def workorder_commission_context(*, workorder: WorkOrder) -> dict[str, object]:
+    # Legado para templates antigos + novo pool split
+    previews = preview_workorder_collaborator_commissions(workorder=workorder)
+    is_sale = _resolve_workorder_budget_type(workorder=workorder) == "sale"
+    consolidates = _workorder_can_generate_commission(workorder=workorder)
+    # Novo — pool por escopo (v3); fallback se workshop não tem campos ou erro
+    try:
+        pool_service = _build_pool_scope_context(workorder=workorder, scope="service")
+        pool_product = _build_pool_scope_context(workorder=workorder, scope="product")
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("pool_context_build_failed scope=service/product error=%s", exc)
+        pool_service = None
+        pool_product = None
+    # Complementar escopo com label e lista para template loop
+    if pool_service is not None:
+        pool_service["scope_label"] = "Serviço"
+    if pool_product is not None:
+        pool_product["scope_label"] = "Produto"
+    pool_sections = [p for p in (pool_product, pool_service) if p is not None]
+    # Ordem: Produto primeiro, depois Serviço (conforme plano)
+    return {
+        "commission_previews": previews,
+        "commission_is_sale": is_sale,
+        "commission_consolidates": consolidates,
+        "commission_pool_service": pool_service,
+        "commission_pool_product": pool_product,
+        "pool_sections": pool_sections,
+        "commission_is_paid": consolidates and any(e.status == CollaboratorCommissionEntry.Status.PAID for e in CollaboratorCommissionEntry.objects.filter(workorder=workorder)),
     }
 
 
@@ -852,13 +1010,29 @@ def remove_pending_workorder_commissions(*, workorder: WorkOrder) -> int:
 
 
 def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionEntry) -> str:
+    # v3: distinguir fixo vs montante de distribuição percentual de comissão
+    if getattr(entry, "is_fixed_amount", False):
+        return f"Valor fixo {entry.commission_amount}"
+    # montante de distribuição percentual de comissão: mostrar distribuição e montante
+    dist = getattr(entry, "distribution_percentage", None)
+    pool = getattr(entry, "pool_amount", None)
+    if dist is not None and pool is not None and Decimal(str(dist)) > 0:
+        dist_display = (Decimal(str(dist)) * Decimal("100")).quantize(Decimal("0.01"))
+        return f"{dist_display}% do montante de distribuição percentual de comissão {pool} (base {entry.base_amount} × { (Decimal(str(entry.percentage or 0))*Decimal('100')).quantize(Decimal('0.01')) }%)"
     return f"{entry.percentage * Decimal('100'):.2f}% sobre {entry.base_amount}"
 
 
 def _commission_payroll_item_title(*, entry: CollaboratorCommissionEntry) -> str:
     if entry.is_manual or entry.workorder_id is None:
         return "Comissão manual"
-    return f"Comissão {format_workorder_reference(entry.workorder)}"
+    # v3: incluir escopo se disponível
+    origin = getattr(entry, "commission_origin", "") or ""
+    scope_label = ""
+    if "service" in origin:
+        scope_label = " (Serviço)"
+    elif "product" in origin:
+        scope_label = " (Produto)"
+    return f"Comissão {format_workorder_reference(entry.workorder)}{scope_label}"
 
 
 def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
@@ -946,6 +1120,17 @@ def _resolve_benefit_budget_plan(*, collaborator: WorkshopCollaborator, benefit:
 
 @transaction.atomic
 def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> list[CollaboratorCommissionEntry]:
+    # v3: se houver regras ativas, delegar ao novo orquestrador pool
+    try:
+        from apps.collaborators.models import CollaboratorCommissionRule
+
+        if CollaboratorCommissionRule.objects.filter(collaborator=collaborator, is_active=True).exists():
+            from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+
+            orchestrator = WorkOrderCommissionOrchestrator()
+            return orchestrator.sync_collaborator_commissions(collaborator=collaborator, reference_date=reference_date, lock_reference=lock_reference)
+    except Exception:
+        pass
     resolved = _resolve_reference_date(reference_date)
     if not collaborator.receives_commission or collaborator.commission_percentage is None:
         CollaboratorCommissionEntry.objects.filter(

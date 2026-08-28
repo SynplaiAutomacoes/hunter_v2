@@ -4,11 +4,10 @@ from django.http import HttpResponse
 from django.shortcuts import render, get_object_or_404
 from django.views import View
 from decimal import Decimal
-import re
 
-from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.models import FinancialMovement, MovementGroup
 from apps.finance.forms.movement_group import GroupMovementStep3Form
+from apps.finance.services.movement_grouping import build_group_installments
 from apps.suppliers.models import Supplier
 from apps.collaborators.models import WorkshopCollaborator
 from apps.customer.models import Customer
@@ -24,35 +23,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, *args, **kwargs):
         return HttpResponse("Método não permitido", status=405)
 
-    @staticmethod
-    def _normalize_document(value: object) -> str:
-        return re.sub(r"\D", "", str(value or ""))
-
-    def _resolve_suppliers_from_sources(self, movements: list[FinancialMovement]) -> dict[int, Supplier]:
-        """Resolve suppliers for legacy movements that only have a Source link.
-
-        Sources are matched to suppliers by normalized CNPJ and always within the
-        active workshop. A movement with a manually selected supplier is ignored.
-        """
-        source_documents = {
-            movement.source_id: self._normalize_document(movement.source.cnpj)
-            for movement in movements
-            if movement.supplier_id is None and movement.source_id and self._normalize_document(movement.source.cnpj)
-        }
-        if not source_documents:
-            return {}
-
-        suppliers_by_document = {
-            self._normalize_document(supplier.cnpj): supplier
-            for supplier in Supplier.objects.filter(workshop=self.workshop)
-            if self._normalize_document(supplier.cnpj)
-        }
-        return {
-            movement.pk: suppliers_by_document[document]
-            for movement in movements
-            if movement.source_id and (document := source_documents.get(movement.source_id)) in suppliers_by_document
-        }
-
     def post(self, request, *args, **kwargs):
         step = request.POST.get("step")
 
@@ -65,9 +35,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             pm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("pm_")]
             fms = FinancialMovement.objects.filter(id__in=fm_ids, workshop=self.workshop)
             pms = WorkOrderPaymentMethod.objects.filter(id__in=pm_ids, workorder__workshop=self.workshop)
-            total_amount = sum((Decimal(str(movement.amount.amount)) for movement in fms), Decimal("0.00")) + sum(
-                (Decimal(str(payment.total_paid.amount)) for payment in pms), Decimal("0.00")
-            )
 
             direction = FinancialMovement.MovementDirection.DEBIT
             first_movement = fms.first()
@@ -76,7 +43,13 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             elif pms.exists():
                 direction = FinancialMovement.MovementDirection.CREDIT
 
-            form = GroupMovementStep3Form(request.POST, workshop=self.workshop, direction=direction, total_amount=total_amount)
+            total_amount = sum((Decimal(str(movement.amount.amount)) for movement in fms), Decimal("0.00")) + sum((Decimal(str(payment.total_paid.amount)) for payment in pms), Decimal("0.00"))
+            form = GroupMovementStep3Form(
+                request.POST,
+                workshop=self.workshop,
+                direction=direction,
+                total_amount=total_amount,
+            )
 
             # We need to fetch the entity name to display it on form validation error
             entity_name = ""
@@ -119,7 +92,11 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                             pm.save()
 
                     payment_method = form.cleaned_data["payment_method"]
-                    installments = form.cleaned_data["installment_schedule"]
+                    installments = build_group_installments(
+                        total_amount=Decimal(str(group.net_amount.amount)),
+                        first_due_date=group.due_date,
+                        installments_count=payment_method.installments_count,
+                    )
                     for installment in installments:
                         installment_label = ""
                         if installment.total > 1:
@@ -153,7 +130,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "entity_name": entity_name,
                 "total_amount": total_amount,
                 "payment_method_installments": form.payment_method_installments,
-                "initial_installments": form.installment_schedule_payload(),
             })
 
         # No step - entry point from reports_home.html checkbox selection
@@ -174,12 +150,8 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 pm_pks.append(int(cid.split("_")[1]))
 
         # Fetch objects
-        fms = list(
-            FinancialMovement.objects.filter(pk__in=fm_pks, workshop=self.workshop).select_related(
-                "source", "supplier", "collaborator", "workorder__budget__customer"
-            )
-        )
-        pms = list(WorkOrderPaymentMethod.objects.filter(pk__in=pm_pks, workorder__workshop=self.workshop).select_related("workorder", "workorder__budget"))
+        fms = list(FinancialMovement.objects.filter(pk__in=fm_pks, workshop=self.workshop))
+        pms = list(WorkOrderPaymentMethod.objects.filter(pk__in=pm_pks, workorder__workshop=self.workshop))
 
         # Check if all requested items were found
         if len(fms) != len(fm_pks) or len(pms) != len(pm_pks):
@@ -196,7 +168,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         for pm in pms:
             if pm.movement_group_id is not None:
-                return render(request, "finance/reports/partials/group_error.html", {"error": f"O plano de pagamento da {format_workorder_reference(pm.workorder)} já faz parte de um agrupamento."})
+                return render(request, "finance/reports/partials/group_error.html", {"error": f"O plano de pagamento da OS #{pm.workorder_id} já faz parte de um agrupamento."})
 
         # Validate direction consistency
         directions = set()
@@ -209,18 +181,12 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if len(directions) > 1:
             return render(request, "finance/reports/partials/group_error.html", {"error": "Todos os lançamentos selecionados devem ser do mesmo tipo (Crédito ou Débito)."})
 
-        # Legacy imported movements may have only the automatic Source relation.
-        # Resolve the already registered supplier by CNPJ so the user does not need
-        # to edit each movement before grouping.
-        resolved_suppliers = self._resolve_suppliers_from_sources(fms)
-
         # Validate entity consistency
         candidate_entities = []
         for fm in fms:
             item_candidates = set()
-            supplier = fm.supplier if fm.supplier_id else resolved_suppliers.get(fm.pk)
-            if supplier is not None:
-                item_candidates.add(("supplier", supplier.id, supplier.name))
+            if fm.supplier_id:
+                item_candidates.add(("supplier", fm.supplier_id, fm.supplier.name))
             if fm.collaborator_id:
                 item_candidates.add(("collaborator", fm.collaborator_id, str(fm.collaborator)))
             if fm.workorder_id and fm.workorder.budget_id and fm.workorder.budget.customer_id:
@@ -243,14 +209,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if not common_keys:
             return render(request, "finance/reports/partials/group_error.html", {"error": "Todos os lançamentos selecionados devem pertencer ao mesmo Fornecedor, Colaborador ou Cliente."})
-
-        # Persist only the safe, CNPJ-based matches that allowed this grouping.
-        # Existing manual supplier links are intentionally never changed.
-        for fm in fms:
-            supplier = resolved_suppliers.get(fm.pk)
-            if supplier is not None and fm.supplier_id is None:
-                fm.supplier = supplier
-                fm.save(update_fields=["supplier"])
 
         # Pick a common key
         selected_key = list(common_keys)[0]
@@ -285,7 +243,6 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "total_amount": total_amount,
             "entity_name": entity_name,
             "payment_method_installments": form.payment_method_installments,
-            "initial_installments": form.installment_schedule_payload(),
         })
 
 

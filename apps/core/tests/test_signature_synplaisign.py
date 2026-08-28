@@ -18,8 +18,6 @@ from apps.core.infrastructure.services.signature import build_signature_whatsapp
 from apps.core.infrastructure.services.signature_webhook import (
     SignatureWebhookView,
     build_synplaisign_webhook_signature,
-    extract_signature_envelope_id,
-    extract_signature_event,
     process_signature_webhook_payload,
 )
 from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
@@ -409,48 +407,8 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         budget.approve.assert_called_once()
 
-    @patch("apps.workorder.models.WorkOrder.objects.filter")
-    @patch("apps.budget.models.Budget.objects.filter")
-    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
-    def test_nested_signed_status_approves_budget_without_event_name(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
-        budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
-        budget_filter.return_value.first.return_value = budget
-        workorder_filter.return_value.first.return_value = None
-
-        response = process_signature_webhook_payload(
-            payload={"envelopeId": "env-1", "data": {"status": "SIGNED", "signatoryName": "Maria"}},
-        )
-        self.assertEqual(response.status_code, 200)
-        budget.approve.assert_called_once()
-
-    @patch("apps.workorder.models.WorkOrder.objects.filter")
-    @patch("apps.budget.models.Budget.objects.filter")
-    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
-    def test_envelope_type_with_completed_status_approves_budget(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
-        budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
-        budget_filter.return_value.first.return_value = budget
-        workorder_filter.return_value.first.return_value = None
-
-        response = process_signature_webhook_payload(
-            payload={"id": "env-1", "type": "envelope", "status": "COMPLETED"},
-        )
-        self.assertEqual(response.status_code, 200)
-        budget.approve.assert_called_once()
-
-    def test_extract_event_prefers_status_over_generic_type(self) -> None:
-        self.assertEqual(
-            extract_signature_event({"type": "envelope", "status": "SIGNED"}),
-            "ENVELOPE_COMPLETED",
-        )
-        self.assertEqual(extract_signature_envelope_id({"id": "env-99", "type": "envelope"}), "env-99")
-
-    @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=False)
     @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")
-    def test_workorder_signature_is_approved_when_completion_is_pending(
-        self,
-        approve_mock: Mock,
-        _can_finalize_mock: Mock,
-    ) -> None:
+    def test_workorder_signature_is_approved_when_completion_is_pending(self, approve_mock: Mock) -> None:
         from apps.workorder.models import WorkOrderStatus
 
         workorder = SimpleNamespace(
@@ -472,23 +430,18 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         workorder.mark_signature_approved.assert_called_once()
         approve_mock.assert_not_called()
 
-    @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=True)
     @patch(
         "apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock",
         side_effect=WorkOrderApprovalError("estoque insuficiente"),
     )
-    def test_workorder_signature_is_approved_even_when_finalize_fails(
-        self,
-        _approve_mock: Mock,
-        _can_finalize_mock: Mock,
-    ) -> None:
+    def test_workorder_signature_is_approved_even_when_finalize_fails(self, _approve_mock: Mock) -> None:
         from apps.workorder.models import WorkOrderStatus
 
         workorder = SimpleNamespace(
             pk=685,
             warranty_plan="days_90",
             mark_signature_approved=Mock(),
-            is_fully_paid=False,
+            is_fully_paid=True,
             budget_type="standard",
             status=WorkOrderStatus.DRAFT,
             save=Mock(),

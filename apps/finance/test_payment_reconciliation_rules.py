@@ -296,6 +296,7 @@ class PaymentReconciliationFormTests(TestCase):
             amount=Money(100, "BRL"),
             due_date=date(2026, 8, 5),
             payment_method=payment_method,
+            budget_plan=budget_plan,
         )
 
         form = ReportMovementEditForm(
@@ -308,6 +309,8 @@ class PaymentReconciliationFormTests(TestCase):
                 "gross_amount_0": "100.00",
                 "gross_amount_1": "BRL",
                 "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "discount_value_0": "0.00",
+                "discount_value_1": "BRL",
                 "amount_0": "100.00",
                 "amount_1": "BRL",
                 "budget_plan": str(budget_plan.pk),
@@ -350,9 +353,18 @@ class PaymentReconciliationFormTests(TestCase):
         form = ReportMovementEditForm(
             data={
                 "supplier": str(supplier.pk), "description": "Peças", "entry_date": "2026-08-05", "due_date": "2026-08-05",
-                "direction": FinancialMovement.MovementDirection.DEBIT, "amount_0": "100.00", "amount_1": "BRL",
-                "gross_amount_0": "100.00", "gross_amount_1": "BRL", "discount_mode": FinancialMovement.DiscountMode.NONE,
-                "budget_plan": str(budget_plan.pk), "payment_method": str(payment_method.pk), "is_paid": "True", "is_reconciled": "False",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "gross_amount_0": "100.00",
+                "gross_amount_1": "BRL",
+                "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "discount_value_0": "0.00",
+                "discount_value_1": "BRL",
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "budget_plan": str(budget_plan.pk),
+                "payment_method": str(payment_method.pk),
+                "is_paid": "True",
+                "is_reconciled": "False",
                 "is_partial_payment": "True", "partial_payment_amount_0": "100.00", "partial_payment_amount_1": "BRL",
             },
             instance=movement,
