@@ -565,7 +565,7 @@ class Budget(TimeStampedModel):
 
         #
         soma_base_orcamento = venda_pecas + venda_servico_terceiro
-        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
+        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun - self.resolved_discount_value
         divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra + custo_frete_servico).amount
 
         return (valor_orcamento_hun.amount / divisor_mlo) if divisor_mlo > 0 else Decimal("1.00")
@@ -1913,12 +1913,10 @@ class BudgetItem(TimeStampedModel):
         ganha_valor = (slider < 0 and is_product) or (slider > 0 and not is_product)
 
         if ganha_valor:
-            # Aplica o share sobre o que veio do outro grupo
             return original_unit + (valor_transferido_total * share)
-        else:
-            # Perde valor: retira do próprio lucro do item proporcional ao slider
-            margem_propria = max(original_unit - unit_cost, Money(0, "BRL"))
-            return original_unit - (margem_propria * percentual_slider)
+
+        own_margin = max(original_unit - unit_cost, Money(0, "BRL"))
+        return original_unit - (own_margin * percentual_slider)
 
     class Meta:
         verbose_name = "Item do Orçamento"

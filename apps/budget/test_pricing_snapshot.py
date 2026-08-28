@@ -342,3 +342,70 @@ class KitComponentWinningItemIdsTests(SimpleTestCase):
         product_winners, _service_winners = kit_component_winning_item_ids([lower, higher])
 
         self.assertEqual(product_winners[10], 22)
+
+
+class PricingSnapshotSliderFloorTests(SimpleTestCase):
+    def test_full_parts_slider_stops_labor_at_cost(self) -> None:
+        snapshot = build_pricing_snapshot(
+            items=[
+                _direct_product_item(product_id=1, quantity=1, selling="100.00", cost="40.00"),
+                _direct_service_item(service_id=1, quantity=1, selling="80.00", cost="20.00"),
+            ],
+            slider=-100,
+            discount_value=zero_money(),
+            discount_percentage=Decimal("0"),
+            labor_cost_value=_money("20.00"),
+        )
+
+        self.assertEqual(snapshot.total_labor_by_slider, _money("20.00"))
+        self.assertEqual(snapshot.total_products_by_slider, _money("160.00"))
+        self.assertEqual(snapshot.service_lines[0].adjusted_total, _money("20.00"))
+
+    def test_full_labor_slider_stops_products_at_cost(self) -> None:
+        snapshot = build_pricing_snapshot(
+            items=[
+                _direct_product_item(product_id=1, quantity=1, selling="100.00", cost="40.00"),
+                _direct_service_item(service_id=1, quantity=1, selling="80.00", cost="20.00"),
+            ],
+            slider=100,
+            discount_value=zero_money(),
+            discount_percentage=Decimal("0"),
+            labor_cost_value=_money("20.00"),
+        )
+
+        self.assertEqual(snapshot.total_products_by_slider, _money("40.00"))
+        self.assertEqual(snapshot.total_labor_by_slider, _money("140.00"))
+        self.assertEqual(snapshot.product_lines[0].adjusted_total, _money("40.00"))
+
+    def test_labor_floor_uses_catalog_cost_when_hunter_cost_is_zero(self) -> None:
+        snapshot = build_pricing_snapshot(
+            items=[
+                _direct_product_item(product_id=1, quantity=1, selling="100.00", cost="40.00"),
+                _direct_service_item(service_id=1, quantity=1, selling="80.00", cost="20.00"),
+            ],
+            slider=-100,
+            discount_value=zero_money(),
+            discount_percentage=Decimal("0"),
+            labor_cost_value=_money("0.00"),
+        )
+
+        self.assertEqual(snapshot.total_labor_by_slider, _money("20.00"))
+        self.assertEqual(snapshot.total_products_by_slider, _money("160.00"))
+
+    def test_product_line_does_not_fall_below_own_cost(self) -> None:
+        snapshot = build_pricing_snapshot(
+            items=[
+                _direct_product_item(product_id=1, quantity=1, selling="100.00", cost="90.00"),
+                _direct_product_item(product_id=2, quantity=1, selling="100.00", cost="10.00"),
+                _direct_service_item(service_id=1, quantity=1, selling="50.00", cost="10.00"),
+            ],
+            slider=100,
+            discount_value=zero_money(),
+            discount_percentage=Decimal("0"),
+            labor_cost_value=_money("10.00"),
+        )
+
+        by_id = {line.entity_id: line.adjusted_total for line in snapshot.product_lines}
+        self.assertGreaterEqual(by_id[1], _money("90.00"))
+        self.assertGreaterEqual(by_id[2], _money("10.00"))
+        self.assertEqual(snapshot.total_products_by_slider, _money("100.00"))
