@@ -35,7 +35,7 @@ def term_signature_status_badge(signing: BudgetTermSigning | None) -> dict[str, 
 def can_toggle_term_signed_pdf(signing: BudgetTermSigning | None) -> bool:
     if signing is None:
         return False
-    return signing.signature_request_status in {TermSignatureStatus.SENT, TermSignatureStatus.APPROVED} and bool(
+    return signing.signature_request_status == TermSignatureStatus.APPROVED and bool(
         signing.signature_external_id or signing.signature_document_id
     )
 
