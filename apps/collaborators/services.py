@@ -1006,15 +1006,15 @@ def remove_pending_workorder_commissions(*, workorder: WorkOrder) -> int:
 
 
 def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionEntry) -> str:
-    # v3: distinguir fixo vs pool
+    # v3: distinguir fixo vs montante de distribuição percentual de comissão
     if getattr(entry, "is_fixed_amount", False):
         return f"Valor fixo {entry.commission_amount}"
-    # pool: mostrar distribuição e pool
+    # montante de distribuição percentual de comissão: mostrar distribuição e montante
     dist = getattr(entry, "distribution_percentage", None)
     pool = getattr(entry, "pool_amount", None)
     if dist is not None and pool is not None and Decimal(str(dist)) > 0:
         dist_display = (Decimal(str(dist)) * Decimal("100")).quantize(Decimal("0.01"))
-        return f"{dist_display}% do pool {pool} (base {entry.base_amount} × { (Decimal(str(entry.percentage or 0))*Decimal('100')).quantize(Decimal('0.01')) }%)"
+        return f"{dist_display}% do montante de distribuição percentual de comissão {pool} (base {entry.base_amount} × { (Decimal(str(entry.percentage or 0))*Decimal('100')).quantize(Decimal('0.01')) }%)"
     return f"{entry.percentage * Decimal('100'):.2f}% sobre {entry.base_amount}"
 
 

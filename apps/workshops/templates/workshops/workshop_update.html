@@ -783,11 +783,21 @@
                     <span>Configure os limites máximos de comissão por colaborador e escolha se a base será <strong>Bruto</strong> (valor de venda total, com frete) ou <strong>Lucro</strong> (venda - custo). O limite bloqueia o cadastro do colaborador.</span>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                    <div class="col-span-12 lg:col-span-3">{{ commission_form.service_commission_max_percentage|as_crispy_field }}</div>
-                    <div class="col-span-12 lg:col-span-3">{{ commission_form.service_commission_base|as_crispy_field }}</div>
-                    <div class="col-span-12 lg:col-span-3">{{ commission_form.product_commission_max_percentage|as_crispy_field }}</div>
-                    <div class="col-span-12 lg:col-span-3">{{ commission_form.product_commission_base|as_crispy_field }}</div>
+                <div class="space-y-6">
+                    <div class="rounded-lg border border-base-200 p-4">
+                        <h3 class="text-base font-semibold mb-3">Serviço</h3>
+                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                            <div class="col-span-12 lg:col-span-6">{{ commission_form.service_commission_max_percentage|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-6">{{ commission_form.service_commission_base|as_crispy_field }}</div>
+                        </div>
+                    </div>
+                    <div class="rounded-lg border border-base-200 p-4">
+                        <h3 class="text-base font-semibold mb-3">Produto</h3>
+                        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                            <div class="col-span-12 lg:col-span-6">{{ commission_form.product_commission_max_percentage|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-6">{{ commission_form.product_commission_base|as_crispy_field }}</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="divider"></div>

@@ -525,7 +525,7 @@ class CollaboratorCommissionScopeForm(CoreModelForm):
             self.fields["percentage"].help_text = "Ex.: 10% (0 a 100). Limite da oficina será validado."
         if "fixed_amount" in self.fields:
             self.fields["fixed_amount"].required = False
-            self.fields["fixed_amount"].help_text = "Ex.: R$ 10,00 — não entra no pool, fora do limite %."
+            self.fields["fixed_amount"].help_text = "Ex.: R$ 10,00 — não entra no montante de distribuição percentual de comissão, fora do limite %."
         if "is_active" in self.fields:
             self.fields["is_active"].required = False
             self.fields["is_active"].widget.attrs["x-model"] = "enabled"

@@ -412,7 +412,7 @@ class CollaboratorCommissionRule(TimeStampedModel):
 
 
 class WorkOrderCommissionAllocation(TimeStampedModel):
-    """Base (%) manual por WO e colaborador/escopo — distribuição do pool."""
+    """Base (%) manual por WO e colaborador/escopo — distribuição do montante de distribuição percentual de comissão."""
 
     class Scope(models.TextChoices):
         SERVICE = "service", "Serviço"
@@ -427,7 +427,7 @@ class WorkOrderCommissionAllocation(TimeStampedModel):
         decimal_places=6,
         default=Decimal("0"),
         validators=[MinValueValidator(0), MaxValueValidator(1)],
-        help_text="Percentual da distribuição do pool para este colaborador no escopo.",
+        help_text="Percentual da distribuição do montante de distribuição percentual de comissão para este colaborador no escopo.",
     )
 
     class Meta(TimeStampedModel.Meta):
@@ -484,7 +484,7 @@ class CollaboratorCommissionEntry(TimeStampedModel):
         choices=CommissionOrigin.choices,
         null=True,
         blank=True,
-        help_text="Escopo + modalidade + aplicação da comissão no pool.",
+        help_text="Escopo + modalidade + aplicação da comissão no montante de distribuição percentual de comissão.",
     )
     commission_rule = models.ForeignKey(
         "collaborators.CollaboratorCommissionRule",
@@ -501,7 +501,7 @@ class CollaboratorCommissionEntry(TimeStampedModel):
         default=Decimal("0"),
         validators=[MinValueValidator(0), MaxValueValidator(1)],
     )
-    pool_amount = MoneyField(verbose_name="Valor do Pool", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    pool_amount = MoneyField(verbose_name="Valor do montante de distribuição percentual de comissão", max_digits=14, decimal_places=2, default=Decimal("0.00"))
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Lançamento de Comissão do Colaborador"

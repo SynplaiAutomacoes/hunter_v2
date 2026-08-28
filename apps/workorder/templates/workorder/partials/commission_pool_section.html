@@ -4,9 +4,9 @@
     {% if not commission_is_sale %}
         <p class="text-sm text-base-content/70">Comissão não se aplica a orçamentos de garantia ou cortesia.</p>
     {% elif not commission_consolidates %}
-        <p class="text-sm text-base-content/70 mb-2">Os valores abaixo são uma previsão. A comissão só é consolidada após a entrega do veículo. Distribua o pool manualmente por colaborador.</p>
+        <p class="text-sm text-base-content/70 mb-2">Os valores abaixo são uma previsão. A comissão só é consolidada após a entrega do veículo. Distribua o montante de distribuição percentual de comissão manualmente por colaborador.</p>
     {% else %}
-        <p class="text-sm text-base-content/70 mb-2">Comissão consolidada a partir desta O.S. entregue. A distribuição do pool permanece editável apenas para previsão; entradas PAID são imutáveis.</p>
+        <p class="text-sm text-base-content/70 mb-2">Comissão consolidada a partir desta O.S. entregue. A distribuição do montante de distribuição percentual de comissão permanece editável apenas para previsão; entradas PAID são imutáveis.</p>
     {% endif %}
 
     {% for pool in pool_sections %}
@@ -14,7 +14,7 @@
         <div class="rounded-xl border border-base-200 p-4">
             <div class="flex items-center justify-between mb-3">
                 <h5 class="font-semibold text-base">{{ scope_label }}</h5>
-                <span class="text-sm">Total da comissão p/ WO: <strong>{{ pool.total_commission }}</strong> <span class="text-xs text-base-content/60">(pool {{ pool.pool_S }} + fixos {{ pool.fixed_total }})</span></span>
+                <span class="text-sm">Total máximo de comissão percentual à distribuir: <strong>{{ pool.pool_S }}</strong></span>
             </div>
             {% if pool.sum_base_pct > 1 %}
                 <div class="alert alert-warning text-xs mb-3">
@@ -38,7 +38,7 @@
                                 <td>
                                     <div class="flex flex-col">
                                         <span>{{ row.name }}</span>
-                                        {% if row.is_global %}<span class="text-xs text-info">Global (fora do pool)</span>{% endif %}
+                                        {% if row.is_global %}<span class="text-xs text-info">Global (fora do montante de distribuição percentual de comissão)</span>{% endif %}
                                     </div>
                                 </td>
                                 <td>
@@ -91,7 +91,7 @@
                     </tbody>
                 </table>
             </div>
-            <p class="text-xs text-base-content/60 mt-2">Pool = Total {{ scope_label }} ({{ pool.total_S }}) × maior % ({{ pool.max_pct_display }}%) = {{ pool.pool_S }}. Base (%) distribui o pool; fixos somam fora do pool; global não entra no total exibido.</p>
+            <p class="text-xs text-base-content/60 mt-2">Montante de distribuição percentual de comissão = Total {{ scope_label }} ({{ pool.total_S }}) × maior % ({{ pool.max_pct_display }}%) = {{ pool.pool_S }}. Base (%) distribui o montante de distribuição percentual de comissão; valores fixos e globais não entram neste total e são pagos à parte.</p>
         </div>
         {% endwith %}
     {% empty %}

@@ -354,7 +354,7 @@
             <div x-show="receives_commission" x-cloak class="rounded-xl border border-base-300 p-4 space-y-4">
                 <div>
                     <h3 class="text-base font-semibold">Regras de comissão</h3>
-                    <p class="text-sm text-base-content/70">Configure Percentual OU Valor Fixo por escopo. Percentual respeita o limite da oficina; Valor Fixo não entra no pool. Aplicação define se a regra é por participação na O.S. ou global.</p>
+                    <p class="text-sm text-base-content/70">Configure Percentual OU Valor Fixo por escopo. Percentual respeita o limite da oficina; Valor Fixo não entra no montante de distribuição percentual de comissão. Aplicação define se a regra é por participação na O.S. ou global.</p>
                 </div>
                 <!-- Serviço -->
                 <div class="rounded-xl border border-base-200 p-4 space-y-3" x-data="{ enabled: {{ commission_service_form.is_active.value|yesno:'true,false,false' }} }" data-rule-exclusive>
@@ -368,7 +368,7 @@
                         <div class="col-span-12 lg:col-span-4">{{ commission_service_form.fixed_amount|as_crispy_field }}</div>
                         <div class="col-span-12 lg:col-span-4">{{ commission_service_form.apply_scope|as_crispy_field }}</div>
                     </div>
-                    <p x-show="enabled" class="text-xs text-base-content/60">Informe apenas Percentual OU Valor Fixo. Percentual ≤ limite da oficina; Valor Fixo fica fora do pool.</p>
+                    <p x-show="enabled" class="text-xs text-base-content/60">Informe apenas Percentual OU Valor Fixo. Percentual ≤ limite da oficina; Valor Fixo fica fora do montante de distribuição percentual de comissão.</p>
                     {% if commission_service_form.non_field_errors %}<div class="text-sm text-error">{{ commission_service_form.non_field_errors }}</div>{% endif %}
                 </div>
                 <!-- Produto -->
@@ -383,7 +383,7 @@
                         <div class="col-span-12 lg:col-span-4">{{ commission_product_form.fixed_amount|as_crispy_field }}</div>
                         <div class="col-span-12 lg:col-span-4">{{ commission_product_form.apply_scope|as_crispy_field }}</div>
                     </div>
-                    <p x-show="enabled" class="text-xs text-base-content/60">Informe apenas Percentual OU Valor Fixo. Percentual ≤ limite da oficina; Valor Fixo fica fora do pool.</p>
+                    <p x-show="enabled" class="text-xs text-base-content/60">Informe apenas Percentual OU Valor Fixo. Percentual ≤ limite da oficina; Valor Fixo fica fora do montante de distribuição percentual de comissão.</p>
                     {% if commission_product_form.non_field_errors %}<div class="text-sm text-error">{{ commission_product_form.non_field_errors }}</div>{% endif %}
                 </div>
             </div>
