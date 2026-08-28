@@ -1,3 +1,4 @@
+{% load l10n %}
 <div class="mb-9 w-[100%] mx-auto">
     <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 lg:gap-3">
 
@@ -22,7 +23,7 @@
                 {% if not forloop.last %} lg:rounded-none {% endif %}"
 
                 {% if step.number <= max_reached_step and step.number >= min_accessible_step|default:1 and step.number != current_step %}
-                    hx-get="?step={{ step.number }}{% if object.pk %}&pk={{ object.pk }}{% endif %}"
+                    hx-get="?step={{ step.number }}{% if object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
                     hx-target="#step-container"
                     hx-push-url="true"
                 {% endif %}>
