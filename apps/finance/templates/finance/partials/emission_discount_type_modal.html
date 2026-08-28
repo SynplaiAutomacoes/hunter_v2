@@ -1,6 +1,9 @@
-<form method="post" action="?step={{ current_step }}">
+<form method="post" action="{% if form_action %}{{ form_action }}{% else %}?step={{ current_step }}{% endif %}"{% if use_htmx and form_action %} hx-post="{{ form_action }}" hx-target="#modal-container"{% endif %}>
     {% csrf_token %}
     <input type="hidden" name="note_mode" value="{{ note_mode }}">
+    {% if pricing_slider is not None %}
+    <input type="hidden" name="pricing_slider" value="{{ pricing_slider }}">
+    {% endif %}
 
     <div class="modal-box max-w-2xl">
         <button type="button"

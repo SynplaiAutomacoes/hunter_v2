@@ -72,7 +72,10 @@ def get_financial_movement_table_columns() -> list[TableColumn]:
         TableColumn("ID", attr="id"),
         TableColumn(FinancialMovement.source.field.verbose_name, attr="source", search_by="source__name"),
         TableColumn("Tipo", attr="get_direction_display", search_by="direction"),
-        TableColumn(FinancialMovement.amount.field.verbose_name, attr=FinancialMovement.amount.field.name),
+        TableColumn("Lançamento", attr="entry_date"),
+        TableColumn("Valor Bruto", attr="gross_amount", format="money_br"),
+        TableColumn("Ajuste", attr="resolved_adjustment_amount", sortable=False, searchable=False, format="money_br"),
+        TableColumn("Valor Líquido", attr=FinancialMovement.amount.field.name, format="money_br"),
         TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
         TableColumn("Conciliado", attr="is_reconciled"),
     ]
@@ -261,8 +264,6 @@ def _resolve_workorder_description(workorder: object) -> str:
 
 def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str, Any], per_payment_movements: dict[int, FinancialMovement], workshop: Any, aggregate_movements: dict[int, FinancialMovement] | None = None) -> list[object]:
     paid_status = filter_params.get("paid_status", "")
-    if paid_status == "unpaid":
-        return []
 
     start_date = filter_params.get("start_date")
     end_date = filter_params.get("end_date")
@@ -286,6 +287,10 @@ def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str,
             if workorder_id and aggregate_movements and workorder_id in aggregate_movements:
                 payment_movement = aggregate_movements[workorder_id]
         if payment_movement is None:
+            continue
+        if paid_status == "paid" and not payment_movement.is_paid:
+            continue
+        if paid_status == "unpaid" and payment_movement.is_paid:
             continue
         is_reconciled = bool(getattr(payment_movement, "is_reconciled", False))
         if reconciliation_status == "reconciled" and not is_reconciled:
@@ -348,12 +353,18 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                         "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
                         "direction": FinancialMovement.MovementDirection.CREDIT,
                         "direction_label": "Crédito",
+                        "entry_date": payment_movement.entry_date,
                         "due_date": payment.due_date or movement.due_date,
                         "agent": agent,
                         "description": _resolve_workorder_description(workorder) if workorder is not None else description,
                         "budget_plan": payment_movement.report_budget_plan_display,
                         "payment_type": getattr(payment_method, "description", "-") or "-",
                         "amount": payment_amount,
+                        "gross_amount": payment_amount,
+                        "discount_amount": Money(0, "BRL"),
+                        "adjustment_amount": Money(0, "BRL"),
+                        "adjustment_label": "Desconto",
+                        "adjustment_is_surcharge": False,
                     }
                 )
                 continue
@@ -371,12 +382,18 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                         "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
                         "direction": FinancialMovement.MovementDirection.CREDIT,
                         "direction_label": "Crédito",
+                        "entry_date": payment_movement.entry_date,
                         "due_date": payment.due_date or movement.due_date,
                         "agent": agent,
                         "description": _resolve_workorder_description(workorder) if workorder is not None else description,
                         "budget_plan": payment_movement.report_budget_plan_display,
                         "payment_type": getattr(payment_method, "description", "-") or "-",
                         "amount": payment_amount,
+                        "gross_amount": payment_amount,
+                        "discount_amount": Money(0, "BRL"),
+                        "adjustment_amount": Money(0, "BRL"),
+                        "adjustment_label": "Desconto",
+                        "adjustment_is_surcharge": False,
                     }
                 )
             continue
@@ -387,12 +404,18 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 "reconciliation_status": "Conciliado" if movement.is_reconciled else "Aguardando Conciliação",
                 "direction": movement.direction,
                 "direction_label": _movement_pdf_direction_label(movement),
+                "entry_date": movement.entry_date,
                 "due_date": movement.due_date,
                 "agent": agent,
                 "description": description,
                 "budget_plan": movement.report_budget_plan_display,
                 "payment_type": movement.report_payment_method_display,
                 "amount": movement.amount or Money(0, "BRL"),
+                "gross_amount": movement.gross_amount or movement.amount or Money(0, "BRL"),
+                "discount_amount": movement.resolved_discount_amount,
+                "adjustment_amount": movement.resolved_adjustment_amount,
+                "adjustment_label": movement.adjustment_label,
+                "adjustment_is_surcharge": movement.discount_mode == FinancialMovement.DiscountMode.SURCHARGE,
             }
         )
     return rows
@@ -690,7 +713,7 @@ class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, Worksho
         if self.request.htmx:
             from django.http import HttpResponse
 
-            response = HttpResponse(status=204)
+            response = HttpResponse()
             response["HX-Redirect"] = success_url
             return response
 

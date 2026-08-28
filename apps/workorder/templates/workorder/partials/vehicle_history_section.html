@@ -2,47 +2,41 @@
     <h3 class="font-bold text-2xl pb-2 mb-2">Histórico de Serviços para o Veículo: {{ workorder.budget.vehicle }}</h3>
 
     <div class="space-y-4">
-        {% for budget in workorder.budget.vehicle.budgets.all %}
+        {% for wo in vehicle_history %}
             <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center p-4 hover:bg-base-200 transition-colors">
+                <div class="flex-1">
+                    <p class="text-lg font-bold">Ordem de Serviço: #{{ wo.public_number }}</p>
 
-                {% if budget.status == 'approved' and budget.workorders.exists %}
-                    {% with wo=budget.workorders.first %}
-                    <div class="flex-1">
-                        <p class="text-lg font-bold">Ordem de Serviço: #{{ wo.id }}</p>
-                        <p class="text-sm text-base-content/70">Data de Registro: {{ wo.criado_em|date:"d/m/Y H:i" }}</p>
-                        {% if wo.delivered_at %}
-                            <p class="text-sm text-base-content/70">Data de saída: {{ wo.delivered_at|date:"d/m/Y H:i" }}</p>
-                        {% endif %}
-                        {% if wo.warranty_status_label %}
-                            <p class="text-sm text-base-content/70">
-                                Garantia: {{ wo.warranty_plan_display }}
-                                {% if wo.warranty_expires_at %} — válida até {{ wo.warranty_expires_at|date:"d/m/Y" }}{% endif %}
-                                — <span class="font-semibold">{{ wo.warranty_status_label }}</span>
-                            </p>
-                        {% endif %}
-                    </div>
+                    <p class="text-sm text-base-content/70">
+                        Data de registro: {{ wo.criado_em|date:"d/m/Y H:i"|default:"-" }}
+                    </p>
+                    <p class="text-sm text-base-content/70">
+                        KM de entrada: {{ wo.budget.current_km|default_if_none:"-" }}
+                    </p>
+                    <p class="text-sm text-base-content/70">
+                        Data de saída: {{ wo.delivered_at|date:"d/m/Y H:i"|default:"-" }}
+                    </p>
+                    <p class="text-sm text-base-content/70">
+                        KM de saída: {{ wo.km_final|default_if_none:"-" }}
+                    </p>
 
-                    <div class="flex flex-col items-end gap-2 mt-2 lg:mt-0">
-                        <span class="font-semibold uppercase badge {{ wo.workorder_status_badge.class }}">{{ wo.workorder_status_badge.text }}</span>
-                        <a href="{% url 'workorder:workorder_detail' wo.id %}" class="text-[#0000cd] hover:underline">
-                            Abrir Ordem de Serviço
-                        </a>
-                    </div>
-                    {% endwith %}
+                    {% if wo.warranty_status_label %}
+                        <p class="text-sm text-base-content/70">
+                            Garantia: {{ wo.warranty_plan_display }}
+                            {% if wo.warranty_expires_at %} — válida até {{ wo.warranty_expires_at|date:"d/m/Y" }}{% endif %}
+                            — <span class="font-semibold">{{ wo.warranty_status_label }}</span>
+                        </p>
+                    {% endif %}
+                </div>
 
-                {% else %}
-                    <div class="flex-1">
-                        <p class="text-lg font-bold">Orçamento: #{{ budget.number }}</p>
-                        <p class="text-sm text-base-content/70">Data de Registro: {{ budget.criado_em|date:"d/m/Y H:i" }}</p>
-                    </div>
-
-                    <div class="flex flex-col items-end gap-2 mt-2 lg:mt-0">
-                        <span class="font-semibold uppercase">{{ budget.budget_status }}</span>
-                        <a href="{% url 'budget:budget_update' budget.id %}" class="text-[#0000cd] hover:underline">
-                            Abrir Orçamento
-                        </a>
-                    </div>
-                {% endif %}
+                <div class="flex flex-col items-end gap-2 mt-2 lg:mt-0">
+                    <span class="font-semibold uppercase badge {{ wo.workorder_status_badge.class }}">
+                        {{ wo.workorder_status_badge.text }}
+                    </span>
+                    <a href="{% url 'workorder:workorder_detail' wo.id %}" class="text-[#0000cd] hover:underline">
+                        Abrir Ordem de Serviço
+                    </a>
+                </div>
             </div>
         {% empty %}
             <div class="alert alert-info">

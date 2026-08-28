@@ -182,7 +182,7 @@ class SynplaiSignSignatureService(ISignatureService):
             raise SignatureServiceError(str(exc)) from exc
 
     def ensure_webhook(self, *, webhook_url: str, events: list[str] | None = None, api_key: str = "") -> dict[str, Any]:
-        expected_events = list(events or ["ENVELOPE_COMPLETED"])
+        expected_events = list(events or ["ENVELOPE_COMPLETED", "DOCUMENT_SIGNED", "DOCUMENT_DECLINED"])
         resolved_api_key = _require_request_api_key(api_key)
         try:
             existing = gateway.list_webhooks(api_key=resolved_api_key)

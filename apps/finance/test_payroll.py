@@ -8,16 +8,18 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from djmoney.money import Money
 
-from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import sync_collaborator_payroll
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.services import add_manual_payroll_commission, delete_payroll_component_and_recalculate, sync_collaborator_commission_entries, sync_collaborator_payroll
 from apps.collaborators.test_commissions import create_financial_group_path, create_workorder
+from apps.collaborators.views import CollaboratorPayrollReceiptView
 from apps.core.presentation.navigation import get_navbar_menus
 from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.dre import _agent_label
 from apps.finance.services.payroll_visibility import PAYROLL_REDACTED_LABEL, resolve_payroll_movement_display
 from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementRemovePayrollLinkView
-from apps.finance.views.payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView
+from apps.finance.views.payroll import PayrollAddManualBenefitView, PayrollAddManualCommissionView, PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView
 from apps.finance.views.reports import ReportMovementEditView
 from apps.workshops.models.workshops import Workshop
 
@@ -81,7 +83,7 @@ class PayrollListViewTests(TestCase):
         rows = context["payroll_rows"]
         self.assertEqual(len(rows), 2)
         pending_row = next(row for row in rows if row["collaborator_name"] == collaborator.name)
-        self.assertEqual(pending_row["status_label"], "Pendente de cria├º├úo")
+        self.assertEqual(pending_row["status_label"], "Pendente de criação")
         self.assertFalse(pending_row["can_select"])
         self.assertIn(reverse("finance:payroll_edit_modal_for_collaborator", kwargs={"collaborator_pk": collaborator.pk}), pending_row["edit_url"])
 
@@ -373,6 +375,8 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertIn("Excluir", content)
+        self.assertIn('name="tab"', content)
+        self.assertIn(':value="activeTab"', content)
 
     def test_payroll_movements_store_named_agent_and_description(self) -> None:
         workshop = create_workshop(suffix=24)
@@ -390,7 +394,7 @@ class PayrollEditModalViewTests(TestCase):
         self.assertTrue(all(movement.report_agent_display == collaborator.name for movement in movements))
         self.assertTrue(all(_agent_label(movement) == collaborator.name for movement in movements))
         self.assertTrue(all(collaborator.name in str(movement.description or "") for movement in movements))
-        self.assertIn(f"Sal├írio {collaborator.name} - 08/2026", [str(movement.description) for movement in movements])
+        self.assertIn(f"Salário {collaborator.name} - 08/2026", [str(movement.description) for movement in movements])
 
     def test_payroll_movements_are_redacted_without_permission(self) -> None:
         workshop = create_workshop(suffix=25)
@@ -471,8 +475,9 @@ class PayrollEditModalViewTests(TestCase):
         response = view.get(request)
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("6,00%", response.content.decode())
-        self.assertIn("N├úo Pago", response.content.decode())
+        content = response.content.decode()
+        self.assertIn("6,00%", content)
+        self.assertIn("Não Pago", content)
 
     def test_edit_modal_displays_reconciliation_field(self) -> None:
         workshop = create_workshop(suffix=3)
@@ -509,7 +514,7 @@ class PayrollEditModalViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Conciliado", response.content.decode())
-        self.assertIn("Aguardando Concilia├º├úo", response.content.decode())
+        self.assertIn("Aguardando Conciliação", response.content.decode())
 
     def test_new_financial_movement_defaults_to_not_reconciled(self) -> None:
         workshop = create_workshop(suffix=4)
@@ -529,9 +534,18 @@ class PayrollEditModalViewTests(TestCase):
     def test_submit_form_saves_reconciliation_status(self) -> None:
         workshop = create_workshop(suffix=5)
         collaborator = create_collaborator(workshop=workshop, suffix=5)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
+        bank_account = BankAccount.objects.create(
+            workshop=workshop,
+            bank_code="001",
+            bank_name="Banco Teste",
+            agency="1234",
+            account_number="98765-5",
+        )
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description="Folha",
             amount=Money(2000, "BRL"),
@@ -549,13 +563,18 @@ class PayrollEditModalViewTests(TestCase):
             salary_amount=Money(2000, "BRL"),
             total_amount=Money(2000, "BRL"),
         )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
             {
+                "tab": "SALARY",
                 "comp_SALARY-due_date": "2026-08-05",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
+                "comp_SALARY-bank_account": str(bank_account.pk),
                 "comp_SALARY-is_paid": "True",
                 "comp_SALARY-is_reconciled": "True",
             },
@@ -570,20 +589,139 @@ class PayrollEditModalViewTests(TestCase):
 
         movement.refresh_from_db()
         self.assertEqual(response.status_code, 200)
-        self.assertIn("HX-Refresh", response.headers)
+        self.assertNotIn("HX-Refresh", response.headers)
+        self.assertIn("payrollListRefresh", response.headers.get("HX-Trigger", ""))
+        self.assertIn("Editar Folha de Pagamento", response.content.decode())
         self.assertTrue(movement.is_paid)
         self.assertTrue(movement.is_reconciled)
 
-    def test_submit_form_updates_due_date_for_unpaid_payroll_without_sync_reverting_it(self) -> None:
-        workshop = create_workshop(suffix=6)
-        collaborator = create_collaborator(workshop=workshop, suffix=6)
+    def test_submit_form_keeps_modal_open_on_commission_tab(self) -> None:
+        workshop = create_workshop(suffix=51)
+        collaborator = create_collaborator(workshop=workshop, suffix=51)
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            commission_amount=Money(120, "BRL"),
+            total_amount=Money(2120, "BRL"),
+        )
+        salary_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.COMMISSION,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Comissao",
+            amount=Money(150, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payroll.financial_movement = salary_movement
+        payroll.save(update_fields=["financial_movement"])
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "tab": "COMMISSION",
+                "comp_COMMISSION-due_date": "2026-08-05",
+                "comp_COMMISSION-amount_0": "150.00",
+                "comp_COMMISSION-amount_1": "BRL",
+                "comp_COMMISSION-is_paid": "False",
+                "comp_COMMISSION-is_reconciled": "False",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("HX-Refresh", response.headers)
+        content = response.content.decode()
+        self.assertIn("activeTab: 'COMMISSION'", content)
+        self.assertIn("Editar Folha de Pagamento", content)
+
+    def test_submit_form_keeps_modal_open_on_collaborator_tab(self) -> None:
+        workshop = create_workshop(suffix=52)
+        collaborator = create_collaborator(workshop=workshop, suffix=52)
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description="Folha",
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+            work_days=20,
+        )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "tab": "collaborator",
+                "work_days": "22",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("HX-Refresh", response.headers)
+        self.assertIn("payrollListRefresh", response.headers.get("HX-Trigger", ""))
+        content = response.content.decode()
+        self.assertIn("activeTab: 'collaborator'", content)
+        self.assertIn("Editar Folha de Pagamento", content)
+        self.assertEqual(payroll.work_days, 22)
+
+    def test_submit_form_updates_due_date_for_unpaid_payroll_without_sync_reverting_it(self) -> None:
+        workshop = create_workshop(suffix=6)
+        collaborator = create_collaborator(workshop=workshop, suffix=6)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            budget_plan=budget_plan,
             is_paid=False,
             is_reconciled=False,
         )
@@ -597,6 +735,8 @@ class PayrollEditModalViewTests(TestCase):
             salary_amount=Money(2000, "BRL"),
             total_amount=Money(2000, "BRL"),
         )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -604,6 +744,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-12",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "False",
                 "comp_SALARY-is_reconciled": "False",
             },
@@ -625,13 +766,16 @@ class PayrollEditModalViewTests(TestCase):
     def test_submit_form_updates_due_date_for_paid_payroll(self) -> None:
         workshop = create_workshop(suffix=7)
         collaborator = create_collaborator(workshop=workshop, suffix=7)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
             description="Folha",
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
+            budget_plan=budget_plan,
             is_paid=False,
             is_reconciled=False,
         )
@@ -645,6 +789,8 @@ class PayrollEditModalViewTests(TestCase):
             salary_amount=Money(2000, "BRL"),
             total_amount=Money(2000, "BRL"),
         )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -652,6 +798,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-15",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "True",
                 "comp_SALARY-is_reconciled": "False",
             },
@@ -670,6 +817,70 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(payroll.due_date, date(2026, 8, 15))
         self.assertEqual(movement.due_date, date(2026, 8, 15))
         self.assertTrue(movement.is_paid)
+
+    def test_submit_form_persists_amount_and_budget_plan_when_work_days_are_posted(self) -> None:
+        workshop = create_workshop(suffix=81)
+        collaborator = create_collaborator(workshop=workshop, suffix=81)
+        original_plan = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 11],
+            names=["Despesas Trabalhistas", "Folha", "Salarios"],
+        )
+        new_plan = FinancialGroup.objects.create(workshop=workshop, parent=original_plan.parent, name="Salarios Extra")
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            budget_plan=original_plan,
+            is_paid=False,
+            is_reconciled=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            work_days=22,
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        movement.payroll = payroll
+        movement.save(update_fields=["payroll"])
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "work_days": "22",
+                "comp_SALARY-due_date": "2026-08-05",
+                "comp_SALARY-amount_0": "2750.00",
+                "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(new_plan.pk),
+                "comp_SALARY-is_paid": "False",
+                "comp_SALARY-is_reconciled": "False",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        movement.refresh_from_db()
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(movement.amount, Money(2750, "BRL"))
+        self.assertEqual(movement.budget_plan_id, new_plan.pk)
+        self.assertEqual(payroll.salary_amount, Money(2750, "BRL"))
+        self.assertEqual(payroll.total_amount, Money(2750, "BRL"))
+        self.assertEqual(FinancialMovement.objects.filter(payroll=payroll, payroll_component=FinancialMovement.PayrollComponent.SALARY).count(), 1)
 
     def test_submit_form_marking_payroll_as_unpaid_resets_all_split_movements_reconciliation(self) -> None:
         workshop = create_workshop(suffix=8)
@@ -710,6 +921,9 @@ class PayrollEditModalViewTests(TestCase):
         )
         payroll.financial_movement = salary_movement
         payroll.save(update_fields=["financial_movement"])
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salarios"])
+        salary_movement.budget_plan = budget_plan
+        salary_movement.save(update_fields=["budget_plan"])
 
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
@@ -717,6 +931,7 @@ class PayrollEditModalViewTests(TestCase):
                 "comp_SALARY-due_date": "2026-08-05",
                 "comp_SALARY-amount_0": "2000.00",
                 "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(budget_plan.pk),
                 "comp_SALARY-is_paid": "False",
                 "comp_SALARY-is_reconciled": "True",
             },
@@ -768,7 +983,7 @@ class PayrollEditModalViewTests(TestCase):
         payroll.refresh_from_db()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(FinancialMovement.objects.filter(payroll=payroll).count(), 0)
-        self.assertIn("Criar movimenta├º├╡es faltantes", response.content.decode())
+        self.assertIn("Criar movimentações faltantes", response.content.decode())
 
     def test_edit_modal_for_missing_payroll_requests_confirmation_first(self) -> None:
         workshop = create_workshop(suffix=27)
@@ -884,7 +1099,7 @@ class PayrollEditModalViewTests(TestCase):
             payroll=payroll,
             payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Sal├írio folha",
+            description="Salário folha",
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
         )
@@ -929,7 +1144,7 @@ class PayrollEditModalViewTests(TestCase):
             payroll=payroll,
             payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Sal├írio",
+            description="Salário",
             amount=Money(1800, "BRL"),
             due_date=date(2026, 9, 5),
         )
@@ -939,7 +1154,7 @@ class PayrollEditModalViewTests(TestCase):
             payroll=payroll,
             payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Benef├¡cio",
+            description="Benefício",
             amount=Money(200, "BRL"),
             due_date=date(2026, 9, 5),
         )
@@ -1010,7 +1225,7 @@ class ReportMovementEditRedirectTests(TestCase):
             workshop=workshop,
             collaborator=collaborator,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Movimenta├º├úo comum",
+            description="Movimentação comum",
             amount=Money(500, "BRL"),
             due_date=date(2026, 8, 5),
             is_paid=False,
@@ -1027,7 +1242,7 @@ class ReportMovementEditRedirectTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         content = response.rendered_content
-        self.assertIn("Editar Movimenta├º├úo Financeira", content)
+        self.assertIn("Editar Movimentação Financeira", content)
 
     def test_secondary_payroll_movement_modal_shows_remove_from_payroll_button(self) -> None:
         workshop = create_workshop(suffix=25)
@@ -1250,7 +1465,7 @@ class PayrollBulkActionsTests(TestCase):
     def test_bulk_conciliate_marks_selected_payroll_movements_as_reconciled(self) -> None:
         workshop = create_workshop(suffix=31)
         collaborator = create_collaborator(workshop=workshop, suffix=31)
-        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Sal├írios"])
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salários"])
         bank_account = BankAccount.objects.create(
             workshop=workshop,
             bank_code="001",
@@ -1321,7 +1536,7 @@ class PayrollBulkActionsTests(TestCase):
     def test_bulk_conciliate_warns_when_selected_payroll_has_unpaid_movement(self) -> None:
         workshop = create_workshop(suffix=32)
         collaborator = create_collaborator(workshop=workshop, suffix=32)
-        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 12], names=["Despesas", "Folha", "Comiss├╡es"])
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 12], names=["Despesas", "Folha", "Comissões"])
         bank_account = BankAccount.objects.create(
             workshop=workshop,
             bank_code="237",
@@ -1372,3 +1587,361 @@ class PayrollBulkActionsTests(TestCase):
         self.assertIn("HX-Trigger", response.headers)
         self.assertIn(collaborator.name, response.headers["HX-Trigger"])
         self.assertFalse(movement.is_reconciled)
+
+
+class PayrollManualLaunchTests(TestCase):
+    def _create_payroll(self, *, suffix: int, month: int = 8) -> tuple[Workshop, WorkshopCollaborator, CollaboratorPayroll, FinancialGroup]:
+        workshop = create_workshop(suffix=suffix)
+        collaborator = create_collaborator(workshop=workshop, suffix=suffix)
+        budget_plan = FinancialGroup.objects.create(workshop=workshop, name=f"Plano Beneficio {suffix}")
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, month, 1), lock_reference=True)
+        return workshop, collaborator, payroll, budget_plan
+
+    def test_manual_benefit_stays_on_source_payroll_only(self) -> None:
+        workshop, collaborator, august_payroll, budget_plan = self._create_payroll(suffix=71, month=8)
+        cadastro_benefit = CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Plano de saude",
+            monthly_amount=Money(200, "BRL"),
+            budget_plan=budget_plan,
+            is_active=True,
+        )
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_benefit", kwargs={"pk": august_payroll.pk}),
+            {
+                "manual_benefit-name": "Bonus pontual",
+                "manual_benefit-amount_0": "150.00",
+                "manual_benefit-amount_1": "BRL",
+                "manual_benefit-budget_plan": str(budget_plan.pk),
+                "manual_benefit-description": "So agosto",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollAddManualBenefitView()
+        view.request = request
+        view.kwargs = {"pk": august_payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Bonus pontual", content)
+        self.assertNotIn('id="manual-benefit-fields"', content)
+        one_off = CollaboratorBenefit.objects.get(collaborator=collaborator, source_payroll=august_payroll)
+        self.assertEqual(one_off.monthly_amount, Money(150, "BRL"))
+        self.assertIn(one_off.name, response.content.decode())
+        self.assertTrue(
+            FinancialMovement.objects.filter(
+                payroll=august_payroll,
+                payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
+                payroll_benefit=one_off,
+            ).exists()
+        )
+
+        september_payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 9, 1), lock_reference=True)
+        self.assertFalse(CollaboratorBenefit.objects.filter(source_payroll=september_payroll).exists())
+        self.assertFalse(
+            FinancialMovement.objects.filter(
+                payroll=september_payroll,
+                payroll_benefit=one_off,
+            ).exists()
+        )
+        self.assertTrue(CollaboratorBenefit.objects.filter(pk=cadastro_benefit.pk, source_payroll__isnull=True).exists())
+        self.assertEqual(CollaboratorBenefit.objects.filter(collaborator=collaborator, source_payroll__isnull=True).count(), 1)
+
+    def test_edit_modal_keeps_manual_launch_fields_out_of_the_save_form_until_opened(self) -> None:
+        workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=77, month=8)
+
+        closed_request = RequestFactory().get(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {"continue_without_create": "true"},
+        )
+        closed_request.user = SimpleNamespace(is_authenticated=False)
+        closed_view = PayrollEditModalView()
+        closed_view.request = closed_request
+        closed_view.kwargs = {"pk": payroll.pk}
+        closed_view.workshop = workshop
+
+        closed_response = closed_view.get(closed_request)
+
+        self.assertEqual(closed_response.status_code, 200)
+        closed_content = closed_response.content.decode()
+        self.assertNotIn('id="manual-benefit-fields"', closed_content)
+        self.assertNotIn('id="manual-commission-fields"', closed_content)
+
+        open_request = RequestFactory().get(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {
+                "tab": FinancialMovement.PayrollComponent.COMMISSION,
+                "show_manual_commission_form": "true",
+                "continue_without_create": "true",
+            },
+        )
+        open_request.user = SimpleNamespace(is_authenticated=False)
+        open_view = PayrollEditModalView()
+        open_view.request = open_request
+        open_view.kwargs = {"pk": payroll.pk}
+        open_view.workshop = workshop
+
+        open_response = open_view.get(open_request)
+
+        self.assertEqual(open_response.status_code, 200)
+        open_content = open_response.content.decode()
+        self.assertIn('form="payroll-manual-commission-form"', open_content)
+        self.assertIn('id="manual-commission-fields"', open_content)
+        self.assertIn("lancar-comissao", open_content)
+        self.assertIn("Lançar comissão", open_content)
+        self.assertIn("show_manual_commission_form=true", open_content)
+        commission_tab_index = open_content.index("activeTab = 'COMMISSION'")
+        history_tab_index = open_content.index("activeTab = 'commissions_history'")
+        summary_tab_index = open_content.index("activeTab = 'summary'")
+        self.assertLess(commission_tab_index, history_tab_index)
+        self.assertLess(history_tab_index, summary_tab_index)
+
+    def test_edit_modal_opens_manual_commission_panel_from_query_param(self) -> None:
+        workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=81, month=8)
+
+        request = RequestFactory().get(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {
+                "tab": FinancialMovement.PayrollComponent.COMMISSION,
+                "show_manual_commission_form": "true",
+                "continue_without_create": "true",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('id="manual-commission-fields"', content)
+        self.assertIn("show_manual_commission_form=true", content)
+
+    def test_edit_modal_closes_manual_commission_panel_without_query_param(self) -> None:
+        workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=82, month=8)
+
+        request = RequestFactory().get(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {
+                "tab": FinancialMovement.PayrollComponent.COMMISSION,
+                "continue_without_create": "true",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('id="manual-commission-fields"', content)
+
+    def test_manual_commission_launch_closes_form_on_success(self) -> None:
+        workshop, _collaborator, payroll, _budget_plan = self._create_payroll(suffix=78, month=8)
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_commission", kwargs={"pk": payroll.pk}),
+            {
+                "manual_commission-amount_0": "50.00",
+                "manual_commission-amount_1": "BRL",
+                "manual_commission-notes": "Teste",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollAddManualCommissionView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('id="manual-commission-fields"', content)
+
+    def test_manual_benefit_launch_closes_form_on_success(self) -> None:
+        workshop, _collaborator, payroll, budget_plan = self._create_payroll(suffix=80, month=8)
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_benefit", kwargs={"pk": payroll.pk}),
+            {
+                "manual_benefit-name": "Bonus pontual",
+                "manual_benefit-amount_0": "150.00",
+                "manual_benefit-amount_1": "BRL",
+                "manual_benefit-budget_plan": str(budget_plan.pk),
+                "manual_benefit-description": "So agosto",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollAddManualBenefitView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('id="manual-benefit-fields"', content)
+
+    def test_payroll_receipt_consolidates_commission_items(self) -> None:
+        workshop, collaborator, payroll, _budget_plan = self._create_payroll(suffix=79, month=8)
+        add_manual_payroll_commission(payroll=payroll, amount=Money(100, "BRL"), notes="Teste 1")
+        add_manual_payroll_commission(payroll=payroll, amount=Money(100, "BRL"), notes="Teste 2")
+        payroll.refresh_from_db()
+
+        request = RequestFactory().get(
+            reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": collaborator.pk, "payroll_id": payroll.pk}),
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = CollaboratorPayrollReceiptView()
+        view.request = request
+        view.kwargs = {"pk": collaborator.pk, "payroll_id": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request, pk=collaborator.pk, payroll_id=payroll.pk)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Valor consolidado das comissões da competência.", content)
+        self.assertNotIn("Comissão manual", content)
+        self.assertEqual(payroll.commission_amount, Money(200, "BRL"))
+
+    def test_manual_commission_shows_as_manual_and_survives_os_sync(self) -> None:
+        workshop, collaborator, payroll, _budget_plan = self._create_payroll(suffix=72, month=8)
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_commission", kwargs={"pk": payroll.pk}),
+            {
+                "manual_commission-amount_0": "80.00",
+                "manual_commission-amount_1": "BRL",
+                "manual_commission-notes": "Ajuste pontual",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollAddManualCommissionView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Manual", content)
+        self.assertIn("Ajuste pontual", content)
+        entry = CollaboratorCommissionEntry.objects.get(collaborator=collaborator, origin=CollaboratorCommissionEntry.Origin.MANUAL)
+        self.assertIsNone(entry.workorder_id)
+        self.assertEqual(entry.commission_amount, Money(80, "BRL"))
+        payroll.refresh_from_db()
+        self.assertEqual(payroll.commission_amount, Money(80, "BRL"))
+        self.assertTrue(
+            FinancialMovement.objects.filter(
+                payroll=payroll,
+                payroll_component=FinancialMovement.PayrollComponent.COMMISSION,
+            ).exists()
+        )
+
+        sync_collaborator_commission_entries(collaborator=collaborator, reference_date=date(2026, 8, 1))
+        self.assertTrue(CollaboratorCommissionEntry.objects.filter(pk=entry.pk).exists())
+
+    def test_paid_payroll_refuses_manual_launch(self) -> None:
+        workshop, collaborator, payroll, budget_plan = self._create_payroll(suffix=73, month=8)
+        for movement in payroll.financial_movements.all():
+            movement.is_paid = True
+            movement.save(update_fields=["is_paid"])
+        payroll.refresh_from_db()
+        self.assertEqual(payroll.status, CollaboratorPayroll.Status.PAID)
+
+        benefit_request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_benefit", kwargs={"pk": payroll.pk}),
+            {
+                "manual_benefit-name": "Bonus",
+                "manual_benefit-amount_0": "50.00",
+                "manual_benefit-amount_1": "BRL",
+                "manual_benefit-budget_plan": str(budget_plan.pk),
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        benefit_request.user = SimpleNamespace(is_authenticated=False)
+        benefit_view = PayrollAddManualBenefitView()
+        benefit_view.request = benefit_request
+        benefit_view.kwargs = {"pk": payroll.pk}
+        benefit_view.workshop = workshop
+        benefit_response = benefit_view.post(benefit_request)
+
+        commission_request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_commission", kwargs={"pk": payroll.pk}),
+            {"manual_commission-amount_0": "50.00", "manual_commission-amount_1": "BRL"},
+            HTTP_HX_REQUEST="true",
+        )
+        commission_request.user = SimpleNamespace(is_authenticated=False)
+        commission_view = PayrollAddManualCommissionView()
+        commission_view.request = commission_request
+        commission_view.kwargs = {"pk": payroll.pk}
+        commission_view.workshop = workshop
+        commission_response = commission_view.post(commission_request)
+
+        self.assertEqual(benefit_response.status_code, 400)
+        self.assertEqual(commission_response.status_code, 400)
+        self.assertFalse(CollaboratorBenefit.objects.filter(source_payroll=payroll).exists())
+        self.assertFalse(CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, origin=CollaboratorCommissionEntry.Origin.MANUAL).exists())
+
+    def test_deleting_one_off_benefit_does_not_touch_cadastro(self) -> None:
+        workshop, collaborator, payroll, budget_plan = self._create_payroll(suffix=74, month=8)
+        cadastro_benefit = CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Vale alimentacao",
+            monthly_amount=Money(300, "BRL"),
+            budget_plan=budget_plan,
+            is_active=True,
+        )
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_add_manual_benefit", kwargs={"pk": payroll.pk}),
+            {
+                "manual_benefit-name": "Ajuda pontual",
+                "manual_benefit-amount_0": "90.00",
+                "manual_benefit-amount_1": "BRL",
+                "manual_benefit-budget_plan": str(budget_plan.pk),
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollAddManualBenefitView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+        view.post(request)
+
+        one_off = CollaboratorBenefit.objects.get(collaborator=collaborator, source_payroll=payroll)
+        one_off_movement = FinancialMovement.objects.get(payroll=payroll, payroll_benefit=one_off)
+        delete_payroll_component_and_recalculate(movement=one_off_movement)
+
+        self.assertFalse(CollaboratorBenefit.objects.filter(pk=one_off.pk).exists())
+        self.assertFalse(FinancialMovement.objects.filter(pk=one_off_movement.pk).exists())
+        cadastro_benefit.refresh_from_db()
+        self.assertTrue(cadastro_benefit.is_active)
+        self.assertIsNone(cadastro_benefit.source_payroll_id)
+        self.assertTrue(
+            FinancialMovement.objects.filter(
+                payroll=payroll,
+                payroll_benefit=cadastro_benefit,
+            ).exists()
+            or CollaboratorBenefit.objects.filter(pk=cadastro_benefit.pk).exists()
+        )

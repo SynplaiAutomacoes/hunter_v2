@@ -1,0 +1,48 @@
+{% load crispy_forms_tags %}
+<div
+    class="col-span-12 mt-2 grid grid-cols-12 gap-4 rounded-xl border border-base-300 bg-base-200/35 p-4"
+    x-data="{
+        mode: '{{ payment_form.discount_mode.value|default_if_none:"" }}',
+        modeFieldName: '{{ payment_form.discount_mode.html_name }}',
+        gross: 0,
+        discountValue: 0,
+        discountPercentage: 0,
+        parseNumber(raw) {
+            const text = String(raw || '').trim();
+            const normalized = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text;
+            const value = Number(normalized);
+            return Number.isFinite(value) ? value : 0;
+        },
+        get discountAmount() {
+            if (this.mode === 'AMOUNT') return Math.min(Math.max(this.discountValue, 0), this.gross);
+            if (this.mode === 'PERCENTAGE') return this.gross * Math.min(Math.max(this.discountPercentage, 0), 100) / 100;
+            return 0;
+        },
+        get netAmount() { return Math.max(this.gross - this.discountAmount, 0); }
+    }"
+    x-init="$nextTick(() => {
+        gross = parseNumber($el.querySelector('input[name$=&quot;gross_amount_0&quot;]')?.value);
+        discountValue = parseNumber($el.querySelector('input[name$=&quot;discount_value_0&quot;]')?.value);
+        discountPercentage = parseNumber($el.querySelector('input[name$=&quot;discount_percentage&quot;]')?.value);
+    })"
+    @searchable-change.window="if ($event.detail.name === modeFieldName) mode = $event.detail.value"
+    @input="
+        if (($event.target.id || '').endsWith('gross_amount_0_display')) gross = parseNumber($event.target.value);
+        if (($event.target.id || '').endsWith('discount_value_0_display')) discountValue = parseNumber($event.target.value);
+        if (($event.target.name || '').endsWith('discount_percentage') || $event.target.parentElement?.querySelector('input[name$=&quot;discount_percentage&quot;]')) discountPercentage = parseNumber($event.target.value);
+    "
+>
+    <div class="col-span-12">
+        <h4 class="font-semibold text-base-content">Valores e desconto</h4>
+        <p class="mt-1 mb-2 text-sm text-base-content/60">O desconto será registrado neste componente da folha e reduzirá o valor líquido pago.</p>
+    </div>
+    <div class="col-span-12 lg:col-span-4">{{ payment_form.gross_amount|as_crispy_field }}</div>
+    <div class="col-span-12 lg:col-span-4">{{ payment_form.discount_mode|as_crispy_field }}</div>
+    <div class="col-span-12 lg:col-span-4" x-show="mode === 'AMOUNT'" x-cloak>{{ payment_form.discount_value|as_crispy_field }}</div>
+    <div class="col-span-12 lg:col-span-4" x-show="mode === 'PERCENTAGE'" x-cloak>{{ payment_form.discount_percentage|as_crispy_field }}</div>
+    <div class="col-span-12 lg:col-span-4 rounded-xl border border-base-300 bg-base-100 p-3" x-show="mode" x-cloak>
+        <p class="text-xs font-semibold uppercase tracking-wide text-base-content/55">Valor líquido</p>
+        <p class="mt-1 text-xl font-black text-success" x-text="netAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })"></p>
+        <p class="mt-1 text-xs text-base-content/60" x-show="discountAmount > 0" x-text="`Desconto aplicado: ${discountAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`"></p>
+    </div>
+</div>

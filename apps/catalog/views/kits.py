@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import logging
 
+from urllib.parse import urlparse
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Exists, OuterRef
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.urls import reverse_lazy
+from django.urls import Resolver404, reverse, reverse_lazy, resolve
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -18,7 +21,8 @@ from djmoney.money import Money
 
 from apps.catalog.fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_model_options, get_vehicle_model_metadata, register_catalog_access_and_maybe_sync
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
-from apps.budget.models import BudgetItem
+from apps.budget.models import Budget, BudgetItem
+from apps.budget.views.shared import add_kit_to_budget
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -155,19 +159,71 @@ class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixi
     success_url = reverse_lazy("catalog:kits_list")
     favorite_page_definition = KIT_CREATE_FAVORITE_PAGE
 
+    def _get_next_url(self) -> str:
+        next_url = str(self.request.GET.get("next") or self.request.POST.get("next") or "").strip()
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={self.request.get_host()}, require_https=self.request.is_secure()):
+            return next_url
+        return ""
+
+    def _get_budget_id(self) -> int | None:
+        raw_budget_id = str(self.request.GET.get("budget_id") or self.request.POST.get("budget_id") or "").strip()
+        if raw_budget_id.isdigit():
+            return int(raw_budget_id)
+        return self._get_budget_id_from_next_url()
+
+    def _get_budget_id_from_next_url(self) -> int | None:
+        next_url = self._get_next_url()
+        if not next_url:
+            return None
+        path = urlparse(next_url).path
+        try:
+            match = resolve(path)
+        except Resolver404:
+            return None
+        if match.namespace != "budget" or match.url_name != "budget_update":
+            return None
+        raw_pk = match.kwargs.get("pk")
+        if raw_pk is None or not str(raw_pk).isdigit():
+            return None
+        return int(raw_pk)
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
+        kwargs["next_url"] = self._get_next_url()
+        kwargs["budget_id"] = self._get_budget_id()
         return kwargs
+
+    def get_success_url(self):
+        return self._get_next_url() or str(self.success_url)
 
     def get_context_data(self, **kwargs):
         self.maybe_register_fipe_catalog_access()
-        return super().get_context_data(**kwargs)
+        context = super().get_context_data(**kwargs)
+        context["back_url"] = self._get_next_url() or reverse("catalog:kits_list")
+        return context
+
+    def _add_created_kit_to_budget(self, kit: Kit) -> None:
+        budget_id = self._get_budget_id()
+        if budget_id is None:
+            logger.info("kit_create_skip_budget_attach_missing_id", extra={"kit_id": kit.pk})
+            return
+
+        budget = Budget.objects.filter(pk=budget_id, workshop=self.workshop).first()
+        if budget is None:
+            logger.warning(
+                "kit_create_skip_budget_attach_not_found",
+                extra={"kit_id": kit.pk, "budget_id": budget_id, "workshop_id": getattr(self.workshop, "id", None)},
+            )
+            return
+
+        add_kit_to_budget(workshop=self.workshop, budget=budget, kit=kit)
+        messages.success(self.request, "Kit cadastrado e adicionado ao orçamento.")
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
         try:
-            return super().form_valid(form)
+            self.object = form.save()
         except IntegrityError:
             logger.exception(
                 "Falha de integridade ao criar kit",
@@ -178,6 +234,9 @@ class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixi
             )
             form.add_error("name", "Já existe um kit com este nome na oficina ativa.")
             return self.form_invalid(form)
+
+        self._add_created_kit_to_budget(self.object)
+        return HttpResponseRedirect(self.get_success_url())
 
     def form_invalid(self, form):
         logger.warning(
@@ -300,8 +359,20 @@ class ProductQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
         return kwargs
 
     def form_valid(self, form):
-        form.save()
-        return HttpResponse(headers={"HX-Refresh": "true"})
+        product = form.save()
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps(
+            {
+                "kit-product-updated": {
+                    "id": clean_id(product.pk),
+                    "code": product.code,
+                    "name": product.name,
+                    "cost": KitForm._format_money_display(product.cost_price),
+                    "sell": KitForm._format_money_display(product.selling_price),
+                }
+            }
+        )
+        return response
 
 
 class ServiceQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
