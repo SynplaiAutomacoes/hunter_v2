@@ -24,17 +24,37 @@ class MovementStep1FormScriptTests(SimpleTestCase):
         self.assertIn("loadEntities(entityField.value ? { id: entityField.value } : null)", script)
 
     def test_step1_restores_supplier_fields_from_saved_movement(self) -> None:
-        movement = FinancialMovement(supplier_id=123)
+        movement = FinancialMovement(direction=FinancialMovement.MovementDirection.CREDIT, supplier_id=123)
 
         form = MovementStep1Form(instance=movement)
 
         self.assertEqual(form.initial["person_type"], "supplier")
         self.assertEqual(form.initial["entity"], "123")
+        self.assertIn('value="supplier"', form["person_type"].as_widget())
+        self.assertIn('value="123"', form["entity"].as_widget())
 
     def test_step1_restores_collaborator_fields_from_saved_movement(self) -> None:
-        movement = FinancialMovement(collaborator_id=456)
+        movement = FinancialMovement(direction=FinancialMovement.MovementDirection.DEBIT, collaborator_id=456)
 
         form = MovementStep1Form(instance=movement)
 
         self.assertEqual(form.initial["person_type"], "collaborator")
         self.assertEqual(form.initial["entity"], "456")
+        self.assertIn('value="collaborator"', form["person_type"].as_widget())
+        self.assertIn('value="456"', form["entity"].as_widget())
+
+    def test_step1_saves_selected_supplier(self) -> None:
+        form = MovementStep1Form(
+            data={
+                "direction": FinancialMovement.MovementDirection.CREDIT,
+                "person_type": "supplier",
+                "entity": "417",
+            }
+        )
+        form.fields["entity"].choices = [("417", "Uber Technologies Inc.")]
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+        movement = form.save(commit=False)
+        self.assertEqual(movement.supplier_id, "417")
+        self.assertIsNone(movement.collaborator_id)
