@@ -142,6 +142,7 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 const subtotalDisplay = document.getElementById('step5-subtotal-display');
                                 const discountDisplay = document.getElementById('step5-discount-display');
                                 const totalDisplay = document.getElementById('valor-final-display');
+                                const budgetTotalDisplay = document.getElementById('step5-budget-total-display');
 
                                 if (!displayMoney || !hiddenMoney || !displayPercentage || !hiddenPercentage || !subtotalDisplay || !discountDisplay || !totalDisplay) {{
                                     return null;
@@ -155,6 +156,7 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                     subtotalDisplay,
                                     discountDisplay,
                                     totalDisplay,
+                                    budgetTotalDisplay,
                                 }};
                             }}
 
@@ -162,12 +164,12 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 return parseDotDecimal(elements.subtotalDisplay.dataset.baseTotal);
                             }}
 
-                            function updateCardDiscounts(discountAmount) {{
+                            function updateCardDiscounts(discountAmount, baseTotal) {{
                                 const type = getDiscountTypeValue();
                                 const products = parseDotDecimal(document.getElementById('display-venda-pecas')?.dataset.baseVal);
-                                const labor = parseDotDecimal(document.getElementById('display-venda-mo')?.dataset.baseVal);
                                 const thirdParty = parseDotDecimal(document.getElementById('display-venda-terceiros')?.dataset.baseVal);
-                                const services = labor + thirdParty;
+                                const services = Math.max(baseTotal - products, 0);
+                                const labor = Math.max(services - thirdParty, 0);
                                 const total = products + services;
                                 let discountProducts = 0;
                                 let discountServices = 0;
@@ -214,7 +216,10 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
 
                                 elements.discountDisplay.textContent = `R$ ${{formatMoney(resolvedDiscount)}}`;
                                 elements.totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
-                                updateCardDiscounts(resolvedDiscount);
+                                if (elements.budgetTotalDisplay) {{
+                                    elements.budgetTotalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                                }}
+                                updateCardDiscounts(resolvedDiscount, baseTotal);
                             }}
 
                             function syncFromPercentage(elements) {{

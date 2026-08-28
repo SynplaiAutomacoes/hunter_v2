@@ -155,17 +155,17 @@ def configure_budget_step5_form(form):
                                             <p class="text-sm font-bold text-base-content">Resultado</p>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">Lucro operacional</span>
-                                                <span class="font-bold step5-accent-text whitespace-nowrap">{lucro_operacional}</span>
+                                                <span id="step5-lucro-operacional" class="font-bold step5-accent-text whitespace-nowrap">{lucro_operacional}</span>
                                             </div>
                                             <div class="flex justify-between gap-2 items-center">
                                                 <span class="text-base-content/70">Rentabilidade</span>
-                                                <span class="font-bold {rentabilidade_class} {rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">
+                                                <span id="step5-rentabilidade" class="font-bold {rentabilidade_class} {rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">
                                                     {rentabilidade:.2f}% ({status_texto})
                                                 </span>
                                             </div>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">MLO</span>
-                                                <span class="font-semibold whitespace-nowrap">{mlo:.2f}</span>
+                                                <span id="step5-mlo" class="font-semibold whitespace-nowrap">{mlo:.2f}</span>
                                             </div>
                                             <div class="flex justify-between gap-2">
                                                 <span class="text-base-content/70">MLR</span>
@@ -179,7 +179,7 @@ def configure_budget_step5_form(form):
                     Div(
                         HTML(f"""<div class="text-center text-base-content mt-6">
                                         <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                        <p class="text-3xl font-black step5-accent-text">{budget.display_total_base_value}</p>
+                                        <p id="step5-budget-total-display" class="text-3xl font-black step5-accent-text">{budget.display_total_budget_value}</p>
                                     </div>""")
                     ),
                     id="step5-method-card",

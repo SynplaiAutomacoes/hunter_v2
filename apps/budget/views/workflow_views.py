@@ -24,6 +24,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.discount import render_step5_discount_rows_oob
 from apps.budget.forms.layouts.step5_items_expand import build_step5_products_list_html, build_step5_services_list_html
+from apps.budget.forms.presenters.step5_context import build_step5_context
 from apps.budget.forms.shared import _get_budget_with_prefetched_items
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
@@ -981,6 +982,24 @@ class BudgetDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespon
     htmx_trigger = "budget-table-refresh"
 
 
+def _render_step5_result_oob(*, budget: Budget) -> str:
+    context = build_step5_context(budget)
+    return f"""
+        <p id="step5-budget-total-display" hx-swap-oob="true" class="text-3xl font-black step5-accent-text">
+            {budget.display_total_budget_value}
+        </p>
+        <span id="step5-lucro-operacional" hx-swap-oob="true" class="font-bold step5-accent-text whitespace-nowrap">
+            {context.lucro_operacional}
+        </span>
+        <span id="step5-rentabilidade" hx-swap-oob="true" class="font-bold {context.rentabilidade_class} {context.rentabilidade_bg} px-2 py-0.5 rounded whitespace-nowrap">
+            {context.rentabilidade:.2f}% ({context.status_texto})
+        </span>
+        <span id="step5-mlo" hx-swap-oob="true" class="font-semibold whitespace-nowrap">
+            {context.mlo:.2f}
+        </span>
+    """
+
+
 class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
@@ -1025,6 +1044,7 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="valor-final-display" hx-swap-oob="true">
                     {budget.display_total_budget_value}
                 </span>
+                {_render_step5_result_oob(budget=budget)}
                 {render_step5_discount_rows_oob(budget=budget)}
                 """
         return HttpResponse(html)
@@ -1443,6 +1463,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="valor-final-display" hx-swap-oob="true">
                     {budget.display_total_budget_value}
                 </span>
+                {_render_step5_result_oob(budget=budget)}
                 {render_step5_discount_rows_oob(budget=budget)}
                 {products_list_html}
                 {services_list_html}
