@@ -81,6 +81,10 @@ class BudgetStep2Form(BudgetStepBaseForm):
                 "terms:budget_term_modal_selected",
                 kwargs={"budget_id": self.instance.pk, "template_id": 999999999},
             ).replace("999999999", "{id}")
+            term_status_url_template = reverse(
+                "terms:budget_term_status",
+                kwargs={"budget_id": self.instance.pk, "template_id": 999999999},
+            ).replace("999999999", "{id}")
             term_signing_status_map = build_term_signing_status_map(
                 terms=self.receipt_terms,
                 signings_by_template_id=self.term_signings_by_template_id,
@@ -90,6 +94,7 @@ class BudgetStep2Form(BudgetStepBaseForm):
                 {
                     "receipt_terms": self.receipt_terms,
                     "term_modal_url_template": term_modal_url_template,
+                    "term_status_url_template": term_status_url_template,
                     "initial_term_modal_url": reverse(
                         "terms:budget_term_modal_selected",
                         kwargs={"budget_id": self.instance.pk, "template_id": first_term.pk},

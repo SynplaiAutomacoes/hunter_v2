@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -97,6 +98,18 @@ class TermSignatureDisplayTests(SimpleTestCase):
         self.assertTrue(urls.can_toggle_signed_pdf)
         self.assertEqual(urls.initial_pdf_variant, "signed")
         self.assertIn("/signed/", urls.default_iframe_url)
+
+    def test_send_success_trigger_closes_modal_and_updates_badge(self) -> None:
+        from apps.terms.util import build_term_send_success_trigger
+
+        payload = json.loads(
+            build_term_send_success_trigger(
+                message="Termo enviado.",
+                status_badge={"text": "Enviado", "class": "badge-warning"},
+            )
+        )
+        self.assertTrue(payload["closeBudgetTermModal"])
+        self.assertEqual(payload["updateReceiptTermStatusBadge"]["text"], "Enviado")
 
 
 class TermSectionExtractTests(SimpleTestCase):

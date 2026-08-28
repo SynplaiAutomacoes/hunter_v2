@@ -99,3 +99,13 @@ def extract_term_sections(post_data: QueryDict) -> list[dict[str, Any]]:
 
 def build_showtoast_trigger(toast_type: str, message: str) -> str:
     return json.dumps({"showToast": {"type": toast_type, "message": message}})
+
+
+def build_term_send_success_trigger(*, message: str, status_badge: dict[str, str]) -> str:
+    return json.dumps(
+        {
+            "showToast": {"type": "success", "message": message},
+            "closeBudgetTermModal": True,
+            "updateReceiptTermStatusBadge": status_badge,
+        }
+    )

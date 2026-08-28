@@ -23,6 +23,7 @@ from apps.core.infrastructure.services.signature_webhook import (
     process_signature_webhook_payload,
 )
 from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
+from apps.workorder.approval import WorkOrderApprovalError
 
 
 class SignatureWhatsAppSkipNoteTests(SimpleTestCase):
@@ -331,7 +332,7 @@ class SignatureWebhookHmacTests(SimpleTestCase):
         process_mock.assert_called_once()
 
     @override_settings(SYNPLAISIGN_WEBHOOK_SECRET="whsec_test")
-    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None))
+    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None, None))
     @patch(
         "apps.core.infrastructure.services.signature_webhook.process_signature_webhook_payload",
         return_value=HttpResponse(status=200),
@@ -353,12 +354,14 @@ class SignatureWebhookHmacTests(SimpleTestCase):
 class SignatureWebhookProcessingTests(SimpleTestCase):
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
+    @patch("apps.terms.models.BudgetTermSigning.objects.filter")
     @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
-    def test_unknown_envelope_is_acked(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
+    def test_unknown_envelope_is_acked(self, _find_term: Mock, term_filter: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
         budget_filter.return_value.first.return_value = None
         budget_filter.return_value.order_by.return_value.values.return_value.__getitem__ = lambda _self, _idx: []
         workorder_filter.return_value.first.return_value = None
         workorder_filter.return_value.order_by.return_value.values.return_value.__getitem__ = lambda _self, _idx: []
+        term_filter.return_value.order_by.return_value.values.return_value.__getitem__ = lambda _self, _idx: []
 
         response = process_signature_webhook_payload(payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "missing-env"})
         self.assertEqual(response.status_code, 200)
@@ -379,7 +382,8 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
 
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
-    def test_document_signed_approves_budget(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
+    def test_document_signed_approves_budget(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
         budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
         budget_filter.return_value.first.return_value = budget
         workorder_filter.return_value.first.return_value = None
@@ -392,7 +396,8 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
 
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
-    def test_header_event_completes_when_payload_status_is_signed(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
+    def test_header_event_completes_when_payload_status_is_signed(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
         budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
         budget_filter.return_value.first.return_value = budget
         workorder_filter.return_value.first.return_value = None
@@ -406,7 +411,8 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
 
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
-    def test_nested_signed_status_approves_budget_without_event_name(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
+    def test_nested_signed_status_approves_budget_without_event_name(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
         budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
         budget_filter.return_value.first.return_value = budget
         workorder_filter.return_value.first.return_value = None
@@ -419,7 +425,8 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
 
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
-    def test_envelope_type_with_completed_status_approves_budget(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
+    def test_envelope_type_with_completed_status_approves_budget(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
         budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
         budget_filter.return_value.first.return_value = budget
         workorder_filter.return_value.first.return_value = None
@@ -444,7 +451,17 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         approve_mock: Mock,
         _can_finalize_mock: Mock,
     ) -> None:
-        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", mark_signature_approved=Mock())
+        from apps.workorder.models import WorkOrderStatus
+
+        workorder = SimpleNamespace(
+            pk=685,
+            warranty_plan="days_90",
+            mark_signature_approved=Mock(),
+            is_fully_paid=False,
+            budget_type="standard",
+            status=WorkOrderStatus.DRAFT,
+            save=Mock(),
+        )
 
         response = process_signature_webhook_payload(
             payload={"event": "DOCUMENT_SIGNED", "envelopeId": "env-os-685"},
@@ -456,25 +473,39 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         approve_mock.assert_not_called()
 
     @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=True)
-    @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock", side_effect=RuntimeError("estoque insuficiente"))
+    @patch(
+        "apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock",
+        side_effect=WorkOrderApprovalError("estoque insuficiente"),
+    )
     def test_workorder_signature_is_approved_even_when_finalize_fails(
         self,
         _approve_mock: Mock,
         _can_finalize_mock: Mock,
     ) -> None:
-        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", mark_signature_approved=Mock())
+        from apps.workorder.models import WorkOrderStatus
+
+        workorder = SimpleNamespace(
+            pk=685,
+            warranty_plan="days_90",
+            mark_signature_approved=Mock(),
+            is_fully_paid=False,
+            budget_type="standard",
+            status=WorkOrderStatus.DRAFT,
+            save=Mock(),
+        )
 
         response = process_signature_webhook_payload(
             payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "env-os-685"},
             workorder=workorder,
         )
 
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.status_code, 200)
         workorder.mark_signature_approved.assert_called_once()
 
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
-    def test_document_declined_rejects_budget(self, budget_filter: Mock, workorder_filter: Mock) -> None:
+    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
+    def test_document_declined_rejects_budget(self, _find_term: Mock, budget_filter: Mock, workorder_filter: Mock) -> None:
         from apps.budget.models import BudgetStatus
 
         workorders = Mock()

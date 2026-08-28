@@ -17,5 +17,6 @@ urlpatterns = [
     path("budgets/<int:budget_id>/receipt/<int:template_id>/", views.BudgetTermModalView.as_view(), name="budget_term_modal_selected"),
     path("budgets/<int:budget_id>/receipt/<int:template_id>/preview/", views.BudgetTermPreviewView.as_view(), name="budget_term_preview"),
     path("budgets/<int:budget_id>/receipt/<int:template_id>/send/", views.BudgetTermSendView.as_view(), name="budget_term_send"),
+    path("budgets/<int:budget_id>/receipt/<int:template_id>/status/", views.BudgetTermSigningStatusView.as_view(), name="budget_term_status"),
     path("budgets/<int:budget_id>/receipt/<int:template_id>/signed/", views.BudgetTermSignedPdfView.as_view(), name="budget_term_signed"),
 ]
