@@ -33,13 +33,26 @@ from apps.core.utils import alert_confirm_layout
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 
-from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type, sync_payment_entries_with_financial_movements
+from apps.stock.financial_entries import (
+    ADDITIONAL_CHARGE_ENTRY_TYPE,
+    MISSING_BUDGET_PLAN_MESSAGE,
+    PAYMENT_ENTRY_TYPE,
+    apply_budget_plan_to_payment_entries,
+    calculate_import_totals,
+    get_entry_amount,
+    get_entry_reason,
+    normalize_entry_type,
+    payment_entries_missing_budget_plan,
+    sync_payment_entries_if_budget_plans_ready,
+    sync_payment_entries_with_financial_movements,
+)
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
 
 from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
 from apps.stock.services.files import StockImportFileStorageError, _extract_nfe_xml_from_sefaz_response, save_import_xml_file
+from apps.stock.services.purchase_fiscal import ensure_purchase_fiscal_foundation
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -153,13 +166,17 @@ class ImportStep1Form(CoreModelForm):
             obj.items_data = data.get("items", [])
             obj.payments_data = data.get("payments", [])
             obj.xml_file_key = data.get("xml_file_key", "")
+            obj.fiscal_snapshot = data.get("fiscal_snapshot", {})
+            if obj.fiscal_snapshot:
+                obj.fiscal_validation_status = StockImport.FiscalValidationStatus.VALIDATED
+                obj.fiscal_validated_at = timezone.now()
 
         if method in ["XML", "KEY"] and not obj.nf_key:
             raise ValueError("A chave da NF-e é obrigatória para este método de importação.")
 
         if commit:
             obj.save()
-            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+            synced_entries, payments_updated = sync_payment_entries_if_budget_plans_ready(
                 stock_import=obj,
                 entries=list(obj.payments_data or []),
                 user=self.request.user,
@@ -703,7 +720,28 @@ class ImportStepPaymentForm(CoreModelForm):
         totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
         if totals.pending_value > 0:
             self.add_error(None, f"Não é possível avançar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
+
+        missing_budget_plan_entries = payment_entries_missing_budget_plan(list(self.import_payments or []))
+        if missing_budget_plan_entries and not cleaned_data.get("budget_plan"):
+            self.add_error("budget_plan", "Selecione o plano orçamentário dos pagamentos importados da nota.")
         return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        budget_plan = self.cleaned_data.get("budget_plan")
+        if budget_plan is not None:
+            payments_data, payments_updated = apply_budget_plan_to_payment_entries(
+                entries=list(instance.payments_data or []),
+                budget_plan_id=budget_plan.pk,
+            )
+            if payments_updated:
+                instance.payments_data = payments_data
+                if commit:
+                    instance.save(update_fields=["payments_data"])
+                    return instance
+        if commit:
+            instance.save()
+        return instance
 
     def _generate_payments_table_html(self):
         rows = ""
@@ -901,10 +939,16 @@ class ImportStepSummaryForm(CoreModelForm):
         if instance.supplier_cnpj:
             supplier, _ = Supplier.objects.get_or_create(cnpj=instance.supplier_cnpj, workshop=workshop, defaults={"name": instance.supplier_name})
 
-        for item in instance.items_data:
+        fiscal_items = ensure_purchase_fiscal_foundation(stock_import=instance, requested_by=self.request.user)
+        for index, item in enumerate(instance.items_data, start=1):
             product_id = item.get("linked_product_id")
             product = Product.objects.get(id=product_id, workshop=workshop)
             stock_product, _created = StockProduct.objects.get_or_create(workshop=workshop, product=product, defaults={"supplier": supplier, "last_nf": resolved_nf_number})
+            item_sequence = int(item.get("nitem") or item.get("sequence") or index)
+            fiscal_item = fiscal_items.get(item_sequence)
+            if fiscal_item is not None and fiscal_item.stock_product_id != stock_product.pk:
+                fiscal_item.stock_product = stock_product
+                fiscal_item.save(update_fields=["stock_product", "atualizado_em"])
 
             quantity = Decimal(str(item.get("qtd", 0)))
             purchase_price = _money_from_value(item.get("valor"))
@@ -916,6 +960,7 @@ class ImportStepSummaryForm(CoreModelForm):
                 type=StockMovement.MovementType.ENTRY,
                 supplier=supplier,
                 transcation_by=self.request.user,
+                source_import_item=fiscal_item,
                 quantity=quantity,
                 status=StockMovement.MovementStatus.APPROVED,
             )
@@ -975,6 +1020,9 @@ class ImportStepSummaryForm(CoreModelForm):
         totals = calculate_import_totals(items=self.instance.items_data or [], entries=self.instance.payments_data or [])
         if totals.pending_value > 0:
             self.add_error(None, f"Não é possível finalizar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
+
+        if payment_entries_missing_budget_plan(list(self.instance.payments_data or [])):
+            self.add_error(None, MISSING_BUDGET_PLAN_MESSAGE)
 
         return cleaned_data
 
@@ -1141,6 +1189,10 @@ class ImportSefazListForm(CoreModelForm):
                 instance.items_data = nf_data["items"]
                 instance.payments_data = nf_data["payments"]
                 instance.xml_file_key = nf_data.get("xml_file_key", "")
+                instance.fiscal_snapshot = nf_data.get("fiscal_snapshot", {})
+                if instance.fiscal_snapshot:
+                    instance.fiscal_validation_status = StockImport.FiscalValidationStatus.VALIDATED
+                    instance.fiscal_validated_at = timezone.now()
                 instance.method = "SEFAZ"
 
                 SefazZipCache.objects.filter(workshop=self.workshop, key=instance.nf_key).update(
@@ -1155,7 +1207,7 @@ class ImportSefazListForm(CoreModelForm):
 
         if commit:
             instance.save()
-            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+            synced_entries, payments_updated = sync_payment_entries_if_budget_plans_ready(
                 stock_import=instance,
                 entries=list(instance.payments_data or []),
                 user=self.request.user,

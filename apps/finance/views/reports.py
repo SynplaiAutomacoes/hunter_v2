@@ -21,6 +21,7 @@ from apps.accounts.models import User
 from apps.collaborators.models import WorkshopCollaborator
 from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements, sync_workorder_collaborator_payrolls
 from apps.core.presentation.widgets import SearchableSelectInput
+from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -437,9 +438,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "paid_status": self._resolve_simple_paid_status(is_paid=bool(payment_movement.is_paid)),
             "reconciliation_status": self._resolve_workorder_conciliation_status(is_reconciled=bool(payment_movement.is_reconciled)),
             "type_badge": payment_movement.report_direction_badge,
+            "entry_date": payment_movement.entry_date,
             "due_date": payment.due_date,
             "agent": agent,
-            "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
+            "origin": format_workorder_reference(workorder) if workorder is not None else "-",
             "description": self._resolve_workorder_description(workorder) if workorder is not None else description,
             "budget_plan": payment_movement.report_budget_plan_display,
             "account": payment_movement.report_bank_account_display,
@@ -452,6 +454,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 "text": f"+ {format_money(payment_amount)}",
                 "class": "text-success font-semibold whitespace-nowrap",
             },
+            "has_discount": False,
+            "gross_amount": format_money(payment_amount),
+            "discount_amount": format_money(Decimal("0.00")),
             "details": [],
             "summary_direction": FinancialMovement.MovementDirection.CREDIT,
             "summary_amount": resolved_amount,
@@ -550,6 +555,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})
         is_workorder = False
         is_group_parent = False
+        gross_amount = movement.gross_amount or movement.amount
+        adjustment_amount = movement.resolved_adjustment_amount
         workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}) if movement.workorder_id else None
 
         if movement.workorder_id:
@@ -587,9 +594,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "paid_status": paid_status,
             "reconciliation_status": reconciliation_status,
             "type_badge": movement.report_direction_badge,
+            "entry_date": movement.entry_date,
             "due_date": due_date,
             "agent": agent,
-            "origin": movement.report_origin_display if not movement.workorder_id else f"OS #{movement.workorder_id}",
+            "origin": movement.report_origin_display if not movement.workorder_id else format_workorder_reference(movement.workorder),
             "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
@@ -599,6 +607,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "is_workorder": is_workorder,
             "is_group_parent": is_group_parent,
             "total": movement.report_total_display,
+            "has_discount": Decimal(str(adjustment_amount.amount or 0)) > 0,
+            "gross_amount": format_money(gross_amount),
+            "discount_amount": format_money(adjustment_amount),
+            "adjustment_label": movement.adjustment_label,
+            "adjustment_is_surcharge": movement.discount_mode == FinancialMovement.DiscountMode.SURCHARGE,
             "details": details,
             "summary_direction": movement.direction,
             "summary_amount": self._resolve_money_amount(movement.amount),
@@ -885,6 +898,10 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["movement"] = self.object
+        if self.object.installment_plan_id:
+            context["installments"] = self.object.installment_plan.financial_movements.order_by(
+                "installment_number", "pk"
+            )
         fallback_payment_id = ""
         if getattr(self.object, "workorder_payment_id", None):
             fallback_payment_id = str(self.object.workorder_payment_id)
@@ -1139,7 +1156,8 @@ class BatchConciliateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if movement.workorder_id:
             customer = getattr(getattr(movement.workorder, "budget", None), "customer", None)
             name = customer.name if customer else ""
-            return f"OS #{movement.workorder_id} — {name}" if name else f"OS #{movement.workorder_id}"
+            reference = format_workorder_reference(movement.workorder)
+            return f"{reference} — {name}" if name else reference
         return movement.description or f"Movimentação #{movement.pk}"
 
 

@@ -87,10 +87,11 @@
                 </div>
                 <div class="w-[230px] rounded-md bg-gray-50 p-3 text-right text-[11px]">
                     {% if selected_workshop %}
-                        <p class="font-bold">{{ selected_workshop.pdf_name }}</p>
-                        <p class="mt-1">CNPJ: {{ selected_workshop.cnpj|cnpj_br|default:"-" }}</p>
+                        <p class="font-bold uppercase">{{ selected_workshop.nome_fantasia_display|default:selected_workshop.name }}</p>
+                        <p class="mt-1">{{ selected_workshop.razao_social_display|default:"-" }}</p>
+                        <p>CNPJ: {{ selected_workshop.cnpj|cnpj_br|default:"-" }}</p>
+                        <p>{{ selected_workshop.address|default:"-" }}</p>
                         <p>Telefone: {{ selected_workshop.pdf_phone|phone_br|default:"-" }}</p>
-                        <p>Endereço: {{ selected_workshop.address|default:"-" }}</p>
                         <p>UF: {{ selected_workshop.uf|default:"-" }}</p>
                     {% elif is_consolidated_workshops %}
                         <p class="font-bold">Consolidado de {{ selected_workshops|length }} filiais</p>
@@ -126,7 +127,17 @@
                     </div>
                 </div>
 
-                {% if row.detail_kind == 'financial_entries' %}
+                {% if row.detail_kind == 'group_entries' %}
+                    <div class="space-y-3 px-4 py-4">
+                        {% if row.details %}
+                            {% for node in row.details %}
+                                {% include 'finance/dre/pdf/partials/group_tree_node.html' with node=node tone=row.tone %}
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-[11px] text-gray-500">Nao ha dados neste periodo.</p>
+                        {% endif %}
+                    </div>
+                {% elif row.detail_kind == 'financial_entries' %}
                     <table class="details-table text-[11px]">
                         <thead class="bg-gray-100 text-left uppercase text-[10px] tracking-[0.16em] text-gray-600">
                             <tr>

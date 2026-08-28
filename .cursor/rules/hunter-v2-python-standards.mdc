@@ -1,0 +1,86 @@
+---
+description: Python/Django coding standards, refactoring rules, and testing expectations for hunter_v2
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# hunter_v2 — Python Standards
+
+## Refactoring guide rules
+
+Prefer these standards from `docs/REFACTORING_GUIDE.md`:
+
+### Separation of layers
+
+- `domain/` for business concepts and pure rules
+- `application/` or `usecases/` for orchestration
+- `infrastructure/` for Django, ORM, and provider coupling
+- `presentation/` for views, forms, and template-facing concerns
+
+### Domain purity
+
+For code under `domain/`: no Django imports, pure Python only.
+
+### Naming language
+
+- English for classes, methods, types, value objects, and internal technical names
+- Portuguese only for UI strings and established business text shown to users
+- Do not rename broad existing surfaces unless explicitly requested
+
+### SOLID and object calisthenics
+
+- One responsibility per class/module
+- Prefer guard clauses over nested `else`
+- Wrap important primitives when domain value objects already exist
+- Use `@dataclass` with `slots=True`, `TypedDict`, and `Protocol` where appropriate
+
+## Code style
+
+### Imports
+
+Group: standard library, third-party, local. One blank line between groups. No wildcard imports.
+
+### Formatting
+
+Ruff is the formatter/linter. Even with `line-length = 320`, wrap for readability.
+
+### Types
+
+Add type hints on all new or changed Python functions. Prefer `str | None`, `list[T]`, `dict[K, V]`. Avoid `Any` except boundary cases.
+
+### Naming
+
+- Classes: `PascalCase`
+- Functions, methods, variables: `snake_case`
+- Constants: `UPPER_SNAKE_CASE`
+- Tests: descriptive `test_*` names based on behavior
+
+### Django conventions
+
+- Reuse existing forms, services, use cases, and providers
+- Use `transaction.atomic()` for multi-step writes
+- Use `select_related` / `prefetch_related` to avoid N+1 issues
+- Prefer thin views; move orchestration out when it starts growing
+
+### Money, dates, and locale
+
+- Use `Decimal` for money math, never float
+- Use timezone-aware helpers from `django.utils.timezone`
+- Respect `LANGUAGE_CODE = pt-br` and `TIME_ZONE = America/Sao_Paulo`
+
+### Error handling
+
+Catch specific exceptions. Keep user-facing messages actionable and coherent with PT-BR UX. Do not swallow errors silently.
+
+### Migrations
+
+Use Django migration commands. Avoid editing historical migrations unless explicitly required.
+
+## Testing style
+
+- Default: Django `TestCase` / `SimpleTestCase`
+- Keep tests deterministic and isolated
+- Prefer behavior assertions over implementation details
+- Add regression tests for bug fixes
+- Start with the smallest focused test target
+- View tests may instantiate CBVs directly and assign `view.request` and `view.workshop` with `RequestFactory`

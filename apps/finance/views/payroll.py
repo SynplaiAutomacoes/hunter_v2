@@ -50,7 +50,7 @@ from apps.collaborators.services import (
     unmark_payroll_commissions_as_paid,
     update_payroll_work_days,
 )
-from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CalendarDateInput, DecimalInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -62,6 +62,15 @@ from apps.workshops.util.workshops import can_view_payroll_details, get_active_w
 
 
 class PayrollPaymentForm(forms.ModelForm):
+    discount_percentage = forms.DecimalField(
+        label="Desconto (%)",
+        required=False,
+        min_value=Decimal("0.00"),
+        max_value=Decimal("100.00"),
+        max_digits=5,
+        decimal_places=2,
+        widget=DecimalInput(min_value=0, max_value=100, decimal_places=2),
+    )
     is_paid = forms.TypedChoiceField(
         label="Pago",
         required=True,
@@ -80,10 +89,25 @@ class PayrollPaymentForm(forms.ModelForm):
 
     class Meta:
         model = FinancialMovement
-        fields = ["due_date", "amount", "budget_plan", "bank_account", "payment_method", "is_paid", "is_reconciled", "nf_number", "financial_observation"]
+        fields = [
+            "due_date",
+            "gross_amount",
+            "discount_mode",
+            "discount_value",
+            "discount_percentage",
+            "budget_plan",
+            "bank_account",
+            "payment_method",
+            "is_paid",
+            "is_reconciled",
+            "nf_number",
+            "financial_observation",
+        ]
         widgets = {
             "due_date": CalendarDateInput(),
-            "amount": MoneyInput(),
+            "gross_amount": MoneyInput(),
+            "discount_mode": SearchableSelectInput(),
+            "discount_value": MoneyInput(),
             "budget_plan": SearchableSelectInput(),
             "bank_account": SearchableSelectInput(),
             "payment_method": SearchableSelectInput(),
@@ -96,6 +120,37 @@ class PayrollPaymentForm(forms.ModelForm):
 
     def __init__(self, *args: Any, workshop=None, **kwargs: Any) -> None:
         payroll: CollaboratorPayroll | None = kwargs.pop("payroll", None)
+        data = args[0] if args else kwargs.get("data")
+        prefix = str(kwargs.get("prefix") or "")
+        if data is not None:
+            field_prefix = f"{prefix}-" if prefix else ""
+            legacy_amount = f"{field_prefix}amount_0"
+            legacy_currency = f"{field_prefix}amount_1"
+            gross_amount = f"{field_prefix}gross_amount_0"
+            gross_currency = f"{field_prefix}gross_amount_1"
+            discount_mode = f"{field_prefix}discount_mode"
+
+            # Payroll edits submitted before Ticket 240 still post ``amount``.
+            # Preserve that contract while persisting the new gross/net fields.
+            needs_legacy_mapping = bool(data.get(legacy_amount) and not data.get(gross_amount))
+            needs_discount_default = bool(
+                (data.get(gross_amount) or data.get(legacy_amount)) and not data.get(discount_mode)
+            )
+            if needs_legacy_mapping or needs_discount_default:
+                data = data.copy()
+
+            if needs_legacy_mapping:
+                data[gross_amount] = data[legacy_amount]
+                if data.get(legacy_currency):
+                    data[gross_currency] = data[legacy_currency]
+
+            if needs_discount_default:
+                data[discount_mode] = FinancialMovement.DiscountMode.NONE
+
+            if args:
+                args = (data, *args[1:])
+            else:
+                kwargs["data"] = data
         super().__init__(*args, **kwargs)
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
@@ -103,9 +158,24 @@ class PayrollPaymentForm(forms.ModelForm):
         self.fields["budget_plan"].error_messages["required"] = BUDGET_PLAN_REQUIRED
         self.fields["bank_account"].required = False
         self.fields["payment_method"].required = False
+        self.fields["gross_amount"].required = True
+        self.fields["discount_mode"].label = "Tipo de desconto"
+        self.fields["discount_mode"].required = True
+        payroll_discount_choices = [
+            (FinancialMovement.DiscountMode.NONE, "Sem desconto"),
+            (FinancialMovement.DiscountMode.AMOUNT, "Desconto em reais (R$)"),
+            (FinancialMovement.DiscountMode.PERCENTAGE, "Desconto em percentual (%)"),
+        ]
+        self.fields["discount_mode"].choices = payroll_discount_choices
+        self.fields["discount_mode"].widget.choices = payroll_discount_choices
+        self.fields["discount_value"].label = "Desconto (R$)"
+        self.fields["discount_value"].required = False
+        self.fields["discount_percentage"].required = False
+        if self.instance.pk:
+            self.initial["discount_percentage"] = Decimal(str(self.instance.discount_percentage or 0)).quantize(Decimal("0.01"))
         if payroll is not None:
             self.fields["due_date"].initial = self.instance.due_date or payroll.due_date
-            self.fields["amount"].initial = self.instance.amount or payroll.total_amount
+            self.fields["gross_amount"].initial = self.instance.gross_amount or self.instance.amount
         if workshop is not None:
             groups = FinancialGroup.objects.filter(workshop=workshop).order_by("name")
             accounts = BankAccount.objects.filter(workshop=workshop, is_active=True)
@@ -138,6 +208,32 @@ class PayrollPaymentForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
+        gross_amount = cleaned_data.get("gross_amount")
+        discount_mode = cleaned_data.get("discount_mode")
+        discount_value = cleaned_data.get("discount_value")
+        discount_percentage = cleaned_data.get("discount_percentage") or Decimal("0.00")
+
+        if gross_amount is not None:
+            gross_value = Decimal(str(gross_amount.amount or 0))
+            if discount_mode == FinancialMovement.DiscountMode.AMOUNT:
+                resolved_discount = Decimal(str(discount_value.amount if discount_value else 0))
+                if resolved_discount <= 0:
+                    self.add_error("discount_value", "Informe o valor do desconto.")
+                elif resolved_discount > gross_value:
+                    self.add_error("discount_value", "O desconto não pode ser maior que o valor bruto.")
+                cleaned_data["discount_percentage"] = Decimal("0.00")
+            elif discount_mode == FinancialMovement.DiscountMode.PERCENTAGE:
+                if discount_percentage <= 0:
+                    self.add_error("discount_percentage", "Informe o percentual do desconto.")
+                elif discount_percentage > Decimal("100"):
+                    self.add_error("discount_percentage", "O desconto percentual não pode ser maior que 100%.")
+                cleaned_data["discount_value"] = Money(Decimal("0.00"), gross_amount.currency)
+            elif discount_mode == FinancialMovement.DiscountMode.NONE:
+                cleaned_data["discount_value"] = Money(Decimal("0.00"), gross_amount.currency)
+                cleaned_data["discount_percentage"] = Decimal("0.00")
+            else:
+                self.add_error("discount_mode", "Informe se esta movimentação possui desconto.")
+
         for field, message in apply_payment_reconciliation_rules(cleaned_data):
             self.add_error(field, message)
         return cleaned_data
@@ -623,6 +719,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                     "has_expected_value": expected,
                     "is_missing": expected and not movements,
                     "is_benefit_tab": component == FinancialMovement.PayrollComponent.BENEFIT,
+                    "is_commission_tab": component == FinancialMovement.PayrollComponent.COMMISSION,
                     "benefits_total": benefits_total,
                     "benefit_items": [],
                     "form": None,
@@ -638,7 +735,17 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 return str(tab["key"])
         return "summary"
 
-    def _build_component_url(self, *, payroll: CollaboratorPayroll, tab: str, movement_id: int | None = None, continue_without_create: bool = False, prompt_create_component: str | None = None) -> str:
+    def _build_component_url(
+        self,
+        *,
+        payroll: CollaboratorPayroll,
+        tab: str,
+        movement_id: int | None = None,
+        continue_without_create: bool = False,
+        prompt_create_component: str | None = None,
+        show_manual_benefit_form: bool = False,
+        show_manual_commission_form: bool = False,
+    ) -> str:
         params = QueryDict("", mutable=True)
         params["tab"] = tab
         if movement_id is not None:
@@ -647,6 +754,10 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             params["continue_without_create"] = "true"
         if prompt_create_component:
             params["prompt_create_component"] = prompt_create_component
+        if show_manual_benefit_form:
+            params["show_manual_benefit_form"] = "true"
+        if show_manual_commission_form:
+            params["show_manual_commission_form"] = "true"
         query = params.urlencode()
         return f"{self._get_modal_url(payroll=payroll)}?{query}" if query else self._get_modal_url(payroll=payroll)
 
@@ -780,7 +891,30 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             if tab["is_benefit_tab"]:
                 tab["benefit_items"] = self._build_benefit_items(payroll=payroll, movements=tab["movements"])
                 tab["form"] = None
+                tab["manual_launch_open_url"] = self._build_component_url(
+                    payroll=payroll,
+                    tab=str(tab["key"]),
+                    continue_without_create=True,
+                    show_manual_benefit_form=True,
+                )
+                tab["manual_launch_close_url"] = self._build_component_url(
+                    payroll=payroll,
+                    tab=str(tab["key"]),
+                    continue_without_create=True,
+                )
                 continue
+            if tab["is_commission_tab"]:
+                tab["manual_launch_open_url"] = self._build_component_url(
+                    payroll=payroll,
+                    tab=str(tab["key"]),
+                    continue_without_create=True,
+                    show_manual_commission_form=True,
+                )
+                tab["manual_launch_close_url"] = self._build_component_url(
+                    payroll=payroll,
+                    tab=str(tab["key"]),
+                    continue_without_create=True,
+                )
             movement = next((m for m in tab["movements"] if m.pk == movement_id), None) if movement_id is not None else None
             prefix = self._component_form_prefix(str(tab["key"]))
             tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix) if movement is not None else None
@@ -835,7 +969,12 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             continue_url = self._build_component_url(payroll=payroll, tab=self._get_first_available_financial_tab(component_tabs), continue_without_create=True)
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll, continue_url=continue_url)
 
-        return self._open_edit_modal(request=request, payroll=payroll)
+        return self._open_edit_modal(
+            request=request,
+            payroll=payroll,
+            show_manual_benefit_form=request.GET.get("show_manual_benefit_form") == "true",
+            show_manual_commission_form=request.GET.get("show_manual_commission_form") == "true",
+        )
 
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         payroll = self._get_existing_payroll()
@@ -1001,12 +1140,16 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                     unmark_payroll_commissions_as_paid(payroll=payroll)
                 payroll.refresh_from_db()
 
-            response = HttpResponse()
-            response["HX-Refresh"] = "true"
+            response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=self._get_requested_tab())
             toast_message = "Folha atualizada com sucesso."
             if work_days_changed and not all_forms:
                 toast_message = "Dias úteis atualizados com sucesso."
-            response["HX-Trigger"] = json.dumps({"showToast": {"message": toast_message, "type": "success"}})
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {"message": toast_message, "type": "success"},
+                    "payrollListRefresh": True,
+                }
+            )
             return response
 
         return self._open_edit_modal(request=request, payroll=payroll)
@@ -1144,7 +1287,7 @@ class PayrollAddManualBenefitView(PayrollEditModalView):
             payroll=payroll,
             selected_tab=FinancialMovement.PayrollComponent.BENEFIT,
             force_selected_tab=True,
-            show_manual_benefit_form=True,
+            show_manual_benefit_form=False,
         )
         response["HX-Trigger"] = json.dumps(
             {
@@ -1165,7 +1308,7 @@ class PayrollAddManualCommissionView(PayrollEditModalView):
             return self._open_edit_modal(
                 request=request,
                 payroll=payroll,
-                selected_tab="commissions_history",
+                selected_tab=FinancialMovement.PayrollComponent.COMMISSION,
                 force_selected_tab=True,
                 manual_commission_form=form,
                 show_manual_commission_form=True,
@@ -1183,9 +1326,9 @@ class PayrollAddManualCommissionView(PayrollEditModalView):
         response = self._open_edit_modal(
             request=request,
             payroll=payroll,
-            selected_tab="commissions_history",
+            selected_tab=FinancialMovement.PayrollComponent.COMMISSION,
             force_selected_tab=True,
-            show_manual_commission_form=True,
+            show_manual_commission_form=False,
         )
         response["HX-Trigger"] = json.dumps(
             {

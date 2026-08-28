@@ -1,0 +1,14 @@
+{% if nfse_form.codigo_servico_suggestions %}
+    <datalist id="nfse-codigo-servico-suggestions">
+        {% for codigo_servico in nfse_form.codigo_servico_suggestions %}
+            <option value="{{ codigo_servico }}"></option>
+        {% endfor %}
+    </datalist>
+{% endif %}
+{% if nfse_form.codigo_nbs_suggestions %}
+    <datalist id="nfse-codigo-nbs-suggestions">
+        {% for codigo_nbs in nfse_form.codigo_nbs_suggestions %}
+            <option value="{{ codigo_nbs }}"></option>
+        {% endfor %}
+    </datalist>
+{% endif %}

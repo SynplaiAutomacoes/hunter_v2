@@ -3,14 +3,49 @@ from __future__ import annotations
 from datetime import datetime
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase
+from django.template.loader import render_to_string
+from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.pdf_context import _merge_selected_product_rows, _merge_selected_service_rows, resolve_expected_delivery_at
+from apps.budget.models import Budget
+from apps.budget.pdf_context import (
+    _merge_selected_product_rows,
+    _merge_selected_service_rows,
+    build_budget_pdf_context,
+    is_visible_pdf_pricing_line,
+    resolve_expected_delivery_at,
+    resolve_pdf_opened_by_name,
+)
+from apps.customer.models import Customer, Vehicle
+from apps.workshops.models.workshops import Workshop
 
 
 def _money(amount: str) -> Money:
     return Money(amount, "BRL")
+
+
+def _pricing_line(*, kind: str, quantity: int, raw_total: str, shipping: str = "0.00") -> SimpleNamespace:
+    return SimpleNamespace(
+        kind=kind,
+        quantity=quantity,
+        raw_total=_money(raw_total),
+        shipping=_money(shipping),
+    )
+
+
+class VisiblePdfPricingLineTests(SimpleTestCase):
+    def test_zero_priced_service_with_quantity_stays_visible(self) -> None:
+        line = _pricing_line(kind="service", quantity=1, raw_total="0.00")
+        self.assertTrue(is_visible_pdf_pricing_line(line))
+
+    def test_zero_priced_product_with_quantity_stays_visible(self) -> None:
+        line = _pricing_line(kind="product", quantity=2, raw_total="0.00")
+        self.assertTrue(is_visible_pdf_pricing_line(line))
+
+    def test_zero_quantity_line_is_hidden(self) -> None:
+        line = _pricing_line(kind="service", quantity=0, raw_total="50.00")
+        self.assertFalse(is_visible_pdf_pricing_line(line))
 
 
 def _product_row(*, product_id: int, quantity: int, selling: str, shipping: str = "0.00") -> dict:
@@ -189,3 +224,68 @@ class ExpectedDeliveryDatePdfContextTests(SimpleTestCase):
         )
 
         self.assertEqual(resolve_expected_delivery_at(budget=budget), service_completion_date)
+
+
+class PdfOpenedByNameTests(SimpleTestCase):
+    def test_prefers_full_name_then_username_then_sistema(self) -> None:
+        named_user = SimpleNamespace(get_full_name=lambda: "Ana Silva", get_username=lambda: "ana")
+        username_only = SimpleNamespace(get_full_name=lambda: "", get_username=lambda: "sistema.user")
+
+        self.assertEqual(resolve_pdf_opened_by_name(named_user), "Ana Silva")
+        self.assertEqual(resolve_pdf_opened_by_name(None, username_only), "sistema.user")
+        self.assertEqual(resolve_pdf_opened_by_name(None, None), "Sistema")
+
+
+def _create_budget(*, suffix: int) -> Budget:
+    workshop = Workshop.objects.create(
+        name=f"Oficina Orcamento PDF {suffix}",
+        cnpj=f"11.222.333/0003-{suffix:02d}",
+        phone="+5511999999999",
+        address="Rua Orcamento, 100",
+    )
+    customer = Customer.objects.create(
+        workshop=workshop,
+        name=f"Cliente Orcamento PDF {suffix}",
+        cpf_or_cnpj=f"1234567892{suffix:02d}",
+        email=f"orcamento{suffix}@example.com",
+        is_active=True,
+    )
+    vehicle = Vehicle.objects.create(
+        workshop=workshop,
+        customer=customer,
+        plate=f"ORC{suffix:04d}",
+        brand="Fiat",
+        model="Uno",
+        year_fabrication="2020",
+        year_model="2020",
+    )
+    return Budget.objects.create(
+        workshop=workshop,
+        customer=customer,
+        vehicle=vehicle,
+        entry_date=timezone.localdate(),
+        slider=0,
+    )
+
+
+class BudgetPdfDocumentTitleTests(TestCase):
+    def test_budget_pdf_templates_show_orcamento_instead_of_os(self) -> None:
+        budget = _create_budget(suffix=1)
+        context = build_budget_pdf_context(budget=budget)
+
+        self.assertEqual(context["document_title"], "ORÇAMENTO")
+        self.assertEqual(context["opened_by_name"], "Sistema")
+
+        for template_name in (
+            "budget/partials/pdf/visualizarPDF.html",
+            "budget/partials/pdf/visualizarPDFGestor.html",
+            "budget/partials/pdf/visualizarPDFMecanico.html",
+        ):
+            html = render_to_string(template_name, context)
+            self.assertIn("ORÇAMENTO", html)
+            self.assertNotIn("ORDEM DE SERVIÇO", html)
+
+        cliente_html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
+        gestor_html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
+        self.assertIn("Aberto por: Sistema", cliente_html)
+        self.assertIn("Aberto por: Sistema", gestor_html)

@@ -28,14 +28,11 @@ _TWO_DECIMAL_PLACES = Decimal("0.01")
 
 
 def is_visible_pdf_pricing_line(line: Any) -> bool:
-    """Treat a zero-quantity or zero-priced budget line as removed from every PDF."""
-    if line.quantity <= 0:
-        return False
-    if line.kind == "product":
-        line_value = line.raw_total - line.shipping
-    else:
-        line_value = line.raw_total + line.shipping
-    return line_value.amount > _ZERO_DECIMAL
+    """Treat a zero-quantity budget line as removed from every PDF.
+
+    Zero-priced lines with quantity > 0 remain visible (free / courtesy-priced items).
+    """
+    return line.quantity > 0
 
 
 def _build_pdf_pages(produtos: list[dict], servicos: list[dict], kits: list[dict]) -> list[dict]:
@@ -275,6 +272,8 @@ def _explode_kit_service_rows(*, budget: Any, kit_line, kit_item) -> list[dict[s
     third_party_entries: list[tuple[Any, int]] = []
 
     for override in kit_item._iter_frozen_kit_service_overrides():
+        if getattr(override, "excluded_from_composition", False):
+            continue
         total_quantity = int(override.quantity or 0) * int(kit_quantity or 0)
         if total_quantity <= 0:
             continue
@@ -399,6 +398,19 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
 
 def resolve_expected_delivery_at(*, budget):
     return budget.customer_agreed_departure_at or budget.service_expected_completion_at
+
+
+def resolve_pdf_opened_by_name(*users: Any) -> str:
+    for user in users:
+        if user is None:
+            continue
+        full_name = user.get_full_name() if callable(getattr(user, "get_full_name", None)) else ""
+        if full_name:
+            return str(full_name)
+        username = user.get_username() if callable(getattr(user, "get_username", None)) else ""
+        if username:
+            return str(username)
+    return "Sistema"
 
 
 def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, presentation: str = "expanded") -> dict:
@@ -548,6 +560,10 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
     benefit_total = Money(0, "BRL")
     benefit_label = ""
+    opened_by_name = resolve_pdf_opened_by_name(
+        getattr(budget, "created_by", None),
+        getattr(budget, "cost_estimator", None),
+    )
 
     return {
         "budget": budget,
@@ -578,5 +594,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "workshop_logo_data_uri": workshop_logo_data_uri,
         "budget_rentability": rentability,
         "expected_delivery_at": expected_delivery_at,
+        "document_title": "ORÇAMENTO",
+        "opened_by_name": opened_by_name,
         "request": request,
     }

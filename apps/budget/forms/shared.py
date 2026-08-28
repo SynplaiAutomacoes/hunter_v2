@@ -92,7 +92,7 @@ def _render_budget_items_rows(budget, step6=False):
                 if int(getattr(override, "quantity", 0) or 0) > 0 and override.product_id:
                     kit_product_ids.add(override.product_id)
             for override in item._iter_frozen_kit_service_overrides():
-                if int(getattr(override, "quantity", 0) or 0) > 0 and override.service_id:
+                if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False) and override.service_id:
                     kit_service_ids.add(override.service_id)
 
     if budget_for_render.pk:

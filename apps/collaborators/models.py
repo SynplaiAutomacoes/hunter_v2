@@ -14,6 +14,7 @@ from localflavor.br.models import BRCPFField
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import format_workorder_reference, resolve_workorder_number
 from apps.core.text_normalization import name_case, sentence_case
 
 
@@ -364,7 +365,7 @@ class CollaboratorCommissionEntry(TimeStampedModel):
 
     def __str__(self) -> str:
         if self.workorder_id:
-            return f"Comissão {self.collaborator.name} - OS #{self.workorder.pk}"
+            return f"Comissão {self.collaborator.name} - {format_workorder_reference(self.workorder)}"
         return f"Comissão {self.collaborator.name} - Manual"
 
     @property
@@ -375,11 +376,7 @@ class CollaboratorCommissionEntry(TimeStampedModel):
     def workorder_display(self) -> str:
         if self.is_manual or self.workorder_id is None:
             return "Manual"
-        workorder = self.workorder
-        workorder_id = getattr(workorder, "get_id", None)
-        if callable(workorder_id):
-            return f"#{workorder.get_id}"
-        return f"#{self.workorder_id}"
+        return f"#{resolve_workorder_number(self.workorder)}"
 
     @property
     def percentage_display(self) -> str:

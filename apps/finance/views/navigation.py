@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from urllib.parse import urlencode
 
 from django.urls import reverse
+from django.views.generic import RedirectView
 
 
 ISSUED_DOCUMENTS_ORIGIN = "issued_documents"
@@ -58,6 +59,25 @@ def extract_issued_documents_origin_params(query_params: Mapping[str, object]) -
         search=query_params.get("search"),
         operacao=query_params.get("operacao"),
     )
+
+
+def build_issued_documents_list_url(*, note_type: str = "") -> str:
+    """Canonical destination after emit/cancel — replaces legacy nfe/nfse list and emission history screens."""
+    normalized = _normalize_query_value(note_type).lower()
+    params: dict[str, str] = {}
+    if normalized in {"nfe", "nfse"}:
+        params["tipo"] = normalized
+    return append_query_params(url=reverse("finance:issued_documents_list"), params=params)
+
+
+class IssuedDocumentsRedirectView(RedirectView):
+    """Legacy nfe/nfse list URLs redirect to Central de Notas."""
+
+    permanent = False
+    note_type = ""
+
+    def get_redirect_url(self, *args, **kwargs) -> str:
+        return build_issued_documents_list_url(note_type=self.note_type)
 
 
 def build_issued_documents_back_url(*, query_params: Mapping[str, object], fallback_url: str) -> str:
