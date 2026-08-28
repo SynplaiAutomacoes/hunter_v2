@@ -8,7 +8,12 @@ from .common import *
 class BudgetStep1Form(BudgetStepBaseForm):
     workshop = forms.CharField(label="Empresa", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     cost_estimator = forms.CharField(label="Orçamentista", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
+<<<<<<< HEAD
     vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=False, widget=SearchableSelectInput())
+=======
+    vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=True, widget=SearchableSelectInput())
+    confirm_entry_km_mismatch = forms.BooleanField(required=False, widget=forms.HiddenInput())
+>>>>>>> origin/staging
 
     class Meta:
         model = Budget

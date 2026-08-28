@@ -185,10 +185,9 @@
                     <!-- Aumentado o gap e o padding vertical para dar destaque -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-10 py-4">
                         <div class="flex flex-col items-center gap-4">
-                            {% with taxa_aprovacao|floatformat:0 as aprov_val %}
-                            {% if aprov_val|add:"0" >= 75 %}
+                            {% if taxa_aprovacao >= 75 %}
                             <div class="radial-progress text-success border-4 border-success/10"
-                            {% elif aprov_val|add:"0" >= 70 %}
+                            {% elif taxa_aprovacao >= 70 %}
                             <div class="radial-progress text-warning border-4 border-warning/10"
                             {% else %}
                             <div class="radial-progress text-error border-4 border-error/10"
@@ -197,13 +196,13 @@
                                  role="progressbar">
                                 <span class="text-2xl font-bold text-base-content">{{ taxa_aprovacao|floatformat:2 }}%</span>
                             </div>
-                            {% endwith %}
                             <span class="text-lg font-semibold">Taxa de Aprovação</span>
-                            <p class="text-xs text-base-content/60 text-center max-w-[200px]">Valor calculado em cima dos orçamentos reprovados / orçamentos enviados</p>
+                            <p class="-mt-2 text-center text-sm text-base-content/60">Percentual de orçamentos aprovados no mês.</p>
+                            <p class="-mt-2 text-center text-sm text-base-content/60">É calculada dividindo os orçamentos aprovados pelo total de orçamentos criados no mês. Garantias, cortesias e cancelados não entram no total.</p>
                         </div>
                         <div class="flex flex-col items-center gap-4" x-data="{ mode: 'profitability' }">
                             {% with rentabilidade_acumulada_mes|floatformat:0 as rent_val %}
-                                <div role="button" tabindex="0" class="contents" @click="mode = mode === 'profitability' ? 'markup' : 'profitability'" @keydown.enter.prevent="mode = mode === 'profitability' ? 'markup' : 'profitability'" @keydown.space.prevent="mode = mode === 'profitability' ? 'markup' : 'profitability'" title="Alternar entre rentabilidade e multiplicador de lucratividade acumulado">
+                                <div role="button" tabindex="0" class="contents" @click="mode = mode === 'profitability' ? 'markup' : 'profitability'" @keydown.enter.prevent="mode = mode === 'profitability' ? 'markup' : 'profitability'" @keydown.space.prevent="mode = mode === 'profitability' ? 'markup' : 'profitability'" title="Alternar entre rentabilidade e markup acumulado">
                                     {% if rent_val|add:"0" >= 70 %}
                                     <div x-show="mode === 'profitability'" class="radial-progress text-success border-4 border-success/10 cursor-pointer"
                                     {% elif rent_val|add:"0" >= 60 %}
@@ -230,12 +229,14 @@
                                 </div>
                             {% endwith %}
                             <span x-show="mode === 'profitability'" class="text-lg font-semibold">Rentabilidade Acumulada</span>
-                            <p x-show="mode === 'profitability'" class="text-xs text-base-content/60 text-center max-w-[200px]">Rentabilidade calculada em cima do valor dos veículos entregues</p>
-                            <span x-show="mode === 'markup'" x-cloak class="text-lg font-semibold text-center">Multiplicador de Lucratividade Acumulado</span>
-                            {% if markup_meta %}
-                            <p x-show="mode === 'markup'" x-cloak class="text-xs text-base-content/60 text-center max-w-[220px]">Multiplicador de Lucratividade de Referência (MLR): {{ markup_meta|floatformat:2 }}x</p>
+                            <span x-show="mode === 'markup'" x-cloak class="text-lg font-semibold">Markup Acumulado</span>
+                            <p x-show="mode === 'profitability'" class="-mt-2 text-center text-sm text-base-content/60">Percentual de lucro sobre as vendas do mês.</p>
+                            {% if markup_acumulado_meta is not None %}
+                                <p x-show="mode === 'markup'" x-cloak class="-mt-2 text-center text-sm text-base-content/60">Meta do mês: {{ markup_acumulado_meta|floatformat:2 }}x.</p>
+                                <p x-show="mode === 'markup'" x-cloak class="text-center text-sm text-base-content/60">Mostra quantas vezes o valor de venda é maior que o custo.</p>
+                            {% else %}
+                                <p x-show="mode === 'markup'" x-cloak class="-mt-2 text-center text-sm text-base-content/60">Mostra quantas vezes o valor de venda é maior que o custo. A meta ainda não foi configurada.</p>
                             {% endif %}
-                            <p x-show="mode === 'markup'" x-cloak class="text-xs text-base-content/60 text-center max-w-[220px]">Mostra quantas vezes o valor de venda é maior que o custo.</p>
                         </div>
                         <div class="flex flex-col items-center gap-4">
                             <div class="radial-progress text-error border-4 border-error/10"
@@ -244,7 +245,7 @@
                                 <span class="text-2xl font-bold text-base-content">{{ indice_retorno_em_garantia_mes|floatformat:2 }}%</span>
                             </div>
                             <span class="text-lg font-semibold">Retorno em Garantia</span>
-                            <p class="text-xs text-base-content/60 text-center max-w-[200px]">Percentual de veículos que retornaram no período</p>
+                            <p class="-mt-2 text-center text-sm text-base-content/60">Percentual de serviços retornados em garantia no mês.</p>
                         </div>
                     </div>
                 </div>

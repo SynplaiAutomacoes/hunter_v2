@@ -6,7 +6,6 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any, Iterable
 
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.conf import settings
 from django.db import models, transaction
 from django.db.models import PositiveIntegerField
 from django.utils import timezone
@@ -21,6 +20,7 @@ from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.models.payment_method import PaymentMethod
 
 if TYPE_CHECKING:
@@ -55,6 +55,8 @@ WORKORDER_REOPENABLE_STATUSES = frozenset(
         WorkOrderStatus.CANCELLED,
     }
 )
+
+# Work in progress: the O.S. was approved but the vehicle has not been delivered yet.
 WORKORDER_OPEN_STATUSES = frozenset(
     {
         WorkOrderStatus.DRAFT,
@@ -62,14 +64,9 @@ WORKORDER_OPEN_STATUSES = frozenset(
         WorkOrderStatus.WAITING_DELIVERY,
     }
 )
-WORKORDER_REVENUE_STATUSES = WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED}
 
-
-def is_workorder_step_workflow_enabled() -> bool:
-    """O stepper da O.S. ainda não foi liberado em produção."""
-    from apps.core.infrastructure.runtime_environment import is_non_production_environment
-
-    return is_non_production_environment()
+# Statuses that already count as revenue for dashboards and DRE.
+WORKORDER_REVENUE_STATUSES = frozenset(WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED})
 
 
 class WorkOrderSignatureStatus(models.TextChoices):
@@ -112,7 +109,6 @@ WARRANTY_PLAN_DAYS: dict[str, int | None] = {
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Criado por", on_delete=models.SET_NULL, related_name="created_workorders", null=True, blank=True)
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="workorders", blank=True)
     status = models.CharField(verbose_name="Status", max_length=32, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa atual", default=1)
@@ -219,14 +215,7 @@ class WorkOrder(TimeStampedModel):
             WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
         }
 
-        # Status legados renomeados — mapear para o valor atual equivalente
-        LEGACY_STATUS_MAP = {
-            "waiting_delivery": WorkOrderStatus.DRAFT,
-        }
-
         status_value = self.status
-        if status_value in LEGACY_STATUS_MAP:
-            status_value = LEGACY_STATUS_MAP[status_value].value
 
         try:
             status_enum = WorkOrderStatus(status_value)
@@ -301,6 +290,16 @@ class WorkOrder(TimeStampedModel):
             return Money(0, "BRL")
         return self.pricing_snapshot.total_labor_cost_value
 
+    def _is_local_product_item(self, item: "WorkOrderItem") -> bool:
+        if item.local_item_type == "product":
+            return True
+        return bool(item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0)))
+
+    def _is_local_service_item(self, item: "WorkOrderItem") -> bool:
+        if item.local_item_type == "service":
+            return True
+        return bool(item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration))
+
     def _build_pricing_snapshot(self, labor_selling_value_override: Money | None = None) -> PricingSnapshot:
         return build_pricing_snapshot(
             items=list(self._iter_items()),
@@ -309,6 +308,8 @@ class WorkOrder(TimeStampedModel):
             discount_percentage=self.discount_percentage,
             labor_hourly_cost_value=self.mechanic_hour_cost_value,
             labor_selling_value_override=labor_selling_value_override,
+            is_local_product_item=self._is_local_product_item,
+            is_local_service_item=self._is_local_service_item,
         )
 
     def build_cost_snapshot(self) -> PricingSnapshot:
@@ -320,6 +321,8 @@ class WorkOrder(TimeStampedModel):
             discount_percentage=self.discount_percentage,
             labor_hourly_cost_value=self.mechanic_hour_cost_value,
             include_benefit_items=True,
+            is_local_product_item=self._is_local_product_item,
+            is_local_service_item=self._is_local_service_item,
         )
 
     @property
@@ -444,7 +447,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def can_change_delivery_status(self) -> bool:
-        return self.status in WORKORDER_OPEN_STATUSES
+        return self.status == WorkOrderStatus.WAITING_DELIVERY
 
     @property
     def signature_blockers_display(self) -> str:
@@ -587,15 +590,12 @@ class WorkOrder(TimeStampedModel):
         if not self.can_reopen:
             raise WorkOrderError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
-        if is_workorder_step_workflow_enabled():
-            self.status = WorkOrderStatus.WAITING_DELIVERY
-            self.current_step = 4
-        else:
-            self.status = WorkOrderStatus.DRAFT
-            self.current_step = 1
+        self.status = WorkOrderStatus.WAITING_DELIVERY
+        self.current_step = 4
+        self.delivered_at = None
         self.reopen_reason = reason
 
-        self.save(update_fields=["status", "delivered_at", "reopen_reason", "current_step"])
+        self.save(update_fields=["status", "current_step", "delivered_at", "reopen_reason"])
 
     def apply_discount(self, value: Money, percentage: Decimal, discount_type: str | None = None) -> None:
         self.discount_value = value
@@ -645,9 +645,8 @@ class WorkOrder(TimeStampedModel):
             update_fields.append("review_plan")
 
         if "previous_mechanic" in posted_fields:
-            mechanic = cleaned_data.get("previous_mechanic")
-            self.previous_mechanic_id = getattr(mechanic, "pk", None)
-            update_fields.append("previous_mechanic_id")
+            self.previous_mechanic = cleaned_data.get("previous_mechanic")
+            update_fields.append("previous_mechanic")
 
         if "courtesy_reason_type" in posted_fields:
             self.courtesy_reason_type = cleaned_data.get("courtesy_reason_type") or None
@@ -715,6 +714,7 @@ class WorkOrder(TimeStampedModel):
         previous_mechanic_id: int | None = None,
         courtesy_reason_type: str | None = None,
         courtesy_reason_description: str = "",
+        update_courtesy_fields: bool = False,
     ) -> None:
         self.km_final = km_final
         self.unsigned_delivery_reason = unsigned_delivery_reason
@@ -722,13 +722,11 @@ class WorkOrder(TimeStampedModel):
         if warranty_plan is not None:
             self.warranty_plan = warranty_plan
             update_fields.append("warranty_plan")
-        if previous_mechanic_id is not None:
+        if update_courtesy_fields:
             self.previous_mechanic_id = previous_mechanic_id
             update_fields.append("previous_mechanic_id")
-        if courtesy_reason_type is not None:
             self.courtesy_reason_type = courtesy_reason_type or None
             update_fields.append("courtesy_reason_type")
-        if courtesy_reason_description:
             self.courtesy_reason_description = courtesy_reason_description
             update_fields.append("courtesy_reason_description")
         if last_oil_change_date is not None:
@@ -1101,6 +1099,8 @@ class WorkOrder(TimeStampedModel):
                         kit=budget_item.kit,
                         description=budget_item.description,
                         quantity=budget_item.quantity,
+                        is_local=budget_item.is_local,
+                        local_item_type=budget_item.local_item_type,
                         is_customer_supplied=budget_item.is_customer_supplied,
                         shipping=budget_item.shipping,
                         product_cost_price=budget_item.product_cost_price,
@@ -1137,6 +1137,7 @@ class WorkOrder(TimeStampedModel):
                             service_cost_price=override.service_cost_price,
                             service_selling_price=override.service_selling_price,
                             duration=override.duration,
+                            excluded_from_composition=override.excluded_from_composition,
                         )
                     )
 
@@ -1152,6 +1153,11 @@ class WorkOrder(TimeStampedModel):
             self.discount_type = self.budget.discount_type
             self.budget_type = self.budget.budget_type
             self.save(update_fields=["discount_value", "discount_percentage", "discount_type", "budget_type"])
+
+            collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
+            if not collaborator_ids and self.budget.collaborator_id:
+                collaborator_ids = [self.budget.collaborator_id]
+            self.collaborators.set(collaborator_ids)
 
             self.invalidate_pricing_snapshot_cache()
             self.refresh_stored_amounts()
@@ -1248,6 +1254,14 @@ class WorkOrderItem(TimeStampedModel):
 
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
+    is_local = models.BooleanField(verbose_name="Item Local", default=False)
+    local_item_type = models.CharField(
+        verbose_name="Tipo do Item Local",
+        max_length=20,
+        choices=[("product", "Produto"), ("service", "Serviço")],
+        blank=True,
+        default="",
+    )
     is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     shipping = MoneyField(verbose_name="Custo de Frete", max_digits=14, decimal_places=2, default=0)
@@ -1601,7 +1615,7 @@ class WorkOrderItem(TimeStampedModel):
         verbose_name_plural = "Itens da O.S."
 
     def __str__(self):
-        return f"Item #{self.id} da O.S. #{self.workorder_id}"
+        return f"Item #{self.id} da O.S. #{resolve_workorder_number(self.workorder)}"
 
 
 class WorkOrderKitItemOverride(TimeStampedModel):
@@ -1620,6 +1634,7 @@ class WorkOrderKitItemOverride(TimeStampedModel):
     service_cost_price = MoneyField(verbose_name="Custo do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     service_selling_price = MoneyField(verbose_name="Preço de Venda do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+    excluded_from_composition = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "Override de Item do Kit da O.S."
@@ -1631,9 +1646,9 @@ class WorkOrderKitItemOverride(TimeStampedModel):
 
     def __str__(self):
         if self.product:
-            return f"Override O.S.: {self.product.name} - WorkOrder #{self.workorder_item.workorder_id}"
+            return f"Override O.S.: {self.product.name} - O.S. #{resolve_workorder_number(self.workorder_item.workorder)}"
         if self.service:
-            return f"Override O.S.: {self.service.name} - WorkOrder #{self.workorder_item.workorder_id}"
+            return f"Override O.S.: {self.service.name} - O.S. #{resolve_workorder_number(self.workorder_item.workorder)}"
         return f"Override O.S. #{self.id}"
 
 

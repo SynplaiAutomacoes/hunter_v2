@@ -17,6 +17,7 @@ from djmoney.money import Money
 from apps.budget.models import Budget
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
+from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -139,6 +140,82 @@ def _resolve_commission_base_amount(*, workorder: WorkOrder) -> Money:
     )
     services_discount = allocated_discount[1] if len(allocated_discount) > 1 else ZERO
     return Money(_quantize(max(Decimal(str(services_total.amount)) - services_discount, ZERO)), "BRL")
+
+
+@dataclass(slots=True, frozen=True)
+class WorkOrderCollaboratorCommissionPreview:
+    collaborator_id: int
+    name: str
+    percentage: Decimal | None
+    percentage_display: str
+    base_amount: Money
+    commission_amount: Money
+    receives_commission: bool
+    eligible: bool
+    consolidates_on_delivery: bool
+    unavailable_reason: str
+
+
+def _format_commission_percentage(percentage: Decimal | None) -> str:
+    if percentage is None:
+        return "—"
+    display = (Decimal(str(percentage)) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{display:.2f}%".replace(".", ",")
+
+
+def preview_workorder_collaborator_commissions(*, workorder: WorkOrder) -> list[WorkOrderCollaboratorCommissionPreview]:
+    """Return a read-only commission forecast for collaborators linked to the work order."""
+    budget_type = _resolve_workorder_budget_type(workorder=workorder)
+    is_sale = budget_type == "sale"
+    consolidates_on_delivery = _workorder_can_generate_commission(workorder=workorder)
+    base_amount = _resolve_commission_base_amount(workorder=workorder)
+    base_decimal = Decimal(str(base_amount.amount or ZERO))
+
+    if not is_sale:
+        unavailable_reason = "Comissão não se aplica a orçamentos de garantia ou cortesia."
+    else:
+        unavailable_reason = ""
+
+    previews: list[WorkOrderCollaboratorCommissionPreview] = []
+    for collaborator in workorder.collaborators.all():
+        receives_commission = bool(collaborator.receives_commission and collaborator.commission_percentage is not None)
+        percentage = Decimal(str(collaborator.commission_percentage)) if receives_commission else None
+        if not is_sale:
+            commission_amount = Money(ZERO, "BRL")
+            eligible = False
+            reason = unavailable_reason
+        elif not receives_commission:
+            commission_amount = Money(ZERO, "BRL")
+            eligible = False
+            reason = "Este colaborador não recebe comissão."
+        else:
+            commission_amount = Money(_quantize(base_decimal * Decimal(str(percentage or ZERO))), "BRL")
+            eligible = True
+            reason = ""
+
+        previews.append(
+            WorkOrderCollaboratorCommissionPreview(
+                collaborator_id=collaborator.pk,
+                name=collaborator.name,
+                percentage=percentage,
+                percentage_display=_format_commission_percentage(percentage),
+                base_amount=base_amount,
+                commission_amount=commission_amount,
+                receives_commission=receives_commission,
+                eligible=eligible,
+                consolidates_on_delivery=consolidates_on_delivery,
+                unavailable_reason=reason,
+            )
+        )
+    return previews
+
+
+def workorder_commission_context(*, workorder: WorkOrder) -> dict[str, object]:
+    return {
+        "commission_previews": preview_workorder_collaborator_commissions(workorder=workorder),
+        "commission_is_sale": _resolve_workorder_budget_type(workorder=workorder) == "sale",
+        "commission_consolidates": _workorder_can_generate_commission(workorder=workorder),
+    }
 
 
 def _get_next_month_reference(reference_date: date) -> date:
@@ -781,7 +858,7 @@ def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionE
 def _commission_payroll_item_title(*, entry: CollaboratorCommissionEntry) -> str:
     if entry.is_manual or entry.workorder_id is None:
         return "Comissão manual"
-    return f"Comissão OS #{entry.workorder_id}"
+    return f"Comissão {format_workorder_reference(entry.workorder)}"
 
 
 def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
@@ -1432,7 +1509,7 @@ def _refresh_payroll_commission_from_entries(*, payroll: CollaboratorPayroll) ->
             reference_year=payroll.reference_year,
             reference_month=payroll.reference_month,
         )
-        .select_related("workorder")
+        .select_related("workorder", "workorder__budget")
         .order_by("id")
     )
     entries_to_attach = [entry for entry in entries if entry.payroll_id != payroll.pk]
@@ -1654,7 +1731,7 @@ def _sync_payroll_items_from_movements(*, payroll: CollaboratorPayroll, movement
             amount=movement.amount,
         )
 
-    commission_entries = list(payroll.commission_entries.select_related("workorder").all())
+    commission_entries = list(payroll.commission_entries.select_related("workorder", "workorder__budget").all())
     if Decimal(str(payroll.commission_amount.amount or ZERO)) > ZERO and commission_entries:
         _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
     elif Decimal(str(payroll.commission_amount.amount or ZERO)) > ZERO:
@@ -1920,9 +1997,9 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
 
     updated_payrolls = 0
     if touched_payroll_ids:
-        payrolls = CollaboratorPayroll.objects.filter(pk__in=touched_payroll_ids).select_related("financial_movement").prefetch_related("items", "commission_entries__workorder")
+        payrolls = CollaboratorPayroll.objects.filter(pk__in=touched_payroll_ids).select_related("financial_movement").prefetch_related("items", "commission_entries__workorder__budget")
         for payroll in payrolls:
-            commission_entries = list(payroll.commission_entries.select_related("workorder").order_by("id"))
+            commission_entries = list(payroll.commission_entries.select_related("workorder", "workorder__budget").order_by("id"))
             commission_total = Money(
                 _quantize(sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)),
                 "BRL",
