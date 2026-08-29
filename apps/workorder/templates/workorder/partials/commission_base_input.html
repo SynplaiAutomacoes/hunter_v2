@@ -1,0 +1,35 @@
+{% load l10n %}
+<div
+    x-data="formatters.widget.percentageInput('{{ base_pct_fraction|unlocalize }}', 0, 100, 2, 'digit_stream')"
+    x-init="init()"
+    class="relative w-28"
+>
+    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2">
+        <span class="text-xs text-base-content/70">%</span>
+    </div>
+    <input
+        type="text"
+        id="commission-base-{{ scope }}-{{ collaborator_id|unlocalize }}"
+        x-ref="display"
+        @input="handleInput"
+        @blur="handleBlur(); $refs.value.dispatchEvent(new Event('change', { bubbles: true }))"
+        inputmode="numeric"
+        autocomplete="off"
+        placeholder="0,00"
+        class="input input-bordered input-sm w-full pl-6 pr-1"
+        {% if disabled %}disabled{% endif %}
+    >
+    <input
+        type="hidden"
+        x-ref="value"
+        name="distribution_percentage"
+        value="{{ base_pct_fraction|unlocalize }}"
+        hx-post="{% url 'workorder:update_allocation' workorder.pk %}"
+        hx-vals='{"scope": "{{ scope }}", "collaborator_id": "{{ collaborator_id|unlocalize }}"}'
+        hx-include="#commission-pool-section [name=csrfmiddlewaretoken]"
+        hx-trigger="change"
+        hx-target="#commission-pool-section"
+        hx-swap="innerHTML"
+        {% if disabled %}disabled{% endif %}
+    >
+</div>

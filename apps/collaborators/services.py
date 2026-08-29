@@ -294,7 +294,9 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
             else:
                 preview_amount = _quantize(total_S * pct_for_cap)
         elif is_pct:
-            preview_amount = _quantize(pool_S * base_pct)
+            raw_preview = _quantize(pool_S * base_pct)
+            cap_commission = _quantize(total_S * pct_for_cap)
+            preview_amount = min(raw_preview, cap_commission)
         else:
             preview_amount = fixed_amount.amount if is_fixed else ZERO
         preview_money = Money(preview_amount, "BRL")
@@ -344,6 +346,15 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
 
 
 def workorder_commission_context(*, workorder: WorkOrder) -> dict[str, object]:
+    from apps.collaborators.commission.allocation import CommissionAllocationService
+
+    try:
+        CommissionAllocationService.sync_for_workorder(workorder=workorder)
+        workorder.refresh_from_db()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("commission_allocation_sync_failed workorder_id=%s error=%s", workorder.pk, exc)
     # Legado para templates antigos + novo pool split
     previews = preview_workorder_collaborator_commissions(workorder=workorder)
     is_sale = _resolve_workorder_budget_type(workorder=workorder) == "sale"

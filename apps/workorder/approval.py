@@ -122,10 +122,9 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
             _c_err = []
             for _sc in ("service", "product"):
                 _vv = CommissionAllocationService.validate(workorder=locked_workorder, scope=_sc)
-                _c_err.extend(_vv.get("cap", []))
                 _c_err.extend(_vv.get("sum", []))
             if _c_err:
-                raise WorkOrderApprovalError("Há colaborador com comissão maior que o permitido. Corrija a Base% na previsão de comissão. " + _c_err[0])
+                raise WorkOrderApprovalError("A soma das Bases de comissão ultrapassa 100%. Corrija a Base% na previsão de comissão. " + _c_err[0])
         except WorkOrderApprovalError:
             raise
         except Exception:

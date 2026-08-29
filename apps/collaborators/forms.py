@@ -529,6 +529,8 @@ class CollaboratorCommissionScopeForm(CoreModelForm):
         if "is_active" in self.fields:
             self.fields["is_active"].required = False
             self.fields["is_active"].widget.attrs["x-model"] = "enabled"
+            if not self.instance.pk and not self.is_bound:
+                self.fields["is_active"].initial = False
 
     def clean(self):
         cleaned = super().clean()

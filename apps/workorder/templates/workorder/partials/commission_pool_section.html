@@ -35,7 +35,7 @@
                     </thead>
                     <tbody>
                         {% for row in pool.rows %}
-                            <tr {% if row.is_editable and row.base_pct > row.cap %}class="bg-warning/10" title="Ultrapassa previsão permitida (máx {{ row.cap_display }}% — {{ row.cap_amount }} de {{ pool.pool_S }} no montante)"{% endif %}>
+                            <tr>
                                 <td>
                                     <div class="flex flex-col">
                                         <span>{{ row.name }}</span>
@@ -47,27 +47,7 @@
                                 </td>
                                 <td>
                                     {% if row.is_editable %}
-                                        <input
-                                            type="number"
-                                            name="distribution_percentage"
-                                            value="{{ row.base_pct_display|unlocalize }}"
-                                            min="0"
-                                            max="{{ row.cap_display|unlocalize }}"
-                                            step="0.01"
-                                            placeholder="0"
-                                            class="input input-bordered input-sm w-24 {% if row.base_pct > row.cap %}input-error{% endif %}"
-                                            hx-post="{% url 'workorder:update_allocation' workorder.pk %}"
-                                            hx-vals='{"scope": "{{ scope }}", "collaborator_id": "{{ row.collaborator_id|unlocalize }}"}'
-                                            hx-include="this, #commission-pool-section [name=csrfmiddlewaretoken]"
-                                            hx-trigger="change"
-                                            hx-target="#commission-pool-section"
-                                            hx-swap="innerHTML"
-                                            title="{% if row.base_pct > row.cap %}Ultrapassa previsão permitida (máx {{ row.cap_display }}% — {{ row.cap_amount }}){% endif %}"
-                                            {% if commission_is_paid %}disabled{% endif %}
-                                        >
-                                        {% if row.base_pct > row.cap %}
-                                            <div class="text-xs text-error mt-1">Ultrapassa previsão permitida (máx {{ row.cap_display }}% — {{ row.cap_amount }}); altere.</div>
-                                        {% endif %}
+                                        {% include "workorder/partials/commission_base_input.html" with base_pct_fraction=row.base_pct collaborator_id=row.collaborator_id scope=scope workorder=workorder disabled=commission_is_paid %}
                                     {% else %}
                                         <span class="text-xs text-base-content/60">{% if row.is_fixed %}Fixo{% elif row.is_global %}Global{% else %}—{% endif %}</span>
                                     {% endif %}
@@ -75,14 +55,7 @@
                                 <td class="font-semibold">
                                     {{ row.preview_amount }}
                                 </td>
-                                <td>
-                                    {% if row.is_editable and row.base_pct > row.cap %}
-                                        <span class="badge badge-warning badge-sm">cap excedido</span>
-                                    {% endif %}
-                                    {% if forloop.parentloop.counter == 1 and forloop.counter == 1 and pool.sum_base_pct > 1 %}
-                                        <!-- sum warning já exibido no header -->
-                                    {% endif %}
-                                </td>
+                                <td></td>
                             </tr>
                         {% empty %}
                             <tr>
@@ -116,8 +89,7 @@
             } catch(e){}
         });
         function checkSumForPool(poolEl){
-            // Soma das Bases por escopo (produto/serviço) — exibir alerta client-side
-            const inputs = poolEl.querySelectorAll('input[name="distribution_percentage"]');
+            const inputs = poolEl.querySelectorAll('input[x-ref="display"]');
             let sum = 0;
             inputs.forEach(function(inp){
                 const v = parseFloat(String(inp.value || '').replace(',', '.')) || 0;
@@ -147,41 +119,16 @@
                 if (clientAlert) clientAlert.remove();
             }
         }
-        // Validação client-side imediata: linha amarela + title quando Base% > cap (max) e soma>100
+        // Validação client-side: soma das Bases por escopo
         section.addEventListener('input', function(e){
-            const input = e.target.closest('input[name="distribution_percentage"]');
+            const input = e.target.closest('input[x-ref="display"]');
             if (!input) return;
-            const row = input.closest('tr');
-            if (!row) return;
             const poolEl = input.closest('.rounded-xl.border');
-            const maxAttr = input.getAttribute('max');
-            const max = maxAttr ? parseFloat(String(maxAttr).replace(',', '.')) : 100;
-            const val = parseFloat(String(input.value || '').replace(',', '.')) || 0;
-            if (val - max > 0.0001) {
-                row.classList.add('bg-warning/10');
-                const capDisplay = max.toFixed(2).replace('.', ',');
-                // buscar cap_amount se disponível via title original (server já tem), senão só cap
-                const capMoney = input.getAttribute('title') || '';
-                const title = 'Ultrapassa previsão permitida (máx ' + capDisplay + '%)';
-                row.setAttribute('title', title);
-                input.classList.add('input-error');
-                input.setAttribute('title', title);
-            } else {
-                row.classList.remove('bg-warning/10');
-                row.removeAttribute('title');
-                input.classList.remove('input-error');
-                input.removeAttribute('title');
-            }
             if (poolEl) checkSumForPool(poolEl);
         });
         // Inicial: verificar soma ao carregar (caso DB já tenha soma>100)
         section.querySelectorAll('.rounded-xl.border').forEach(function(poolEl){
             checkSumForPool(poolEl);
         });
-        // Se já houver linha amarela ao carregar (dados inválidos persistidos), manter visível
-        const warnings = section.querySelectorAll('.bg-warning\\/10, .alert-warning');
-        if (warnings.length > 0) {
-            // manter visível, já está amarelo
-        }
     })();
 </script>

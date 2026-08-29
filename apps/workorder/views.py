@@ -645,6 +645,10 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
         if form.is_valid():
             form.save()
             workorder.refresh_from_db()
+            from apps.collaborators.commission.allocation import CommissionAllocationService
+
+            CommissionAllocationService.sync_for_workorder(workorder=workorder)
+            workorder.refresh_from_db()
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
             form = WorkOrderCollaboratorForm(instance=workorder, workorder=workorder)
@@ -734,7 +738,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         if pct > Decimal("1"):
             pct = Decimal("1")
 
-        # Validação de bloqueio: Base% não pode exceder cap (rule% / max%) e Σ ≤100% — rejeitar e obrigar corrigir
+        # Validação de bloqueio: Σ Base% ≤100% — rejeitar e obrigar corrigir
         from apps.collaborators.models import CollaboratorCommissionRule, WorkOrderCommissionAllocation
 
         try:
@@ -751,7 +755,6 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                         apply_scope=CollaboratorCommissionRule.ApplyScope.PARTICIPATION,
                     )
                 )
-                max_pct = max((r.percentage or Decimal("0") for r in all_rules), default=Decimal("0"))
                 rule = next((r for r in all_rules if r.collaborator_id == collaborator.pk), None)
                 if pct > Decimal("0") and rule is None:
                     msg = "Colaborador não possui regra de percentual por participação neste escopo."
@@ -760,53 +763,18 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                         resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
                         return resp
                     return JsonResponse({"ok": False, "error": msg}, status=400)
-                if rule is not None and max_pct > Decimal("0"):
-                    cap = (rule.percentage or Decimal("0")) / max_pct if max_pct else Decimal("1")
-                    if pct - cap > Decimal("0.000001"):
-                        cap_display = (cap * Decimal("100")).quantize(Decimal("0.01"))
-                        try:
-                            from apps.collaborators.commission.calculators import calculate_total_for_scope
-                            total_S = calculate_total_for_scope(workorder=locked_wo, workshop=locked_wo.workshop, scope=scope)
-                        except Exception:
-                            total_S = Decimal("0")
-                        pool_S = (total_S * max_pct).quantize(Decimal("0.01")) if max_pct else Decimal("0")
-                        cap_val = (cap * pool_S).quantize(Decimal("0.01")) if pool_S else Decimal("0")
-                        pool_val = pool_S.quantize(Decimal("0.01"))
-                        msg = f"Base% de {collaborator.name} ultrapassa o máximo permitido de {cap_display}% (R$ {cap_val} de R$ {pool_val} no montante). Corrija."
-                        if request.headers.get("HX-Request") == "true":
-                            # Render pool section with attempted value to show yellow line + title, but do not persist
-                            # Build temporary context with override
-                            from apps.collaborators.services import _build_pool_scope_context
-                            # Create a fake allocation for rendering
-                            _tmp_alloc = type("TmpAlloc", (), {"collaborator_id": collaborator.pk, "distribution_percentage": pct, "scope": scope})()
-                            # Build context manually with override: we will inject the attempted pct into the row
-                            # For HTMX, return 200 with rendered HTML and toast, so swap occurs and blank page is avoided
-                            # Use existing pool context but override the specific row's base_pct for display
-                            # Simpler: render normal pool_section (with old DB values) and rely on client-side JS to show yellow for input value
-                            # But to show server-side yellow for attempted value, we need to pass it via context
-                            # Approach: render with a flag that indicates attempted error, and template will show attempted value
-                            # For now, return a normal pool_section but with HX-Trigger error; the input will remain at invalid value client-side
-                            # To avoid blank page, return 200 with HX-Trigger and let client-side JS handle yellow
-                            resp = HttpResponse(status=200)
-                            resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
-                            # HTMX will not swap on 200 without body, so we need to provide body that keeps the pool_section
-                            # Instead, we return the current pool_section HTML (old values) with 200, so swap occurs but keeps old values
-                            # The input's invalid value (100%) will remain client-side, and JS will add yellow
-                            # To make server render with attempted value, we would need to override, but we can keep simple: return 200 with empty body and let JS handle
-                            # For now, return 200 with HX-Trigger and let the client-side input stay at invalid value
-                            # To prevent blank page, we must return a valid HTMX response that swaps, so we render the pool_section
-                            # Render the pool_section with current DB (old) values, but the input's value is still 100% client-side, so after swap it would revert to old
-                            # To avoid revert, we should NOT swap on error — keep the invalid input client-side and just show toast
-                            # Therefore, return 200 with no swap (HX-Retarget to none) and just toast
-                            # HTMX will not swap if we use 204 No Content, but we need to avoid blank page, so return 204 with HX-Trigger
-                            resp = HttpResponse(status=204)
-                            resp["HX-Trigger"] = json.dumps({"showToast": {"message": msg, "type": "error"}})
-                            return resp
-                        return JsonResponse({"ok": False, "error": msg}, status=400, headers={"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})})
                 # Validar soma Σ Base% ≤100% (considerando novo valor)
-                existing_allocs = list(WorkOrderCommissionAllocation.objects.select_for_update().filter(workorder=locked_wo, scope=scope))
-                old_val = next((Decimal(str(a.distribution_percentage or 0)) for a in existing_allocs if a.collaborator_id == collaborator.pk), Decimal("0"))
-                sum_others = sum((Decimal(str(a.distribution_percentage or 0)) for a in existing_allocs if a.collaborator_id != collaborator.pk), Decimal("0"))
+                existing_allocs = list(
+                    WorkOrderCommissionAllocation.objects.select_for_update().filter(
+                        workorder=locked_wo,
+                        scope=scope,
+                        collaborator_id__in=wo_collab_ids,
+                    )
+                )
+                sum_others = sum(
+                    (Decimal(str(a.distribution_percentage or 0)) for a in existing_allocs if a.collaborator_id != collaborator.pk),
+                    Decimal("0"),
+                )
                 new_sum = sum_others + pct
                 if new_sum - Decimal("1") > Decimal("0.000001"):
                     sum_display = (new_sum * Decimal("100")).quantize(Decimal("0.01"))
@@ -820,8 +788,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                         status=400,
                         headers={"HX-Trigger": json.dumps({"showToast": {"message": msg, "type": "error"}})},
                     )
-                allocation = CommissionAllocationService.upsert(workorder=locked_wo, collaborator=collaborator, scope=scope, distribution_percentage=pct)
-                has_warnings = False
+                CommissionAllocationService.upsert(workorder=locked_wo, collaborator=collaborator, scope=scope, distribution_percentage=pct)
         except ValidationError as exc:
             msg = str(exc.message if hasattr(exc, 'message') else str(exc))
             if request.headers.get("HX-Request") == "true":
@@ -846,12 +813,6 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
         context.update(workorder_stepper_context(request=request, workorder=workorder))
         response = render(request, "workorder/partials/commission_pool_section.html", context)
         response["Cache-Control"] = "no-store"
-        if has_warnings:
-            messages = []
-            messages.extend(validation.get("cap", []))
-            messages.extend(validation.get("sum", []))
-            msg_text = " ".join(messages)[:500]
-            response["HX-Trigger"] = json.dumps({"showToast": {"message": msg_text, "type": "warning"}})
         return response
 
 
