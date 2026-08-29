@@ -234,5 +234,14 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         movement.save(update_fields=[*defaults.keys()])
 
     sync_workorder_card_fee_movements(workorder=workorder)
+    # Comissão v3 — gerar pool (idempotente, respeita PAID)
+    try:
+        from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+
+        WorkOrderCommissionOrchestrator().generate_commissions_for_workorder(workorder=workorder)
+    except Exception:  # pragma: no cover
+        import logging
+
+        logging.getLogger(__name__).exception("workorder_commission_orchestrator_failed", extra={"workorder_id": workorder.pk})
     sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=resolve_workorder_payroll_reference_date(workorder=workorder))
     return movement

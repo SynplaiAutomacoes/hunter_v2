@@ -164,6 +164,10 @@ class WorkOrder(TimeStampedModel):
         verbose_name="Descrição do motivo da cortesia/garantia",
         blank=True,
     )
+    warranty_origin = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="warranty_children", verbose_name="WO de venda que originou a garantia"
+    )
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
     stored_total_amount = MoneyField(
@@ -289,6 +293,16 @@ class WorkOrder(TimeStampedModel):
         if getattr(self, "_skip_mechanic_labor_cost", False):
             return Money(0, "BRL")
         return self.pricing_snapshot.total_labor_cost_value
+
+    def _is_local_product_item(self, item: "WorkOrderItem") -> bool:
+        if item.local_item_type == "product":
+            return True
+        return bool(item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0)))
+
+    def _is_local_service_item(self, item: "WorkOrderItem") -> bool:
+        if item.local_item_type == "service":
+            return True
+        return bool(item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration))
 
     def _is_local_product_item(self, item: "WorkOrderItem") -> bool:
         if item.local_item_type == "product":
@@ -502,6 +516,20 @@ class WorkOrder(TimeStampedModel):
     def approve(self) -> None:
         if self.status == WorkOrderStatus.APPROVED:
             return
+        # Comissão v3 — validar caps antes de aprovar (rejeitar e obrigar corrigir)
+        try:
+            from apps.collaborators.commission.allocation import CommissionAllocationService
+            _c_errors = []
+            for _scope in ("service", "product"):
+                _v = CommissionAllocationService.validate(workorder=self, scope=_scope)
+                _c_errors.extend(_v.get("cap", []))
+                _c_errors.extend(_v.get("sum", []))
+            if _c_errors:
+                raise WorkOrderError("Há colaborador com comissão maior que o permitido. Corrija a Base% na previsão de comissão. " + _c_errors[0])
+        except WorkOrderError:
+            raise
+        except Exception:
+            pass  # não bloquear por erro de validação inesperado
         self.status = WorkOrderStatus.APPROVED
         self.current_step = max(int(self.current_step or 1), 4)
         if self.pk and not getattr(self, "_skip_stock_consumption_guard", False):
@@ -511,6 +539,13 @@ class WorkOrder(TimeStampedModel):
             self.delivered_at = timezone.now()
             update_fields.append("delivered_at")
         self.save(update_fields=update_fields)
+        # Comissão v3 — gerar pool após aprovação (idempotente, PAID imutável)
+        try:
+            from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+
+            WorkOrderCommissionOrchestrator().generate_commissions_for_workorder(workorder=self)
+        except Exception as exc:  # pragma: no cover
+            logger.exception("workorder_approve_commission_failed", extra={"workorder_id": self.pk, "error": str(exc)})
 
     def _ensure_stock_consumed_on_approve(self, user: object | None = None) -> None:
         from apps.stock.services.workorder_stock import has_unreversed_exit_movements
@@ -596,6 +631,13 @@ class WorkOrder(TimeStampedModel):
         self.reopen_reason = reason
 
         self.save(update_fields=["status", "current_step", "delivered_at", "reopen_reason"])
+        # Comissão v3 — ao reabrir, remover apenas FORECAST (PAID permanece)
+        try:
+            from apps.collaborators.models import CollaboratorCommissionEntry
+
+            CollaboratorCommissionEntry.objects.filter(workorder=self, status=CollaboratorCommissionEntry.Status.FORECAST).delete()
+        except Exception as exc:  # pragma: no cover
+            logger.exception("workorder_reopen_commission_cleanup_failed", extra={"workorder_id": self.pk, "error": str(exc)})
 
     def apply_discount(self, value: Money, percentage: Decimal, discount_type: str | None = None) -> None:
         self.discount_value = value
@@ -656,6 +698,10 @@ class WorkOrder(TimeStampedModel):
             self.courtesy_reason_description = str(cleaned_data.get("courtesy_reason_description") or "")
             update_fields.append("courtesy_reason_description")
 
+        if "warranty_origin" in posted_fields:
+            self.warranty_origin = cleaned_data.get("warranty_origin")
+            update_fields.append("warranty_origin")
+
         if not update_fields:
             return
 
@@ -714,6 +760,7 @@ class WorkOrder(TimeStampedModel):
         previous_mechanic_id: int | None = None,
         courtesy_reason_type: str | None = None,
         courtesy_reason_description: str = "",
+        warranty_origin_id: int | None = None,
         update_courtesy_fields: bool = False,
     ) -> None:
         self.km_final = km_final
@@ -729,6 +776,8 @@ class WorkOrder(TimeStampedModel):
             update_fields.append("courtesy_reason_type")
             self.courtesy_reason_description = courtesy_reason_description
             update_fields.append("courtesy_reason_description")
+            self.warranty_origin_id = warranty_origin_id
+            update_fields.append("warranty_origin_id")
         if last_oil_change_date is not None:
             self.last_oil_change_date = last_oil_change_date
             update_fields.append("last_oil_change_date")

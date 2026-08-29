@@ -18,8 +18,6 @@ from apps.core.infrastructure.services.signature import build_signature_whatsapp
 from apps.core.infrastructure.services.signature_webhook import (
     SignatureWebhookView,
     build_synplaisign_webhook_signature,
-    extract_signature_envelope_id,
-    extract_signature_event,
     process_signature_webhook_payload,
 )
 from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
@@ -466,11 +464,7 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
 
     @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=False)
     @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")
-    def test_workorder_signature_is_approved_when_completion_is_pending(
-        self,
-        approve_mock: Mock,
-        _can_finalize_mock: Mock,
-    ) -> None:
+    def test_workorder_signature_is_approved_when_completion_is_pending(self, approve_mock: Mock) -> None:
         from apps.workorder.models import WorkOrderStatus
 
         workorder = SimpleNamespace(
@@ -492,23 +486,18 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         workorder.mark_signature_approved.assert_called_once()
         approve_mock.assert_not_called()
 
-    @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=True)
     @patch(
         "apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock",
         side_effect=WorkOrderApprovalError("estoque insuficiente"),
     )
-    def test_workorder_signature_is_approved_even_when_finalize_fails(
-        self,
-        _approve_mock: Mock,
-        _can_finalize_mock: Mock,
-    ) -> None:
+    def test_workorder_signature_is_approved_even_when_finalize_fails(self, _approve_mock: Mock) -> None:
         from apps.workorder.models import WorkOrderStatus
 
         workorder = SimpleNamespace(
             pk=685,
             warranty_plan="days_90",
             mark_signature_approved=Mock(),
-            is_fully_paid=False,
+            is_fully_paid=True,
             budget_type="standard",
             status=WorkOrderStatus.DRAFT,
             save=Mock(),

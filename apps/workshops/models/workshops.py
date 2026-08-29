@@ -4,8 +4,9 @@ import secrets
 from datetime import time, timedelta
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import CharField, BooleanField
+from django.db.models import CharField, BooleanField, Q
 from django.utils import timezone
 from localflavor.br.models import BRCNPJField
 from phonenumber_field.modelfields import PhoneNumberField
@@ -140,10 +141,59 @@ class Workshop(TimeStampedModel):
         default="",
         help_text="Senha aleatoria do OWNER na SynplaiSign (criptografada). Nao e a senha do Hunter.",
     )
+    # Comissão v3 — limites e base de cálculo por escopo (informado na Workshop, bloqueia % do colaborador)
+    class CommissionBase(models.TextChoices):
+        GROSS = "gross", "Bruto"
+        PROFIT = "profit", "Lucro"
+
+    service_commission_max_percentage = models.DecimalField(
+        verbose_name="Limite máximo % (Serviço)",
+        max_digits=7,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+        help_text="Percentual máximo permitido para colaboradores (Serviço). Vazio = sem limite.",
+    )
+    service_commission_base = models.CharField(
+        verbose_name="Base (Serviço)",
+        max_length=20,
+        choices=CommissionBase.choices,
+        null=True,
+        blank=True,
+        help_text="Define se a comissão de serviço é sobre valor bruto ou lucro.",
+    )
+    product_commission_max_percentage = models.DecimalField(
+        verbose_name="Limite máximo % (Produto)",
+        max_digits=7,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+        help_text="Percentual máximo permitido para colaboradores (Produto). Vazio = sem limite.",
+    )
+    product_commission_base = models.CharField(
+        verbose_name="Base (Produto)",
+        max_length=20,
+        choices=CommissionBase.choices,
+        null=True,
+        blank=True,
+        help_text="Define se a comissão de produto é sobre valor bruto ou lucro.",
+    )
 
     class Meta:
         verbose_name = "Oficina"
         verbose_name_plural = "Oficinas"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(service_commission_max_percentage__isnull=True) | (Q(service_commission_max_percentage__gte=0) & Q(service_commission_max_percentage__lte=1)),
+                name="workshop_service_commission_max_percentage_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(product_commission_max_percentage__isnull=True) | (Q(product_commission_max_percentage__gte=0) & Q(product_commission_max_percentage__lte=1)),
+                name="workshop_product_commission_max_percentage_range",
+            ),
+        ]
 
     @property
     def can_search_sefaz(self) -> bool:

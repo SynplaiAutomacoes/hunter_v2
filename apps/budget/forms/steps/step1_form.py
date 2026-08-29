@@ -14,6 +14,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
         required=True,
         widget=SearchableSelectInput(),
     )
+    confirm_entry_km_mismatch = forms.BooleanField(required=False, widget=forms.HiddenInput())
 
     class Meta:
         model = Budget

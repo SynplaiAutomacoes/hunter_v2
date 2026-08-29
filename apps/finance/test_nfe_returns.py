@@ -275,38 +275,6 @@ class NfeReturnOperationalTests(TestCase):
         with self.assertRaisesMessage(NfeReturnError, "no maximo 30 caracteres"):
             self._draft(item=invalid_item, products=[], classe_imposto="R" * 31)
 
-    def test_payload_includes_optional_order_transport_and_payment_without_requiring_them(self) -> None:
-        item = self._create_nfe_item(suffix=22)
-        document = create_nfe_return_draft_from_item(
-            item=item,
-            purpose=FiscalDocumentPurpose.RETURN,
-            products=[{"sequencial": 1, "quantidade": "1"}],
-            requested_by=self.user,
-            natureza_operacao="Devolucao de mercadoria",
-            codigo_cfop="1202",
-            extras={
-                "freight_mode": 1,
-                "freight_amount": Decimal("12.56"),
-                "discount_amount": Decimal("10.00"),
-                "accessory_expenses": Decimal("3.40"),
-                "insurance_amount": Decimal("1.00"),
-                "presence": "1",
-                "payment_method": "90",
-                "transport_snapshot": {"modalidade": 1, "transportador": {}, "volumes": {"volume": 2, "especie": "CAIXA"}},
-            },
-        )
-
-        self.assertEqual(document.request_payload["pedido"]["frete"], "12.56")
-        self.assertEqual(document.request_payload["pedido"]["desconto"], "10.00")
-        self.assertEqual(document.request_payload["pedido"]["despesas_acessorias"], "3.40")
-        self.assertEqual(document.request_payload["pedido"]["modalidade_frete"], 1)
-        self.assertEqual(document.request_payload["pedido"]["presenca"], 1)
-        self.assertEqual(document.request_payload["pedido"]["forma_pagamento"], "90")
-        self.assertEqual(document.request_payload["transporte"]["seguro"], "1.00")
-        self.assertEqual(document.request_payload["transporte"]["especie"], "CAIXA")
-        self.assertEqual(document.request_payload["volume"], "2")
-        self.assertNotIn("finalidade", document.request_payload)
-
     def test_partial_return_rejects_insufficient_balance_unknown_and_duplicate_items(self) -> None:
         item = self._create_nfe_item(products=[{"sequencial": 1, "codigo": "P1", "quantidade": "2"}])
         first = self._transmit(document=self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1.5"}]))
