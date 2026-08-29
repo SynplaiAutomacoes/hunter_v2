@@ -80,6 +80,16 @@ class FinanceMigrationHistoryTests(SimpleTestCase):
         parent_deps = _finance_dependencies("0053_movement_group_discount_fields")
         self.assertIn("0052_financial_movement_discount_fields", parent_deps)
 
+    def test_fiscaldocument_options_leaf_is_merged_at_tip(self) -> None:
+        deps = _finance_dependencies("0066_merge_fiscaldocument_options_and_partial_payment")
+        self.assertEqual(
+            set(deps),
+            {
+                "0063_alter_fiscaldocument_options_and_more",
+                "0065_merge_financial_movement_partial_payment",
+            },
+        )
+
 
 class IdempotentMigrationStateTests(SimpleTestCase):
     def test_duplicate_create_add_index_constraint_are_state_safe(self) -> None:
