@@ -400,3 +400,38 @@ class WorkOrderDeliveryDraftAutosaveViewTests(TestCase):
         approve_mock.assert_called_once()
         sync_finance_mock.assert_called_once()
         schedule_survey_mock.assert_called_once()
+
+    @patch("apps.messaging.application.services.satisfaction_survey.schedule_satisfaction_survey_for_workorder")
+    @patch("apps.workorder.views.sync_workorder_financial_movement")
+    @patch("apps.workorder.views.approve_workorder_with_stock")
+    def test_post_does_not_finalize_reopened_workorder_on_autosave(
+        self,
+        approve_mock: Mock,
+        sync_finance_mock: Mock,
+        schedule_survey_mock: Mock,
+    ) -> None:
+        self.workorder.budget.budget_type = "warranty"
+        self.workorder.budget.save(update_fields=["budget_type"])
+        self.workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        self.workorder.budget_type = "warranty"
+        self.workorder.reopen_reason = "Corrigir item da O.S."
+        self.workorder.status = WorkOrderStatus.WAITING_DELIVERY
+        self.workorder.save(update_fields=["signature_request_status", "budget_type", "reopen_reason", "status"])
+
+        response = self.client.post(
+            self.url,
+            data={"warranty_plan": WorkOrderWarrantyPlan.DAYS_90, "km_final": "15000"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["finalized"])
+        approve_mock.assert_not_called()
+        sync_finance_mock.assert_not_called()
+        schedule_survey_mock.assert_not_called()
+
+        self.workorder.refresh_from_db()
+        self.assertEqual(self.workorder.status, WorkOrderStatus.WAITING_DELIVERY)
+        self.assertEqual(self.workorder.km_final, 15000)
+        self.assertEqual(self.workorder.warranty_plan, WorkOrderWarrantyPlan.DAYS_90)

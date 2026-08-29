@@ -942,7 +942,8 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder.refresh_from_db()
 
         finalized = False
-        if "km_final" in posted_fields and workorder.is_customer_signature_approved and workorder_can_finalize_after_signature(workorder):
+        already_reopened = bool(str(workorder.reopen_reason or "").strip())
+        if "km_final" in posted_fields and not already_reopened and workorder.is_customer_signature_approved and workorder_can_finalize_after_signature(workorder):
             try:
                 approve_workorder_with_stock(workorder=workorder, signature_approved=True)
                 sync_workorder_financial_movement(workorder=workorder)
