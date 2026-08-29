@@ -241,13 +241,14 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
     def _build_rows(self, *, entries: list[CollaboratorCommissionEntry]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for entry in entries:
-            is_manual = entry.is_manual or entry.workorder_id is None
-            customer = getattr(getattr(entry.workorder, "budget", None), "customer", None) if entry.workorder_id else None
+            workorder = entry.workorder
+            is_manual = entry.is_manual or workorder is None
+            customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
             rows.append(
                 {
                     "collaborator_name": entry.collaborator.name,
-                    "workorder_id": entry.workorder.get_id,
-                    "workorder_url": reverse("workorder:workorder_detail", kwargs={"pk": entry.workorder_id}),
+                    "workorder_id": None if workorder is None else workorder.get_id,
+                    "workorder_url": "" if workorder is None else reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk}),
                     "workorder_label": "Manual" if is_manual else "",
                     "customer_name": customer.name if customer is not None else "-",
                     "description": self._resolve_workorder_description(entry),
@@ -386,17 +387,18 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "total_commission": Money(0, "BRL"),
                 }
 
-            is_manual = entry.is_manual or entry.workorder_id is None
-            customer = getattr(getattr(entry.workorder, "budget", None), "customer", None) if entry.workorder_id else None
-            vehicle = getattr(getattr(entry.workorder, "budget", None), "vehicle", None) if entry.workorder_id else None
+            workorder = entry.workorder
+            is_manual = entry.is_manual or workorder is None
+            customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
+            vehicle = getattr(getattr(workorder, "budget", None), "vehicle", None) if workorder is not None else None
             notes = str(entry.notes or "").strip()
 
             collaborators_map[collab_id]["entries"].append(
                 {
-                    "workorder_id": "Manual" if is_manual else entry.workorder.get_id,
+                    "workorder_id": "Manual" if is_manual or workorder is None else workorder.get_id,
                     "customer": (notes or "Lançamento manual") if is_manual else (customer.name if customer else "-"),
                     "vehicle": notes if is_manual else (str(vehicle) if vehicle else "-"),
-                    "delivered_at": None if is_manual else entry.workorder.delivered_at,
+                    "delivered_at": None if is_manual or workorder is None else workorder.delivered_at,
                     "base_amount": entry.base_amount,
                     "percentage": None if is_manual else (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
                     "is_manual": is_manual,

@@ -223,6 +223,7 @@ class CommissionReportVisibilityTests(TestCase):
 
         self.assertEqual([entry.pk for entry in queryset], [manual_entry.pk])
         self.assertEqual(rows[0]["workorder_label"], "Manual")
+        self.assertIsNone(rows[0]["workorder_id"])
         self.assertEqual(rows[0]["description"], "Ajuste pontual")
         self.assertEqual(rows[0]["workorder_url"], "")
 
