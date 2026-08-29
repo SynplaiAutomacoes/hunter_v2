@@ -297,7 +297,7 @@ class EnsureWorkshopWebhookTests(SimpleTestCase):
         from apps.workshops.services.synplaisign import _ensure_workshop_webhook
 
         list_mock.return_value = [
-            {"id": "wh-old", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"]},
+            {"id": "wh-old", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED", "DOCUMENT_SIGNED", "DOCUMENT_DECLINED"]},
         ]
         create_mock.return_value = {"id": "wh-new", "secret": "whsec_recreated"}
         workshop = Mock()
@@ -309,7 +309,7 @@ class EnsureWorkshopWebhookTests(SimpleTestCase):
 
         delete_mock.assert_called_once_with(api_key="sk_live", webhook_id="wh-old")
         create_mock.assert_called_once()
-        self.assertEqual(create_mock.call_args.kwargs["events"], ["ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"])
+        self.assertEqual(create_mock.call_args.kwargs["events"], ["ENVELOPE_COMPLETED", "DOCUMENT_SIGNED", "DOCUMENT_DECLINED"])
         self.assertEqual(workshop.synplaisign_webhook_id, "wh-new")
         self.assertEqual(decrypt_secret(workshop.synplaisign_webhook_secret), "whsec_recreated")
         workshop.save.assert_called()
@@ -326,7 +326,7 @@ class EnsureWorkshopWebhookTests(SimpleTestCase):
         from apps.workshops.services.synplaisign import _ensure_workshop_webhook
 
         list_mock.return_value = [
-            {"id": "wh-keep", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED", "DOCUMENT_DECLINED"]},
+            {"id": "wh-keep", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED", "DOCUMENT_SIGNED", "DOCUMENT_DECLINED"]},
             {"id": "wh-dup", "url": "https://app/hook", "events": ["ENVELOPE_COMPLETED"]},
         ]
         workshop = Mock()

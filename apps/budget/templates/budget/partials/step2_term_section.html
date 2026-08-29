@@ -1,0 +1,38 @@
+{% load l10n %}
+
+<div class="flex flex-col h-full w-full" data-receipt-term-panel data-status-url-template="{{ term_status_url_template }}">
+    <label class="label p-0 mb-2" for="receipt-term-select">
+        <span class="label-text font-semibold">Termo de Recebimento / Garantia</span>
+    </label>
+    <select
+        id="receipt-term-select"
+        class="select select-bordered w-full bg-base-200 mb-3"
+        data-receipt-term-select
+    >
+        {% for term in receipt_terms %}
+            <option value="{{ term.pk|unlocalize }}" {% if forloop.first %}selected{% endif %}>{{ term.name }}</option>
+        {% endfor %}
+    </select>
+    <div class="flex flex-wrap items-center gap-2">
+        <span
+            id="receipt-term-status-badge"
+            class="badge {{ initial_term_status_badge.class }} font-semibold uppercase"
+        >
+            {{ initial_term_status_badge.text }}
+        </span>
+        <button
+            type="button"
+            class="btn btn-outline w-full sm:w-auto"
+            id="receipt-term-open-btn"
+            data-url-template="{{ term_modal_url_template }}"
+            hx-get="{{ initial_term_modal_url }}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+        >
+            <span class="material-icons text-base">description</span>
+            Visualizar termo
+        </button>
+    </div>
+</div>
+
+<script type="application/json" id="receipt-term-status-map">{{ term_signing_status_map_json|safe }}</script>

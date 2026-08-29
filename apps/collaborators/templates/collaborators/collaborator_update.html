@@ -236,6 +236,7 @@
                 </div>
 
                 <div class="col-span-12 lg:col-span-4">{{ form.transport_allowance_daily|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4">{{ form.transport_budget_plan|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4">
                     <label class="label pb-1" for="id_collaborator_work_days"><span class="label-text text-xs">Dias úteis do mês atual</span></label>
                     <input
@@ -347,8 +348,44 @@
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                 <div class="col-span-12 lg:col-span-3">{{ form.receives_commission|as_crispy_field }}</div>
-                <div class="col-span-12 lg:col-span-3" x-show="receives_commission" x-cloak>{{ form.commission_percentage|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-3">{{ form.system_access|as_crispy_field }}</div>
+            </div>
+
+            <div x-show="receives_commission" x-cloak class="rounded-xl border border-base-300 p-4 space-y-4">
+                <div>
+                    <h3 class="text-base font-semibold">Regras de comissão</h3>
+                    <p class="text-sm text-base-content/70">Configure Percentual OU Valor Fixo por escopo. Percentual respeita o limite da oficina; Valor Fixo não entra no montante de distribuição percentual de comissão. Aplicação define se a regra é por participação na O.S. ou global.</p>
+                </div>
+                <!-- Serviço -->
+                <div class="rounded-xl border border-base-200 p-4 space-y-3" x-data="{ enabled: {{ commission_service_form.is_active.value|yesno:'true,false,false' }} }" data-rule-exclusive>
+                    <label class="flex items-center gap-2 font-semibold cursor-pointer">
+                        {{ commission_service_form.is_active }}
+                        <span>Habilitar serviço</span>
+                        <span class="text-xs text-base-content/60">(Serviço)</span>
+                    </label>
+                    <div x-show="enabled" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                        <div class="col-span-12 lg:col-span-4">{{ commission_service_form.percentage|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ commission_service_form.fixed_amount|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ commission_service_form.apply_scope|as_crispy_field }}</div>
+                    </div>
+                    <p x-show="enabled" class="text-xs text-base-content/60">Informe apenas Percentual OU Valor Fixo. Percentual ≤ limite da oficina; Valor Fixo fica fora do montante de distribuição percentual de comissão.</p>
+                    {% if commission_service_form.non_field_errors %}<div class="text-sm text-error">{{ commission_service_form.non_field_errors }}</div>{% endif %}
+                </div>
+                <!-- Produto -->
+                <div class="rounded-xl border border-base-200 p-4 space-y-3" x-data="{ enabled: {{ commission_product_form.is_active.value|yesno:'true,false,false' }} }" data-rule-exclusive>
+                    <label class="flex items-center gap-2 font-semibold cursor-pointer">
+                        {{ commission_product_form.is_active }}
+                        <span>Habilitar produto</span>
+                        <span class="text-xs text-base-content/60">(Produto)</span>
+                    </label>
+                    <div x-show="enabled" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                        <div class="col-span-12 lg:col-span-4">{{ commission_product_form.percentage|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ commission_product_form.fixed_amount|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ commission_product_form.apply_scope|as_crispy_field }}</div>
+                    </div>
+                    <p x-show="enabled" class="text-xs text-base-content/60">Informe apenas Percentual OU Valor Fixo. Percentual ≤ limite da oficina; Valor Fixo fica fora do montante de distribuição percentual de comissão.</p>
+                    {% if commission_product_form.non_field_errors %}<div class="text-sm text-error">{{ commission_product_form.non_field_errors }}</div>{% endif %}
+                </div>
             </div>
 
             <div x-show="system_access" x-cloak class="rounded-xl border border-base-300 p-4">
@@ -487,6 +524,59 @@
         }
         window.alert('Nao foi possivel remover o beneficio. Tente novamente.');
     }
+
+    function initCommissionScopeExclusivity() {
+        document.querySelectorAll('[data-rule-exclusive]').forEach(function(card) {
+            const pctHidden = card.querySelector('input[name$="-percentage"]');
+            const pctDisplay = card.querySelector('input[id$="-percentage_display"]') || pctHidden;
+            const fixedInput = card.querySelector('input[name$="-fixed_amount_0"]');
+            if (!pctDisplay || !fixedInput) return;
+            const clearOther = function(source) {
+                const pctVal = (pctDisplay ? pctDisplay.value : (pctHidden ? pctHidden.value : '')).trim();
+                const fixedVal = fixedInput.value.trim();
+                const isPctSource = source === pctDisplay || source === pctHidden;
+                const isFixedSource = source === fixedInput;
+                if (isPctSource && pctVal !== '' && pctVal !== '0' && pctVal !== '0,00' && pctVal !== '0.00') {
+                    fixedInput.value = '';
+                    fixedInput.dispatchEvent(new Event('input', {bubbles:true}));
+                    fixedInput.dispatchEvent(new Event('change', {bubbles:true}));
+                    const fixedCurrency = card.querySelector('input[name$="-fixed_amount_1"]');
+                    if (fixedCurrency) fixedCurrency.value = 'BRL';
+                    // garantir que hidden também seja limpo caso display tenha sido usado
+                    if (pctHidden && pctHidden !== pctDisplay) {
+                        // não limpar pctHidden aqui — ele será atualizado pelo widget; apenas evitar loop
+                    }
+                } else if (isFixedSource && fixedVal !== '' && fixedVal !== '0' && fixedVal !== '0,00' && fixedVal !== '0.00') {
+                    if (pctDisplay) {
+                        pctDisplay.value = '';
+                        pctDisplay.dispatchEvent(new Event('input', {bubbles:true}));
+                        pctDisplay.dispatchEvent(new Event('blur', {bubbles:true}));
+                    }
+                    if (pctHidden && pctHidden !== pctDisplay) {
+                        pctHidden.value = '';
+                        pctHidden.dispatchEvent(new Event('input', {bubbles:true}));
+                    }
+                }
+            };
+            if (pctDisplay) pctDisplay.addEventListener('input', function() { clearOther(pctDisplay); });
+            if (pctHidden && pctHidden !== pctDisplay) pctHidden.addEventListener('input', function() { clearOther(pctHidden); });
+            fixedInput.addEventListener('input', function() { clearOther(fixedInput); });
+            // também ao desabilitar, limpar oposto
+            card.querySelectorAll('input[type="checkbox"][name$="-is_active"]').forEach(function(cb) {
+                cb.addEventListener('change', function(e) {
+                    const enabled = e.target.checked;
+                    if (!enabled) {
+                        // quando desabilita, não precisa limpar mas esconder já acontece via Alpine
+                    }
+                });
+            });
+        });
+    }
+    document.addEventListener('DOMContentLoaded', initCommissionScopeExclusivity);
+    // Alpine init quando componente monta
+    document.addEventListener('alpine:init', initCommissionScopeExclusivity);
+    // Re-bind após HTMX swaps (caso colaborador seja criado via modal)
+    document.addEventListener('htmx:afterSwap', initCommissionScopeExclusivity);
 
     function collaboratorBenefitsManager() {
         return {

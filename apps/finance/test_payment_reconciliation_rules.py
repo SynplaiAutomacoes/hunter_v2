@@ -13,6 +13,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.financial_movement import (
     BANK_ACCOUNT_REQUIRED_FOR_RECONCILIATION,
+    BUDGET_PLAN_REQUIRED,
     BUDGET_PLAN_REQUIRED_FOR_RECONCILIATION,
     apply_payment_reconciliation_rules,
 )
@@ -89,10 +90,24 @@ class PaymentReconciliationFormTests(TestCase):
             cnpj=f"12.345.678/0001-{suffix:02d}",
         )
 
+    @staticmethod
+    def _financial_amount_fields(*, amount: str = "100.00", entry_date: str = "2026-08-05") -> dict[str, str]:
+        return {
+            "entry_date": entry_date,
+            "gross_amount_0": amount,
+            "gross_amount_1": "BRL",
+            "discount_mode": FinancialMovement.DiscountMode.NONE,
+            "discount_value_0": "0.00",
+            "discount_value_1": "BRL",
+            "amount_0": amount,
+            "amount_1": "BRL",
+        }
+
     def test_report_edit_form_unpaid_resets_reconciliation(self) -> None:
         workshop = create_workshop(suffix=1)
         supplier = self._create_supplier(workshop=workshop, suffix=1)
         payment_method = self._create_payment_method(workshop=workshop)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[1], names=["Plano"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             supplier=supplier,
@@ -101,6 +116,7 @@ class PaymentReconciliationFormTests(TestCase):
             amount=Money(100, "BRL"),
             due_date=date(2026, 8, 5),
             payment_method=payment_method,
+            budget_plan=budget_plan,
             is_paid=True,
             is_reconciled=True,
         )
@@ -111,11 +127,12 @@ class PaymentReconciliationFormTests(TestCase):
                 "description": "Despesa teste",
                 "due_date": "2026-08-05",
                 "direction": FinancialMovement.MovementDirection.DEBIT,
-                "amount_0": "100.00",
-                "amount_1": "BRL",
+                **self._financial_amount_fields(),
                 "payment_method": str(payment_method.pk),
+                "budget_plan": str(budget_plan.pk),
                 "is_paid": "False",
                 "is_reconciled": "True",
+                "is_partial_payment": "False",
             },
             instance=movement,
             workshop=workshop,
@@ -160,7 +177,43 @@ class PaymentReconciliationFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("budget_plan", form.errors)
-        self.assertEqual(form.errors["budget_plan"][0], BUDGET_PLAN_REQUIRED_FOR_RECONCILIATION)
+        self.assertEqual(form.errors["budget_plan"][0], BUDGET_PLAN_REQUIRED)
+
+    def test_report_edit_form_requires_budget_plan_when_unpaid(self) -> None:
+        workshop = create_workshop(suffix=21)
+        supplier = self._create_supplier(workshop=workshop, suffix=21)
+        payment_method = self._create_payment_method(workshop=workshop)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            supplier=supplier,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Despesa teste",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 5),
+            payment_method=payment_method,
+            is_paid=False,
+            is_reconciled=False,
+        )
+
+        form = ReportMovementEditForm(
+            data={
+                "supplier": str(supplier.pk),
+                "description": "Despesa teste",
+                "due_date": "2026-08-05",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "payment_method": str(payment_method.pk),
+                "is_paid": "False",
+                "is_reconciled": "False",
+            },
+            instance=movement,
+            workshop=workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("budget_plan", form.errors)
+        self.assertEqual(form.errors["budget_plan"][0], BUDGET_PLAN_REQUIRED)
 
     def test_report_edit_form_reconciled_requires_bank_account(self) -> None:
         workshop = create_workshop(suffix=3)
@@ -226,13 +279,13 @@ class PaymentReconciliationFormTests(TestCase):
                 "description": "Despesa teste",
                 "due_date": "2026-08-05",
                 "direction": FinancialMovement.MovementDirection.DEBIT,
-                "amount_0": "100.00",
-                "amount_1": "BRL",
+                **self._financial_amount_fields(),
                 "payment_method": str(payment_method.pk),
                 "budget_plan": str(budget_plan.pk),
                 "bank_account": str(bank_account.pk),
                 "is_paid": "True",
                 "is_reconciled": "True",
+                "is_partial_payment": "False",
             },
             instance=movement,
             workshop=workshop,
@@ -247,6 +300,7 @@ class PaymentReconciliationFormTests(TestCase):
         workshop = create_workshop(suffix=41)
         supplier = self._create_supplier(workshop=workshop, suffix=41)
         payment_method = self._create_payment_method(workshop=workshop)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[1], names=["Plano"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             supplier=supplier,
@@ -255,16 +309,24 @@ class PaymentReconciliationFormTests(TestCase):
             amount=Money(100, "BRL"),
             due_date=date(2026, 8, 5),
             payment_method=payment_method,
+            budget_plan=budget_plan,
         )
 
         form = ReportMovementEditForm(
             data={
                 "supplier": str(supplier.pk),
                 "description": "Peças",
+                "entry_date": "2026-08-05",
                 "due_date": "2026-08-05",
                 "direction": FinancialMovement.MovementDirection.DEBIT,
+                "gross_amount_0": "100.00",
+                "gross_amount_1": "BRL",
+                "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "discount_value_0": "0.00",
+                "discount_value_1": "BRL",
                 "amount_0": "100.00",
                 "amount_1": "BRL",
+                "budget_plan": str(budget_plan.pk),
                 "payment_method": str(payment_method.pk),
                 "is_paid": "False",
                 "is_reconciled": "False",
@@ -332,6 +394,7 @@ class PaymentReconciliationFormTests(TestCase):
         workshop = create_workshop(suffix=42)
         supplier = self._create_supplier(workshop=workshop, suffix=42)
         payment_method = self._create_payment_method(workshop=workshop)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[1], names=["Plano"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             supplier=supplier,
@@ -343,9 +406,19 @@ class PaymentReconciliationFormTests(TestCase):
         )
         form = ReportMovementEditForm(
             data={
-                "supplier": str(supplier.pk), "description": "Peças", "due_date": "2026-08-05",
-                "direction": FinancialMovement.MovementDirection.DEBIT, "amount_0": "100.00", "amount_1": "BRL",
-                "payment_method": str(payment_method.pk), "is_paid": "True", "is_reconciled": "False",
+                "supplier": str(supplier.pk), "description": "Peças", "entry_date": "2026-08-05", "due_date": "2026-08-05",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "gross_amount_0": "100.00",
+                "gross_amount_1": "BRL",
+                "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "discount_value_0": "0.00",
+                "discount_value_1": "BRL",
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "budget_plan": str(budget_plan.pk),
+                "payment_method": str(payment_method.pk),
+                "is_paid": "True",
+                "is_reconciled": "False",
                 "is_partial_payment": "True", "partial_payment_amount_0": "100.00", "partial_payment_amount_1": "BRL",
             },
             instance=movement,
@@ -367,6 +440,7 @@ class PaymentReconciliationFormTests(TestCase):
             collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
         )
         payment_method = self._create_payment_method(workshop=workshop)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[1], names=["Plano"])
         movement = FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
@@ -375,6 +449,7 @@ class PaymentReconciliationFormTests(TestCase):
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
             payment_method=payment_method,
+            budget_plan=budget_plan,
             is_paid=True,
             is_reconciled=True,
         )
@@ -382,9 +457,9 @@ class PaymentReconciliationFormTests(TestCase):
         step3_form = MovementStep3Form(
             data={
                 "due_date": "2026-08-05",
-                "amount_0": "2000.00",
-                "amount_1": "BRL",
+                **self._financial_amount_fields(amount="2000.00"),
                 "payment_method": str(payment_method.pk),
+                "budget_plan": str(budget_plan.pk),
                 "is_paid": "False",
                 "is_reconciled": "True",
             },
@@ -396,8 +471,10 @@ class PaymentReconciliationFormTests(TestCase):
                 "due_date": "2026-08-05",
                 "amount_0": "2000.00",
                 "amount_1": "BRL",
+                "budget_plan": str(budget_plan.pk),
                 "is_paid": "False",
                 "is_reconciled": "True",
+                "is_partial_payment": "False",
             },
             instance=movement,
             workshop=workshop,
@@ -407,6 +484,35 @@ class PaymentReconciliationFormTests(TestCase):
         self.assertFalse(step3_form.cleaned_data["is_reconciled"])
         self.assertTrue(payroll_form.is_valid(), payroll_form.errors)
         self.assertFalse(payroll_form.cleaned_data["is_reconciled"])
+
+    def test_step3_form_requires_budget_plan(self) -> None:
+        workshop = create_workshop(suffix=22)
+        payment_method = self._create_payment_method(workshop=workshop)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Despesa teste",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 5),
+            payment_method=payment_method,
+        )
+
+        form = MovementStep3Form(
+            data={
+                "due_date": "2026-08-05",
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "payment_method": str(payment_method.pk),
+                "is_paid": "False",
+                "is_reconciled": "False",
+            },
+            instance=movement,
+            workshop=workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("budget_plan", form.errors)
+        self.assertEqual(form.errors["budget_plan"][0], BUDGET_PLAN_REQUIRED)
 
     def test_inactive_bank_accounts_excluded_from_movement_forms(self) -> None:
         workshop = create_workshop(suffix=6)
@@ -427,9 +533,12 @@ class PaymentReconciliationFormTests(TestCase):
         edit_bank_account_pks = [pk for pk, _ in edit_form.fields["bank_account"].widget.choices]
         self.assertIn(active_account.pk, edit_bank_account_pks)
         self.assertNotIn(inactive_account.pk, edit_bank_account_pks)
+        self.assertEqual(edit_form.fields["budget_plan"].widget.choices[0], ("", "---------"))
+        self.assertTrue(edit_form.fields["budget_plan"].required)
 
         step3_form = MovementStep3Form(instance=movement, workshop=workshop)
         step3_bank_account_pks = [pk for pk, _ in step3_form.fields["bank_account"].widget.choices]
         self.assertIn(active_account.pk, step3_bank_account_pks)
         self.assertNotIn(inactive_account.pk, step3_bank_account_pks)
-
+        self.assertEqual(step3_form.fields["budget_plan"].widget.choices[0], ("", "---------"))
+        self.assertTrue(step3_form.fields["budget_plan"].required)

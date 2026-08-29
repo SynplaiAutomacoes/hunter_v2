@@ -12,10 +12,12 @@ from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
+from apps.budget.pricing import ConsolidatedPricingLine
 from apps.core.presentation.forms import CoreForm
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, TextInput, TextareaInput, SearchableSelectInput
+from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, RadioButtonGroupInput, TextInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
+    build_note_mode_header_layout,
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
     build_step5_preview_oob_html,
@@ -23,6 +25,7 @@ from apps.finance.forms.emission_ui import (
     clamp_slider_value,
     format_money,
 )
+from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
 from apps.finance.forms.nfse import clean_required_codigo_nbs
@@ -180,6 +183,18 @@ def _resolve_note_mode(value: object) -> str:
     return "nfe"
 
 
+def _preferred_note_mode(*, selected_note_mode: str, allowed_note_modes: set[str]) -> str:
+    if selected_note_mode in allowed_note_modes:
+        return selected_note_mode
+    if "both" in allowed_note_modes:
+        return "both"
+    if "nfe" in allowed_note_modes:
+        return "nfe"
+    if "nfse" in allowed_note_modes:
+        return "nfse"
+    return ""
+
+
 def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -> str:
     allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
     snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=selected_slider)
@@ -193,86 +208,82 @@ def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -
     return "".join(f"<div class='alert alert-warning'>{warning}</div>" for warning in warnings)
 
 
+def _build_summary_items_table_html(*, title: str, lines: list[ConsolidatedPricingLine], empty_message: str) -> str:
+    rows_html = "".join(
+        f"""
+        <tr>
+            <td class="py-2 font-medium text-base-content break-words">{escape(str(line.description))}</td>
+            <td class="py-2 text-center tabular-nums whitespace-nowrap">{line.quantity}</td>
+            <td class="py-2 text-right tabular-nums whitespace-nowrap">{format_money(line.adjusted_unit_price)}</td>
+            <td class="py-2 text-right font-semibold tabular-nums whitespace-nowrap">{format_money(line.total_price)}</td>
+        </tr>
+        """
+        for line in lines
+    )
+
+    if not rows_html:
+        rows_html = f"""
+        <tr>
+            <td colspan="4" class="py-6 text-center text-base-content/60">{escape(empty_message)}</td>
+        </tr>
+        """
+
+    total_display = format_money(sum((line.total_price for line in lines), Money(0, "BRL")))
+
+    return f"""
+        <div class="rounded-xl border border-base-300 bg-base-100">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-base-300 px-4 py-3">
+                <div class="flex items-center gap-2">
+                    <h4 class="text-lg font-bold text-base-content">{escape(title)}</h4>
+                    <span class="badge badge-outline badge-sm">{len(lines)}</span>
+                </div>
+                <p class="text-sm font-semibold tabular-nums whitespace-nowrap text-base-content/70">{total_display}</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="table table-zebra table-sm">
+                    <thead>
+                        <tr class="bg-base-200 text-xs uppercase tracking-wide text-base-content/70">
+                            <th class="w-1/2">Descrição</th>
+                            <th class="text-center">Qtd</th>
+                            <th class="text-right">Valor Unitário</th>
+                            <th class="text-right">Valor Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rows_html}</tbody>
+                    <tfoot>
+                        <tr class="bg-base-200/60 font-bold text-base-content">
+                            <th colspan="3" class="text-right">Total</th>
+                            <th class="text-right tabular-nums whitespace-nowrap">{total_display}</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    """
+
+
 def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -> str:
     snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=selected_slider)
-    product_rows_html = "".join(
-        f"""
-        <tr class="border-b border-base-300/60">
-            <td class="py-2">{escape(str(line.description))}</td>
-            <td class="py-2 text-center">{line.quantity}</td>
-            <td class="py-2 text-right">{format_money(line.adjusted_unit_price)}</td>
-            <td class="py-2 text-right font-semibold">{format_money(line.total_price)}</td>
-        </tr>
-        """
-        for line in snapshot.product_lines
+    products_table_html = _build_summary_items_table_html(
+        title="Produtos",
+        lines=list(snapshot.product_lines),
+        empty_message="Nenhum produto encontrado nesta OS.",
     )
-    service_rows_html = "".join(
-        f"""
-        <tr class="border-b border-base-300/60">
-            <td class="py-2">{escape(str(line.description))}</td>
-            <td class="py-2 text-center">{line.quantity}</td>
-            <td class="py-2 text-right">{format_money(line.adjusted_unit_price)}</td>
-            <td class="py-2 text-right font-semibold">{format_money(line.total_price)}</td>
-        </tr>
-        """
-        for line in snapshot.service_lines
+    services_table_html = _build_summary_items_table_html(
+        title="Serviços",
+        lines=list(snapshot.service_lines),
+        empty_message="Nenhum serviço encontrado nesta OS.",
     )
-
-    if not product_rows_html:
-        product_rows_html = """
-        <tr>
-            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum produto encontrado nesta OS.</td>
-        </tr>
-        """
-
-    if not service_rows_html:
-        service_rows_html = """
-        <tr>
-            <td colspan="4" class="py-4 text-center text-base-content/60">Nenhum servico encontrado nesta OS.</td>
-        </tr>
-        """
 
     return f"""
         <div class="rounded-2xl border border-base-300 bg-base-100 p-5 shadow-sm">
-            <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                    <h3 class="text-xl font-bold text-base-content">Itens consolidados da emissão</h3>
-                    <p class="text-sm text-base-content/70">Os valores abaixo refletem o slider aplicado no resumo.</p>
-                </div>
+            <div class="mb-4">
+                <h3 class="text-xl font-bold text-base-content">Itens consolidados da emissão</h3>
+                <p class="text-sm text-base-content/70">Os valores unitários e totais de cada item já refletem o slider aplicado no resumo.</p>
             </div>
-            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <div class="rounded-xl border border-base-300 bg-base-100 p-4">
-                    <h4 class="mb-3 text-lg font-bold text-base-content">Produtos</h4>
-                    <div class="overflow-x-auto">
-                        <table class="table table-zebra">
-                            <thead>
-                                <tr>
-                                    <th>Descricao</th>
-                                    <th class="text-center">Qtd</th>
-                                    <th class="text-right">Valor Unitario</th>
-                                    <th class="text-right">Valor Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>{product_rows_html}</tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="rounded-xl border border-base-300 bg-base-100 p-4">
-                    <h4 class="mb-3 text-lg font-bold text-base-content">Servicos</h4>
-                    <div class="overflow-x-auto">
-                        <table class="table table-zebra">
-                            <thead>
-                                <tr>
-                                    <th>Descricao</th>
-                                    <th class="text-center">Qtd</th>
-                                    <th class="text-right">Valor Unitario</th>
-                                    <th class="text-right">Valor Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>{service_rows_html}</tbody>
-                        </table>
-                    </div>
-                </div>
+            <div class="space-y-6">
+                {products_table_html}
+                {services_table_html}
             </div>
         </div>
     """
@@ -715,9 +726,15 @@ class EmissionStep3Form(CoreForm):
 
 class EmissionStep4Form(CoreForm):
     pricing_slider = forms.IntegerField(label="", min_value=-100, max_value=100)
+    note_mode = forms.ChoiceField(label="Tipo de notas fiscais", choices=EMISSION_NOTE_MODE_CHOICES, widget=RadioButtonGroupInput)
 
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
+        note_mode_choices = kwargs.pop("note_mode_choices", EMISSION_NOTE_MODE_CHOICES)
+        allowed_note_modes = set(kwargs.pop("allowed_note_modes", {"nfe", "nfse", "both"}))
+        availability_message = str(kwargs.pop("availability_message", "") or "").strip()
+        form_selector = str(kwargs.pop("form_selector", "#emission-form") or "#emission-form")
+        preview_url = str(kwargs.pop("preview_url", "") or f"{reverse('finance:emission_normal')}?step=4&preview=1")
         super().__init__(*args, **kwargs)
 
         initial_slider = self.initial.get("pricing_slider", getattr(getattr(workorder, "budget", None), "slider", 0))
@@ -726,13 +743,26 @@ class EmissionStep4Form(CoreForm):
         slider_field = self.fields["pricing_slider"]
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
-                preview_url=f"{reverse('finance:emission_create')}?step=4&preview=1",
-                include_selector="#emission-form",
+                preview_url=preview_url,
+                include_selector=form_selector,
                 target_selector="#emission-preview-block",
                 swap="none",
-                sync_selector="#emission-form:abort",
+                trigger="input changed delay:200ms",
+                sync_selector=f"{form_selector}:abort",
             )
         )
+
+        visible_note_mode_choices = [(value, label) for value, label in note_mode_choices if value in allowed_note_modes]
+        note_mode_field = self.fields["note_mode"]
+        note_mode_field.choices = visible_note_mode_choices
+        note_mode_field.widget = RadioButtonGroupInput(choices=visible_note_mode_choices)
+        note_mode_field.help_text = ""
+        selected_note_mode = _preferred_note_mode(
+            selected_note_mode=str((self.data.get("note_mode") if self.is_bound else self.initial.get("note_mode", "")) or "").strip(),
+            allowed_note_modes=allowed_note_modes,
+        )
+        if not self.is_bound:
+            self.initial["note_mode"] = selected_note_mode
 
         warning_html = ""
         preview_html = ""
@@ -745,8 +775,11 @@ class EmissionStep4Form(CoreForm):
         self.preview_warning_html = warning_html
         self.preview_html = preview_html
         self.preview_panel_html = (
-            build_step5_preview_oob_html(prefix="emission", panel_data=panel_data, warning_html=warning_html, preview_html=preview_html) if panel_data is not None else f'<div id="emission-warning-block" hx-swap-oob="true">{warning_html}</div><div id="emission-preview-block" hx-swap-oob="true">{preview_html}</div>'
+            build_step5_preview_oob_html(prefix="emission", panel_data=panel_data, warning_html=warning_html, preview_html=preview_html, include_sale_spans=False)
+            if panel_data is not None
+            else f'<div id="emission-warning-block" hx-swap-oob="true">{warning_html}</div><div id="emission-preview-block" hx-swap-oob="true">{preview_html}</div>'
         )
+        self._allowed_note_modes = allowed_note_modes
 
         body_html = f"""
             <div class="space-y-4">
@@ -757,17 +790,35 @@ class EmissionStep4Form(CoreForm):
 
         self.helper = FormHelper()
         self.helper.form_tag = False
+        summary_layout = (
+            build_step5_summary_layout(
+                prefix="emission",
+                panel_data=panel_data,
+                slider_field_name="pricing_slider",
+                form_selector=form_selector,
+                body_html=body_html,
+                header=build_note_mode_header_layout(availability_message=availability_message),
+            )
+            if panel_data is not None
+            else HTML("")
+        )
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Resumo</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Ajuste o slider e revise todos os produtos e servicos com os valores finais da emissão.</p>"),
-                build_step5_summary_layout(prefix="emission", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#emission-form", body_html=body_html) if panel_data is not None else HTML(""),
+                HTML("<p class='text-base-content/70 mb-6'>Selecione o tipo de nota, ajuste o slider e revise os produtos e serviços com os valores finais da emissão.</p>"),
+                summary_layout,
                 css_class="space-y-4",
             )
         )
 
     def clean_pricing_slider(self) -> int:
         return clamp_slider_value(self.cleaned_data.get("pricing_slider"), default=0)
+
+    def clean_note_mode(self) -> str:
+        note_mode = _resolve_note_mode(self.cleaned_data.get("note_mode"))
+        if note_mode not in self._allowed_note_modes:
+            raise forms.ValidationError("Selecione um tipo de nota fiscal disponível para a configuração atual.")
+        return note_mode
 
 
 class EmissionStep5Form(CoreForm):
@@ -870,6 +921,11 @@ class EmissionNfeConfigForm(CoreForm):
         selected_slider = int(kwargs.pop("selected_slider", 0) or 0)
         discount_type_override = str(kwargs.pop("discount_type_override", "") or "")
         super().__init__(*args, **kwargs)
+        configure_nfe_transport_form(
+            form=self,
+            snapshot=self.initial.get("transport_snapshot", {}),
+            freight_mode=self.initial.get("freight_mode", 9),
+        )
 
         dropdown_choices = [("", "Selecione a classe de imposto")]
         dropdown_choices.extend(tax_class_choices)
@@ -899,6 +955,7 @@ class EmissionNfeConfigForm(CoreForm):
                 HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serão enviados na Nota Fiscal de Produto e selecione a classe de imposto.</p>"),
                 Field("tax_class"),
                 Field("additional_information"),
+                build_nfe_transport_form_layout(),
                 HTML(warning_html),
                 HTML(preview_html),
                 css_class="space-y-4",
@@ -914,6 +971,12 @@ class EmissionNfeConfigForm(CoreForm):
     def clean_additional_information(self) -> str:
         value = str(self.cleaned_data.get("additional_information") or "").strip()
         return sentence_case(value) if value else value
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        if not self.errors:
+            cleaned_data["transport_snapshot"] = clean_nfe_transport_form(cleaned_data)
+        return cleaned_data
 
 
 class EmissionNfseConfigForm(CoreForm):

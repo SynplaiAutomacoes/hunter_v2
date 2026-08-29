@@ -1,0 +1,96 @@
+{% load l10n %}
+<input type="checkbox" id="budget-term-modal" class="modal-toggle" checked />
+
+<div class="modal" role="dialog" aria-modal="true">
+    <div
+        id="budget-term-modal-box"
+        class="modal-box h-[92vh] w-[98vw] max-w-7xl p-0 overflow-hidden"
+        {% if term_modal_urls %}
+        data-can-toggle="{{ term_modal_urls.can_toggle_signed_pdf|yesno:'true,false' }}"
+        data-initial-variant="{{ term_modal_urls.initial_pdf_variant }}"
+        data-base-url="{{ term_modal_urls.base_iframe_url }}"
+        data-signed-url="{{ term_modal_urls.signed_iframe_url }}"
+        data-signed-download-url="{{ term_modal_urls.signed_download_url }}"
+        {% endif %}
+        {% if selected %}
+        data-status-url="{% url 'terms:budget_term_status' budget.pk selected.pk %}"
+        data-modal-url="{% url 'terms:budget_term_modal_selected' budget.pk selected.pk %}"
+        data-signature-status="{{ signature_status_badge.text }}"
+        {% endif %}
+    >
+        <div class="flex items-center justify-between border-b border-base-200 px-6 py-4 bg-base-100 gap-4">
+            <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="text-lg font-bold text-base-content">
+                        {% if selected %}{{ selected.get_kind_display }}{% else %}Termo{% endif %}
+                    </h3>
+                    <span
+                        class="badge {{ signature_status_badge.class }} font-semibold uppercase"
+                        data-term-modal-status-badge
+                    >
+                        {{ signature_status_badge.text }}
+                    </span>
+                </div>
+                <p class="text-sm text-base-content/70 truncate">
+                    {% if selected %}{{ selected.name }}{% else %}Selecione um termo cadastrado{% endif %}
+                </p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap justify-end">
+                {% if templates|length > 1 %}
+                    {% for term in templates %}
+                        <button
+                            type="button"
+                            class="btn btn-sm {% if selected and selected.pk == term.pk %}btn-primary{% else %}btn-outline{% endif %}"
+                            hx-get="{% url 'terms:budget_term_modal_selected' budget.pk term.pk %}"
+                            hx-target="#modal-container"
+                            hx-swap="innerHTML"
+                        >{{ term.name }}</button>
+                    {% endfor %}
+                {% endif %}
+                {% if selected and selected.can_send_for_signature %}
+                    {% if not signing or not signing.is_signed %}
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-primary"
+                        hx-post="{% url 'terms:budget_term_send' budget.pk selected.pk %}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML"
+                    >
+                        {% if signing and signing.can_resend %}Reenviar para assinatura{% else %}Enviar para assinatura{% endif %}
+                    </button>
+                    {% endif %}
+                {% endif %}
+                {% if term_modal_urls and term_modal_urls.can_toggle_signed_pdf %}
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline hidden"
+                        data-term-pdf-toggle
+                    >
+                        Ver não assinado
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-success"
+                        data-term-pdf-download
+                    >
+                        Baixar PDF assinado
+                    </button>
+                {% endif %}
+                <label for="budget-term-modal" class="btn btn-sm btn-ghost">Fechar</label>
+            </div>
+        </div>
+        <div class="h-[calc(92vh-73px)] bg-[#2a2d31]">
+            {% if selected %}
+                <iframe
+                    data-term-preview-frame
+                    src="{% if term_modal_urls %}{{ term_modal_urls.default_iframe_url }}{% else %}{% url 'terms:budget_term_preview' budget.pk selected.pk %}{% endif %}"
+                    class="h-full w-full bg-[#2a2d31]"
+                    frameborder="0"
+                ></iframe>
+            {% else %}
+                <div class="p-8 text-base-content/70">Nenhum termo ativo cadastrado para esta oficina.</div>
+            {% endif %}
+        </div>
+    </div>
+    <label class="modal-backdrop" for="budget-term-modal">Close</label>
+</div>

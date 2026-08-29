@@ -1,0 +1,93 @@
+---
+description: Project scope, stack, docs, repository map, and architecture context for hunter_v2
+alwaysApply: true
+---
+
+# hunter_v2 — Project Context
+
+Guide for autonomous coding agents working in `hunter_v2`.
+
+## Scope and stack
+
+- Framework: Django 5.2
+- Language: Python 3.11+
+- Database: PostgreSQL
+- Frontend: Django Templates + HTMX + Tailwind CSS + Crispy Forms
+- Python package manager: `uv`
+- JS package manager: `npm`
+- App server: Gunicorn
+- Static files: WhiteNoise
+- PDF / automation: `xhtml2pdf` and Playwright
+- Storage/integrations: S3-compatible bucket, SuperSign, Webmania
+
+Project domain:
+
+- Automotive workshop operations platform.
+- Multi-workshop/account context is central.
+- Portuguese (pt-BR) terms are intentional in the UI and business language.
+
+## Instruction sources
+
+Primary sources for agents:
+
+- `AGENTS.md` (full operating manual)
+- `.cursor/rules/` (this rule set)
+- `.cursor/skills/` (task-specific skills)
+- `.opencode/skills/` (OpenCode skills)
+- `README.md`
+- `docs/README.md`
+- `docs/REFACTORING_GUIDE.md`
+- `pyproject.toml`
+- existing code patterns in the touched app/module
+
+## Main source documents to read first
+
+Before changing code, prefer reading the smallest relevant set from:
+
+- `README.md`
+- `docs/README.md`
+- `docs/01-visao-geral-do-produto.md`
+- `docs/02-arquitetura-e-apps.md`
+- `docs/04-fluxo-principal-do-sistema.md`
+- `docs/05-multi-oficina-e-permissoes.md`
+- `docs/06-orcamentos-assinatura-e-webhooks.md`
+- `docs/08-financeiro-e-dre.md`
+- `docs/09-fiscal-nfe-nfse-e-webmania.md`
+- `docs/10-deploy-build-e-operacao.md`
+- `docs/REFACTORING_GUIDE.md`
+
+Use `docs/REFACTORING_GUIDE.md` as a forward-looking coding standard, especially when refactoring or adding new internal structure.
+
+## Repository map
+
+- `config/`: global Django settings, URL wiring, WSGI/ASGI.
+- `apps/`: domain apps and shared platform code.
+- `apps/core/`: the most important shared app; already partially refactored into layered structure.
+- `templates/`: shared templates.
+- `static/`: source assets.
+- `media/`: local uploads and generated artifacts.
+- `docs/`: technical documentation and refactoring guidance.
+
+Main apps:
+
+- `accounts`, `iam`, `workshops`, `collaborators`: account, auth, roles, workshop context.
+- `budget`, `workorder`, `scheduling`: operational workflow.
+- `catalog`, `stock`, `suppliers`, `customer`, `checklist`, `quote`: service/product/inspection ecosystem.
+- `finance`: finance, DRE, tax emission, Webmania, webhook flows.
+- `messaging`: communication templates and customer message groups.
+- `core`: shared contracts, providers, middleware, forms, tables, filtering, search, PDF, integration abstractions.
+
+## Current architecture reality
+
+This repository is in transition.
+
+- It is still a Django monolith.
+- Not every app follows the target layered architecture yet.
+- `apps/core/` already reflects the new direction better than most apps.
+- Some business apps are still flat or semi-flat, with logic in models, services, and views.
+
+Practical rule:
+
+- Follow existing working patterns in the touched app.
+- But when introducing new code, prefer the direction defined in `docs/REFACTORING_GUIDE.md`.
+- Do not do broad rewrites unless the task explicitly asks for refactoring.

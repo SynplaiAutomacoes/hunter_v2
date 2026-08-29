@@ -20,6 +20,12 @@ class WorkOrderApprovalError(Exception):
     pass
 
 
+def workorder_can_finalize_after_signature(workorder: WorkOrder) -> bool:
+    can_finalize_workorder = workorder.is_fully_paid or workorder.budget_type in ("warranty", "courtesy")
+    has_warranty_plan = bool(workorder.warranty_plan)
+    return (can_finalize_workorder and has_warranty_plan) or workorder.status == WorkOrderStatus.APPROVED
+
+
 def _collect_required_products(workorder: WorkOrder) -> tuple[dict[int, int], dict[int, str], list[str]]:
     required_quantities: defaultdict[int, int] = defaultdict(int)
     product_names: dict[int, str] = {}
@@ -109,6 +115,21 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
         )
 
         has_active_exit_movements = has_unreversed_exit_movements(workorder=locked_workorder)
+
+        # Comissão v3 — validar caps antes de aprovar
+        try:
+            from apps.collaborators.commission.allocation import CommissionAllocationService
+            _c_err = []
+            for _sc in ("service", "product"):
+                _vv = CommissionAllocationService.validate(workorder=locked_workorder, scope=_sc)
+                _c_err.extend(_vv.get("cap", []))
+                _c_err.extend(_vv.get("sum", []))
+            if _c_err:
+                raise WorkOrderApprovalError("Há colaborador com comissão maior que o permitido. Corrija a Base% na previsão de comissão. " + _c_err[0])
+        except WorkOrderApprovalError:
+            raise
+        except Exception:
+            pass
 
         if has_active_exit_movements:
             if locked_workorder.status != WorkOrderStatus.APPROVED:

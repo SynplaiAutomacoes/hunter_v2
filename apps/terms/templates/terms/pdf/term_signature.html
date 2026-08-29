@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <title>{{ document_kind_label }}</title>
+    <style>
+        @page { size: A4; margin: 0; }
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #2a2d31;
+            color: #141414;
+            font-family: Helvetica, Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            color-adjust: exact;
+        }
+        .sheet {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 12px auto 24px;
+            position: relative;
+            padding-bottom: 28mm;
+            background: #fff;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+        }
+        .brand-bar {
+            height: 27mm;
+            background: {{ primary_color|default:"#000000" }};
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 14.3mm;
+        }
+        .brand-logo {
+            height: 15.5mm;
+            width: auto;
+            max-width: 48mm;
+            object-fit: contain;
+            display: block;
+        }
+        .brand-name {
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .brand-kind {
+            color: #fff;
+            font-size: 9px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        .brand-stripe {
+            height: 2mm;
+            background: {{ accent_color|default:"#e30613" }};
+        }
+        .content {
+            padding: 7.5mm 14.3mm 0;
+        }
+        .title-block { margin: 0 0 5.5mm; }
+        .title-block h1 {
+            margin: 0;
+            font-size: 22pt;
+            font-weight: 700;
+            line-height: 1.05;
+            letter-spacing: 0.01em;
+            text-transform: uppercase;
+        }
+        .kicker {
+            margin: 3.5mm 0 0;
+            color: #555;
+            font-size: 9pt;
+            line-height: 1.25;
+        }
+        .vehicle-card {
+            background: #f4f4f4;
+            border: 0.4pt solid #d9d9d9;
+            min-height: 18.4mm;
+            display: flex;
+            align-items: stretch;
+            margin: 0 0 5.5mm;
+        }
+        .vehicle-main, .vehicle-plate {
+            padding: 3.2mm 4.5mm;
+        }
+        .vehicle-main { flex: 1; }
+        .vehicle-plate {
+            width: 42mm;
+            border-left: 0.4pt solid #d9d9d9;
+        }
+        .vehicle-label {
+            color: {{ accent_color|default:"#e30613" }};
+            font-size: 7.8pt;
+            font-weight: 700;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            margin-bottom: 1.6mm;
+        }
+        .vehicle-value {
+            font-size: 11.5pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            line-height: 1.2;
+        }
+        .vehicle-sub {
+            margin-top: 1.4mm;
+            color: #555;
+            font-size: 8pt;
+            font-weight: 400;
+            text-transform: none;
+        }
+        .intro {
+            margin: 0 0 6.5mm;
+            font-size: 9.2pt;
+            line-height: 13.2pt;
+            color: #141414;
+        }
+        .topic {
+            margin: 0 0 5.8mm;
+            page-break-inside: avoid;
+        }
+        .topic-head {
+            display: flex;
+            align-items: center;
+            gap: 3.2mm;
+            margin-bottom: 2.4mm;
+        }
+        .topic-number {
+            width: 8mm;
+            height: 8mm;
+            background: {{ accent_color|default:"#e30613" }};
+            color: #fff;
+            font-size: 11pt;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 8mm;
+        }
+        .topic-title {
+            font-size: 11.5pt;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .topic ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        .topic li {
+            position: relative;
+            padding: 0 0 2.2mm 4.2mm;
+            font-size: 9.2pt;
+            line-height: 13.2pt;
+            color: #141414;
+        }
+        .topic li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            top: 0;
+            color: {{ accent_color|default:"#e30613" }};
+            font-size: 11pt;
+            line-height: 13.2pt;
+        }
+        .ack {
+            margin-top: 8mm;
+            page-break-inside: avoid;
+        }
+        .ack-bar {
+            background: {{ primary_color|default:"#000000" }};
+            color: #fff;
+            font-size: 9pt;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            padding: 2.6mm 4.2mm;
+        }
+        .ack-body {
+            background: #f4f4f4;
+            border: 0.4pt solid #d9d9d9;
+            border-top: 0;
+            padding: 4.2mm 4.2mm 6mm;
+        }
+        .ack-body p {
+            margin: 0 0 8mm;
+            font-size: 9.2pt;
+            line-height: 13.2pt;
+        }
+        .sign-grid {
+            display: flex;
+            gap: 10mm;
+        }
+        .signature-block {
+            flex: 1;
+            min-height: 18mm;
+        }
+        .signature-line {
+            border-top: 0.7pt solid #141414;
+            padding-top: 2.2mm;
+            color: #555;
+            font-size: 7.5pt;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+        .sign-meta {
+            margin-top: 3.2mm;
+            color: #141414;
+            font-size: 8.5pt;
+            letter-spacing: 0;
+            text-transform: none;
+        }
+        .sheet-footer {
+            position: absolute;
+            left: 14.3mm;
+            right: 14.3mm;
+            bottom: 10mm;
+            border-top: 0.6pt solid #999;
+            padding-top: 2.4mm;
+            display: flex;
+            justify-content: space-between;
+            color: #555;
+            font-size: 7.5pt;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+            html, body {
+                background: #fff !important;
+            }
+            .sheet {
+                margin: 0;
+                box-shadow: none;
+                width: 210mm;
+                min-height: 297mm;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sheet">
+        <header class="brand-bar">
+            {% if workshop_logo_data_uri %}
+                <img src="{{ workshop_logo_data_uri }}" alt="{{ workshop.name|default:'Oficina' }}" class="brand-logo" />
+            {% else %}
+                <span class="brand-name">{{ workshop.name|default:"Oficina" }}</span>
+            {% endif %}
+            <span class="brand-kind">{{ document_kind_label }}</span>
+        </header>
+        <div class="brand-stripe"></div>
+        <div class="content">
+            <div class="title-block">
+                <h1>
+                    {{ document_title_line1 }}
+                    {% if document_title_line2 %}<br>{{ document_title_line2 }}{% endif %}
+                </h1>
+                <p class="kicker">Informações importantes para diagnóstico e manutenção</p>
+            </div>
+            <div class="vehicle-card">
+                <div class="vehicle-main">
+                    <div class="vehicle-label">Veículo recebido</div>
+                    <div class="vehicle-value">{{ vehicle_label|default:"Não informado" }}</div>
+                    {% if customer_name %}
+                        <div class="vehicle-sub">{{ customer_name }}{% if customer_cpf %} · {{ customer_cpf }}{% endif %}</div>
+                    {% endif %}
+                </div>
+                <div class="vehicle-plate">
+                    <div class="vehicle-label">Placa</div>
+                    <div class="vehicle-value">{{ plate_label|default:"—" }}</div>
+                </div>
+            </div>
+            {% if intro_text %}
+                <p class="intro">{{ intro_text }}</p>
+            {% endif %}
+            {% for topic in topics %}
+                <section class="topic">
+                    <div class="topic-head">
+                        <span class="topic-number">{{ topic.number }}</span>
+                        <span class="topic-title">{{ topic.title }}</span>
+                    </div>
+                    <ul>
+                        {% for item in topic.items %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </section>
+            {% endfor %}
+            <div class="ack">
+                <div class="ack-bar">Ciência do cliente</div>
+                <div class="ack-body">
+                    <p>{{ closing_text }}</p>
+                    <div class="sign-grid">
+                        <div class="signature-block" sign-box>
+                            <div class="signature-line">Assinatura do cliente</div>
+                            {% if customer_name %}<div class="sign-meta">Nome: {{ customer_name }}</div>{% endif %}
+                        </div>
+                        <div class="signature-block">
+                            <div class="signature-line">Data</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <footer class="sheet-footer">
+            <span>{{ workshop.name|default:"Oficina" }}  |  {{ document_kind_label }}</span>
+            <span>Página 1</span>
+        </footer>
+    </div>
+</body>
+</html>

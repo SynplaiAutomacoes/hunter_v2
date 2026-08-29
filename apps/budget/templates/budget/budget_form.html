@@ -1,5 +1,5 @@
 {% extends 'crud/page.html' %}
-{% load l10n %}
+{% load l10n static %}
 {% block crud_content %}
 
     <div class="flex items-center justify-between gap-4 w-full">
@@ -52,6 +52,8 @@
             {% include 'budget/partials/budget_step_content.html' %}
         </div>
     </div>
+
+    {% include 'budget/partials/modals/km_cadastro_modal.html' %}
 
     <dialog id="form_modal" class="modal">
         <div id="modal-container"></div>
@@ -376,4 +378,6 @@
     })();
     </script>
     {% endif %}
+
+    <script defer src="{% static 'js/budget_term_signing.js' %}"></script>
 {% endblock %}

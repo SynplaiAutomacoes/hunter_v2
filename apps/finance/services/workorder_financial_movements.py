@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from apps.sources.models import Source
@@ -21,7 +22,7 @@ def build_workorder_revenue_description(*, workorder: WorkOrder) -> str:
     budget = getattr(workorder, "budget", None)
     vehicle = getattr(budget, "vehicle", None) if budget is not None else None
     if vehicle is None:
-        return f"{_REVENUE_DESCRIPTION_PREFIX} OS Nº {workorder.pk}"
+        return f"{_REVENUE_DESCRIPTION_PREFIX} OS Nº {resolve_workorder_number(workorder)}"
 
     brand = str(getattr(vehicle, "brand", "") or "").strip()
     model = str(getattr(vehicle, "model", "") or "").strip()
@@ -34,7 +35,7 @@ def build_workorder_revenue_description(*, workorder: WorkOrder) -> str:
         return f"{_REVENUE_DESCRIPTION_PREFIX} {mid}"
     if plate:
         return f"{_REVENUE_DESCRIPTION_PREFIX} {plate}"
-    return f"{_REVENUE_DESCRIPTION_PREFIX} OS Nº {workorder.pk}"
+    return f"{_REVENUE_DESCRIPTION_PREFIX} OS Nº {resolve_workorder_number(workorder)}"
 
 
 def _get_reversed_financial_movement_ids() -> list[int]:
@@ -44,7 +45,7 @@ def _get_reversed_financial_movement_ids() -> list[int]:
 def _get_workorder_source(*, workorder: WorkOrder) -> Source:
     source, _ = Source.objects.get_or_create(
         workshop=workorder.workshop,
-        name=f"OS Nº {workorder.pk}",
+        name=f"OS Nº {resolve_workorder_number(workorder)}",
     )
     return source
 
@@ -233,5 +234,14 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         movement.save(update_fields=[*defaults.keys()])
 
     sync_workorder_card_fee_movements(workorder=workorder)
+    # Comissão v3 — gerar pool (idempotente, respeita PAID)
+    try:
+        from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+
+        WorkOrderCommissionOrchestrator().generate_commissions_for_workorder(workorder=workorder)
+    except Exception:  # pragma: no cover
+        import logging
+
+        logging.getLogger(__name__).exception("workorder_commission_orchestrator_failed", extra={"workorder_id": workorder.pk})
     sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=resolve_workorder_payroll_reference_date(workorder=workorder))
     return movement

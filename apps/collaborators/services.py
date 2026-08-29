@@ -17,6 +17,7 @@ from djmoney.money import Money
 from apps.budget.models import Budget
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
+from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -34,6 +35,37 @@ from apps.workshops.util.monthly_costs import (
 
 ZERO = Decimal("0.00")
 logger = logging.getLogger(__name__)
+
+
+def cadastro_benefits_queryset(*, collaborator: WorkshopCollaborator | None = None, collaborator_ids: Iterable[int] | None = None) -> QuerySet[CollaboratorBenefit]:
+    """Benefícios do cadastro (sem lançamento pontual de folha)."""
+    queryset = CollaboratorBenefit.objects.filter(is_active=True, source_payroll__isnull=True).select_related("budget_plan")
+    if collaborator is not None:
+        queryset = queryset.filter(collaborator=collaborator)
+    elif collaborator_ids is not None:
+        queryset = queryset.filter(collaborator_id__in=list(collaborator_ids))
+    return queryset.order_by("id")
+
+
+def one_off_benefits_queryset(*, payroll: CollaboratorPayroll) -> QuerySet[CollaboratorBenefit]:
+    """Benefícios lançados só nesta competência da folha."""
+    if payroll.pk is None:
+        return CollaboratorBenefit.objects.none()
+    return (
+        CollaboratorBenefit.objects.filter(
+            collaborator_id=payroll.collaborator_id,
+            source_payroll_id=payroll.pk,
+            is_active=True,
+        )
+        .select_related("budget_plan")
+        .order_by("id")
+    )
+
+
+def benefits_for_payroll(*, payroll: CollaboratorPayroll) -> list[CollaboratorBenefit]:
+    """Cadastro ativo + benefícios pontuais desta folha."""
+    return list(cadastro_benefits_queryset(collaborator=payroll.collaborator)) + list(one_off_benefits_queryset(payroll=payroll))
+
 
 _WORKORDER_PARENT_MOVEMENTS_PREFETCH = Prefetch(
     "financial_movements",
@@ -108,6 +140,240 @@ def _resolve_commission_base_amount(*, workorder: WorkOrder) -> Money:
     )
     services_discount = allocated_discount[1] if len(allocated_discount) > 1 else ZERO
     return Money(_quantize(max(Decimal(str(services_total.amount)) - services_discount, ZERO)), "BRL")
+
+
+@dataclass(slots=True, frozen=True)
+class WorkOrderCollaboratorCommissionPreview:
+    collaborator_id: int
+    name: str
+    percentage: Decimal | None
+    percentage_display: str
+    base_amount: Money
+    commission_amount: Money
+    receives_commission: bool
+    eligible: bool
+    consolidates_on_delivery: bool
+    unavailable_reason: str
+
+
+def _format_commission_percentage(percentage: Decimal | None) -> str:
+    if percentage is None:
+        return "—"
+    display = (Decimal(str(percentage)) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{display:.2f}%".replace(".", ",")
+
+
+def preview_workorder_collaborator_commissions(*, workorder: WorkOrder) -> list[WorkOrderCollaboratorCommissionPreview]:
+    """Return a read-only commission forecast for collaborators linked to the work order."""
+    budget_type = _resolve_workorder_budget_type(workorder=workorder)
+    is_sale = budget_type == "sale"
+    consolidates_on_delivery = _workorder_can_generate_commission(workorder=workorder)
+    base_amount = _resolve_commission_base_amount(workorder=workorder)
+    base_decimal = Decimal(str(base_amount.amount or ZERO))
+
+    if not is_sale:
+        unavailable_reason = "Comissão não se aplica a orçamentos de garantia ou cortesia."
+    else:
+        unavailable_reason = ""
+
+    previews: list[WorkOrderCollaboratorCommissionPreview] = []
+    for collaborator in workorder.collaborators.all():
+        receives_commission = bool(collaborator.receives_commission and collaborator.commission_percentage is not None)
+        percentage = Decimal(str(collaborator.commission_percentage)) if receives_commission else None
+        if not is_sale:
+            commission_amount = Money(ZERO, "BRL")
+            eligible = False
+            reason = unavailable_reason
+        elif not receives_commission:
+            commission_amount = Money(ZERO, "BRL")
+            eligible = False
+            reason = "Este colaborador não recebe comissão."
+        else:
+            commission_amount = Money(_quantize(base_decimal * Decimal(str(percentage or ZERO))), "BRL")
+            eligible = True
+            reason = ""
+
+        previews.append(
+            WorkOrderCollaboratorCommissionPreview(
+                collaborator_id=collaborator.pk,
+                name=collaborator.name,
+                percentage=percentage,
+                percentage_display=_format_commission_percentage(percentage),
+                base_amount=base_amount,
+                commission_amount=commission_amount,
+                receives_commission=receives_commission,
+                eligible=eligible,
+                consolidates_on_delivery=consolidates_on_delivery,
+                unavailable_reason=reason,
+            )
+        )
+    return previews
+
+
+def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, object]:
+    """Contexto para um escopo (service/product) — pool + alocações."""
+    from apps.collaborators.commission.calculators import calculate_total_for_scope
+    from apps.collaborators.models import CollaboratorCommissionRule, WorkOrderCommissionAllocation
+
+    workshop = workorder.workshop
+    try:
+        total_S = calculate_total_for_scope(workorder=workorder, workshop=workshop, scope=scope)
+    except Exception:
+        total_S = ZERO
+    total_S_money = Money(_quantize(total_S), "BRL")
+
+    # Regras por participação na WO
+    collab_ids_in_wo = list(workorder.collaborators.values_list("id", flat=True))
+    rules = list(
+        CollaboratorCommissionRule.objects.filter(
+            collaborator_id__in=collab_ids_in_wo, scope=scope, is_active=True
+        ).select_related("collaborator")
+    )
+    # Fix / Pct
+    fixed_rules = [r for r in rules if r.modality == CollaboratorCommissionRule.Modality.FIXED and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
+    pct_rules = [r for r in rules if r.modality == CollaboratorCommissionRule.Modality.PERCENTAGE and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
+
+    max_pct = max((Decimal(str(r.percentage or 0)) for r in pct_rules), default=ZERO)
+    pool_S = _quantize(total_S * max_pct) if max_pct > 0 else ZERO
+    pool_S_money = Money(pool_S, "BRL")
+
+    fixed_total = sum((Decimal(str(getattr(r.fixed_amount, "amount", 0) or 0)) for r in fixed_rules), start=ZERO)
+    fixed_total_money = Money(_quantize(fixed_total), "BRL")
+
+    allocations = {
+        (a.collaborator_id, a.scope): a
+        for a in WorkOrderCommissionAllocation.objects.filter(workorder=workorder, scope=scope).select_related("collaborator")
+    }
+
+    rows: list[dict[str, object]] = []
+    sum_base = ZERO
+    for collaborator in workorder.collaborators.all():
+        rule = next((r for r in rules if r.collaborator_id == collaborator.pk), None)
+        if rule is None:
+            # Sem regra — mostrar como 0% e sem alocação
+            commission_display = "—"
+            is_pct = False
+            is_fixed = False
+            pct_for_cap = ZERO
+            fixed_amount = Money(ZERO, "BRL")
+        else:
+            if rule.modality == CollaboratorCommissionRule.Modality.FIXED:
+                commission_display = f"R$ {rule.resolved_fixed_amount:.2f}".replace(".", ",")
+                is_pct = False
+                is_fixed = True
+                pct_for_cap = ZERO
+                fixed_amount = Money(_quantize(rule.resolved_fixed_amount), "BRL")
+            else:
+                pct_display = (Decimal(str(rule.percentage or 0)) * Decimal("100")).quantize(Decimal("0.01"))
+                commission_display = f"{str(pct_display).replace('.', ',')}%"
+                is_pct = True
+                is_fixed = False
+                pct_for_cap = Decimal(str(rule.percentage or 0))
+                fixed_amount = Money(ZERO, "BRL")
+
+        is_global = bool(rule and rule.apply_scope == CollaboratorCommissionRule.ApplyScope.GLOBAL)
+        is_editable = is_pct and not is_global
+
+        alloc = allocations.get((collaborator.pk, scope))
+        base_pct = Decimal(str(alloc.distribution_percentage or 0)) if alloc else ZERO
+        # Global não entra no pool nem na soma; apenas participação conta
+        if is_pct and not is_global:
+            sum_base += base_pct
+
+        # Cap individual
+        cap = (pct_for_cap / max_pct) if (is_pct and max_pct > 0) else (Decimal("1") if is_pct else ZERO)
+        cap_pct_display = (cap * Decimal("100")).quantize(Decimal("0.01")) if is_pct else ZERO
+        base_pct_display = (base_pct * Decimal("100")).quantize(Decimal("0.01"))
+        cap_amount = _quantize(pool_S * cap) if is_pct else ZERO
+        cap_amount_money = Money(cap_amount, "BRL")
+
+        if is_global:
+            # Preview global: total_S × rule.percentage (fora do pool), não depende de Base%
+            if is_fixed:
+                preview_amount = fixed_amount.amount
+            else:
+                preview_amount = _quantize(total_S * pct_for_cap)
+        elif is_pct:
+            preview_amount = _quantize(pool_S * base_pct)
+        else:
+            preview_amount = fixed_amount.amount if is_fixed else ZERO
+        preview_money = Money(preview_amount, "BRL")
+
+        rows.append(
+            {
+                "collaborator": collaborator,
+                "collaborator_id": collaborator.pk,
+                "name": collaborator.name,
+                "rule": rule,
+                "is_pct": is_pct,
+                "is_fixed": is_fixed,
+                "is_global": is_global,
+                "is_editable": is_editable,
+                "commission_display": commission_display,
+                "base_pct": base_pct,
+                "base_pct_display": base_pct_display,
+                "cap": cap,
+                "cap_display": cap_pct_display,
+                "cap_amount": cap_amount_money,
+                "cap_amount_display": cap_amount,
+                "preview_amount": preview_money,
+                "preview_cents": str(preview_money.amount),
+                "alloc": alloc,
+            }
+        )
+
+    total_commission_for_wo = _quantize(pool_S + fixed_total)
+
+    return {
+        "scope": scope,
+        "total_S": total_S_money,
+        "total_S_decimal": total_S,
+        "pool_S": pool_S_money,
+        "pool_S_decimal": pool_S,
+        "fixed_total": fixed_total_money,
+        "fixed_total_decimal": fixed_total,
+        "total_commission": Money(total_commission_for_wo, "BRL"),
+        "total_commission_decimal": total_commission_for_wo,
+        "max_pct": max_pct,
+        "max_pct_display": (max_pct * Decimal("100")).quantize(Decimal("0.01")),
+        "sum_base_pct": sum_base,
+        "sum_base_pct_display": (sum_base * Decimal("100")).quantize(Decimal("0.01")),
+        "rows": rows,
+        "has_pct_rules": bool(pct_rules),
+    }
+
+
+def workorder_commission_context(*, workorder: WorkOrder) -> dict[str, object]:
+    # Legado para templates antigos + novo pool split
+    previews = preview_workorder_collaborator_commissions(workorder=workorder)
+    is_sale = _resolve_workorder_budget_type(workorder=workorder) == "sale"
+    consolidates = _workorder_can_generate_commission(workorder=workorder)
+    # Novo — pool por escopo (v3); fallback se workshop não tem campos ou erro
+    try:
+        pool_service = _build_pool_scope_context(workorder=workorder, scope="service")
+        pool_product = _build_pool_scope_context(workorder=workorder, scope="product")
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("pool_context_build_failed scope=service/product error=%s", exc)
+        pool_service = None
+        pool_product = None
+    # Complementar escopo com label e lista para template loop
+    if pool_service is not None:
+        pool_service["scope_label"] = "Serviço"
+    if pool_product is not None:
+        pool_product["scope_label"] = "Produto"
+    pool_sections = [p for p in (pool_product, pool_service) if p is not None]
+    # Ordem: Produto primeiro, depois Serviço (conforme plano)
+    return {
+        "commission_previews": previews,
+        "commission_is_sale": is_sale,
+        "commission_consolidates": consolidates,
+        "commission_pool_service": pool_service,
+        "commission_pool_product": pool_product,
+        "pool_sections": pool_sections,
+        "commission_is_paid": consolidates and any(e.status == CollaboratorCommissionEntry.Status.PAID for e in CollaboratorCommissionEntry.objects.filter(workorder=workorder)),
+    }
 
 
 def _get_next_month_reference(reference_date: date) -> date:
@@ -544,8 +810,39 @@ def _calculate_transport_allowance_total_from_work_days(*, collaborator: Worksho
     return Money(_quantize(total), "BRL")
 
 
+def _apply_work_days_to_transport_component(*, payroll: CollaboratorPayroll, work_days: int) -> CollaboratorPayroll:
+    """Update VT amount from work days without rebuilding salary/benefit/commission movements."""
+    transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=payroll.collaborator, work_days=work_days)
+    unpaid_transport_movements = list(
+        payroll.financial_movements.filter(
+            payroll_component=FinancialMovement.PayrollComponent.TRANSPORT,
+            is_paid=False,
+        )
+    )
+    for movement in unpaid_transport_movements:
+        if movement.gross_amount != transport_amount:
+            movement.gross_amount = transport_amount
+            movement.save(update_fields=["gross_amount", "gross_amount_currency", "amount", "amount_currency"])
+    if unpaid_transport_movements:
+        return recalculate_payroll_from_linked_movements(payroll=payroll)
+
+    payroll.transport_allowance_amount = transport_amount
+    total_amount = Money(
+        _quantize(
+            Decimal(str(payroll.salary_amount.amount or ZERO))
+            + Decimal(str(transport_amount.amount or ZERO))
+            + Decimal(str(payroll.benefits_amount.amount or ZERO))
+            + Decimal(str(payroll.commission_amount.amount or ZERO))
+        ),
+        "BRL",
+    )
+    payroll.total_amount = total_amount
+    payroll.save(update_fields=["transport_allowance_amount", "total_amount"])
+    return payroll
+
+
 @transaction.atomic
-def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None, sync_salary_costs: bool = True) -> CollaboratorPayroll:
+def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None, sync_salary_costs: bool = True, resync_components: bool = True) -> CollaboratorPayroll:
     """Update payroll work days. Pass ``None`` to restore the workshop monthly cost default."""
     if _is_paid_payroll(payroll=payroll):
         return payroll
@@ -569,6 +866,8 @@ def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | N
         update_fields.append("work_days_is_custom")
     if update_fields:
         payroll.save(update_fields=update_fields)
+        if not resync_components:
+            return _apply_work_days_to_transport_component(payroll=payroll, work_days=resolved_work_days)
         synced = sync_collaborator_payroll(
             collaborator=payroll.collaborator,
             reference_date=date(payroll.reference_year, payroll.reference_month, 1),
@@ -620,16 +919,10 @@ def _is_workorder_commission_paid(*, workorder: WorkOrder) -> bool:
     # Prefer Prefetch from the calling queryset (request-scoped); avoid N+1 .filter().first().
     prefetched = getattr(workorder, "_prefetched_objects_cache", None)
     if prefetched is not None and "financial_movements" in prefetched:
-        parent_movements = [
-            movement
-            for movement in workorder.financial_movements.all()
-            if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
-        ]
+        parent_movements = [movement for movement in workorder.financial_movements.all() if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT]
         return bool(parent_movements and parent_movements[0].is_paid)
 
-    parent_movement = (
-        workorder.financial_movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).only("is_paid").first()
-    )
+    parent_movement = workorder.financial_movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).only("is_paid").first()
     return bool(parent_movement and parent_movement.is_paid)
 
 
@@ -704,7 +997,7 @@ def _get_effective_commission_entries(
         collaborator=collaborator,
         reference_year=resolved.year,
         reference_month=resolved.month,
-    ).filter(Q(status=CollaboratorCommissionEntry.Status.PAID) | Q(pk__in=synced_entry_ids))
+    ).filter(Q(status=CollaboratorCommissionEntry.Status.PAID) | Q(pk__in=synced_entry_ids) | Q(origin=CollaboratorCommissionEntry.Origin.MANUAL))
     return list(queryset.select_related("workorder", "workorder__budget").order_by("id"))
 
 
@@ -717,7 +1010,29 @@ def remove_pending_workorder_commissions(*, workorder: WorkOrder) -> int:
 
 
 def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionEntry) -> str:
+    # v3: distinguir fixo vs montante de distribuição percentual de comissão
+    if getattr(entry, "is_fixed_amount", False):
+        return f"Valor fixo {entry.commission_amount}"
+    # montante de distribuição percentual de comissão: mostrar distribuição e montante
+    dist = getattr(entry, "distribution_percentage", None)
+    pool = getattr(entry, "pool_amount", None)
+    if dist is not None and pool is not None and Decimal(str(dist)) > 0:
+        dist_display = (Decimal(str(dist)) * Decimal("100")).quantize(Decimal("0.01"))
+        return f"{dist_display}% do montante de distribuição percentual de comissão {pool} (base {entry.base_amount} × { (Decimal(str(entry.percentage or 0))*Decimal('100')).quantize(Decimal('0.01')) }%)"
     return f"{entry.percentage * Decimal('100'):.2f}% sobre {entry.base_amount}"
+
+
+def _commission_payroll_item_title(*, entry: CollaboratorCommissionEntry) -> str:
+    if entry.is_manual or entry.workorder_id is None:
+        return "Comissão manual"
+    # v3: incluir escopo se disponível
+    origin = getattr(entry, "commission_origin", "") or ""
+    scope_label = ""
+    if "service" in origin:
+        scope_label = " (Serviço)"
+    elif "product" in origin:
+        scope_label = " (Produto)"
+    return f"Comissão {format_workorder_reference(entry.workorder)}{scope_label}"
 
 
 def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
@@ -726,8 +1041,8 @@ def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commissio
         CollaboratorPayrollItem(
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.COMMISSION,
-            title=f"Comissão OS #{entry.workorder.pk}",
-            description=_build_commission_payroll_item_description(entry=entry),
+            title=_commission_payroll_item_title(entry=entry),
+            description=(entry.notes or "").strip() if entry.is_manual else _build_commission_payroll_item_description(entry=entry),
             amount=entry.commission_amount,
         )
         for entry in commission_entries
@@ -778,7 +1093,16 @@ def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollabor
     return payroll_group
 
 
+def get_default_transport_budget_plan(*, workshop: Workshop) -> FinancialGroup | None:
+    target_code = PAYROLL_COMPONENT_PLAN_CODES[FinancialMovement.PayrollComponent.TRANSPORT]
+    return FinancialGroup.objects.filter(workshop=workshop, code=target_code).first()
+
+
 def get_collaborator_payroll_component_group(*, collaborator: WorkshopCollaborator, component: str) -> FinancialGroup:
+    if component == FinancialMovement.PayrollComponent.TRANSPORT:
+        custom_plan = collaborator.transport_budget_plan
+        if custom_plan is not None and custom_plan.workshop_id == collaborator.workshop_id:
+            return custom_plan
     target_code = PAYROLL_COMPONENT_PLAN_CODES.get(component)
     if target_code:
         component_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, code=target_code).first()
@@ -796,6 +1120,17 @@ def _resolve_benefit_budget_plan(*, collaborator: WorkshopCollaborator, benefit:
 
 @transaction.atomic
 def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> list[CollaboratorCommissionEntry]:
+    # v3: se houver regras ativas, delegar ao novo orquestrador pool
+    try:
+        from apps.collaborators.models import CollaboratorCommissionRule
+
+        if CollaboratorCommissionRule.objects.filter(collaborator=collaborator, is_active=True).exists():
+            from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+
+            orchestrator = WorkOrderCommissionOrchestrator()
+            return orchestrator.sync_collaborator_commissions(collaborator=collaborator, reference_date=reference_date, lock_reference=lock_reference)
+    except Exception:
+        pass
     resolved = _resolve_reference_date(reference_date)
     if not collaborator.receives_commission or collaborator.commission_percentage is None:
         CollaboratorCommissionEntry.objects.filter(
@@ -803,8 +1138,15 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             reference_year=resolved.year,
             reference_month=resolved.month,
             status=CollaboratorCommissionEntry.Status.FORECAST,
-        ).delete()
-        return []
+        ).exclude(origin=CollaboratorCommissionEntry.Origin.MANUAL).delete()
+        return list(
+            CollaboratorCommissionEntry.objects.filter(
+                collaborator=collaborator,
+                reference_year=resolved.year,
+                reference_month=resolved.month,
+                origin=CollaboratorCommissionEntry.Origin.MANUAL,
+            ).select_related("workorder")
+        )
 
     workorders = (
         WorkOrder.objects.filter(
@@ -874,6 +1216,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
                 workshop=collaborator.workshop,
                 collaborator=collaborator,
                 workorder=workorder,
+                origin=CollaboratorCommissionEntry.Origin.WORKORDER,
                 reference_year=resolved.year,
                 reference_month=resolved.month,
                 percentage=percentage,
@@ -922,7 +1265,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             )
         synced_entries.append(entry)
 
-    stale_entries = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month)
+    stale_entries = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).exclude(origin=CollaboratorCommissionEntry.Origin.MANUAL)
     protected_ids = active_workorder_ids | protected_workorder_ids
     if protected_ids:
         stale_entries = stale_entries.exclude(workorder_id__in=protected_ids)
@@ -961,7 +1304,7 @@ def _build_payroll_component_specs(
 
     effective_benefits = active_benefits
     if effective_benefits is None:
-        effective_benefits = list(CollaboratorBenefit.objects.filter(collaborator=payroll.collaborator, is_active=True).select_related("budget_plan").order_by("id"))
+        effective_benefits = benefits_for_payroll(payroll=payroll)
 
     for benefit in effective_benefits:
         benefit_amount = Decimal(str(benefit.monthly_amount.amount or ZERO))
@@ -1034,7 +1377,11 @@ def delete_payroll_linked_financial_movement(*, movement: FinancialMovement) -> 
 @transaction.atomic
 def delete_payroll_component_and_recalculate(*, movement: FinancialMovement) -> CollaboratorPayroll | None:
     """Delete one payroll-linked movement and keep the payroll in sync (amounts + items)."""
+    benefit = movement.payroll_benefit
+    is_one_off_benefit = bool(benefit is not None and benefit.source_payroll_id)
     payroll = delete_payroll_linked_financial_movement(movement=movement)
+    if is_one_off_benefit and benefit is not None and benefit.pk:
+        CollaboratorBenefit.objects.filter(pk=benefit.pk, source_payroll__isnull=False).delete()
     if payroll is None:
         return None
     return recalculate_payroll_from_linked_movements(payroll=payroll)
@@ -1050,10 +1397,13 @@ def _get_payroll_representative_movement(*, payroll: CollaboratorPayroll, existi
 
 
 def _build_payroll_component_key(*, component: str | None, budget_plan_id: int | None = None, payroll_benefit_id: int | None = None) -> tuple[str, int | None]:
+    del budget_plan_id
     component_key = str(component or "")
     if component_key == FinancialMovement.PayrollComponent.BENEFIT:
         return (component_key, payroll_benefit_id)
-    return (component_key, budget_plan_id)
+    # Salary, VT and commission are unique per component. Matching by budget_plan
+    # made a plan change look like a new movement and the following sync reverted it.
+    return (component_key, None)
 
 
 def _movement_component_key(*, movement: FinancialMovement) -> tuple[str, int | None]:
@@ -1099,7 +1449,7 @@ def build_payroll_projection(*, collaborator: WorkshopCollaborator, reference_da
     salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")
     work_days = get_reference_work_days(collaborator=collaborator, reference_date=resolved)
     transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=collaborator, work_days=work_days)
-    active_benefits = list(CollaboratorBenefit.objects.filter(collaborator=collaborator, is_active=True).select_related("budget_plan").order_by("id"))
+    active_benefits = list(cadastro_benefits_queryset(collaborator=collaborator))
     benefits_total = sum((Decimal(str(benefit.monthly_amount.amount or ZERO)) for benefit in active_benefits), start=ZERO)
     commission_entries = list(
         CollaboratorCommissionEntry.objects.filter(
@@ -1175,8 +1525,14 @@ def get_payroll_movement_diagnoses(*, payrolls: list[CollaboratorPayroll]) -> di
     workshop = payrolls[0].workshop
 
     benefits_by_collaborator_id: dict[int, list[CollaboratorBenefit]] = {collaborator_id: [] for collaborator_id in collaborator_ids}
-    for benefit in CollaboratorBenefit.objects.filter(collaborator_id__in=collaborator_ids, is_active=True).select_related("budget_plan").order_by("id"):
+    for benefit in cadastro_benefits_queryset(collaborator_ids=collaborator_ids):
         benefits_by_collaborator_id[benefit.collaborator_id].append(benefit)
+
+    one_off_by_payroll_id: dict[int, list[CollaboratorBenefit]] = {}
+    payroll_ids = [payroll.pk for payroll in payrolls if payroll.pk]
+    if payroll_ids:
+        for benefit in CollaboratorBenefit.objects.filter(source_payroll_id__in=payroll_ids, is_active=True).select_related("budget_plan").order_by("id"):
+            one_off_by_payroll_id.setdefault(int(benefit.source_payroll_id), []).append(benefit)
 
     commission_filter = Q()
     for year, month in reference_keys:
@@ -1193,15 +1549,15 @@ def get_payroll_movement_diagnoses(*, payrolls: list[CollaboratorPayroll]) -> di
             reference_date=date(year, month, 1),
         )
 
-    groups_by_code = {
-        group.code: group
-        for group in FinancialGroup.objects.filter(workshop=workshop, code__in=set(PAYROLL_COMPONENT_PLAN_CODES.values()))
-        if group.code
-    }
+    groups_by_code = {group.code: group for group in FinancialGroup.objects.filter(workshop=workshop, code__in=set(PAYROLL_COMPONENT_PLAN_CODES.values())) if group.code}
     default_group: FinancialGroup | None = None
 
     def resolve_component_group(*, collaborator: WorkshopCollaborator, component: str) -> FinancialGroup:
         nonlocal default_group
+        if component == FinancialMovement.PayrollComponent.TRANSPORT:
+            custom_plan = collaborator.transport_budget_plan
+            if custom_plan is not None and custom_plan.workshop_id == collaborator.workshop_id:
+                return custom_plan
         target_code = PAYROLL_COMPONENT_PLAN_CODES.get(component)
         if target_code and target_code in groups_by_code:
             return groups_by_code[target_code]
@@ -1217,18 +1573,15 @@ def get_payroll_movement_diagnoses(*, payrolls: list[CollaboratorPayroll]) -> di
             work_days = int(payroll.work_days or 0)
         else:
             work_days = work_days_by_reference[(payroll.reference_year, payroll.reference_month)]
-        active_benefits = benefits_by_collaborator_id.get(collaborator.pk, [])
+        active_benefits = list(benefits_by_collaborator_id.get(collaborator.pk, []))
+        if payroll.pk:
+            active_benefits.extend(one_off_by_payroll_id.get(int(payroll.pk), []))
         commission_entries = commissions_by_key.get((collaborator.pk, payroll.reference_year, payroll.reference_month), [])
         salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")
         transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=collaborator, work_days=work_days)
         benefits_total = sum((Decimal(str(benefit.monthly_amount.amount or ZERO)) for benefit in active_benefits), start=ZERO)
         commission_total = sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)
-        total_amount = _quantize(
-            Decimal(str(salary_amount.amount or ZERO))
-            + Decimal(str(transport_amount.amount or ZERO))
-            + benefits_total
-            + commission_total
-        )
+        total_amount = _quantize(Decimal(str(salary_amount.amount or ZERO)) + Decimal(str(transport_amount.amount or ZERO)) + benefits_total + commission_total)
         expected_payroll = CollaboratorPayroll(
             workshop=collaborator.workshop,
             collaborator=collaborator,
@@ -1307,15 +1660,8 @@ def ensure_payroll_single_benefit_synced(*, payroll: CollaboratorPayroll, moveme
         payroll=payroll,
         payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
     )
-    projection = build_payroll_projection(
-        collaborator=payroll.collaborator,
-        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
-    )
-    specs = _build_payroll_component_specs(payroll=projection)
-    benefit_specs = [
-        s for s in specs
-        if s["component"] == FinancialMovement.PayrollComponent.BENEFIT
-    ]
+    specs = _build_payroll_component_specs(payroll=payroll)
+    benefit_specs = [s for s in specs if s["component"] == FinancialMovement.PayrollComponent.BENEFIT]
 
     matched_spec: dict[str, object] | None = None
     if movement.payroll_benefit_id is not None:
@@ -1328,12 +1674,139 @@ def ensure_payroll_single_benefit_synced(*, payroll: CollaboratorPayroll, moveme
         matched_spec = benefit_specs[0]
 
     if matched_spec is not None:
-        movement.amount = matched_spec["amount"]
+        movement.gross_amount = matched_spec["amount"]
         movement.description = str(matched_spec["description"])
         movement.budget_plan = matched_spec["budget_plan"]
-        movement.save(update_fields=["amount", "description", "budget_plan"])
+        movement.save(update_fields=["gross_amount", "gross_amount_currency", "amount", "amount_currency", "description", "budget_plan"])
 
     return recalculate_payroll_from_linked_movements(payroll=payroll)
+
+
+def _assert_payroll_allows_manual_launch(*, payroll: CollaboratorPayroll) -> None:
+    if _is_paid_payroll(payroll=payroll):
+        raise ValueError("A folha paga não pode receber lançamentos manuais.")
+
+
+def _refresh_payroll_commission_from_entries(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    entries = list(
+        CollaboratorCommissionEntry.objects.filter(
+            collaborator=payroll.collaborator,
+            reference_year=payroll.reference_year,
+            reference_month=payroll.reference_month,
+        )
+        .select_related("workorder", "workorder__budget")
+        .order_by("id")
+    )
+    entries_to_attach = [entry for entry in entries if entry.payroll_id != payroll.pk]
+    if entries_to_attach:
+        for entry in entries_to_attach:
+            entry.payroll = payroll
+        CollaboratorCommissionEntry.objects.bulk_update(entries_to_attach, ["payroll"])
+
+    commission_total = sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in entries), start=ZERO)
+    payroll.commission_amount = Money(_quantize(commission_total), "BRL")
+    payroll.save(update_fields=["commission_amount"])
+    _rebuild_payroll_commission_items(payroll=payroll, commission_entries=entries)
+    if commission_total > ZERO:
+        _sync_payroll_financial_movements(
+            payroll=payroll,
+            allowed_components={FinancialMovement.PayrollComponent.COMMISSION},
+            prune_stale=False,
+        )
+    else:
+        unpaid_commission_movements = list(
+            payroll.financial_movements.filter(
+                payroll_component=FinancialMovement.PayrollComponent.COMMISSION,
+                is_paid=False,
+            )
+        )
+        for movement in unpaid_commission_movements:
+            delete_payroll_linked_financial_movement(movement=movement)
+    return recalculate_payroll_from_linked_movements(payroll=payroll)
+
+
+@transaction.atomic
+def add_manual_payroll_benefit(
+    *,
+    payroll: CollaboratorPayroll,
+    name: str,
+    amount: Money | Decimal,
+    budget_plan: FinancialGroup,
+    description: str = "",
+) -> CollaboratorBenefit:
+    payroll = CollaboratorPayroll.objects.select_for_update().select_related("collaborator").get(pk=payroll.pk)
+    _assert_payroll_allows_manual_launch(payroll=payroll)
+    amount_value = Decimal(str(getattr(amount, "amount", amount) or ZERO))
+    if amount_value <= ZERO:
+        raise ValueError("O valor do benefício deve ser maior que zero.")
+    resolved_name = str(name or "").strip()
+    if not resolved_name:
+        raise ValueError("Informe o nome do benefício.")
+    if budget_plan.workshop_id != payroll.workshop_id:
+        raise ValueError("O plano orçamentário não pertence a esta oficina.")
+
+    benefit = CollaboratorBenefit.objects.create(
+        collaborator=payroll.collaborator,
+        name=resolved_name,
+        description=str(description or "").strip(),
+        monthly_amount=Money(_quantize(amount_value), "BRL"),
+        budget_plan=budget_plan,
+        is_active=True,
+        source_payroll=payroll,
+    )
+    _sync_payroll_financial_movements(
+        payroll=payroll,
+        active_benefits=benefits_for_payroll(payroll=payroll),
+        allowed_components={FinancialMovement.PayrollComponent.BENEFIT},
+        prune_stale=False,
+    )
+    recalculate_payroll_from_linked_movements(payroll=payroll)
+    return benefit
+
+
+@transaction.atomic
+def add_manual_payroll_commission(
+    *,
+    payroll: CollaboratorPayroll,
+    amount: Money | Decimal,
+    notes: str = "",
+) -> CollaboratorCommissionEntry:
+    payroll = CollaboratorPayroll.objects.select_for_update().select_related("collaborator").get(pk=payroll.pk)
+    _assert_payroll_allows_manual_launch(payroll=payroll)
+    amount_value = Decimal(str(getattr(amount, "amount", amount) or ZERO))
+    if amount_value <= ZERO:
+        raise ValueError("O valor da comissão deve ser maior que zero.")
+
+    quantized_amount = Money(_quantize(amount_value), "BRL")
+    entry = CollaboratorCommissionEntry.objects.create(
+        workshop=payroll.workshop,
+        collaborator=payroll.collaborator,
+        workorder=None,
+        payroll=payroll,
+        origin=CollaboratorCommissionEntry.Origin.MANUAL,
+        notes=str(notes or "").strip(),
+        reference_year=payroll.reference_year,
+        reference_month=payroll.reference_month,
+        percentage=ZERO,
+        base_amount=quantized_amount,
+        commission_amount=quantized_amount,
+        status=CollaboratorCommissionEntry.Status.FORECAST,
+    )
+    _refresh_payroll_commission_from_entries(payroll=payroll)
+    return entry
+
+
+@transaction.atomic
+def delete_manual_payroll_commission(*, payroll: CollaboratorPayroll, entry: CollaboratorCommissionEntry) -> CollaboratorPayroll:
+    payroll = CollaboratorPayroll.objects.select_for_update().get(pk=payroll.pk)
+    if _is_paid_payroll(payroll=payroll):
+        raise ValueError("A folha paga não pode ter lançamentos manuais excluídos.")
+    if entry.origin != CollaboratorCommissionEntry.Origin.MANUAL:
+        raise ValueError("Somente comissões manuais podem ser excluídas por este fluxo.")
+    if entry.collaborator_id != payroll.collaborator_id or entry.reference_year != payroll.reference_year or entry.reference_month != payroll.reference_month:
+        raise ValueError("A comissão não pertence a esta competência.")
+    entry.delete()
+    return _refresh_payroll_commission_from_entries(payroll=payroll)
 
 
 @transaction.atomic
@@ -1443,7 +1916,7 @@ def _sync_payroll_items_from_movements(*, payroll: CollaboratorPayroll, movement
             amount=movement.amount,
         )
 
-    commission_entries = list(payroll.commission_entries.select_related("workorder").all())
+    commission_entries = list(payroll.commission_entries.select_related("workorder", "workorder__budget").all())
     if Decimal(str(payroll.commission_amount.amount or ZERO)) > ZERO and commission_entries:
         _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
     elif Decimal(str(payroll.commission_amount.amount or ZERO)) > ZERO:
@@ -1502,7 +1975,7 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         # Skip overwriting financial data on movements that are already paid.
         if not (movement.pk and movement.is_paid):
             movement.description = str(spec["description"])
-            movement.amount = spec["amount"]
+            movement.gross_amount = spec["amount"]
             movement.due_date = payroll.due_date
             movement.budget_plan = budget_plan
         if is_new_movement:
@@ -1709,9 +2182,9 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
 
     updated_payrolls = 0
     if touched_payroll_ids:
-        payrolls = CollaboratorPayroll.objects.filter(pk__in=touched_payroll_ids).select_related("financial_movement").prefetch_related("items", "commission_entries__workorder")
+        payrolls = CollaboratorPayroll.objects.filter(pk__in=touched_payroll_ids).select_related("financial_movement").prefetch_related("items", "commission_entries__workorder__budget")
         for payroll in payrolls:
-            commission_entries = list(payroll.commission_entries.select_related("workorder").order_by("id"))
+            commission_entries = list(payroll.commission_entries.select_related("workorder", "workorder__budget").order_by("id"))
             commission_total = Money(
                 _quantize(sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)),
                 "BRL",
@@ -1770,7 +2243,9 @@ def _sync_collaborator_payroll_internal(
         work_days = workshop_work_days
         work_days_is_custom = False
     transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=collaborator, work_days=work_days)
-    active_benefits = prefetched_benefits if prefetched_benefits is not None else list(CollaboratorBenefit.objects.filter(collaborator=collaborator, is_active=True).select_related("budget_plan").order_by("id"))
+    cadastro_benefits = prefetched_benefits if prefetched_benefits is not None else list(cadastro_benefits_queryset(collaborator=collaborator))
+    one_off_benefits = list(one_off_benefits_queryset(payroll=existing_payroll)) if existing_payroll is not None else []
+    active_benefits = cadastro_benefits + one_off_benefits
     benefits_total = sum((Decimal(str(benefit.monthly_amount.amount or ZERO)) for benefit in active_benefits), start=ZERO)
     commission_total = sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)
     total_amount = _quantize(Decimal(str(salary_amount.amount or ZERO)) + Decimal(str(transport_amount.amount or ZERO)) + benefits_total + commission_total)
@@ -1864,7 +2339,7 @@ def sync_collaborator_payrolls_batch(*, collaborators: list[WorkshopCollaborator
     resolved = _resolve_reference_date(reference_date)
     collaborator_ids = [collaborator.pk for collaborator in collaborators]
     benefits_by_collaborator_id: dict[int, list[CollaboratorBenefit]] = defaultdict(list)
-    for benefit in CollaboratorBenefit.objects.filter(collaborator_id__in=collaborator_ids, is_active=True).select_related("budget_plan").order_by("collaborator_id", "id"):
+    for benefit in cadastro_benefits_queryset(collaborator_ids=collaborator_ids).order_by("collaborator_id", "id"):
         benefits_by_collaborator_id[benefit.collaborator_id].append(benefit)
 
     work_days_by_workshop_id: dict[int, int] = {}
