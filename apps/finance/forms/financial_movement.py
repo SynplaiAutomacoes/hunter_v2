@@ -712,8 +712,9 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
     )
     is_partial_payment = forms.TypedChoiceField(
         label="Pagamento parcial",
-        required=True,
+        required=False,
         coerce=lambda value: str(value).lower() == "true",
+        empty_value=False,
         choices=((False, "Não"), (True, "Sim")),
         widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]),
         initial=False,
@@ -912,6 +913,11 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             ),
             HTML("</section>"),
         )
+
+    @property
+    def was_initially_paid(self) -> bool:
+        """Status persistido antes de o ModelForm aplicar os dados do POST na instância."""
+        return self._was_paid
 
     def clean_description(self):
         value = self.cleaned_data.get("description")

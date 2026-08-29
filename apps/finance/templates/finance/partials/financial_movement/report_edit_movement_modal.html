@@ -159,7 +159,7 @@
     const paymentMethodConfigElement = document.getElementById('report-edit-payment-method-data');
     const paymentMethodFilterData = paymentMethodConfigElement ? JSON.parse(paymentMethodConfigElement.textContent) : null;
     const isWorkorderMovement = {{ movement.workorder_id|yesno:"true,false" }};
-    const wasInitiallyPaid = {{ movement.is_paid|yesno:"true,false" }};
+    const wasInitiallyPaid = {{ form.was_initially_paid|yesno:"true,false" }};
     const expectedPaymentMethodId = '{{ forced_payment_method_id|default_if_none:""|escapejs }}';
     const partialPaymentCheckbox = modal.querySelector('input[name="is_partial_payment"]');
     const partialPaymentOption = modal.querySelectorAll('.partial-payment-option');

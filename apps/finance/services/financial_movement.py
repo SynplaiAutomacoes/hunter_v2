@@ -53,13 +53,28 @@ def create_partial_payment_balance(*, paid_movement: FinancialMovement, paid_amo
 
     outstanding_amount = original_amount - paid_amount
     paid_movement.amount = paid_amount
-    paid_movement.save(update_fields=["amount"])
+    paid_update_fields = ["amount"]
+    if hasattr(paid_movement, "gross_amount"):
+        paid_movement.gross_amount = paid_amount
+        paid_update_fields.append("gross_amount")
+    if hasattr(paid_movement, "discount_mode"):
+        paid_movement.discount_mode = FinancialMovement.DiscountMode.NONE
+        paid_movement.discount_value = Money(0, paid_amount.currency)
+        paid_movement.discount_percentage = Decimal("0.00")
+        paid_update_fields.extend(["discount_mode", "discount_value", "discount_percentage"])
+    paid_movement.save(update_fields=paid_update_fields)
 
     balance = FinancialMovement.objects.get(pk=paid_movement.pk)
     balance.pk = None
     balance.id = None
     balance._state.adding = True
     balance.amount = outstanding_amount
+    if hasattr(balance, "gross_amount"):
+        balance.gross_amount = outstanding_amount
+    if hasattr(balance, "discount_mode"):
+        balance.discount_mode = FinancialMovement.DiscountMode.NONE
+        balance.discount_value = Money(0, outstanding_amount.currency)
+        balance.discount_percentage = Decimal("0.00")
     balance.is_paid = False
     balance.is_reconciled = False
     balance.partial_payment_of = paid_movement
