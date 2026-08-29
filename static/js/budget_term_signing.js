@@ -297,6 +297,27 @@
         initBudgetTermModal(root);
     }
 
+    function clearBudgetTermSigningBindings(event) {
+        const target = event && event.target;
+        if (!target || !target.closest) {
+            return;
+        }
+        const stepContainer = target.closest('#step-container');
+        if (stepContainer) {
+            const panel = stepContainer.querySelector('[data-receipt-term-panel]');
+            if (panel) {
+                delete panel.dataset.bound;
+            }
+        }
+        const modalContainer = target.closest('#modal-container');
+        if (modalContainer) {
+            const box = modalContainer.querySelector('#budget-term-modal-box');
+            if (box) {
+                delete box.dataset.termModalBound;
+            }
+        }
+    }
+
     function initBudgetTermSigningFromEvent(event) {
         const target = event && event.target;
         if (!target || !target.closest) {
@@ -319,6 +340,7 @@
     if (!window.__budgetTermSigningHooksBound) {
         window.__budgetTermSigningHooksBound = true;
 
+        document.body.addEventListener('htmx:beforeSwap', clearBudgetTermSigningBindings);
         document.body.addEventListener('htmx:afterSettle', initBudgetTermSigningFromEvent);
         document.body.addEventListener('htmx:afterSwap', initBudgetTermSigningFromEvent);
 

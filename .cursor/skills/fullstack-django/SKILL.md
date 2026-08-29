@@ -60,6 +60,10 @@ Pick one primary path first. Read a second reference only if the task clearly cr
 - `references/django-cbv-patterns.md` - CBV selection, mixins, CRUD, testing, pitfalls
 - `references/code-quality.md` - security and quality review workflow
 
+## External integration skills
+
+- SynplaiSign (assinatura eletrônica, webhooks, envelopes): global skill `~/.cursor/skills/synplaisign/`
+
 ## Output Expectations
 
 - Start with a short plan tied to the active path.

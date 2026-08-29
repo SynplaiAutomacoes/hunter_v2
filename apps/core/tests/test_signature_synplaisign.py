@@ -443,6 +443,26 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
             "ENVELOPE_COMPLETED",
         )
         self.assertEqual(extract_signature_envelope_id({"id": "env-99", "type": "envelope"}), "env-99")
+        self.assertEqual(extract_signature_envelope_id({"documentId": "doc-42"}), "doc-42")
+
+    @patch("apps.workorder.models.WorkOrder.objects.filter")
+    @patch("apps.budget.models.Budget.objects.filter")
+    @patch("apps.core.infrastructure.services.signature_webhook._find_term_signing", return_value=None)
+    def test_document_id_approves_budget_without_envelope_id(
+        self,
+        _find_term: Mock,
+        budget_filter: Mock,
+        workorder_filter: Mock,
+    ) -> None:
+        budget = SimpleNamespace(pk=1, approve=Mock(return_value=True), mark_signature_approved=Mock())
+        budget_filter.return_value.first.return_value = budget
+        workorder_filter.return_value.first.return_value = None
+
+        response = process_signature_webhook_payload(
+            payload={"documentId": "doc-budget-1", "data": {"status": "SIGNED"}},
+        )
+        self.assertEqual(response.status_code, 200)
+        budget.approve.assert_called_once()
 
     @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=False)
     @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")

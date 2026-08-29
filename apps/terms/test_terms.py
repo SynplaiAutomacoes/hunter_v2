@@ -205,6 +205,28 @@ class TermWebhookIsolationTests(TestCase):
         self.assertEqual(self.signing.signature_request_status, TermSignatureStatus.APPROVED)
         self.assertEqual(self.budget.status, BudgetStatus.WAITING_DIAGNOSIS)
 
+    def test_term_completed_via_nested_status_without_event(self) -> None:
+        response = process_signature_webhook_payload(
+            payload={"envelopeId": "term-env-1", "data": {"status": "SIGNED", "signatoryName": "Cliente"}},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.signing.refresh_from_db()
+        self.budget.refresh_from_db()
+        self.assertEqual(self.signing.signature_request_status, TermSignatureStatus.APPROVED)
+        self.assertEqual(self.budget.status, BudgetStatus.WAITING_DIAGNOSIS)
+
+    def test_term_completed_via_document_id_lookup(self) -> None:
+        self.signing.signature_external_id = ""
+        self.signing.signature_document_id = "term-doc-1"
+        self.signing.save(update_fields=["signature_external_id", "signature_document_id"])
+
+        response = process_signature_webhook_payload(
+            payload={"documentId": "term-doc-1", "data": {"status": "SIGNED"}},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.signing.refresh_from_db()
+        self.assertEqual(self.signing.signature_request_status, TermSignatureStatus.APPROVED)
+
     def test_term_declined_via_lookup(self) -> None:
         response = process_signature_webhook_payload(
             payload={"event": "DOCUMENT_DECLINED", "envelopeId": "term-env-1"},
