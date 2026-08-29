@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 
-from django.test import SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.urls import reverse
 from djmoney.money import Money
 
 from apps.collaborators.models import WorkshopCollaborator
@@ -18,6 +20,7 @@ from apps.finance.services.financial_movement import (
     apply_payment_reconciliation_rules,
 )
 from apps.finance.views.payroll import PayrollPaymentForm
+from apps.finance.views.reports import ReportMovementEditView
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 
@@ -361,6 +364,101 @@ class PaymentReconciliationFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("partial_payment_amount", form.errors)
+
+    def test_report_edit_form_keeps_unpaid_snapshot_when_partial_payment_invalid(self) -> None:
+        workshop = create_workshop(suffix=43)
+        supplier = self._create_supplier(workshop=workshop, suffix=43)
+        payment_method = self._create_payment_method(workshop=workshop)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            supplier=supplier,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Peças",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 5),
+            payment_method=payment_method,
+            is_paid=False,
+        )
+
+        form = ReportMovementEditForm(
+            data={
+                "supplier": str(supplier.pk),
+                "description": "Peças",
+                "entry_date": "2026-08-05",
+                "due_date": "2026-08-05",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "gross_amount_0": "100.00",
+                "gross_amount_1": "BRL",
+                "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "payment_method": str(payment_method.pk),
+                "is_paid": "True",
+                "is_reconciled": "False",
+                "is_partial_payment": "True",
+                "partial_payment_amount_0": "40.00",
+                "partial_payment_amount_1": "BRL",
+            },
+            instance=movement,
+            workshop=workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("budget_plan", form.errors)
+        self.assertFalse(form._was_paid)
+        self.assertTrue(form.instance.is_paid)
+
+    def test_report_edit_modal_keeps_partial_payment_visible_after_budget_plan_error(self) -> None:
+        workshop = create_workshop(suffix=44)
+        supplier = self._create_supplier(workshop=workshop, suffix=44)
+        payment_method = self._create_payment_method(workshop=workshop)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            supplier=supplier,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Peças",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 5),
+            payment_method=payment_method,
+            is_paid=False,
+        )
+
+        request = RequestFactory().post(
+            reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            {
+                "supplier": str(supplier.pk),
+                "description": "Peças",
+                "entry_date": "2026-08-05",
+                "due_date": "2026-08-05",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "gross_amount_0": "100.00",
+                "gross_amount_1": "BRL",
+                "discount_mode": FinancialMovement.DiscountMode.NONE,
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "payment_method": str(payment_method.pk),
+                "is_paid": "True",
+                "is_reconciled": "False",
+                "is_partial_payment": "True",
+                "partial_payment_amount_0": "40.00",
+                "partial_payment_amount_1": "BRL",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = ReportMovementEditView()
+        view.request = request
+        view.kwargs = {"pk": movement.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.rendered_content
+        self.assertIn(BUDGET_PLAN_REQUIRED, content)
+        self.assertIn("const wasInitiallyPaid = false;", content)
+        self.assertIn("partial-payment-option", content)
+        self.assertIn('name="is_partial_payment"', content)
+        self.assertIn("40.00", content)
 
     def test_step3_and_payroll_forms_apply_same_rules(self) -> None:
         workshop = create_workshop(suffix=5)

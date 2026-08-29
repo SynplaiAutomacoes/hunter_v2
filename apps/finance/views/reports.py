@@ -933,6 +933,10 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["movement"] = self.object
+        form = context.get("form")
+        # ModelForm._post_clean mutates instance.is_paid on invalid POST (partial payment
+        # also forces is_paid=True). The JS flag must use the value snapshotted at form init.
+        context["was_initially_paid"] = bool(getattr(form, "_was_paid", False))
         if self.object.installment_plan_id:
             context["installments"] = self.object.installment_plan.financial_movements.order_by(
                 "installment_number", "pk"
