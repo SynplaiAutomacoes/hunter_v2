@@ -349,6 +349,47 @@ class PaymentReconciliationFormTests(TestCase):
         self.assertFalse(balance.is_reconciled)
         self.assertEqual(balance.supplier, supplier)
 
+    def test_report_edit_form_keeps_original_paid_status_after_invalid_partial_payment(self) -> None:
+        workshop = create_workshop(suffix=43)
+        supplier = self._create_supplier(workshop=workshop, suffix=43)
+        payment_method = self._create_payment_method(workshop=workshop)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            supplier=supplier,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Peças",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 5),
+            payment_method=payment_method,
+            is_paid=False,
+        )
+
+        form = ReportMovementEditForm(
+            data={
+                "supplier": str(supplier.pk),
+                "description": "",
+                "due_date": "2026-08-05",
+                "direction": FinancialMovement.MovementDirection.DEBIT,
+                "amount_0": "100.00",
+                "amount_1": "BRL",
+                "payment_method": str(payment_method.pk),
+                "is_paid": "False",
+                "is_reconciled": "False",
+                "is_partial_payment": "True",
+                "partial_payment_amount_0": "40.00",
+                "partial_payment_amount_1": "BRL",
+            },
+            instance=movement,
+            workshop=workshop,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("description", form.errors)
+        self.assertTrue(form.instance.is_paid)
+        self.assertFalse(form.was_initially_paid)
+        self.assertEqual(form.data["is_partial_payment"], "True")
+        self.assertEqual(form.data["partial_payment_amount_0"], "40.00")
+
     def test_report_edit_form_rejects_partial_payment_equal_to_total(self) -> None:
         workshop = create_workshop(suffix=42)
         supplier = self._create_supplier(workshop=workshop, suffix=42)
