@@ -382,7 +382,7 @@ class WorkOrderStatusReportDataMixin:
 
     def _get_workorder_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("Nº", attr="budget.number", search_by=("budget__number", "id")),
+            TableColumn("Nº", attr="budget.number", search_by=("budget__number", "id"), sort_by="budget__number"),
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
@@ -418,7 +418,7 @@ class WorkOrderStatusReportDataMixin:
             filter_configs=WORKORDER_LIST_FILTERS,
         )
 
-        return queryset.order_by("-budget__pk", "-criado_em")
+        return queryset.order_by("budget__number", "pk")
 
     def _get_list_pricing_context(self):
         today = timezone.localdate()

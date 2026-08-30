@@ -14,6 +14,7 @@ class DreForm(CoreForm):
     ALL_WORKSHOPS_VALUE = "__all__"
 
     TIPO_DATA_CHOICES = (
+        ("", "SELECIONE O TIPO DA DATA"),
         ("PG", "PAGOS"),
         ("NPG", "SERÃO PAGOS"),
         ("A", "AMBOS"),
