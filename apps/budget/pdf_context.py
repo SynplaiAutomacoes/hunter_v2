@@ -24,6 +24,19 @@ _ZERO_DECIMAL = Decimal("0.00")
 _TWO_DECIMAL_PLACES = Decimal("0.01")
 
 
+def resolve_pdf_opened_by_name(*users: Any) -> str:
+    for user in users:
+        if user is None:
+            continue
+        full_name = user.get_full_name() if callable(getattr(user, "get_full_name", None)) else ""
+        if full_name:
+            return str(full_name)
+        username = user.get_username() if callable(getattr(user, "get_username", None)) else ""
+        if username:
+            return str(username)
+    return "Sistema"
+
+
 def is_visible_pdf_pricing_line(line: Any) -> bool:
     """Treat a zero-quantity or zero-priced budget line as removed from every PDF."""
     if line.quantity <= 0:
