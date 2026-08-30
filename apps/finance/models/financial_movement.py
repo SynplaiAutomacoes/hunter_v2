@@ -258,7 +258,7 @@ class FinancialMovement(TimeStampedModel):
             badge_class = "badge-error"
 
         direction_text = {
-            self.MovementDirection.CREDIT: "Crédito",
+            self.MovementDirection.CREDIT: "Receita",
             self.MovementDirection.DEBIT: "Débito",
         }.get(self.direction, "-")
 

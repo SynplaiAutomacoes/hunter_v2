@@ -10,10 +10,12 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget
+from apps.collaborators.models import WorkshopCollaborator
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.reports import build_monthly_financial_overview_with_open_workorder_credits, open_credits
 from apps.finance.views.reports import FinancialReportsHomeView
+from apps.suppliers.models import Supplier
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.models.workshops import Workshop
 
@@ -157,3 +159,72 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(expected_open, Decimal("1800.00"))
         self.assertIn("1.800,00", total_row["value"])
         self.assertEqual(len(context["financial_movement_report_rows"]), 2)
+
+    def test_text_search_ignores_default_date_filter(self) -> None:
+        workshop = create_workshop(suffix=11)
+        today = timezone.localdate()
+        old_date = today - timedelta(days=45)
+        create_movement(
+            workshop=workshop,
+            amount=Decimal("55.00"),
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            due_date=old_date,
+            description="Fatura fornecedor especial",
+        )
+
+        view = build_reports_view(workshop=workshop, query={"search": "fornecedor especial"})
+        context = view.get_context_data()
+
+        self.assertEqual(len(context["financial_movement_report_rows"]), 1)
+        self.assertIn("fornecedor especial", context["financial_movement_report_rows"][0]["description"])
+
+    def test_agent_filter_lists_collaborators_and_suppliers_from_movements(self) -> None:
+        workshop = create_workshop(suffix=12)
+        today = timezone.localdate()
+        collaborator = WorkshopCollaborator.objects.create(
+            workshop=workshop,
+            name="Mecanico Reports",
+            cpf="39053344705",
+            birth_date=today,
+            salary=Money("1000.00", "BRL"),
+            admission_date=today,
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+        )
+        supplier = Supplier.objects.create(workshop=workshop, name="Fornecedor Reports", cnpj="31.222.333/0001-12")
+        movement_with_collaborator = create_movement(
+            workshop=workshop,
+            amount=Decimal("10.00"),
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            due_date=today,
+            description="Debito colaborador",
+        )
+        movement_with_collaborator.collaborator = collaborator
+        movement_with_collaborator.save(update_fields=["collaborator"])
+        movement_with_supplier = create_movement(
+            workshop=workshop,
+            amount=Decimal("20.00"),
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            due_date=today,
+            description="Debito fornecedor",
+        )
+        movement_with_supplier.supplier = supplier
+        movement_with_supplier.save(update_fields=["supplier"])
+
+        budget = Budget.objects.create(workshop=workshop, entry_date=today)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        FinancialMovement.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            description="Receita OS",
+            amount=Money(Decimal("100.00"), "BRL"),
+            due_date=today,
+        )
+
+        view = build_reports_view(workshop=workshop)
+        choice_values = [value for value, _label in view._get_agent_filter_choices()]
+
+        self.assertIn(f"coll_{collaborator.pk}", choice_values)
+        self.assertIn(f"supp_{supplier.pk}", choice_values)
+        self.assertFalse(any(value.startswith("wo_") for value in choice_values))

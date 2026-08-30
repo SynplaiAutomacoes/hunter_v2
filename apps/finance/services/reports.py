@@ -80,9 +80,9 @@ def build_financial_overview(
         ).distinct()
 
     def _apply_common_filters(queryset):
-        if start_date is not None:
+        if start_date is not None and not str(search or "").strip():
             queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
-        if end_date is not None:
+        if end_date is not None and not str(search or "").strip():
             queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
         if direction:
             queryset = queryset.filter(direction=direction)
@@ -287,9 +287,9 @@ def _apply_report_common_filters(queryset, *, start_date=None, end_date=None, se
             )
         ).distinct()
 
-    if start_date is not None:
+    if start_date is not None and not str(search or "").strip():
         queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
-    if end_date is not None:
+    if end_date is not None and not str(search or "").strip():
         queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
     if direction:
         queryset = queryset.filter(direction=direction)
