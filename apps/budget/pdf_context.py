@@ -502,6 +502,11 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
     total_profit_service_value = sum((line["profit_value"] for line in servicos), Money(0, "BRL"))
     total_profit_product_value = sum((line["profit_value"] for line in produtos if not line.get("is_customer_supplied", False)), Money(0, "BRL"))
+    total_products_effective_cost_value = sum(
+        (line["product_cost_price"] for line in produtos if not line.get("is_customer_supplied", False)),
+        Money(0, "BRL"),
+    )
+    total_services_effective_cost_value = total_services_mechanic_cost_value
     soma_markup = budget.get_mlo
 
     benefit_total = Money(0, "BRL")
@@ -532,6 +537,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "fixed_observation": budget.workshop.pdf_observation,
         "total_profit_product_value": total_profit_product_value,
         "total_profit_service_value": total_profit_service_value,
+        "total_products_effective_cost_value": total_products_effective_cost_value,
+        "total_services_effective_cost_value": total_services_effective_cost_value,
         "total_services_cost_original_value": total_services_cost_original_value,
         "total_services_mechanic_cost_value": total_services_mechanic_cost_value,
         "is_warranty_or_courtesy": is_warranty_or_courtesy,

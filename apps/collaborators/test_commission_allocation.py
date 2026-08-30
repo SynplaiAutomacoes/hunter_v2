@@ -9,7 +9,7 @@ from djmoney.money import Money
 from apps.collaborators.commission.allocation import CommissionAllocationService
 from apps.collaborators.forms import CollaboratorCommissionScopeForm
 from apps.collaborators.models import CollaboratorCommissionRule, WorkOrderCommissionAllocation
-from apps.collaborators.services import _build_pool_scope_context
+from apps.collaborators.services import _build_pool_scope_context, workorder_commission_context
 from apps.collaborators.test_commissions import create_collaborator, create_workorder, create_workshop
 from apps.workorder.models import WorkOrderStatus
 
@@ -227,3 +227,43 @@ class CommissionPoolPreviewTests(TestCase):
         errors = CommissionAllocationService.validate(workorder=workorder, scope=CollaboratorCommissionRule.Scope.SERVICE)
         self.assertEqual(errors["cap"], [])
         self.assertEqual(errors["sum"], [])
+
+
+class WorkOrderCommissionPoolSectionTests(TestCase):
+    @patch("apps.collaborators.commission.calculators.calculate_total_for_scope", return_value=Decimal("100.00"))
+    def test_pool_sections_hide_scope_without_active_commission_rules(self, _mock_total: object) -> None:
+        workshop = create_workshop(suffix=92)
+        collaborator = create_collaborator(workshop=workshop, suffix=92)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.DRAFT)
+        workorder.collaborators.set([collaborator])
+        create_participation_rule(
+            collaborator=collaborator,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            percentage=Decimal("0.100000"),
+        )
+
+        context = workorder_commission_context(workorder=workorder)
+
+        self.assertEqual(len(context["pool_sections"]), 1)
+        self.assertEqual(context["pool_sections"][0]["scope"], CollaboratorCommissionRule.Scope.SERVICE)
+        self.assertFalse(context["commission_pool_product"]["has_commission_recipients"])
+        self.assertTrue(context["commission_pool_service"]["has_commission_recipients"])
+
+    @patch("apps.collaborators.commission.calculators.calculate_total_for_scope", return_value=Decimal("462.00"))
+    def test_warranty_workorder_pool_preview_is_zero(self, _mock_total: object) -> None:
+        workshop = create_workshop(suffix=93)
+        collaborator = create_collaborator(workshop=workshop, suffix=93)
+        workorder = create_workorder(workshop=workshop, budget_type="warranty", status=WorkOrderStatus.APPROVED)
+        workorder.collaborators.set([collaborator])
+        create_participation_rule(
+            collaborator=collaborator,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            percentage=Decimal("0.100000"),
+        )
+
+        context = workorder_commission_context(workorder=workorder)
+        pool = context["pool_sections"][0]
+
+        self.assertFalse(context["commission_is_sale"])
+        self.assertEqual(pool["pool_S"], Money("0.00", "BRL"))
+        self.assertEqual(pool["rows"][0]["preview_amount"], Money("0.00", "BRL"))

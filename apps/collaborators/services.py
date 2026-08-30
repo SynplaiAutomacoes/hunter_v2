@@ -210,12 +210,26 @@ def preview_workorder_collaborator_commissions(*, workorder: WorkOrder) -> list[
     return previews
 
 
+def _pool_scope_has_commission_recipients(*, workorder: WorkOrder, scope: str) -> bool:
+    from apps.collaborators.models import CollaboratorCommissionRule
+
+    collaborator_ids = workorder.collaborators.values_list("id", flat=True)
+    if not collaborator_ids:
+        return False
+    return CollaboratorCommissionRule.objects.filter(
+        collaborator_id__in=collaborator_ids,
+        scope=scope,
+        is_active=True,
+    ).exists()
+
+
 def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, object]:
     """Contexto para um escopo (service/product) — pool + alocações."""
     from apps.collaborators.commission.calculators import calculate_total_for_scope
     from apps.collaborators.models import CollaboratorCommissionRule, WorkOrderCommissionAllocation
 
     workshop = workorder.workshop
+    is_sale = _resolve_workorder_budget_type(workorder=workorder) == "sale"
     try:
         total_S = calculate_total_for_scope(workorder=workorder, workshop=workshop, scope=scope)
     except Exception:
@@ -287,7 +301,9 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
         cap_amount = _quantize(pool_S * cap) if is_pct else ZERO
         cap_amount_money = Money(cap_amount, "BRL")
 
-        if is_global:
+        if not is_sale:
+            preview_amount = ZERO
+        elif is_global:
             # Preview global: total_S × rule.percentage (fora do pool), não depende de Base%
             if is_fixed:
                 preview_amount = fixed_amount.amount
@@ -324,7 +340,12 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
             }
         )
 
-    total_commission_for_wo = _quantize(pool_S + fixed_total)
+    total_commission_for_wo = ZERO if not is_sale else _quantize(pool_S + fixed_total)
+    if not is_sale:
+        pool_S_money = Money(ZERO, "BRL")
+        pool_S = ZERO
+        fixed_total_money = Money(ZERO, "BRL")
+        fixed_total = ZERO
 
     return {
         "scope": scope,
@@ -342,6 +363,7 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
         "sum_base_pct_display": (sum_base * Decimal("100")).quantize(Decimal("0.01")),
         "rows": rows,
         "has_pct_rules": bool(pct_rules),
+        "has_commission_recipients": _pool_scope_has_commission_recipients(workorder=workorder, scope=scope),
     }
 
 
@@ -374,7 +396,11 @@ def workorder_commission_context(*, workorder: WorkOrder) -> dict[str, object]:
         pool_service["scope_label"] = "Serviço"
     if pool_product is not None:
         pool_product["scope_label"] = "Produto"
-    pool_sections = [p for p in (pool_product, pool_service) if p is not None]
+    pool_sections = [
+        pool
+        for pool in (pool_product, pool_service)
+        if pool is not None and pool.get("has_commission_recipients")
+    ]
     # Ordem: Produto primeiro, depois Serviço (conforme plano)
     return {
         "commission_previews": previews,

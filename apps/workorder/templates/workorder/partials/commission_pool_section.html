@@ -3,7 +3,9 @@
     <div style="display:none">{% csrf_token %}</div>
     <h4 class="font-bold text-lg">Previsão de comissão</h4>
     {% if not commission_is_sale %}
-        <p class="text-sm text-base-content/70">Comissão não se aplica a orçamentos de garantia ou cortesia.</p>
+        <div class="alert alert-error text-sm mb-2">
+            <span>Para O.S. de garantia ou cortesia, o colaborador não recebe comissão.</span>
+        </div>
     {% elif not commission_consolidates %}
         <p class="text-sm text-base-content/70 mb-2">Os valores abaixo são uma previsão. A comissão só é consolidada após a entrega do veículo. Distribua o montante de distribuição percentual de comissão manualmente por colaborador.</p>
     {% else %}
