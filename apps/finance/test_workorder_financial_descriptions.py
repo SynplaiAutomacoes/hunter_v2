@@ -102,6 +102,7 @@ class SyncWorkorderFinancialMovementDescriptionTests(TestCase):
         self.assertEqual(expected, "Receita proveniente de ordem de serviço Honda Civic - ABC1D23")
         self.assertNotEqual(movement.description, budget.problem_description)
         self.assertEqual(movement.movement_kind, FinancialMovement.MovementKind.WORKORDER_PARENT)
+        self.assertFalse(movement.is_paid)
 
     def test_sync_fallback_description_without_vehicle(self) -> None:
         workshop = _create_workshop(suffix=2)
@@ -126,3 +127,4 @@ class SyncWorkorderFinancialMovementDescriptionTests(TestCase):
             f"Receita proveniente de ordem de serviço OS Nº {budget.public_number}",
         )
         self.assertEqual(movement.movement_kind, FinancialMovement.MovementKind.WORKORDER_PARENT)
+        self.assertFalse(movement.is_paid)
