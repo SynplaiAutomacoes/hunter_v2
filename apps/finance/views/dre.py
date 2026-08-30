@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from django.http import HttpResponse
-from django.shortcuts import render
+from django.contrib import messages
+from django.http import HttpResponse, HttpResponseRedirect
+from django.shortcuts import redirect
+from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -26,11 +28,29 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = FinancialGroup
     workshop_permission_codename = "view_financialgroup"
 
-    def _get_tipo_data(self) -> str:
-        tipo_data = (self.request.GET.get("tipo_data") or "A").strip().upper() or "A"
-        if tipo_data not in dict(DreForm.TIPO_DATA_CHOICES):
-            return "A"
+    def _get_tipo_data(self) -> str | None:
+        tipo_data = (self.request.GET.get("tipo_data") or "").strip().upper()
+        if not tipo_data or tipo_data not in {choice[0] for choice in DreForm.TIPO_DATA_CHOICES if choice[0]}:
+            return None
         return tipo_data
+
+    def _build_dre_form(self) -> DreForm:
+        workshops_qs = self._get_workshops_queryset()
+        workshops = list(workshops_qs)
+        selected_workshops = self._get_selected_workshops(workshops_qs)
+        if not selected_workshops:
+            financial_groups = FinancialGroup.objects.none()
+        else:
+            financial_groups = self._get_financial_groups_queryset(selected_workshops=selected_workshops)
+        return DreForm(self.request.GET or None, workshops=workshops, financial_groups_qs=financial_groups)
+
+    def _redirect_invalid_dre_form(self) -> HttpResponseRedirect:
+        messages.error(self.request, "Preencha todos os filtros obrigatórios para gerar o DRE.")
+        report_url = reverse("finance:dre_report")
+        query_string = self.request.GET.urlencode()
+        if query_string:
+            report_url = f"{report_url}?{query_string}"
+        return redirect(report_url)
 
     def _get_workshops_queryset(self):
         user_account_id = getattr(self.request.user, "account_id", None)
@@ -143,6 +163,8 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         financial_groups = self._get_financial_groups_queryset(selected_workshops=selected_workshops)
         selected_financial_groups = self._get_selected_financial_groups(financial_groups_qs=financial_groups)
         tipo_data = self._get_tipo_data()
+        if tipo_data is None:
+            raise ValueError("tipo_data is required to build DRE results")
         tipo_data_label = dict(DreForm.TIPO_DATA_CHOICES).get(tipo_data, "AMBOS")
         dre_calculation = build_dre_calculation(
             workshops=selected_workshops,
@@ -213,12 +235,22 @@ class DreReportView(DreBaseView):
         ]
 
         form = DreForm(self.request.GET or None, workshops=workshops, financial_groups_qs=financial_groups)
+        if self.request.GET:
+            form.is_valid()
         context["form"] = form
 
         return context
 
 
-class DreResultsView(DreBaseView):
+class DreValidatedResultsMixin(DreBaseView):
+    def dispatch(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        form = self._build_dre_form()
+        if not form.is_valid():
+            return self._redirect_invalid_dre_form()
+        return super().dispatch(request, *args, **kwargs)
+
+
+class DreResultsView(DreValidatedResultsMixin):
     template_name = "finance/dre/dre_results.html"
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
@@ -227,14 +259,14 @@ class DreResultsView(DreBaseView):
         return context
 
 
-class DrePdfView(DreBaseView):
+class DrePdfView(DreValidatedResultsMixin):
     def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
         context = self._build_results_context()
         document = render_dre_pdf_document(context=context, request=request)
         return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
 
 
-class DreExcelView(DreBaseView):
+class DreExcelView(DreValidatedResultsMixin):
     def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
         context = self._build_results_context()
         document = build_dre_excel_document(context=context)
@@ -246,7 +278,9 @@ class DreExcelView(DreBaseView):
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")
-class DrePdfPreviewView(DreBaseView):
+class DrePdfPreviewView(DreValidatedResultsMixin):
     def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        from django.shortcuts import render
+
         context = self._build_results_context()
         return render(request, "finance/dre/pdf/visualizarPDF.html", context)

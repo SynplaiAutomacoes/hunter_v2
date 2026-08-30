@@ -20,6 +20,7 @@ from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.models.payment_method import PaymentMethod
 
 if TYPE_CHECKING:
@@ -40,6 +41,8 @@ class WorkOrderError(Exception):
 
 class WorkOrderStatus(models.TextChoices):
     DRAFT = "draft", "Aprovado"
+    WAITING_COLLABORATOR = "waiting_collaborator", "Aguardando Colaborador"
+    WAITING_DELIVERY = "waiting_delivery", "Aguardando Entrega"
     APPROVED = "approved", "Veículo Entregue"
     REJECTED = "rejected", "Reprovado"
     CANCELLED = "cancelled", "Cancelado"
@@ -52,6 +55,18 @@ WORKORDER_REOPENABLE_STATUSES = frozenset(
         WorkOrderStatus.CANCELLED,
     }
 )
+
+# O.S. aprovada que ainda está em execução ou aguardando a entrega do veículo.
+WORKORDER_OPEN_STATUSES = frozenset(
+    {
+        WorkOrderStatus.DRAFT,
+        WorkOrderStatus.WAITING_COLLABORATOR,
+        WorkOrderStatus.WAITING_DELIVERY,
+    }
+)
+
+# Status que entram nas agregações de receita do dashboard e DRE.
+WORKORDER_REVENUE_STATUSES = frozenset(WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED})
 
 
 class WorkOrderSignatureStatus(models.TextChoices):
@@ -76,6 +91,12 @@ class WorkOrderWarrantyPlan(models.TextChoices):
     NONE = "none", "Serviço sem garantia"
 
 
+class WorkOrderCourtesyReasonType(models.TextChoices):
+    PART_DEFECT = "part_defect", "Defeito de peça"
+    LABOR_FAILURE = "labor_failure", "Falha de mão de obra"
+    BOTH = "both", "Ambos"
+
+
 WARRANTY_PLAN_DAYS: dict[str, int | None] = {
     WorkOrderWarrantyPlan.DAYS_30: 30,
     WorkOrderWarrantyPlan.DAYS_90: 90,
@@ -89,7 +110,8 @@ class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
     collaborators = models.ManyToManyField("collaborators.WorkshopCollaborator", verbose_name="Colaboradores", related_name="workorders", blank=True)
-    status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
+    status = models.CharField(verbose_name="Status", max_length=32, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
+    current_step = models.PositiveSmallIntegerField(verbose_name="Etapa atual", default=1)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7, decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
     discount_type = models.CharField(verbose_name="Tipo de Desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
@@ -108,6 +130,25 @@ class WorkOrder(TimeStampedModel):
         null=True,
         blank=True,
     )
+    previous_mechanic = models.ForeignKey(
+        "collaborators.WorkshopCollaborator",
+        verbose_name="Mecânico responsável pelo serviço anterior",
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+    )
+    courtesy_reason_type = models.CharField(
+        verbose_name="Motivo da cortesia/garantia",
+        max_length=20,
+        choices=WorkOrderCourtesyReasonType.choices,
+        null=True,
+        blank=True,
+    )
+    courtesy_reason_description = models.TextField(
+        verbose_name="Descrição do motivo da cortesia/garantia",
+        blank=True,
+    )
     unsigned_delivery_reason = models.TextField(verbose_name="Justificativa da entrega sem assinatura", blank=True)
     cancellation_reason = models.TextField(verbose_name="Justificativa do cancelamento", blank=True)
     rejection_reason = models.TextField(verbose_name="Justificativa da rejeicao", blank=True)
@@ -120,6 +161,14 @@ class WorkOrder(TimeStampedModel):
         verbose_name="Plano de revisão",
         on_delete=models.SET_NULL,
         related_name="workorders",
+        null=True,
+        blank=True,
+    )
+    warranty_origin = models.ForeignKey(
+        "self",
+        verbose_name="WO de venda que originou a garantia",
+        on_delete=models.SET_NULL,
+        related_name="warranty_children",
         null=True,
         blank=True,
     )
@@ -1138,6 +1187,14 @@ class WorkOrderItem(TimeStampedModel):
 
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
+    is_local = models.BooleanField(verbose_name="Item Local", default=False)
+    local_item_type = models.CharField(
+        verbose_name="Tipo do Item Local",
+        max_length=20,
+        choices=[("product", "Produto"), ("service", "Serviço")],
+        blank=True,
+        default="",
+    )
     is_customer_supplied = models.BooleanField(verbose_name="Peça fornecida pelo cliente", default=False)
 
     shipping = MoneyField(verbose_name="Custo de Frete", max_digits=14, decimal_places=2, default=0)
@@ -1510,6 +1567,7 @@ class WorkOrderKitItemOverride(TimeStampedModel):
     service_cost_price = MoneyField(verbose_name="Custo do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     service_selling_price = MoneyField(verbose_name="Preço de Venda do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+    excluded_from_composition = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "Override de Item do Kit da O.S."

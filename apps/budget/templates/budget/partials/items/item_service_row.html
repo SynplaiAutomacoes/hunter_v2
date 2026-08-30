@@ -1,26 +1,29 @@
 {% load l10n %}
 <tr id="budget-item-{{ item.id|unlocalize }}"
-    class="{% if item.is_local %}bg-warning/20{% endif %}"
+    class="{% if item.is_local and not budget.is_status_locked %}bg-warning/20{% endif %}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     {% if not step6 %}
     <td class="budget-step4-select-col text-center">
+        {% if not item.is_kit_component %}
         <input
             type="checkbox"
             name="selected_service_items"
             value="{{ item.id|unlocalize }}"
             class="checkbox checkbox-primary checkbox-sm budget-service-select"
         >
+        {% endif %}
     </td>
     {% endif %}
     <td class="budget-step4-description">
-        <div class="flex items-center gap-2 min-w-0">
+        <div class="flex flex-col gap-1 min-w-0">
             <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
+            <div class="flex flex-wrap items-center gap-1">
             {% if item.item_benefit_type == "warranty" %}
                 <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
             {% elif item.item_benefit_type == "courtesy" %}
                 <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
             {% endif %}
-            {% if item.is_local %}
+            {% if not budget.is_status_locked and item.is_local %}
                 <span class="tooltip tooltip-right shrink-0" data-tip="Item disponível somente neste orçamento. Cadastre-o para prosseguir com a aprovação do orçamento.">
                     <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
                 </span>
@@ -34,13 +37,19 @@
                     <span class="material-icons text-accent" style="font-size: 16px;">cloud_upload</span>
                 </button>
             {% endif %}
-            {% if show_kit_duplicate_warning or item.show_kit_duplicate_warning %}
-                <span class="tooltip tooltip-right shrink-0" data-tip="Serviço já registrado em um kit">
-                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
-                </span>
+            {% if not budget.is_status_locked %}
+                {% if show_kit_duplicate_warning or item.show_kit_duplicate_warning %}
+                    <span class="tooltip tooltip-right shrink-0" data-tip="Serviço já registrado em um kit">
+                        <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                    </span>
+                {% endif %}
             {% endif %}
+            </div>
         </div>
     </td>
+    {% if origin_badge %}
+    <td class="text-center origin-cell">{{ origin_badge|safe }}</td>
+    {% endif %}
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-right">{{ service_mechanic_cost|default:item.service_cost_price }}</td>
     <td class="text-right">
@@ -61,6 +70,7 @@
     </td>
     {% if not step6 %}
     <td class="text-center budget-step4-actions">
+        {% if not item.is_kit_component %}
         <div class="flex justify-center items-center gap-1">
             <button type="button"
                     class="btn btn-ghost btn-xs text-info"
@@ -84,6 +94,7 @@
                 <span class="material-icons text-sm">delete</span>
             </button>
         </div>
+        {% endif %}
     </td>
     {% endif %}
 </tr>

@@ -80,9 +80,9 @@ def build_financial_overview(
         ).distinct()
 
     def _apply_common_filters(queryset):
-        if start_date is not None:
+        if start_date is not None and not str(search or "").strip():
             queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
-        if end_date is not None:
+        if end_date is not None and not str(search or "").strip():
             queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
         if direction:
             queryset = queryset.filter(direction=direction)
@@ -136,7 +136,9 @@ def build_financial_overview(
             queryset = queryset.filter(search_query)
         return queryset
 
-    movements = _apply_common_filters(FinancialMovement.objects.filter(workshop=workshop))
+    movements = _apply_common_filters(FinancialMovement.objects.filter(workshop=workshop)).filter(
+        Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
+    )
     non_parent = movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
 
     credit_qs = non_parent.filter(direction=FinancialMovement.MovementDirection.CREDIT)
@@ -170,7 +172,11 @@ def build_financial_overview(
         linked_payment_ids = list(
             parent_movements.exclude(workorder_payment_id=None).values_list("workorder_payment_id", flat=True).distinct()
         )
-        linked_payments = WorkOrderPaymentMethod.objects.filter(pk__in=linked_payment_ids, due_date__isnull=False)
+        linked_payments = WorkOrderPaymentMethod.objects.filter(
+            pk__in=linked_payment_ids,
+            due_date__isnull=False,
+            movement_group__isnull=True,
+        )
         if start_date is not None:
             linked_payments = linked_payments.filter(due_date__gte=start_date)
         if end_date is not None:
@@ -191,6 +197,7 @@ def build_financial_overview(
         unlinked_payments = WorkOrderPaymentMethod.objects.filter(
             workorder_id__in=unlinked_workorder_ids,
             due_date__isnull=False,
+            movement_group__isnull=True,
         )
         if start_date is not None:
             unlinked_payments = unlinked_payments.filter(due_date__gte=start_date)
@@ -280,9 +287,9 @@ def _apply_report_common_filters(queryset, *, start_date=None, end_date=None, se
             )
         ).distinct()
 
-    if start_date is not None:
+    if start_date is not None and not str(search or "").strip():
         queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
-    if end_date is not None:
+    if end_date is not None and not str(search or "").strip():
         queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
     if direction:
         queryset = queryset.filter(direction=direction)
@@ -375,7 +382,9 @@ def build_financial_overview_with_open_workorder_credits(
         "reconciliation_status": reconciliation_status,
     }
 
-    movements = _apply_report_common_filters(FinancialMovement.objects.filter(workshop=workshop), **common_kwargs)
+    movements = _apply_report_common_filters(
+        FinancialMovement.objects.filter(workshop=workshop), **common_kwargs
+    ).filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
     non_parent = movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
 
     credit_qs = non_parent.filter(direction=FinancialMovement.MovementDirection.CREDIT)
@@ -409,7 +418,11 @@ def build_financial_overview_with_open_workorder_credits(
         linked_payment_ids = list(
             parent_movements.exclude(workorder_payment_id=None).values_list("workorder_payment_id", flat=True).distinct()
         )
-        linked_payments = WorkOrderPaymentMethod.objects.filter(pk__in=linked_payment_ids, due_date__isnull=False)
+        linked_payments = WorkOrderPaymentMethod.objects.filter(
+            pk__in=linked_payment_ids,
+            due_date__isnull=False,
+            movement_group__isnull=True,
+        )
         if start_date is not None:
             linked_payments = linked_payments.filter(due_date__gte=start_date)
         if end_date is not None:
@@ -439,6 +452,7 @@ def build_financial_overview_with_open_workorder_credits(
         unlinked_payments = WorkOrderPaymentMethod.objects.filter(
             workorder_id__in=unlinked_workorder_ids,
             due_date__isnull=False,
+            movement_group__isnull=True,
         )
         if start_date is not None:
             unlinked_payments = unlinked_payments.filter(due_date__gte=start_date)

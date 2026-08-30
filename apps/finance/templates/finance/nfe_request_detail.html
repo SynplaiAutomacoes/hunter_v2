@@ -30,6 +30,18 @@
             Cancelar Nota Fiscal de Produto
         </button>
     {% endif %}
+    {% if can_issue_cce %}
+        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="cce_nfe_modal.showModal()">
+            <span class="material-icons text-sm">edit_note</span>
+            Emitir Carta de Correção
+        </button>
+    {% endif %}
+    {% if can_issue_return or can_issue_reversal %}
+        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="return_nfe_modal.showModal()">
+            <span class="material-icons text-sm">assignment_return</span>
+            Emitir devolução/estorno
+        </button>
+    {% endif %}
 {% endblock %}
 
 {% block crud_detail_content %}
@@ -137,6 +149,124 @@
                         <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilizacao</a>
                     {% endif %}
                 </div>
+
+                {% if cce_events %}
+                    <div class="mt-8">
+                        <h3 class="mb-3 text-base font-semibold text-base-content">Cartas de correção</h3>
+                        <div class="overflow-x-auto rounded-lg border border-base-200">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Sequência</th>
+                                        <th>Status</th>
+                                        <th>Correção</th>
+                                        <th>Mensagem</th>
+                                        <th>UUID</th>
+                                        <th>Protocolo</th>
+                                        <th>Atualizado em</th>
+                                        <th class="text-right">Documentos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for event in cce_events %}
+                                        <tr>
+                                            <td>{{ event.event_sequence }}</td>
+                                            <td>{{ event.get_status_display }}</td>
+                                            <td class="min-w-64 whitespace-normal">{{ event.correction_text|default:'-' }}</td>
+                                            <td class="min-w-48 whitespace-normal">
+                                                {% if event.response_payload.motivo %}
+                                                    {{ event.response_payload.motivo }}
+                                                {% elif event.response_payload.message %}
+                                                    {{ event.response_payload.message }}
+                                                {% elif event.response_payload.msg %}
+                                                    {{ event.response_payload.msg }}
+                                                {% elif event.response_payload.error %}
+                                                    {{ event.response_payload.error }}
+                                                {% elif event.response_payload.reconciliation_error %}
+                                                    {{ event.response_payload.reconciliation_error }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
+                                            <td class="break-all">{{ event.remote_uuid|default:'-' }}</td>
+                                            <td class="break-all">{{ event.remote_event_id|default:'-' }}</td>
+                                            <td>{{ event.atualizado_em|date:'d/m/Y H:i' }}</td>
+                                            <td class="text-right">
+                                                <div class="flex flex-wrap justify-end gap-2">
+                                                    {% if event.xml_url %}
+                                                        <a href="{% url 'finance:nfe_correction_download' pk=nfe_request.pk event_pk=event.pk document='xml' %}" class="btn btn-outline btn-xs">XML</a>
+                                                    {% endif %}
+                                                    {% if event.dacce_url %}
+                                                        <a href="{% url 'finance:nfe_correction_download' pk=nfe_request.pk event_pk=event.pk document='dacce' %}" class="btn btn-outline btn-xs">DACCE</a>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endif %}
+                {% if return_documents %}
+                    <div class="mt-8">
+                        <h3 class="mb-3 text-base font-semibold text-base-content">Devoluções e estornos</h3>
+                        <div class="overflow-x-auto rounded-lg border border-base-200">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Finalidade</th>
+                                        <th>Status</th>
+                                        <th>Operação</th>
+                                        <th>Número / Série</th>
+                                        <th>Recibo</th>
+                                        <th>Chave / UUID</th>
+                                        <th>Mensagem</th>
+                                        <th>Atualizado em</th>
+                                        <th class="text-right">Documentos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for document in return_documents %}
+                                        <tr>
+                                            <td>{{ document.get_purpose_display }}</td>
+                                            <td>{{ document.get_status_display }}</td>
+                                            <td class="min-w-56 whitespace-normal">
+                                                <div>{{ document.request_payload.natureza_operacao|default:'-' }}</div>
+                                                <div class="text-xs text-base-content/60">CFOP: {{ document.request_payload.codigo_cfop|default:'-' }}</div>
+                                                {% if document.request_payload.classe_imposto %}<div class="text-xs text-base-content/60">Classe: {{ document.request_payload.classe_imposto }}</div>{% endif %}
+                                                {% if document.request_payload.volume %}<div class="text-xs text-base-content/60">Volumes: {{ document.request_payload.volume }}</div>{% endif %}
+                                            </td>
+                                            <td>{{ document.number|default:'-' }} / {{ document.series|default:'-' }}</td>
+                                            <td>{{ document.receipt|default:'-' }}</td>
+                                            <td class="max-w-64 break-all">{{ document.access_key|default:document.remote_uuid|default:'-' }}</td>
+                                            <td class="min-w-48 whitespace-normal">
+                                                {% if document.response_payload.motivo %}
+                                                    {{ document.response_payload.motivo }}
+                                                {% elif document.response_payload.message %}
+                                                    {{ document.response_payload.message }}
+                                                {% elif document.response_payload.msg %}
+                                                    {{ document.response_payload.msg }}
+                                                {% elif document.response_payload.error %}
+                                                    {{ document.response_payload.error }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ document.atualizado_em|date:'d/m/Y H:i' }}</td>
+                                            <td class="text-right">
+                                                <div class="flex flex-wrap justify-end gap-2">
+                                                    {% if document.xml_url %}<a href="{% url 'finance:nfe_return_download' pk=nfe_request.pk document_pk=document.pk document='xml' %}" class="btn btn-outline btn-xs">XML</a>{% endif %}
+                                                    {% if document.danfe_url %}<a href="{% url 'finance:nfe_return_download' pk=nfe_request.pk document_pk=document.pk document='danfe' %}" class="btn btn-outline btn-xs">DANFE</a>{% endif %}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endif %}
             {% else %}
                 <div class="alert alert-warning">
                     <span>A Nota Fiscal de Produto ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
@@ -167,6 +297,63 @@
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="invalidate_nfe_modal.close()">Cancelar</button>
                         <button type="submit" class="btn btn-warning">Confirmar inutilizacao</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
+    {% if can_issue_cce %}
+        <dialog id="cce_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-2xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfe_correction_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Emitir Carta de Correção</h3>
+                    <div class="alert alert-warning mt-4 text-sm">
+                        <span>A Carta de Correção não pode alterar base de cálculo, alíquota, preço, quantidade, remetente, destinatário, data de emissão ou saída, série ou número da NF-e.</span>
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="nfe-cce-correction" class="label">
+                            <span class="label-text">Correção</span>
+                        </label>
+                        <textarea id="nfe-cce-correction" name="correction" class="textarea textarea-bordered w-full" rows="6" minlength="15" maxlength="1000" required></textarea>
+                    </div>
+
+                    <label class="label cursor-pointer justify-start gap-3 mt-3">
+                        <input type="checkbox" name="confirm_legal_restrictions" class="checkbox checkbox-sm" required>
+                        <span class="label-text">Confirmo que a correção respeita as restrições legais da CC-e.</span>
+                    </label>
+
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="cce_nfe_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Enviar CC-e</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
+    {% if can_issue_return or can_issue_reversal %}
+        <dialog id="return_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfe_return_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Emitir devolução ou estorno NF-e</h3>
+                    <p class="mt-2 text-sm text-base-content/70">Para devolução parcial, informe somente os produtos e quantidades devolvidos no formato JSON.</p>
+                    <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <label class="form-control"><span class="label-text mb-1">Finalidade</span><select name="purpose" class="select select-bordered" required>{% if can_issue_return %}<option value="return">Devolução</option>{% endif %}{% if can_issue_reversal %}<option value="reversal">Estorno</option>{% endif %}</select></label>
+                        <label class="form-control"><span class="label-text mb-1">Escopo</span><select name="return_scope" class="select select-bordered"><option value="total">Total</option><option value="partial">Parcial</option></select></label>
+                        <label class="form-control"><span class="label-text mb-1">Natureza da operação</span><input name="natureza_operacao" class="input input-bordered" maxlength="60" required></label>
+                        <label class="form-control"><span class="label-text mb-1">CFOP</span><input name="codigo_cfop" class="input input-bordered" maxlength="10" required></label>
+                        <label class="form-control"><span class="label-text mb-1">Classe de imposto</span><input name="classe_imposto" class="input input-bordered" maxlength="30"></label>
+                        <label class="form-control"><span class="label-text mb-1">Volumes</span><input name="volume" type="number" min="1" max="999999999999999" class="input input-bordered"></label>
+                        <label class="form-control md:col-span-2"><span class="label-text mb-1">Produtos (JSON)</span><textarea name="produtos_json" class="textarea textarea-bordered" rows="5" placeholder='[{"sequencia": 1, "quantidade": 1}]'></textarea></label>
+                        <label class="form-control md:col-span-2"><span class="label-text mb-1">Informações complementares</span><textarea name="informacoes_complementares" class="textarea textarea-bordered" maxlength="5000" rows="3"></textarea></label>
+                        <label class="form-control md:col-span-2"><span class="label-text mb-1">Informações ao fisco</span><textarea name="informacoes_fisco" class="textarea textarea-bordered" maxlength="2000" rows="3"></textarea></label>
+                    </div>
+                    <label class="label mt-3 cursor-pointer justify-start gap-3"><input type="checkbox" name="confirm_return" class="checkbox checkbox-sm" required><span class="label-text">Confirmo a emissão desta operação fiscal vinculada à NF-e original.</span></label>
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="return_nfe_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Emitir NF-e</button>
                     </div>
                 </form>
             </div>

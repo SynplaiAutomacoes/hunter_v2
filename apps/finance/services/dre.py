@@ -14,9 +14,10 @@ from django.db.models.functions import Coalesce
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
+from apps.core.workorder_numbers import resolve_budget_workorder_number, resolve_workorder_number
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.models.workshops import Workshop
 
 
@@ -32,16 +33,14 @@ _DECIMAL_OUT = DecimalField(max_digits=14, decimal_places=2)
 
 
 def _sum_workorder_payment_totals(queryset) -> Money:
-    total = (
-        queryset.annotate(
-            payment_total=ExpressionWrapper(
-                F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
-                output_field=_DECIMAL_OUT,
-            )
-        ).aggregate(total=Coalesce(Sum("payment_total"), Value(Decimal("0.00")), output_field=_DECIMAL_OUT))["total"]
-        or Decimal("0.00")
-    )
+    total = queryset.annotate(
+        payment_total=ExpressionWrapper(
+            F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
+            output_field=_DECIMAL_OUT,
+        )
+    ).aggregate(total=Coalesce(Sum("payment_total"), Value(Decimal("0.00")), output_field=_DECIMAL_OUT))["total"] or Decimal("0.00")
     return Money(total, "BRL")
+
 
 # Chaves de componente usadas no template (row.component)
 COMP_GROSS_REVENUE = "receita_bruta_vendas_e_servicos"
@@ -134,7 +133,7 @@ def build_dre_calculation(
     pagamentos_ordens_de_servico = WorkOrderPaymentMethod.objects.filter(
         workorder__workshop__in=workshops,
         workorder__budget_type="sale",
-        workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+        workorder__status__in=WORKORDER_REVENUE_STATUSES,
     )
     if start_date is not None:
         pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)
@@ -147,9 +146,9 @@ def build_dre_calculation(
         .prefetch_related(
             workorder_items_with_kit_prefetch(lookup="workorder__items", with_kit_tree=True),
         )
-        .order_by("criado_em", "pk")
+        .order_by("workorder__budget__number", "due_date", "pk")
     )
-    detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(pagamentos_ordens_de_servico)
+    detail_receita_bruta_de_vendas_e_servicos = _aggregate_details_by_workorder_month(workorder_payment_method_details(pagamentos_ordens_de_servico))
     workorder_payment_totals = _build_workorder_payment_totals(payments=pagamentos_ordens_de_servico)
     workorder_revenue_movements = _fetch_workorder_revenue_movements(
         workshops=workshops,
@@ -167,54 +166,110 @@ def build_dre_calculation(
         taxa_maquininha_qs = taxa_maquininha_qs.filter(due_date__gte=start_date)
     if end_date is not None:
         taxa_maquininha_qs = taxa_maquininha_qs.filter(due_date__lte=end_date)
-    taxa_maquininha_os = list(taxa_maquininha_qs.select_related("workorder_payment", "workorder_payment__workorder"))
+    taxa_maquininha_os = list(taxa_maquininha_qs.select_related("workorder_payment", "workorder_payment__workorder", "workorder", "workorder__budget", "workorder__budget__customer"))
 
     delivered_fixed_workorders = _fetch_delivered_fixed_workorders(
         workshops=workshops,
         start_date=start_date,
         end_date=end_date,
     )
-    delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(
-        payments=pagamentos_ordens_de_servico,
-        fixed_workorders=delivered_fixed_workorders,
-    )
-    delivered_workorders = [workorder for workorder, _ in delivered_workorders_with_costs]
+    sale_workorder_ids = sorted({payment.workorder_id for payment in pagamentos_ordens_de_servico if payment.workorder_id})
+    sale_workorders = _fetch_workorders_for_cost_breakdown(workorder_ids=sale_workorder_ids)
+    _apply_cost_breakdown_attributes(sale_workorders)
+    workorders_by_id = {workorder.pk: workorder for workorder in sale_workorders}
+    all_payments_by_workorder = _group_payments_by_workorder(workorder_ids=sale_workorder_ids)
+    _apply_cost_breakdown_attributes(delivered_fixed_workorders)
 
-    detail_taxas_maquininha = maquininha_tax_details(list(taxa_maquininha_os))
-    detail_custos_pecas = _build_workorder_cost_component_details(
-        workorders=delivered_workorders,
-        include_workshop_ref=include_workshop_ref,
-        budget_plan=cost_budget_plan,
-        component_label="Custos de Peças",
-        amount_resolver=lambda workorder: getattr(workorder, "dre_total_costs_products_value", workorder.total_costs_products_value),
+    detail_taxas_maquininha = _aggregate_details_by_workorder_month(maquininha_tax_details(list(taxa_maquininha_os)))
+    detail_custos_pecas = _aggregate_details_by_workorder_month(
+        _build_proportional_cost_details_for_payments(
+            payments_in_period=pagamentos_ordens_de_servico,
+            all_payments_by_workorder=all_payments_by_workorder,
+            workorders_by_id=workorders_by_id,
+            component_attr="dre_total_costs_products_value",
+            component_label="Custos de Peças",
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+        )
+        + _build_workorder_cost_component_details(
+            workorders=delivered_fixed_workorders,
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+            component_label="Custos de Peças",
+            amount_resolver=lambda workorder: getattr(workorder, "dre_total_costs_products_value", workorder.total_costs_products_value),
+        )
     )
-    detail_fretes = _build_workorder_cost_component_details(
-        workorders=delivered_workorders,
-        include_workshop_ref=include_workshop_ref,
-        budget_plan=cost_budget_plan,
-        component_label="Fretes",
-        amount_resolver=lambda workorder: getattr(workorder, "dre_total_products_shipping", workorder.total_products_shipping),
+    detail_fretes = _aggregate_details_by_workorder_month(
+        _build_proportional_cost_details_for_payments(
+            payments_in_period=pagamentos_ordens_de_servico,
+            all_payments_by_workorder=all_payments_by_workorder,
+            workorders_by_id=workorders_by_id,
+            component_attr="dre_total_products_shipping",
+            component_label="Fretes",
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+        )
+        + _build_workorder_cost_component_details(
+            workorders=delivered_fixed_workorders,
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+            component_label="Fretes",
+            amount_resolver=lambda workorder: getattr(workorder, "dre_total_products_shipping", workorder.total_products_shipping),
+        )
     )
-    detail_servicos_terceiros = _build_workorder_cost_component_details(
-        workorders=delivered_workorders,
-        include_workshop_ref=include_workshop_ref,
-        budget_plan=cost_budget_plan,
-        component_label="Serviços Terceiros",
-        amount_resolver=lambda workorder: getattr(workorder, "dre_total_third_party_services_cost", workorder.total_third_party_services_cost),
+    detail_servicos_terceiros = _aggregate_details_by_workorder_month(
+        _build_proportional_cost_details_for_payments(
+            payments_in_period=pagamentos_ordens_de_servico,
+            all_payments_by_workorder=all_payments_by_workorder,
+            workorders_by_id=workorders_by_id,
+            component_attr="dre_total_third_party_services_cost",
+            component_label="Serviços Terceiros",
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+        )
+        + _build_workorder_cost_component_details(
+            workorders=delivered_fixed_workorders,
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+            component_label="Serviços Terceiros",
+            amount_resolver=lambda workorder: getattr(workorder, "dre_total_third_party_services_cost", workorder.total_third_party_services_cost),
+        )
     )
-    detail_mao_de_obra = _build_workorder_cost_component_details(
-        workorders=delivered_workorders,
-        include_workshop_ref=include_workshop_ref,
-        budget_plan=cost_budget_plan,
-        component_label="Custo Mão de Obra da Oficina",
-        amount_resolver=lambda workorder: getattr(workorder, "dre_local_cost", _ZERO),
+    detail_mao_de_obra = _aggregate_details_by_workorder_month(
+        _build_proportional_cost_details_for_payments(
+            payments_in_period=pagamentos_ordens_de_servico,
+            all_payments_by_workorder=all_payments_by_workorder,
+            workorders_by_id=workorders_by_id,
+            component_attr="dre_local_cost",
+            component_label="Custo Mão de Obra da Oficina",
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+        )
+        + _build_workorder_cost_component_details(
+            workorders=delivered_fixed_workorders,
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+            component_label="Custo Mão de Obra da Oficina",
+            amount_resolver=lambda workorder: getattr(workorder, "dre_local_cost", _ZERO),
+        )
     )
-    detail_fretes_servicos = _build_workorder_cost_component_details(
-        workorders=delivered_workorders,
-        include_workshop_ref=include_workshop_ref,
-        budget_plan=cost_budget_plan,
-        component_label="Fretes",
-        amount_resolver=lambda workorder: getattr(workorder, "dre_total_services_shipping", workorder.total_services_shipping),
+    detail_fretes_servicos = _aggregate_details_by_workorder_month(
+        _build_proportional_cost_details_for_payments(
+            payments_in_period=pagamentos_ordens_de_servico,
+            all_payments_by_workorder=all_payments_by_workorder,
+            workorders_by_id=workorders_by_id,
+            component_attr="dre_total_services_shipping",
+            component_label="Fretes",
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+        )
+        + _build_workorder_cost_component_details(
+            workorders=delivered_fixed_workorders,
+            include_workshop_ref=include_workshop_ref,
+            budget_plan=cost_budget_plan,
+            component_label="Fretes",
+            amount_resolver=lambda workorder: getattr(workorder, "dre_total_services_shipping", workorder.total_services_shipping),
+        )
     )
 
     total_custos_de_mercadorias_vendidas = _sum_detail_amounts(detail_taxas_maquininha) + _sum_detail_amounts(detail_custos_pecas) + _sum_detail_amounts(detail_fretes)
@@ -413,6 +468,114 @@ def _sum_detail_amounts(details: list[dict]) -> Money:
     return total
 
 
+def _extract_payment_label_from_reference(reference: str) -> str | None:
+    marker = "Pagamento:"
+    if marker not in reference:
+        return None
+    payment_segment = reference.split(marker, 1)[1].strip()
+    if not payment_segment:
+        return None
+    return payment_segment.split("|", 1)[0].strip() or None
+
+
+def _build_aggregated_detail_reference(*, detail: dict, payment_labels: list[str], payment_count: int) -> str:
+    payment_date = detail.get("payment_date")
+    month_label = payment_date.strftime("%m/%Y") if isinstance(payment_date, date) else "-"
+    summary = str(detail.get("summary") or "")
+    base_reference = str(detail.get("reference") or "").strip()
+    filial_prefix = ""
+    if base_reference.startswith("Filial:"):
+        filial_prefix, _, remainder = base_reference.partition(" | ")
+        base_reference = remainder.strip()
+
+    unique_labels: list[str] = []
+    for label in payment_labels:
+        cleaned = str(label or "").strip()
+        if cleaned and cleaned not in unique_labels:
+            unique_labels.append(cleaned)
+
+    if " - O.S #" in summary:
+        os_reference = next((segment.strip() for segment in base_reference.split("|") if "O.S #" in segment), "")
+        if not os_reference and "O.S #" in summary:
+            os_reference = summary.split(" - O.S #", 1)[1]
+            os_reference = f"O.S #{os_reference.split(' - ', 1)[0].strip()}"
+        if payment_count > 1:
+            merged = f"{os_reference} | {payment_count} pagamentos em {month_label}".strip(" |")
+        else:
+            merged = base_reference or os_reference or "-"
+    elif unique_labels:
+        if len(unique_labels) == 1:
+            merged = f"Pagamento: {unique_labels[0]}"
+        else:
+            merged = f"Pagamento: {', '.join(unique_labels)}"
+    elif payment_count > 1:
+        merged = f"{payment_count} pagamentos em {month_label}"
+    else:
+        merged = base_reference or "-"
+
+    if filial_prefix:
+        return f"{filial_prefix} | {merged}"
+    return merged
+
+
+def _aggregate_details_by_workorder_month(details: list[dict]) -> list[dict]:
+    passthrough: list[tuple[int, dict]] = []
+    grouped_payloads: dict[tuple[int, int, int], dict] = {}
+    group_order: dict[tuple[int, int, int], int] = {}
+
+    for index, detail in enumerate(details):
+        workorder_id = detail.get("workorder_id")
+        payment_date = detail.get("payment_date")
+        if workorder_id is None or not isinstance(payment_date, date):
+            passthrough.append((index, detail))
+            continue
+
+        group_key = (workorder_id, payment_date.year, payment_date.month)
+        amount = detail.get("amount", _ZERO)
+        if not isinstance(amount, Money):
+            amount = _ZERO
+
+        if group_key not in grouped_payloads:
+            group_order[group_key] = index
+            grouped_payloads[group_key] = {
+                "detail": dict(detail),
+                "amount": amount,
+                "payment_labels": [],
+                "payment_count": 0,
+            }
+            payment_label = _extract_payment_label_from_reference(str(detail.get("reference") or ""))
+            if payment_label:
+                grouped_payloads[group_key]["payment_labels"].append(payment_label)
+            grouped_payloads[group_key]["payment_count"] = 1
+            continue
+
+        payload = grouped_payloads[group_key]
+        payload["amount"] += amount
+        payload["payment_count"] += 1
+        payment_label = _extract_payment_label_from_reference(str(detail.get("reference") or ""))
+        if payment_label:
+            payload["payment_labels"].append(payment_label)
+
+        current_payment_date = payload["detail"].get("payment_date")
+        if isinstance(current_payment_date, date) and payment_date > current_payment_date:
+            payload["detail"]["payment_date"] = payment_date
+
+    aggregated: list[tuple[int, dict]] = list(passthrough)
+    for group_key, payload in grouped_payloads.items():
+        merged_detail = dict(payload["detail"])
+        merged_detail["amount"] = payload["amount"]
+        if payload["payment_count"] > 1:
+            merged_detail["reference"] = _build_aggregated_detail_reference(
+                detail=merged_detail,
+                payment_labels=payload["payment_labels"],
+                payment_count=payload["payment_count"],
+            )
+        aggregated.append((group_order[group_key], merged_detail))
+
+    aggregated.sort(key=lambda item: (item[0], item[1].get("payment_date") or date.min, item[1].get("workorder_id") or 0))
+    return [detail for _, detail in aggregated]
+
+
 def _build_workorder_payment_totals(*, payments: list[WorkOrderPaymentMethod]) -> dict[int, Money]:
     totals: dict[int, Money] = {}
     for payment in payments:
@@ -446,21 +609,15 @@ def _fetch_delivered_fixed_workorders(
             "payments",
             workorder_items_with_kit_prefetch(with_kit_tree=True),
         )
-        .order_by("criado_em", "pk")
+        .order_by("budget__number", "pk")
     )
 
 
-def _fetch_delivered_workorders_with_costs(
-    *,
-    payments: list[WorkOrderPaymentMethod],
-    fixed_workorders: list[WorkOrder] | None = None,
-) -> list[tuple[WorkOrder, Money]]:
-    workorder_ids = sorted({payment.workorder_id for payment in payments if payment.workorder_id})
-    workorder_ids.extend(sorted({wo.pk for wo in (fixed_workorders or []) if wo.pk}))
+def _fetch_workorders_for_cost_breakdown(*, workorder_ids: list[int]) -> list[WorkOrder]:
     if not workorder_ids:
         return []
 
-    workorders = list(
+    return list(
         WorkOrder.objects.filter(pk__in=workorder_ids)
         .select_related("budget", "budget__customer", "workshop")
         .prefetch_related(
@@ -469,39 +626,165 @@ def _fetch_delivered_workorders_with_costs(
         )
     )
 
-    payloads: list[tuple[WorkOrder, Money]] = []
+
+def _group_payments_by_workorder(*, workorder_ids: list[int]) -> dict[int, list[WorkOrderPaymentMethod]]:
+    if not workorder_ids:
+        return {}
+
+    payments = WorkOrderPaymentMethod.objects.filter(workorder_id__in=workorder_ids).select_related("workorder", "payment_method").order_by("due_date", "pk")
+    grouped: dict[int, list[WorkOrderPaymentMethod]] = {}
+    for payment in payments:
+        if payment.workorder_id is None:
+            continue
+        grouped.setdefault(payment.workorder_id, []).append(payment)
+    return grouped
+
+
+def _build_workorder_cost_breakdown(workorder: WorkOrder) -> dict[str, Money]:
+    snapshot = workorder.build_cost_snapshot() if workorder.is_fixed_budget else workorder.pricing_snapshot
+
+    custo_local = _ZERO
+    budget = workorder.budget
+    if budget is not None:
+        setattr(budget, "_read_only_pricing_context", True)
+        for line in snapshot.service_lines:
+            if line.third_party:
+                continue
+            fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
+            mechanic_cost = calculate_mechanic_service_cost(
+                budget=budget,
+                duration=line.duration,
+                quantity=1,
+                fallback_cost=fallback_cost,
+            )
+            custo_local += mechanic_cost
+
+    total_cost = snapshot.total_costs_products_value + snapshot.total_costs_services_value
+    return {
+        "local_cost": custo_local,
+        "total_costs_products_value": snapshot.total_costs_products_value,
+        "total_products_shipping": snapshot.total_products_shipping,
+        "total_third_party_services_cost": snapshot.total_third_party_services_cost,
+        "total_services_shipping": snapshot.total_services_shipping,
+        "total_cost": total_cost,
+    }
+
+
+def _apply_cost_breakdown_attributes(workorders: list[WorkOrder]) -> None:
     for workorder in workorders:
-        if workorder.delivered_at is None:
+        breakdown = _build_workorder_cost_breakdown(workorder)
+        setattr(workorder, "dre_local_cost", breakdown["local_cost"])
+        setattr(workorder, "dre_total_costs_products_value", breakdown["total_costs_products_value"])
+        setattr(workorder, "dre_total_products_shipping", breakdown["total_products_shipping"])
+        setattr(workorder, "dre_total_third_party_services_cost", breakdown["total_third_party_services_cost"])
+        setattr(workorder, "dre_total_services_shipping", breakdown["total_services_shipping"])
+        setattr(workorder, "dre_total_cost", breakdown["total_cost"])
+
+
+def _compute_incremental_payment_ratio(
+    *,
+    payment: WorkOrderPaymentMethod,
+    ordered_payments: list[WorkOrderPaymentMethod],
+    total_workorder_value: Decimal,
+) -> Decimal:
+    if total_workorder_value <= Decimal("0.00"):
+        return Decimal("0.00")
+
+    cumulative_ratio = Decimal("0.00")
+    for current_payment in ordered_payments:
+        payment_ratio = current_payment.total_paid.amount / total_workorder_value
+        incremental_ratio = min(payment_ratio, Decimal("1.00") - cumulative_ratio)
+        cumulative_ratio += incremental_ratio
+        if current_payment.pk == payment.pk:
+            return max(incremental_ratio, Decimal("0.00"))
+
+    return Decimal("0.00")
+
+
+def _scale_money_amount(*, amount: Money, ratio: Decimal) -> Money:
+    if ratio <= Decimal("0.00") or amount.amount <= Decimal("0.00"):
+        return _ZERO
+    scaled = (amount.amount * ratio).quantize(Decimal("0.01"))
+    return Money(scaled, amount.currency)
+
+
+def _build_proportional_cost_details_for_payments(
+    *,
+    payments_in_period: list[WorkOrderPaymentMethod],
+    all_payments_by_workorder: dict[int, list[WorkOrderPaymentMethod]],
+    workorders_by_id: dict[int, WorkOrder],
+    component_attr: str,
+    component_label: str,
+    include_workshop_ref: bool,
+    budget_plan: FinancialGroup | None,
+) -> list[dict]:
+    details: list[dict] = []
+    for payment in payments_in_period:
+        workorder_id = payment.workorder_id
+        if workorder_id is None:
             continue
 
-        snapshot = workorder.build_cost_snapshot() if workorder.is_fixed_budget else workorder.pricing_snapshot
+        workorder = workorders_by_id.get(workorder_id)
+        if workorder is None or workorder.is_fixed_budget:
+            continue
 
-        custo_local = _ZERO
-        budget = workorder.budget
-        if budget is not None:
-            setattr(budget, "_read_only_pricing_context", True)
-            for line in snapshot.service_lines:
-                if line.third_party:
-                    continue
-                fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
-                mechanic_cost = calculate_mechanic_service_cost(
-                    budget=budget,
-                    duration=line.duration,
-                    quantity=1,
-                    fallback_cost=fallback_cost,
-                )
-                custo_local += mechanic_cost
+        base_amount = getattr(workorder, component_attr, _ZERO)
+        if not isinstance(base_amount, Money) or base_amount.amount <= Decimal("0.00"):
+            continue
 
-        setattr(workorder, "dre_local_cost", custo_local)
-        setattr(workorder, "dre_total_costs_products_value", snapshot.total_costs_products_value)
-        setattr(workorder, "dre_total_products_shipping", snapshot.total_products_shipping)
-        setattr(workorder, "dre_total_third_party_services_cost", snapshot.total_third_party_services_cost)
-        setattr(workorder, "dre_total_services_shipping", snapshot.total_services_shipping)
-        total_cost = snapshot.total_costs_products_value + snapshot.total_costs_services_value
-        setattr(workorder, "dre_total_cost", total_cost)
-        payloads.append((workorder, total_cost))
+        ordered_payments = all_payments_by_workorder.get(workorder_id, [])
+        ratio = _compute_incremental_payment_ratio(
+            payment=payment,
+            ordered_payments=ordered_payments,
+            total_workorder_value=workorder.total_budget_value.amount,
+        )
+        scaled_amount = _scale_money_amount(amount=base_amount, ratio=ratio)
+        if scaled_amount.amount <= Decimal("0.00"):
+            continue
 
-    return payloads
+        details.append(
+            _build_payment_proportional_cost_detail(
+                payment=payment,
+                workorder=workorder,
+                component_label=component_label,
+                amount=scaled_amount,
+                include_workshop_ref=include_workshop_ref,
+                budget_plan=budget_plan,
+            )
+        )
+
+    return details
+
+
+def _build_payment_proportional_cost_detail(
+    *,
+    payment: WorkOrderPaymentMethod,
+    workorder: WorkOrder,
+    component_label: str,
+    amount: Money,
+    include_workshop_ref: bool,
+    budget_plan: FinancialGroup | None,
+) -> dict:
+    budget = getattr(workorder, "budget", None)
+    customer = getattr(budget, "customer", None)
+    number = resolve_budget_workorder_number(budget)
+    name = getattr(customer, "name", "-") or "-"
+
+    payment_method_name = getattr(getattr(payment, "payment_method", None), "description", "-") or "-"
+    reference = f"Pagamento: {payment_method_name} | O.S #{number}"
+    if include_workshop_ref and workorder.workshop_id:
+        reference = f"Filial: {workorder.workshop.name} | {reference}"
+
+    return {
+        "movement": None,
+        "workorder_id": workorder.pk,
+        "summary": f"{component_label} - O.S #{number} - {name}",
+        "reference": reference,
+        "entry_date": getattr(payment, "criado_em", None).date() if getattr(payment, "criado_em", None) else None,
+        "payment_date": payment.due_date,
+        "amount": amount,
+        "budget_plan": budget_plan,
+    }
 
 
 def _build_financial_revenue_group_tree(
@@ -516,6 +799,8 @@ def _build_financial_revenue_group_tree(
 
     revenue_details: list[dict] = []
 
+    workorder_payment_details: list[dict] = []
+
     for payment in payments:
         workorder_id = getattr(payment, "workorder_id", None)
         if workorder_id is None:
@@ -528,7 +813,9 @@ def _build_financial_revenue_group_tree(
             continue
         detail = _build_wo_pm_detail(payment, include_workshop_ref=False)
         detail["budget_plan"] = group
-        revenue_details.append(detail)
+        workorder_payment_details.append(detail)
+
+    revenue_details.extend(_aggregate_details_by_workorder_month(workorder_payment_details))
 
     for movement in movements:
         if movement.direction != FinancialMovement.MovementDirection.CREDIT:
@@ -681,7 +968,7 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool, workorder_pa
     if m.source_id:
         reference_parts.append(f"Origem: {m.source.name}")
     if m.workorder_id:
-        reference_parts.append(f"O.S #{getattr(budget, 'pk', workorder.pk if workorder else '-')}")
+        reference_parts.append(f"O.S #{resolve_budget_workorder_number(budget) if budget is not None else resolve_workorder_number(workorder)}")
     if m.nf_number:
         reference_parts.append(f"NF: {m.nf_number}")
 
@@ -699,8 +986,6 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool, workorder_pa
     elif m.payment_method_id:
         reference_parts.append(f"Pagamento: {m.payment_method}")
 
-    created_at = getattr(m, "criado_em", None)
-
     workorder_id = None
     if m.workorder_id:
         workorder_id = m.workorder_id
@@ -712,7 +997,7 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool, workorder_pa
         "workorder_id": workorder_id,
         "summary": summary,
         "reference": " | ".join(reference_parts) or "-",
-        "entry_date": created_at.date() if created_at else None,
+        "entry_date": m.entry_date,
         "payment_date": payment_date,
         "amount": amount,
         "budget_plan": getattr(m, "budget_plan", None),
@@ -723,9 +1008,9 @@ def _agent_label(m: FinancialMovement) -> str:
     if m.workorder_id:
         budget = getattr(getattr(m, "workorder", None), "budget", None)
         customer = getattr(budget, "customer", None)
-        pk = getattr(budget, "pk", "-")
+        number = resolve_budget_workorder_number(budget)
         name = getattr(customer, "name", "-") or "-"
-        return f"O.S #{pk} - {name}"
+        return f"O.S #{number} - {name}"
     if m.collaborator_id:
         return str(m.collaborator.name)
     if m.supplier_id:
@@ -739,10 +1024,10 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
     workorder = payment.workorder
     budget = getattr(workorder, "budget", None)
     customer = getattr(budget, "customer", None)
-    pk = getattr(budget, "pk", "-")
+    number = resolve_budget_workorder_number(budget)
     name = getattr(customer, "name", "-") or "-"
 
-    summary = f"O.S #{pk} - {name}"
+    summary = f"O.S #{number} - {name}"
     payment_method_name = getattr(getattr(payment, "payment_method", None), "description", "-") or "-"
     reference = f"Pagamento: {payment_method_name}"
 
@@ -769,11 +1054,11 @@ def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool, b
 def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool, budget_plan: FinancialGroup | None = None) -> dict:
     budget = getattr(wo, "budget", None)
     customer = getattr(budget, "customer", None)
-    pk = getattr(budget, "pk", "-")
+    number = resolve_budget_workorder_number(budget)
     name = getattr(customer, "name", "-") or "-"
 
-    summary = f"Custo - O.S #{pk} - {name}"
-    reference = f"O.S #{pk}"
+    summary = f"Custo - O.S #{number} - {name}"
+    reference = f"O.S #{number}"
 
     if include_workshop_ref and wo.workshop_id:
         reference = f"Filial: {wo.workshop.name} | {reference}"
@@ -800,17 +1085,17 @@ def _build_workorder_cost_component_detail(
 ) -> dict:
     budget = getattr(workorder, "budget", None)
     customer = getattr(budget, "customer", None)
-    pk = getattr(budget, "pk", "-")
+    number = resolve_budget_workorder_number(budget)
     name = getattr(customer, "name", "-") or "-"
 
-    reference = f"O.S #{pk}"
+    reference = f"O.S #{number}"
     if include_workshop_ref and workorder.workshop_id:
         reference = f"Filial: {workorder.workshop.name} | {reference}"
 
     return {
         "movement": None,
         "workorder_id": workorder.pk,
-        "summary": f"{component_label} - O.S #{pk} - {name}",
+        "summary": f"{component_label} - O.S #{number} - {name}",
         "reference": reference,
         "entry_date": getattr(workorder, "criado_em", None).date() if getattr(workorder, "criado_em", None) else None,
         "payment_date": getattr(workorder, "criado_em", None).date() if getattr(workorder, "criado_em", None) else None,
@@ -949,11 +1234,7 @@ def _build_financial_group_rollup(*, movements: list[FinancialMovement], directi
             continue
         if movement.workorder_id is not None and not _should_include_workorder_revenue_movement(movement=movement, workorder_payment_totals=workorder_payment_totals):
             continue
-        group = (
-            _resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups, groups_index=groups_index)
-            if workorder_payment_totals is not None
-            else getattr(movement, "budget_plan", None)
-        )
+        group = _resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups, groups_index=groups_index) if workorder_payment_totals is not None else getattr(movement, "budget_plan", None)
         group_id = getattr(group, "pk", None)
         while group_id:
             relevant_group_ids.add(group_id)
@@ -981,11 +1262,7 @@ def _build_financial_group_rollup(*, movements: list[FinancialMovement], directi
             continue
 
         detail = _build_detail(movement, include_workshop_ref=False, workorder_payment_totals=workorder_payment_totals)
-        group = detail.get("budget_plan") or (
-            _resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups, groups_index=groups_index)
-            if workorder_payment_totals is not None
-            else getattr(movement, "budget_plan", None)
-        )
+        group = detail.get("budget_plan") or (_resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups, groups_index=groups_index) if workorder_payment_totals is not None else getattr(movement, "budget_plan", None))
         if group is None or not getattr(group, "pk", None):
             continue
         detail["budget_plan"] = group

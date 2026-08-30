@@ -320,6 +320,76 @@ def _coerce_money(value: Money | None) -> Money:
     return value if value is not None else zero_money()
 
 
+def _is_better_source(*, candidate_quantity: int, candidate_total: Money, current_quantity: int, current_total: Money) -> bool:
+    if current_quantity <= 0:
+        return True
+    if candidate_quantity != current_quantity:
+        return candidate_quantity > current_quantity
+    return candidate_total.amount > current_total.amount
+
+
+def _timedelta_seconds(duration: timedelta | None) -> int:
+    return int(duration.total_seconds()) if duration else 0
+
+
+def _is_better_service_source(*, candidate_duration: timedelta, candidate_total: Money, current_duration: timedelta, current_total: Money) -> bool:
+    current_seconds = _timedelta_seconds(current_duration)
+    candidate_seconds = _timedelta_seconds(candidate_duration)
+    if current_seconds <= 0 and current_total.amount <= 0:
+        return True
+    if candidate_seconds != current_seconds:
+        return candidate_seconds > current_seconds
+    return candidate_total.amount > current_total.amount
+
+
+def iter_kit_product_components(item: Any) -> list[Any]:
+    return [override for override in item._iter_frozen_kit_product_overrides() if int(getattr(override, "quantity", 0) or 0) > 0]
+
+
+def iter_kit_service_components(item: Any) -> list[Any]:
+    return [
+        override
+        for override in item._iter_frozen_kit_service_overrides()
+        if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False)
+    ]
+
+
+def kit_component_winning_item_ids(items: list[Any]) -> tuple[dict[int, int], dict[int, int]]:
+    product_winners: dict[int, tuple[int, Money, int]] = {}
+    service_winners: dict[int, tuple[timedelta, Money, int]] = {}
+
+    for item in items:
+        item_id = getattr(item, "pk", None)
+        if item_id is None or not getattr(item, "kit_id", None):
+            continue
+        kit_quantity = int(getattr(item, "quantity", 0) or 0)
+        if kit_quantity <= 0:
+            continue
+
+        for override in iter_kit_product_components(item):
+            product_id = getattr(override, "product_id", None)
+            if product_id is None:
+                continue
+            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
+            total = ((getattr(override, "product_selling_price", None) or zero_money()) * quantity) + ((getattr(override, "shipping", None) or zero_money()) * kit_quantity)
+            current = product_winners.get(product_id)
+            if current is None or _is_better_source(candidate_quantity=quantity, candidate_total=total, current_quantity=current[0], current_total=current[1]):
+                product_winners[product_id] = (quantity, total, item_id)
+
+        for override in iter_kit_service_components(item):
+            service_id = getattr(override, "service_id", None)
+            if service_id is None:
+                continue
+            quantity = int(getattr(override, "quantity", 0) or 0) * kit_quantity
+            total = (getattr(override, "service_selling_price", None) or zero_money()) * quantity
+            duration = (getattr(override, "duration", None) or timedelta()) * quantity
+            current = service_winners.get(service_id)
+            if current is None or _is_better_service_source(candidate_duration=duration, candidate_total=total, current_duration=current[0], current_total=current[1]):
+                service_winners[service_id] = (duration, total, item_id)
+
+    return ({component_id: winner[2] for component_id, winner in product_winners.items()}, {component_id: winner[2] for component_id, winner in service_winners.items()})
+
+
 def build_pricing_snapshot(
     *,
     items: Iterable[Any],
@@ -338,6 +408,8 @@ def build_pricing_snapshot(
 
     product_aggregates: dict[str, _ProductAggregate] = {}
     service_aggregates: dict[str, _ServiceAggregate] = {}
+    retained_excluded_service_selling = zero_money()
+    retained_excluded_labor_selling = zero_money()
 
     for sort_order, item in enumerate(items):
         item_quantity = int(getattr(item, "quantity", 0) or 0)
@@ -463,17 +535,32 @@ def build_pricing_snapshot(
             unit_price = override.product_selling_price
             unit_cost = override.product_cost_price
 
-            aggregate.kit_quantity += consolidated_quantity
-            aggregate.kit_total += (unit_price * consolidated_quantity) + shipping
-            aggregate.kit_cost_total += unit_cost * consolidated_quantity
-            aggregate.kit_shipping += shipping
-            aggregate.kit_code = str(getattr(product, "code", "") or "")
-            aggregate.kit_application = str(getattr(product, "application", "") or "")
-            aggregate.kit_location = str(getattr(product, "location", "") or "")
-            aggregate.kit_source_object = product
-            aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
+            kit_total = (unit_price * consolidated_quantity) + shipping
+            if _is_better_source(
+                candidate_quantity=consolidated_quantity,
+                candidate_total=kit_total,
+                current_quantity=aggregate.kit_quantity,
+                current_total=aggregate.kit_total,
+            ):
+                aggregate.kit_quantity = consolidated_quantity
+                aggregate.kit_total = kit_total
+                aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                aggregate.kit_shipping = shipping
+                aggregate.kit_code = str(getattr(product, "code", "") or "")
+                aggregate.kit_application = str(getattr(product, "application", "") or "")
+                aggregate.kit_location = str(getattr(product, "location", "") or "")
+                aggregate.kit_source_object = product
+                aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
 
         for override in item._iter_frozen_kit_service_overrides():
+            if getattr(override, "excluded_from_composition", False):
+                per_kit_quantity = int(getattr(override, "quantity", 0) or 0)
+                if per_kit_quantity > 0:
+                    retained = _coerce_money(getattr(override, "service_selling_price", None)) * per_kit_quantity * item_quantity
+                    retained_excluded_service_selling += retained
+                    if not bool(getattr(getattr(override, "service", None), "is_third_party", False)):
+                        retained_excluded_labor_selling += retained
+                continue
             service = override.service
             per_kit_quantity = override.quantity
             if per_kit_quantity <= 0:
@@ -503,16 +590,22 @@ def build_pricing_snapshot(
             if override.duration:
                 service_duration = override.duration * consolidated_quantity
 
-            service_aggregate.kit_quantity += consolidated_quantity
-            service_aggregate.kit_raw_total += unit_price * consolidated_quantity
-            service_aggregate.kit_cost_total += unit_cost * consolidated_quantity
-            service_aggregate.kit_fixed_cost_total += fixed_cost_total
-            service_aggregate.kit_duration += service_duration
-            service_aggregate.kit_description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
-            service_aggregate.kit_source_object = service
-
+            kit_raw_total = unit_price * consolidated_quantity
+            if _is_better_service_source(
+                candidate_duration=service_duration,
+                candidate_total=kit_raw_total,
+                current_duration=service_aggregate.kit_duration,
+                current_total=service_aggregate.kit_raw_total,
+            ):
+                service_aggregate.kit_quantity = consolidated_quantity
+                service_aggregate.kit_raw_total = kit_raw_total
+                service_aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                service_aggregate.kit_fixed_cost_total = fixed_cost_total
+                service_aggregate.kit_duration = service_duration
+                service_aggregate.kit_description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
+                service_aggregate.kit_source_object = service
+                service_aggregate.third_party = bool(getattr(service, "is_third_party", False))
             service_aggregate.has_kit_source = True
-            service_aggregate.third_party = service_aggregate.third_party or bool(getattr(service, "is_third_party", False))
 
     product_lines: list[ConsolidatedPricingLine] = []
     for product_aggregate in sorted(product_aggregates.values(), key=lambda value: (value.sort_order, value.description.lower())):
@@ -660,10 +753,14 @@ def build_pricing_snapshot(
     third_party_service_lines = [line for line in service_lines if line.third_party]
     total_duration = sum((line.duration for line in service_lines), timedelta())
     total_third_party_services_selling = sum((line.raw_total + line.shipping for line in third_party_service_lines), zero_money())
-    total_services_value = sum((line.raw_total + line.shipping for line in service_lines), zero_money())
+    total_services_value = sum((line.raw_total + line.shipping for line in service_lines), zero_money()) + retained_excluded_service_selling
 
     total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
-    total_labor_selling_value = labor_selling_value_override if labor_selling_value_override is not None else sum((line.raw_total for line in labor_service_lines), zero_money())
+    total_labor_selling_value = (
+        labor_selling_value_override
+        if labor_selling_value_override is not None
+        else sum((line.raw_total for line in labor_service_lines), zero_money()) + retained_excluded_labor_selling
+    )
     # Hunter labor cost (mechanic hour * duration). This is the slider floor shown in step 5.
     # Never fall back to sum(service_cost_price) for the floor — those can equal selling and block transfer.
     has_explicit_labor_cost = labor_cost_value is not None or labor_hourly_cost_value is not None

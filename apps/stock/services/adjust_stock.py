@@ -39,6 +39,7 @@ def adjust_stock_quantity(
             type=StockMovement.MovementType.ENTRY if delta > 0 else StockMovement.MovementType.EXIT,
             quantity=abs(delta),
             reason=normalized_reason,
+            is_stock_adjustment=True,
             status=StockMovement.MovementStatus.APPROVED,
             transcation_by=user if user is not None and getattr(user, "is_authenticated", False) else None,
             supplier=None,

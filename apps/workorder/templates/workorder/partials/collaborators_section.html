@@ -1,0 +1,133 @@
+{% load format_tags %}
+<div class="card-body">
+    <h3 class="font-bold text-2xl pb-2 mb-2">Colaboradores e comissões</h3>
+    <p class="text-base-content/70 mb-6">Vincule os colaboradores responsáveis por esta O.S. A previsão de comissão usa o total de serviços; a consolidação acontece na entrega do veículo em orçamentos de venda.</p>
+
+    <div class="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <form
+            id="workorder-collaborators-form"
+            method="post"
+            hx-post="{% url 'workorder:update_collaborators' workorder.pk %}"
+            hx-target="#collaborators-section"
+            hx-swap="innerHTML"
+            hx-trigger="collaborator-list-changed"
+            hx-include="this"
+            hx-sync="this:replace"
+            data-collaborators-autosave="1"
+            data-status-locked="{% if workorder.is_status_locked %}1{% else %}0{% endif %}"
+            class="w-full lg:max-w-lg rounded-xl border border-base-300 bg-base-100 p-4"
+        >
+            {% csrf_token %}
+            {% include "budget/partials/components/collaborator_field.html" with field=collaborator_form.collaborators initial_collaborators_json=collaborator_form.initial_collaborators_json form=collaborator_form object=workorder %}
+            <p class="mt-2 text-xs text-base-content/60">{{ collaborator_form.collaborators.help_text }}</p>
+        </form>
+
+        {% include "workorder/partials/commission_pool_section.html" %}
+    </div>
+</div>
+<script>
+    (function () {
+        if (window.__workorderCollaboratorsNavigationBound) {
+            return;
+        }
+        window.__workorderCollaboratorsNavigationBound = true;
+
+        const sectionIsVisible = () => {
+            const section = document.getElementById('collaborators-section');
+            return Boolean(section && !section.classList.contains('hidden'));
+        };
+
+        window.navigateWorkorderCollaborators = async function navigateWorkorderCollaborators(form, targetUrl) {
+            if (!form || !targetUrl) {
+                return;
+            }
+            form.dataset.navigating = '1';
+            const formData = new FormData(form);
+            formData.set('next', targetUrl);
+            const csrfToken = form.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            const postUrl = form.getAttribute('hx-post') || form.getAttribute('action') || window.location.pathname;
+
+            try {
+                const response = await fetch(postUrl, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'HX-Request': 'true',
+                    },
+                    credentials: 'same-origin',
+                });
+
+                const redirectUrl = response.headers.get('HX-Redirect');
+                if (redirectUrl) {
+                    window.location.assign(redirectUrl);
+                    return;
+                }
+
+                if (response.ok) {
+                    const destination = targetUrl.startsWith('?')
+                        ? `${window.location.pathname}${targetUrl}`
+                        : targetUrl;
+                    window.location.assign(destination);
+                }
+            } catch (error) {
+                console.error('workorder collaborators navigation failed', error);
+            } finally {
+                delete form.dataset.navigating;
+            }
+        };
+
+        document.addEventListener('submit', (event) => {
+            const form = event.target;
+            if (!form || form.id !== 'workorder-collaborators-form') {
+                return;
+            }
+            const submitter = event.submitter;
+            const nextValue = submitter && submitter.name === 'next' ? submitter.value : '';
+            if (!nextValue) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            if (form.getAttribute('data-status-locked') === '1') {
+                const destination = nextValue.startsWith('?')
+                    ? `${window.location.pathname}${nextValue}`
+                    : nextValue;
+                window.location.assign(destination);
+                return;
+            }
+            window.navigateWorkorderCollaborators(form, nextValue);
+        }, true);
+
+        document.addEventListener('click', (event) => {
+            if (!sectionIsVisible()) {
+                return;
+            }
+            const form = document.getElementById('workorder-collaborators-form');
+            if (!form) {
+                return;
+            }
+            const stepperTarget = event.target.closest('[onclick*="window.location.href"]');
+            if (!stepperTarget) {
+                return;
+            }
+            const onclick = stepperTarget.getAttribute('onclick') || '';
+            const match = onclick.match(/window\.location\.href='([^']+)'/);
+            if (!match) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            const targetUrl = match[1];
+            if (form.getAttribute('data-status-locked') === '1') {
+                const destination = targetUrl.startsWith('?')
+                    ? `${window.location.pathname}${targetUrl}`
+                    : targetUrl;
+                window.location.assign(destination);
+                return;
+            }
+            window.navigateWorkorderCollaborators(form, targetUrl);
+        }, true);
+    })();
+</script>

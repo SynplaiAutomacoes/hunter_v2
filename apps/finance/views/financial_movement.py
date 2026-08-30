@@ -72,7 +72,10 @@ def get_financial_movement_table_columns() -> list[TableColumn]:
         TableColumn("ID", attr="id"),
         TableColumn(FinancialMovement.source.field.verbose_name, attr="source", search_by="source__name"),
         TableColumn("Tipo", attr="get_direction_display", search_by="direction"),
-        TableColumn(FinancialMovement.amount.field.verbose_name, attr=FinancialMovement.amount.field.name),
+        TableColumn("Lançamento", attr="entry_date"),
+        TableColumn("Valor Bruto", attr="gross_amount", format="money_br"),
+        TableColumn("Ajuste", attr="resolved_adjustment_amount", sortable=False, searchable=False, format="money_br"),
+        TableColumn("Valor Líquido", attr=FinancialMovement.amount.field.name, format="money_br"),
         TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
         TableColumn("Conciliado", attr="is_reconciled"),
     ]
@@ -133,10 +136,12 @@ def _apply_paid_status_filter_to_queryset(queryset: QuerySet[FinancialMovement],
 
 
 def _apply_report_filters_to_queryset(queryset: QuerySet[FinancialMovement], *, params: dict[str, Any]) -> QuerySet[FinancialMovement]:
-    if params["start_date"] is not None:
-        queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=params["start_date"])
-    if params["end_date"] is not None:
-        queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=params["end_date"])
+    apply_date_filters = not str(params.get("search") or "").strip()
+    if apply_date_filters:
+        if params["start_date"] is not None:
+            queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=params["start_date"])
+        if params["end_date"] is not None:
+            queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=params["end_date"])
     if params["budget_plan_ids"]:
         queryset = queryset.filter(budget_plan_id__in=params["budget_plan_ids"])
     if params["bank_account_id"] is not None:
@@ -240,7 +245,7 @@ def _money_amount(value: object) -> Decimal:
 
 def _movement_pdf_direction_label(movement: FinancialMovement) -> str:
     if movement.direction == FinancialMovement.MovementDirection.CREDIT:
-        return "Crédito"
+        return "Receita"
     if movement.direction == FinancialMovement.MovementDirection.DEBIT:
         return "Débito"
     return "-"
@@ -261,23 +266,23 @@ def _resolve_workorder_description(workorder: object) -> str:
 
 def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str, Any], per_payment_movements: dict[int, FinancialMovement], workshop: Any, aggregate_movements: dict[int, FinancialMovement] | None = None) -> list[object]:
     paid_status = filter_params.get("paid_status", "")
-    if paid_status == "unpaid":
-        return []
 
     start_date = filter_params.get("start_date")
     end_date = filter_params.get("end_date")
     payment_method_id = filter_params.get("payment_method_id")
     reconciliation_status = filter_params.get("reconciliation_status", "")
+    apply_date_filters = not str(filter_params.get("search") or "").strip()
 
     filtered: list[object] = []
     for payment in payments:
         payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
         if payment_amount.amount <= 0:
             continue
-        if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
-            continue
-        if end_date is not None and (payment.due_date is None or payment.due_date > end_date):
-            continue
+        if apply_date_filters:
+            if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
+                continue
+            if end_date is not None and (payment.due_date is None or payment.due_date > end_date):
+                continue
         if payment_method_id is not None and getattr(payment, "payment_method_id", None) != payment_method_id:
             continue
         payment_movement = per_payment_movements.get(payment.pk)
@@ -286,6 +291,10 @@ def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str,
             if workorder_id and aggregate_movements and workorder_id in aggregate_movements:
                 payment_movement = aggregate_movements[workorder_id]
         if payment_movement is None:
+            continue
+        if paid_status == "paid" and not payment_movement.is_paid:
+            continue
+        if paid_status == "unpaid" and payment_movement.is_paid:
             continue
         is_reconciled = bool(getattr(payment_movement, "is_reconciled", False))
         if reconciliation_status == "reconciled" and not is_reconciled:
@@ -347,13 +356,19 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                         "paid_status": "Sim" if payment_movement.is_paid else "Não",
                         "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
                         "direction": FinancialMovement.MovementDirection.CREDIT,
-                        "direction_label": "Crédito",
+                        "direction_label": "Receita",
+                        "entry_date": payment_movement.entry_date,
                         "due_date": payment.due_date or movement.due_date,
                         "agent": agent,
                         "description": _resolve_workorder_description(workorder) if workorder is not None else description,
                         "budget_plan": payment_movement.report_budget_plan_display,
                         "payment_type": getattr(payment_method, "description", "-") or "-",
                         "amount": payment_amount,
+                        "gross_amount": payment_amount,
+                        "discount_amount": Money(0, "BRL"),
+                        "adjustment_amount": Money(0, "BRL"),
+                        "adjustment_label": "Desconto",
+                        "adjustment_is_surcharge": False,
                     }
                 )
                 continue
@@ -370,13 +385,19 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                         "paid_status": "Sim" if payment_movement.is_paid else "Não",
                         "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
                         "direction": FinancialMovement.MovementDirection.CREDIT,
-                        "direction_label": "Crédito",
+                        "direction_label": "Receita",
+                        "entry_date": payment_movement.entry_date,
                         "due_date": payment.due_date or movement.due_date,
                         "agent": agent,
                         "description": _resolve_workorder_description(workorder) if workorder is not None else description,
                         "budget_plan": payment_movement.report_budget_plan_display,
                         "payment_type": getattr(payment_method, "description", "-") or "-",
                         "amount": payment_amount,
+                        "gross_amount": payment_amount,
+                        "discount_amount": Money(0, "BRL"),
+                        "adjustment_amount": Money(0, "BRL"),
+                        "adjustment_label": "Desconto",
+                        "adjustment_is_surcharge": False,
                     }
                 )
             continue
@@ -387,12 +408,18 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 "reconciliation_status": "Conciliado" if movement.is_reconciled else "Aguardando Conciliação",
                 "direction": movement.direction,
                 "direction_label": _movement_pdf_direction_label(movement),
+                "entry_date": movement.entry_date,
                 "due_date": movement.due_date,
                 "agent": agent,
                 "description": description,
                 "budget_plan": movement.report_budget_plan_display,
                 "payment_type": movement.report_payment_method_display,
                 "amount": movement.amount or Money(0, "BRL"),
+                "gross_amount": movement.gross_amount or movement.amount or Money(0, "BRL"),
+                "discount_amount": movement.resolved_discount_amount,
+                "adjustment_amount": movement.resolved_adjustment_amount,
+                "adjustment_label": movement.adjustment_label,
+                "adjustment_is_surcharge": movement.discount_mode == FinancialMovement.DiscountMode.SURCHARGE,
             }
         )
     return rows
@@ -432,7 +459,7 @@ def _build_financial_movement_filter_labels(*, request: HttpRequest, workshop: A
 
     direction = str(request.GET.get("direction") or "").strip()
     if direction:
-        labels.append(f"Tipo: {'Contas a receber' if direction == 'CREDIT' else 'Contas a pagar'}")
+        labels.append(f"Tipo: {'Receita' if direction == 'CREDIT' else 'Débito'}")
 
     paid_status = str(request.GET.get("paid_status") or "").strip()
     if paid_status:
@@ -536,7 +563,7 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     filter_params = _parse_report_filter_params(request)
 
     # Sem filtros de data explícitos, alinha ao padrão da listagem de relatórios: somente contas do dia atual.
-    if filter_params["start_date"] is None and filter_params["end_date"] is None:
+    if not filter_params["search"] and filter_params["start_date"] is None and filter_params["end_date"] is None:
         today = timezone.localdate()
         filter_params["start_date"] = today
         filter_params["end_date"] = today
@@ -690,7 +717,7 @@ class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, Worksho
         if self.request.htmx:
             from django.http import HttpResponse
 
-            response = HttpResponse(status=204)
+            response = HttpResponse()
             response["HX-Redirect"] = success_url
             return response
 

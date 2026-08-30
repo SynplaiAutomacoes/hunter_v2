@@ -1,5 +1,6 @@
 # ruff: noqa: F403,F405
 from apps.budget.forms.steps.common import *
+from apps.budget.review_totals import build_step6_table_totals
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,7 +54,12 @@ class Step6ReviewContext:
     blocked_reopen: bool
     products_html: str
     services_html: str
-    kits_html: str
+    products_total_cost_display: str
+    products_total_sale_display: str
+    products_total_profit_display: str
+    services_total_cost_display: str
+    services_total_sale_display: str
+    services_total_profit_display: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +73,7 @@ class BudgetPdfModalUrls:
     base_pdf_download_url: str
 
 
-def resolve_budget_pdf_modal_urls(*, budget_id: int, can_toggle_signed_pdf: bool) -> BudgetPdfModalUrls:
-    pdf_view_url = reverse("budget:visualizar_pdf_assinatura", args=[budget_id])
+def resolve_pdf_modal_urls(*, pdf_view_url: str, can_toggle_signed_pdf: bool) -> BudgetPdfModalUrls:
     signed_pdf_url = "{pdf_view_url}?variant=signed".format(pdf_view_url=pdf_view_url)
     base_pdf_url = "{pdf_view_url}?variant=base".format(pdf_view_url=pdf_view_url)
     signed_pdf_download_url = "{pdf_view_url}?download=1&variant=signed".format(pdf_view_url=pdf_view_url)
@@ -92,6 +97,11 @@ def resolve_budget_pdf_modal_urls(*, budget_id: int, can_toggle_signed_pdf: bool
         signed_pdf_download_url=signed_pdf_download_url,
         base_pdf_download_url=base_pdf_download_url,
     )
+
+
+def resolve_budget_pdf_modal_urls(*, budget_id: int, can_toggle_signed_pdf: bool) -> BudgetPdfModalUrls:
+    pdf_view_url = reverse("budget:visualizar_pdf_assinatura", args=[budget_id])
+    return resolve_pdf_modal_urls(pdf_view_url=pdf_view_url, can_toggle_signed_pdf=can_toggle_signed_pdf)
 
 
 def build_step6_context(budget, form: Any) -> Step6ReviewContext:
@@ -158,14 +168,20 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
     cancellation_reason_html = ""
     if budget.cancellation_reason:
         cancellation_reason_html = (
-            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo do Cancelamento</span><span class="text-gray-900 text-base">{reason}</span></div></div>'
-        ).format(reason=budget.cancellation_reason)
+            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo do Cancelamento</span><span class="text-gray-900 text-base">{reason}</span>{responsible}</div></div>'
+        ).format(
+            reason=escape(budget.cancellation_reason),
+            responsible=(f'<span class="text-gray-900 text-sm"><strong>Responsável pelo atendimento:</strong> {escape(budget.cancellation_responsible.name)}</span>' if budget.cancellation_responsible else ""),
+        )
 
     rejection_reason_html = ""
     if budget.rejection_reason:
         rejection_reason_html = (
-            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo da Reprovação</span><span class="text-gray-900 text-base">{reason}</span></div></div>'
-        ).format(reason=budget.rejection_reason)
+            '<div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error"><div class="flex flex-col gap-1 text-error"><span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo da Reprovação</span><span class="text-gray-900 text-base">{reason}</span>{responsible}</div></div>'
+        ).format(
+            reason=escape(budget.rejection_reason),
+            responsible=(f'<span class="text-gray-900 text-sm"><strong>Responsável pelo atendimento:</strong> {escape(budget.rejection_responsible.name)}</span>' if budget.rejection_responsible else ""),
+        )
 
     history_entries = list(budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).select_related("user")[:10])
     history_entries.reverse()
@@ -363,7 +379,11 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
     rows = _render_budget_items_rows(budget, step6=True)
     products_html = rows["product"]
     services_html = rows["service"]
-    kits_html = rows["kit"]
+    table_totals = build_step6_table_totals(budget=budget)
+    from apps.core.templatetags.format_tags import money_br
+
+    products_totals = table_totals["products"]
+    services_totals = table_totals["services"]
 
     return Step6ReviewContext(
         budget=budget,
@@ -413,5 +433,10 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         blocked_reopen=blocked_reopen,
         products_html=products_html,
         services_html=services_html,
-        kits_html=kits_html,
+        products_total_cost_display=money_br(products_totals.cost),
+        products_total_sale_display=money_br(products_totals.sale),
+        products_total_profit_display=money_br(products_totals.profit),
+        services_total_cost_display=money_br(services_totals.cost),
+        services_total_sale_display=money_br(services_totals.sale),
+        services_total_profit_display=money_br(services_totals.profit),
     )

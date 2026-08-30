@@ -11,7 +11,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from apps.core.presentation.widgets import TextInput
 from apps.iam.models import WorkshopRole
 from apps.core.presentation.forms import CoreModelForm
-from apps.iam.permissions_registry import get_perm_info, is_auto_grant
+from apps.iam.permissions_registry import get_perm_info, is_auto_grant, is_codename_visible
 
 RESERVED_ROLE_NAMES = {"diretor", "gerente"}
 
@@ -91,6 +91,9 @@ class WorkshopRoleForm(CoreModelForm):
             if skip_ct or perm_info is None:
                 continue
 
+            if not is_codename_visible(p.content_type.app_label, p.content_type.model, p.codename):
+                continue
+
             app_label = p.content_type.app_label
 
             try:
@@ -114,7 +117,10 @@ class WorkshopRoleForm(CoreModelForm):
             grouped[app_name]["models"][model_name]["total_count"] += 1
             grouped[app_name]["total_count"] += 1
 
-        self.grouped_permissions = grouped
+        # Drop empty app groups that only had filtered-out codenames.
+        self.grouped_permissions = {
+            app_name: app_data for app_name, app_data in grouped.items() if app_data["total_count"] > 0
+        }
 
         cancel_url = reverse("iam:role_list")
 

@@ -136,33 +136,42 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
     )
     contribution.product_base = item.get_kit_products_total()
 
-    _, service_overrides = item._get_kit_override_maps()
-    for kit_service in item._iter_kit_services():
-        override = service_overrides.get(kit_service.service_id)
-        per_kit_quantity = int((override.quantity if override else kit_service.quantity) or 0)
+    for override in item._iter_frozen_kit_service_overrides():
+        per_kit_quantity = int(override.quantity or 0)
         if per_kit_quantity <= 0:
             continue
-
+        # Excluded services keep price on the kit but do not contribute operational duration.
+        # Money still counts toward kit labor/third-party allocation so kit revenue stays intact.
         total_quantity = per_kit_quantity * quantity
         if total_quantity <= 0:
             continue
 
-        if override:
-            unit_price = override.service_selling_price
-            unit_cost = override.service_cost_price
-        else:
-            unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
-        if kit_service.service.is_third_party:
+        unit_price = override.service_selling_price
+        unit_cost = override.service_cost_price
+        service = override.service
+        if service is not None and getattr(service, "is_third_party", False):
             contribution.third_party_raw_total += unit_price * total_quantity
             contribution.third_party_cost_total += unit_cost * total_quantity
             continue
 
         contribution.labor_raw_total += unit_price * total_quantity
+        if getattr(override, "excluded_from_composition", False):
+            continue
         contribution.labor_quantity += total_quantity
-        if override and override.duration:
+        if override.duration:
             contribution.labor_duration += override.duration * total_quantity
-        elif kit_service.duration:
-            contribution.labor_duration += kit_service.duration * total_quantity
+
+    # The kit stores the quoted service total on its parent item. Child service
+    # prices can differ by a few cents after historical rounding, so preserve
+    # the parent total used by Step 5 and distribute any residual downstream.
+    quoted_services_total = item.service_selling_price * quantity
+    detailed_services_total = contribution.labor_raw_total + contribution.third_party_raw_total
+    residual = quoted_services_total - detailed_services_total
+    if residual.amount:
+        if contribution.labor_raw_total.amount > 0:
+            contribution.labor_raw_total += residual
+        elif contribution.third_party_raw_total.amount > 0:
+            contribution.third_party_raw_total += residual
 
     # The kit stores the quoted service total on its parent item. Child service
     # prices can differ by a few cents after historical rounding, so preserve

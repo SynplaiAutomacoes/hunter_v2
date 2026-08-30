@@ -1,4 +1,5 @@
 # ruff: noqa: F403,F405
+from apps.budget.discount import split_budget_discount
 from apps.budget.forms.steps.common import *
 from apps.budget.models import BudgetItem
 from dataclasses import dataclass
@@ -28,6 +29,9 @@ class Step5PricingContext:
     mlo: float
     discount_amount: Decimal
     discount_display: Money
+    discount_products: Money
+    discount_labor: Money
+    discount_third_party: Money
     step5_calculation_done: bool
     step5_loading_hidden_class: str
     step5_method_hidden_class: str
@@ -108,6 +112,7 @@ def build_step5_context(budget) -> Step5PricingContext:
 
     discount_amount = budget.display_resolved_discount_value.amount if budget.display_resolved_discount_value else Decimal("0")
     discount_display = budget.display_resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+    discount_split = split_budget_discount(budget=budget)
     step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
     step5_loading_hidden_class = "hidden" if step5_calculation_done else ""
     step5_method_hidden_class = "" if step5_calculation_done else "hidden"
@@ -135,6 +140,9 @@ def build_step5_context(budget) -> Step5PricingContext:
         mlo=mlo,
         discount_amount=discount_amount,
         discount_display=discount_display,
+        discount_products=discount_split.products,
+        discount_labor=discount_split.labor,
+        discount_third_party=discount_split.third_party,
         step5_calculation_done=step5_calculation_done,
         step5_loading_hidden_class=step5_loading_hidden_class,
         step5_method_hidden_class=step5_method_hidden_class,
