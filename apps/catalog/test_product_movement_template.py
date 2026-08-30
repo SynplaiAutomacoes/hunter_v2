@@ -26,6 +26,7 @@ class ProductMovementTemplateTests(SimpleTestCase):
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
         self.assertIn("Sistema", html)
+        self.assertIn("Nota de Entrada", html)
         self.assertIn("Motivo", html)
         self.assertIn("—", html)
 

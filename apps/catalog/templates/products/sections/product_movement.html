@@ -12,6 +12,7 @@
             <th>Tipo</th>
             <th>Responsável</th>
             <th>Qtd.</th>
+            <th>Nota de Entrada</th>
             <th>Motivo</th>
             <th>Fornecedor</th>
             <th>Status</th>
@@ -37,6 +38,7 @@
               {% endif %}
             </td>
             <td class="font-bold">{{ m.quantity }}</td>
+            <td>{{ m.stock_product.last_nf_display|default:"—" }}</td>
             <td class="max-w-xs truncate" title="{{ m.reason }}">{{ m.reason|default:"—" }}</td>
             <td>{{ m.supplier.name|default:"—" }}</td>
             <td>
@@ -47,7 +49,7 @@
           </tr>
           {% empty %}
           <tr>
-            <td colspan="8" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
+            <td colspan="9" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
           </tr>
           {% endfor %}
         </tbody>

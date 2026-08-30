@@ -32,6 +32,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.stock.models import StockMovement
 from apps.stock.services.adjust_stock import adjust_stock_quantity
+from apps.stock.services.stock_balance import recover_missing_stock_balance
 from apps.workshops.mixin import WorkshopScopedMixin
 
 _PRODUCT_ACTIVE_TABS = frozenset({"cadastro", "atribuicao_kit", "estoque", "historico", "movimentacao"})
@@ -185,6 +186,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         context = super().get_context_data(**kwargs)
         product = self.object
         stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=product)
+        recover_missing_stock_balance(stock_product=stock_obj)
 
         context["stock_obj"] = stock_obj
         context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).select_related(

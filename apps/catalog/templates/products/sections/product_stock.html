@@ -20,15 +20,15 @@
 
       <div class="form-control">
         <label class="label"><span class="label-text">Quantidade em Estoque</span></label>
-        <input type="number" value="{{ stock_obj.current_quantity }}" readonly
+        <input type="number" step="any" value="{{ stock_obj.current_quantity|unlocalize }}" readonly
                class="input input-bordered w-full bg-base-200 cursor-not-allowed" />
       </div>
 
       <div class="form-control">
         <label class="label"><span class="label-text">Estoque Mínimo</span></label>
-        <input type="number"
+        <input type="number" step="any"
                name="minimum_quantity"
-               value="{{ stock_obj.minimum_quantity }}"
+               value="{{ stock_obj.minimum_quantity|unlocalize }}"
                class="input input-bordered w-full"
                hx-post="{% url 'catalog:update_stock_fields' %}"
                hx-trigger="blur"
@@ -38,9 +38,9 @@
 
       <div class="form-control">
         <label class="label"><span class="label-text">Estoque Ideal (Meta)</span></label>
-        <input type="number"
+        <input type="number" step="any"
                name="restock_quantity"
-               value="{{ stock_obj.restock_quantity }}"
+               value="{{ stock_obj.restock_quantity|unlocalize }}"
                class="input input-bordered w-full"
                hx-post="{% url 'catalog:update_stock_fields' %}"
                hx-trigger="blur"
