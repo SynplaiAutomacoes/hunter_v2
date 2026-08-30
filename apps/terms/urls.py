@@ -14,6 +14,7 @@ urlpatterns = [
     path("<int:pk>/preview-modal/", views.WorkshopTermTemplatePreviewModalView.as_view(), name="term_template_preview_modal"),
     path("<int:pk>/preview/", views.term_template_preview, name="term_template_preview"),
     path("budget/<int:budget_id>/preview/", views.budget_term_preview, name="budget_term_preview"),
+    path("budget/<int:budget_id>/pdf/", views.budget_term_pdf, name="budget_term_pdf"),
     path("budget/<int:budget_id>/send-signature/", views.SendBudgetTermSignatureView.as_view(), name="budget_term_send_signature"),
     path("budget/signature-preview/<str:token>/", views.budget_term_signature_preview, name="budget_term_signature_preview"),
     path("budget/signature-file/<str:token>/", views.budget_term_signature_file, name="budget_term_signature_file"),

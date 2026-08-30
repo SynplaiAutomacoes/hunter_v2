@@ -79,7 +79,6 @@ class WorkshopTermTemplateListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
         context["fields"] = [
             TableColumn("Nome", attr="name"),
             TableColumn("Tipo", attr="template_type_display", searchable=False),
-            TableColumn("Padrão", attr="is_default"),
             TableColumn("Ativo", attr="is_active"),
             TableColumn("Criado em", attr="created_at_display"),
         ]
@@ -212,7 +211,42 @@ def budget_term_preview(request, budget_id: int):
     return render(request, "terms/pdf/term_document.html", context)
 
 
+@xframe_options_exempt
+def budget_term_pdf(request, budget_id: int):
+    workshop = get_active_workshop_or_404(request)
+    budget: Budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=budget_id, workshop=workshop)
+    term_template_id = request.GET.get("term_template")
+    signing = BudgetTermSigning.objects.filter(budget=budget).select_related("term_template").first()
+    if term_template_id and signing and not signing.is_signature_locked:
+        try:
+            signing = update_budget_term_template(budget=budget, term_template_id=int(term_template_id))
+        except (ValueError, TypeError):
+            pass
+    elif signing is None and term_template_id:
+        try:
+            signing = update_budget_term_template(budget=budget, term_template_id=int(term_template_id))
+        except (ValueError, TypeError):
+            signing = None
+
+    term_template = signing.term_template if signing else get_default_term_template(workshop=workshop, template_type=TermTemplateType.VEHICLE_RECEIPT)
+    if term_template is None:
+        raise Http404("Nenhum termo cadastrado.")
+
+    snapshot = signing.content_snapshot if signing and signing.is_signature_locked and signing.content_snapshot else None
+    context = build_term_pdf_context(
+        term_template=term_template,
+        snapshot=snapshot,
+        workshop=workshop,
+        customer=budget.customer,
+        vehicle=budget.vehicle,
+    )
+    document = render_term_pdf_document(context=context, filename=f"termo-recebimento-{budget.pk}.pdf")
+    return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
+
+
 class SendBudgetTermSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
     def post(self, request, budget_id: int) -> JsonResponse:
         budget: Budget = get_object_or_404(Budget.objects.select_related("customer", "workshop"), pk=budget_id, workshop=self.workshop)
         term_template_id = request.POST.get("term_template")
@@ -433,6 +467,9 @@ def workorder_term_signature_file(request, token: str):
 
 
 class SendWorkOrderTermSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
     def post(self, request, workorder_id: int) -> JsonResponse:
         workorder: WorkOrder = get_object_or_404(WorkOrder.objects.select_related("budget", "budget__customer", "workshop"), pk=workorder_id, workshop=self.workshop)
         term_template_id = request.POST.get("term_template")

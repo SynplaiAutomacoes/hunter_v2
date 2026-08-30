@@ -34,7 +34,6 @@ class WorkshopTermTemplateForm(CoreModelForm):
             "text_color",
             "muted_color",
             "is_active",
-            "is_default",
             "content_json",
         ]
         widgets = {
@@ -48,7 +47,6 @@ class WorkshopTermTemplateForm(CoreModelForm):
             "muted_color": forms.TextInput(attrs={"type": "color", "class": "h-10 w-16 p-1"}),
             "template_type": forms.Select(attrs={"class": "select select-bordered w-full"}),
             "is_active": forms.CheckboxInput(attrs={"class": "toggle toggle-primary"}),
-            "is_default": forms.CheckboxInput(attrs={"class": "toggle toggle-primary"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -83,8 +81,7 @@ class WorkshopTermTemplateForm(CoreModelForm):
                 css_class="grid grid-cols-12 gap-4 mt-4",
             ),
             Div(
-                Field("is_active", wrapper_class="col-span-6"),
-                Field("is_default", wrapper_class="col-span-6"),
+                Field("is_active", wrapper_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4 mt-4",
             ),
             Field("content_json"),
