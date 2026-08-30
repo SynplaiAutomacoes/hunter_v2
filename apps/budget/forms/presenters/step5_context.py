@@ -15,10 +15,12 @@ class Step5PricingContext:
     custo_servico_terceiros: Money
     custo_hora_mecanico: Money
     custo_total_mao_obra: Money
+    custo_efetivo_mao_obra: Money
     duracao_total: str
     venda_servico_terceiros: Money
     venda_pecas: Money
     venda_mao_obra: Money
+    venda_mao_obra_base: Money
     metodo_precificacao: str
     lucro_operacional: Money
     rentabilidade: Decimal
@@ -64,6 +66,19 @@ def build_step5_context(budget) -> Step5PricingContext:
         custo_servico_terceiros += Money(benefit_tp_agg, "BRL")
 
     custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
+    custo_frete_mao_obra = sum(
+        (line.shipping for line in budget.pricing_snapshot.service_lines if not line.third_party),
+        zerado,
+    )
+    benefit_labor_shipping = (
+        BudgetItem.objects.filter(
+            budget=budget,
+            item_benefit_type__in=("warranty", "courtesy"),
+            service__is_third_party=False,
+        ).aggregate(total=Sum(F("service_shipping") * F("quantity")))["total"]
+        or Decimal("0")
+    )
+    custo_frete_mao_obra += Money(benefit_labor_shipping, "BRL")
 
     snapshot_total_td = budget.total_duration or timedelta()
 
@@ -86,10 +101,12 @@ def build_step5_context(budget) -> Step5PricingContext:
 
     duracao_em_horas = Decimal(total_td.total_seconds()) / Decimal(3600)
     custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
+    custo_efetivo_mao_obra = custo_total_mao_obra + custo_frete_mao_obra
 
     venda_servico_terceiros = budget.display_total_third_party_by_slider
     venda_pecas = budget.display_total_products_by_slider
     venda_mao_obra = budget.display_total_services_by_slider - venda_servico_terceiros
+    venda_mao_obra_base = budget.pricing_snapshot.total_labor_selling_value + custo_frete_mao_obra
 
     metodo_precificacao = dados.get("method_name") or ""
     lucro_operacional = dados.get("lucro_operacional") or zerado
@@ -126,10 +143,12 @@ def build_step5_context(budget) -> Step5PricingContext:
         custo_servico_terceiros=custo_servico_terceiros,
         custo_hora_mecanico=custo_hora_mecanico,
         custo_total_mao_obra=custo_total_mao_obra,
+        custo_efetivo_mao_obra=custo_efetivo_mao_obra,
         duracao_total=duracao_total,
         venda_servico_terceiros=venda_servico_terceiros,
         venda_pecas=venda_pecas,
         venda_mao_obra=venda_mao_obra,
+        venda_mao_obra_base=venda_mao_obra_base,
         metodo_precificacao=metodo_precificacao,
         lucro_operacional=lucro_operacional,
         rentabilidade=rentabilidade,

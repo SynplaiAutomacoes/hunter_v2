@@ -415,6 +415,11 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 const vendaMOEl = document.getElementById('display-venda-mo');
                         
                                 if (!slider || !vendaPecaEl || !vendaMOEl) return;
+                                // HTMX updates the displayed values after persisting the slider.
+                                // Do not bind/recalculate the same input again, otherwise its
+                                // already-adjusted response is treated as a new base value.
+                                if (slider.dataset.step5SliderBound === 'true') return;
+                                slider.dataset.step5SliderBound = 'true';
                         
                                 const originPeca = parseFloat(vendaPecaEl.dataset.baseVal) || 0;
                                 const originMO = parseFloat(vendaMOEl.dataset.baseVal) || 0;
