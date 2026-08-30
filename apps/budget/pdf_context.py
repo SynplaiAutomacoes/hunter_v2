@@ -10,10 +10,7 @@ from djmoney.money import Money
 from apps.budget.pricing import (
     _distribute_money_by_weights,
     _distribute_totals,
-    _is_better_service_source,
-    _is_better_source,
     format_duration_display,
-    kit_component_winning_item_ids,
     money_div,
     money_from_decimal,
     zero_money,
