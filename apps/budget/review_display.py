@@ -173,18 +173,6 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
         elif contribution.third_party_raw_total.amount > 0:
             contribution.third_party_raw_total += residual
 
-    # The kit stores the quoted service total on its parent item. Child service
-    # prices can differ by a few cents after historical rounding, so preserve
-    # the parent total used by Step 5 and distribute any residual downstream.
-    quoted_services_total = item.service_selling_price * quantity
-    detailed_services_total = contribution.labor_raw_total + contribution.third_party_raw_total
-    residual = quoted_services_total - detailed_services_total
-    if residual.amount:
-        if contribution.labor_raw_total.amount > 0:
-            contribution.labor_raw_total += residual
-        elif contribution.third_party_raw_total.amount > 0:
-            contribution.third_party_raw_total += residual
-
     return contribution
 
 

@@ -18,9 +18,6 @@ from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
 from apps.core.infrastructure.pdf import render_pdf_from_html
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.infrastructure.providers import get_signature_service
-from apps.core.infrastructure.services.dashboard_query_service import (
-    _prepare_budget_for_dashboard_pricing,
-)
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -31,7 +28,7 @@ BASE_PDF_VARIANT = "base"
 
 
 def _budget_pdf_queryset():
-    return Budget.objects.select_related("customer", "vehicle", "workshop").prefetch_related(
+    return Budget.objects.select_related("customer", "vehicle", "workshop", "workshop__webmania_company").prefetch_related(
         budget_items_with_kit_prefetch(with_kit_tree=True),
         "collaborators",
     )
@@ -43,10 +40,7 @@ def _get_budget_for_pdf(*, pk: int, workshop) -> Budget:
 
 
 def _prepare_budget_for_pdf_pricing(budget: Budget) -> Budget:
-    # Manager PDFs expose costs, profit, profitability and markup, so their
-    # pricing must use the budget's own frozen Step 5 reference. Injecting the
-    # current month's dashboard context would change historical results.
-    _prepare_budget_for_dashboard_pricing(budget, for_totals_only=False)
+    budget.get_frozen_pricing_context()
     return budget
 
 
@@ -158,6 +152,9 @@ def visualizar_pdf_checklist(request, pk):
 
     workshop_header = {
         "name": workshop.pdf_name,
+        "nome_fantasia": workshop.nome_fantasia_display,
+        "razao_social": workshop.razao_social_display,
+        "cnpj": workshop.cnpj or "-",
         "address": workshop.address or "-",
         "cep_city": workshop_cep_city,
         "phone": workshop.pdf_phone,

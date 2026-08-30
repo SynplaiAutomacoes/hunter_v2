@@ -1,6 +1,5 @@
 from django import forms
 from django.template.loader import render_to_string
-from djmoney.money import Money
 
 from apps.catalog.product_issues import annotate_product_issues
 from apps.budget.item_origin import (
@@ -11,7 +10,7 @@ from apps.budget.item_origin import (
     origin_badge_for_item,
 )
 from apps.budget.pdf_context import _explode_kit_product_rows, _explode_kit_service_rows
-from apps.budget.pricing import kit_component_winning_item_ids, zero_money
+from apps.budget.pricing import kit_component_winning_item_ids
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
@@ -85,14 +84,6 @@ def _get_budget_with_prefetched_items(budget):
     setattr(prefetched_budget, "_items_prefetched_for_render", True)
     setattr(prefetched_budget, "_read_only_pricing_context", True)
     return prefetched_budget
-
-
-def _money_or_zero(value) -> Money:
-    if value is None:
-        return zero_money()
-    if isinstance(value, Money):
-        return value
-    return Money(value, "BRL")
 
 
 def _render_budget_item_row(*, template_name: str, item, budget, step6: bool, origin_badge: str, extra: dict | None = None) -> str:
@@ -229,81 +220,24 @@ def _render_budget_items_rows(budget, step6=False):
                         setattr(item, "has_invalid_ncm", False)
 
             avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
-            review_display = build_budget_review_display(budget=budget_for_render)
-            winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget_for_render.items.all()))
-
             for item in budget_for_render.items.all():
                 item_type = _budget_item_type(item)
+                context = {
+                    "item": item,
+                    "budget": budget_for_render,
+                    "is_full_render": True,
+                    "step6": False,
+                    "origin_badge": avulso_badge,
+                    "show_kit_duplicate_warning": False if is_locked else bool(((item.product_id and item.product_id in kit_product_ids) or (item.service_id and item.service_id in kit_service_ids)) and not item.is_local),
+                }
+
                 if item_type == "product":
-                    rows["product"] += _render_budget_item_row(
-                        template_name="budget/partials/items/item_product_row.html",
-                        item=item,
-                        budget=budget_for_render,
-                        step6=False,
-                        origin_badge=avulso_badge,
-                        extra={
-                            "show_kit_duplicate_warning": False
-                            if is_locked
-                            else bool((item.product_id and item.product_id in kit_product_ids) and not item.is_local),
-                        },
-                    )
+                    rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
                 elif item_type == "service":
-                    rows["service"] += _render_budget_item_row(
-                        template_name="budget/partials/items/item_service_row.html",
-                        item=item,
-                        budget=budget_for_render,
-                        step6=False,
-                        origin_badge=avulso_badge,
-                        extra={
-                            "show_kit_duplicate_warning": False
-                            if is_locked
-                            else bool((item.service_id and item.service_id in kit_service_ids) and not item.is_local),
-                            "service_mechanic_cost": calculate_mechanic_service_cost(
-                                budget=budget_for_render,
-                                duration=item.duration,
-                                fallback_cost=item.service_cost_price,
-                            ),
-                        },
-                    )
-
-            for line in review_display.kits:
-                kit_item = line.item
-                _label, kit_badge, _is_kit = origin_badge_for_item(item=kit_item)
-
-                for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
-                    if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
-                        continue
-                    component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
-                    rows["product"] += _render_budget_item_row(
-                        template_name="budget/partials/items/item_product_row.html",
-                        item=component,
-                        budget=budget_for_render,
-                        step6=False,
-                        origin_badge=kit_badge,
-                        extra={"is_kit_component": True},
-                    )
-
-                for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-                    if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
-                        continue
-                    component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
-                    rows["service"] += _render_budget_item_row(
-                        template_name="budget/partials/items/item_service_row.html",
-                        item=component,
-                        budget=budget_for_render,
-                        step6=False,
-                        origin_badge=kit_badge,
-                        extra={
-                            "is_kit_component": True,
-                            "duration_display": exploded.get("duration_display"),
-                            "service_mechanic_cost": _money_or_zero(exploded.get("service_mechanic_cost_price")),
-                        },
-                    )
-
-            for item in budget_for_render.items.all():
-                if _budget_item_type(item) != "kit":
-                    continue
-                rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", {"item": item, "budget": budget_for_render, "is_full_render": True, "step6": False})
+                    context["service_mechanic_cost"] = calculate_mechanic_service_cost(budget=budget_for_render, duration=item.duration, fallback_cost=item.service_cost_price)
+                    rows["service"] += render_to_string("budget/partials/items/item_service_row.html", context)
+                elif item_type == "kit":
+                    rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", context)
 
     placeholders = _empty_rows(step6=step6)
     for key, placeholder in placeholders.items():

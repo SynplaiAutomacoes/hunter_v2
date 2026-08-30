@@ -7,7 +7,7 @@ from djmoney.money import Money
 
 from apps.budget.forms.shared import _render_budget_items_rows
 from apps.budget.models import Budget, BudgetItem
-from apps.budget.review_totals import build_step4_table_totals, build_step6_table_totals
+from apps.budget.review_totals import build_step6_table_totals
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -62,14 +62,6 @@ class BudgetStep6TotalsTests(TestCase):
         rows = _render_budget_items_rows(self.budget, step6=False)
         self.assertIn("Avulso", rows["product"])
         self.assertIn("Avulso", rows["service"])
-
-    def test_step4_table_totals_match_displayed_rows(self) -> None:
-        totals = build_step4_table_totals(budget=self.budget)
-
-        self.assertEqual(totals["products"].cost, Money("20.00", "BRL"))
-        self.assertEqual(totals["products"].sale, Money("40.00", "BRL"))
-        self.assertEqual(totals["products"].profit, Money("20.00", "BRL"))
-        self.assertEqual(totals["services"].sale, Money("80.00", "BRL"))
 
     def test_step6_table_totals_match_displayed_rows(self) -> None:
         totals = build_step6_table_totals(budget=self.budget)

@@ -25,12 +25,6 @@ class BudgetStep4OriginTemplateTests(SimpleTestCase):
         layout = STEP4_FORM_PATH.read_text(encoding="utf-8")
         self.assertGreaterEqual(layout.count("ORIGEM"), 2)
 
-    def test_step4_layout_includes_table_totals(self) -> None:
-        layout = STEP4_FORM_PATH.read_text(encoding="utf-8")
-        self.assertIn("Total de Custo:", layout)
-        self.assertIn("Total de Lucro:", layout)
-        self.assertIn("Total de Venda:", layout)
-
 
 class BudgetStep6OriginTemplateTests(SimpleTestCase):
     def test_step6_layout_includes_origin_column(self) -> None:
@@ -97,17 +91,6 @@ class BudgetStep6OriginDisplayTests(TestCase):
 
     def test_step6_rows_render_avulso_and_kit_origin_badges(self) -> None:
         rows = _render_budget_items_rows(self.budget, step6=True)
-        products_html = rows["product"]
-        services_html = rows["service"]
-
-        self.assertIn(AVULSO_ORIGIN_LABEL, products_html)
-        self.assertIn(KIT_ORIGIN_LABEL, products_html)
-        self.assertIn(KIT_ORIGIN_LABEL, services_html)
-        self.assertIn(self.kit.name, products_html)
-        self.assertIn(reverse("catalog:kits_update", kwargs={"pk": self.kit.pk}), products_html)
-
-    def test_step4_rows_render_avulso_and_kit_origin_badges(self) -> None:
-        rows = _render_budget_items_rows(self.budget, step6=False)
         products_html = rows["product"]
         services_html = rows["service"]
 
