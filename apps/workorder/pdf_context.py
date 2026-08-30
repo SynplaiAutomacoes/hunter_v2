@@ -141,6 +141,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         return "normal"
 
     def _should_include_in_pdf(line) -> bool:
+        if line.kind == "service":
+            return True
         if is_visible_pdf_pricing_line(line):
             return True
         if _benefit_type(line) != "normal":

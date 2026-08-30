@@ -10,6 +10,8 @@ from djmoney.money import Money
 from apps.budget.pricing import (
     _distribute_money_by_weights,
     _distribute_totals,
+    _is_better_service_source,
+    _is_better_source,
     format_duration_display,
     money_div,
     money_from_decimal,
@@ -38,10 +40,8 @@ def resolve_pdf_opened_by_name(*users: Any) -> str:
 
 
 def is_visible_pdf_pricing_line(line: Any) -> bool:
-    """Treat a zero-quantity or zero-priced budget line as removed from every PDF."""
-    if line.quantity <= 0:
-        return False
-    return line.raw_total.amount > _ZERO_DECIMAL
+    """Treat a zero-quantity budget line as removed from every PDF."""
+    return line.quantity > 0
 
 
 def _build_pdf_pages(produtos: list[dict], servicos: list[dict], kits: list[dict]) -> list[dict]:
@@ -87,56 +87,57 @@ def _duration_seconds(duration: timedelta | None) -> int:
     return int((duration or timedelta()).total_seconds())
 
 
+def _pdf_row_total(row: dict) -> Money:
+    return row.get("total_price") or zero_money()
+
+
+def _keep_better_selected_row(existing: dict, candidate: dict) -> dict:
+    winner = dict(candidate) if _is_better_source(
+        candidate_quantity=int(candidate.get("quantity") or 0),
+        candidate_total=_pdf_row_total(candidate),
+        current_quantity=int(existing.get("quantity") or 0),
+        current_total=_pdf_row_total(existing),
+    ) else existing
+    winner["show_kit_duplicate_warning"] = bool(existing.get("show_kit_duplicate_warning") or candidate.get("show_kit_duplicate_warning"))
+    return winner
+
+
+def _keep_better_selected_service_row(existing: dict, candidate: dict) -> dict:
+    winner = dict(candidate) if _is_better_service_source(
+        candidate_duration=timedelta(seconds=int(candidate.get("_duration_seconds") or 0)),
+        candidate_total=_pdf_row_total(candidate),
+        current_duration=timedelta(seconds=int(existing.get("_duration_seconds") or 0)),
+        current_total=_pdf_row_total(existing),
+    ) else existing
+    winner["show_kit_duplicate_warning"] = bool(existing.get("show_kit_duplicate_warning") or candidate.get("show_kit_duplicate_warning"))
+    return winner
+
+
 def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
-    merged_rows: dict[tuple[object, str, bool], dict] = {}
+    merged_rows: dict[tuple[object, bool], dict] = {}
     for row in produtos:
-        key = (row.get("id"), str(row.get("description") or ""), bool(row.get("is_customer_supplied")))
+        key = (row.get("id"), bool(row.get("is_customer_supplied"))) if row.get("id") is not None else (None, bool(row.get("is_customer_supplied")))
         existing = merged_rows.get(key)
         if existing is None:
             merged_rows[key] = dict(row)
             continue
-
-        existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
-        existing["shipping"] = existing.get("shipping", Money(0, "BRL")) + row.get("shipping", Money(0, "BRL"))
-        existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
-        existing["product_cost_price"] = existing.get("product_cost_price", Money(0, "BRL")) + row.get("product_cost_price", Money(0, "BRL"))
-        existing["profit_value"] = existing.get("profit_value", Money(0, "BRL")) + row.get("profit_value", Money(0, "BRL"))
-        existing["show_kit_duplicate_warning"] = bool(existing.get("show_kit_duplicate_warning") or row.get("show_kit_duplicate_warning"))
-
-        quantity = int(existing.get("quantity") or 0)
-        if quantity > 0:
-            unit_price = money_div(existing["total_price"] - existing["shipping"], quantity)
-            existing["unit_price"] = unit_price
-            existing["adjusted_unit_price"] = unit_price
-            existing["display_unit_price"] = money_div(existing["total_price"], quantity)
+        merged_rows[key] = _keep_better_selected_row(existing, row)
 
     return list(merged_rows.values())
 
 
 def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
-    merged_rows: dict[tuple[object, str], dict] = {}
+    merged_rows: dict[object, dict] = {}
     for row in servicos:
-        key = (row.get("id"), str(row.get("description") or ""))
+        key = row.get("id") if row.get("id") is not None else str(row.get("description") or "")
         existing = merged_rows.get(key)
         if existing is None:
             merged_rows[key] = dict(row)
             continue
-
-        existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
-        existing["shipping"] = existing.get("shipping", Money(0, "BRL")) + row.get("shipping", Money(0, "BRL"))
-        existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
-        existing["service_cost_price"] = existing.get("service_cost_price", Money(0, "BRL")) + row.get("service_cost_price", Money(0, "BRL"))
-        existing["service_mechanic_cost_price"] = existing.get("service_mechanic_cost_price", Money(0, "BRL")) + row.get("service_mechanic_cost_price", Money(0, "BRL"))
-        existing["profit_value"] = existing.get("profit_value", Money(0, "BRL")) + row.get("profit_value", Money(0, "BRL"))
-        existing["_duration_seconds"] = int(existing.get("_duration_seconds") or 0) + int(row.get("_duration_seconds") or 0)
-
-        quantity = int(existing.get("quantity") or 0)
-        if quantity > 0:
-            existing["unit_price"] = money_div(existing["total_price"], quantity)
-            existing["display_unit_price"] = money_div(existing["total_price"], quantity)
+        merged_rows[key] = _keep_better_selected_service_row(existing, row)
 
     for row in merged_rows.values():
-        row["duration_display"] = format_duration_display(timedelta(seconds=int(row.get("_duration_seconds", 0) or 0)))
+        row["duration_display"] = format_duration_display(timedelta(seconds=int(row.pop("_duration_seconds", 0) or 0)))
 
     return list(merged_rows.values())
 
@@ -368,6 +369,10 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
+def resolve_expected_delivery_at(*, budget):
+    return budget.customer_agreed_departure_at or budget.service_expected_completion_at
+
+
 def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
 
@@ -530,6 +535,11 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         kits = []
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
+    expected_delivery_at = resolve_expected_delivery_at(budget=budget)
+    opened_by_name = resolve_pdf_opened_by_name(
+        getattr(budget, "created_by", None),
+        getattr(budget, "cost_estimator", None),
+    )
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_shipping_value = sum((line["shipping"] for line in servicos), Money(0, "BRL"))
@@ -585,5 +595,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "warranty_message": warranty_message,
         "workshop_logo_data_uri": workshop_logo_data_uri,
         "budget_rentability": rentability,
+        "expected_delivery_at": expected_delivery_at,
+        "document_title": "ORÇAMENTO",
+        "opened_by_name": opened_by_name,
         "request": request,
     }
