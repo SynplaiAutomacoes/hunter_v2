@@ -10,6 +10,8 @@ from django.db.models import F, Sum
 @dataclass
 class Step5PricingContext:
     custo_pecas: Money
+    custo_pecas_sem_frete: Money
+    custo_pecas_efetivo: Money
     custo_frete_pecas: Money
     custo_frete_servicos: Money
     custo_servico_terceiros: Money
@@ -48,8 +50,10 @@ def build_step5_context(budget) -> Step5PricingContext:
 
     zerado = Money(0, "BRL")
 
-    custo_pecas = budget.total_costs_products_value + budget.total_benefit_products_cost
+    custo_pecas_sem_frete = budget.total_costs_products_value + budget.total_benefit_products_cost
     custo_frete_pecas = budget.total_cost_products_shipping
+    custo_pecas = custo_pecas_sem_frete
+    custo_pecas_efetivo = custo_pecas_sem_frete + custo_frete_pecas
     custo_frete_servicos = budget.total_cost_services_shipping
     custo_servico_terceiros = budget.total_third_party_services_cost
 
@@ -138,6 +142,8 @@ def build_step5_context(budget) -> Step5PricingContext:
 
     return Step5PricingContext(
         custo_pecas=custo_pecas,
+        custo_pecas_sem_frete=custo_pecas_sem_frete,
+        custo_pecas_efetivo=custo_pecas_efetivo,
         custo_frete_pecas=custo_frete_pecas,
         custo_frete_servicos=custo_frete_servicos,
         custo_servico_terceiros=custo_servico_terceiros,
