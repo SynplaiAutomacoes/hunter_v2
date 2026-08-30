@@ -13,10 +13,82 @@ from apps.budget.service_costs import calculate_mechanic_service_cost
 
 
 @dataclass(frozen=True, slots=True)
-class Step6TableTotals:
+class BudgetTableTotals:
     cost: Money
     sale: Money
     profit: Money
+
+
+Step6TableTotals = BudgetTableTotals
+
+
+def _step4_product_row_totals(*, item: Any) -> BudgetTableTotals:
+    cost = _product_row_cost(item=item)
+    sale = _money(getattr(item, "display_total_price", None) or getattr(item, "total_price", None))
+    profit = _product_row_profit(item=item, sale=sale, cost=cost)
+    return BudgetTableTotals(cost=cost, sale=sale, profit=profit)
+
+
+def _step4_service_row_totals(*, budget: Any, item: Any, mechanic_cost: Money | None = None) -> BudgetTableTotals:
+    cost = _service_row_cost(budget=budget, item=item, mechanic_cost=mechanic_cost)
+    sale = _money(getattr(item, "display_total_price", None) or getattr(item, "total_price", None))
+    profit = _service_row_profit(item=item, sale=sale, cost=cost)
+    return BudgetTableTotals(cost=cost, sale=sale, profit=profit)
+
+
+def _accumulate_totals(*, target: BudgetTableTotals, row: BudgetTableTotals) -> BudgetTableTotals:
+    return BudgetTableTotals(
+        cost=target.cost + row.cost,
+        sale=target.sale + row.sale,
+        profit=target.profit + row.profit,
+    )
+
+
+def build_step4_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
+    from apps.budget.forms.shared import _budget_item_type
+
+    review_display = build_budget_review_display(budget=budget)
+    products = BudgetTableTotals(cost=zero_money(), sale=zero_money(), profit=zero_money())
+    services = BudgetTableTotals(cost=zero_money(), sale=zero_money(), profit=zero_money())
+
+    for item in budget.items.all():
+        item_type = _budget_item_type(item)
+        if item_type == "product":
+            products = _accumulate_totals(target=products, row=_step4_product_row_totals(item=item))
+        elif item_type == "service":
+            mechanic_cost = calculate_mechanic_service_cost(
+                budget=budget,
+                duration=item.duration,
+                fallback_cost=item.service_cost_price,
+            )
+            services = _accumulate_totals(
+                target=services,
+                row=_step4_service_row_totals(budget=budget, item=item, mechanic_cost=mechanic_cost),
+            )
+
+    winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
+    for line in review_display.kits:
+        kit_item = line.item
+        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+            if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                continue
+            component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
+            products = _accumulate_totals(target=products, row=_step4_product_row_totals(item=component))
+
+        for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
+            if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                continue
+            component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
+            services = _accumulate_totals(
+                target=services,
+                row=_step4_service_row_totals(
+                    budget=budget,
+                    item=component,
+                    mechanic_cost=_money(exploded.get("service_mechanic_cost_price")),
+                ),
+            )
+
+    return {"products": products, "services": services}
 
 
 def _money(value: Money | None) -> Money:
@@ -77,11 +149,9 @@ def _service_row_profit(*, item: Any, sale: Money, cost: Money) -> Money:
     return sale - shipping - cost
 
 
-def build_step6_table_totals(*, budget: Any) -> dict[str, Step6TableTotals]:
+def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
     review_display = build_budget_review_display(budget=budget)
-    product_cost = zero_money()
-    product_sale = zero_money()
-    product_profit = zero_money()
+    products = BudgetTableTotals(cost=zero_money(), sale=zero_money(), profit=zero_money())
     service_cost = zero_money()
     service_sale = zero_money()
     service_profit = zero_money()
@@ -90,9 +160,14 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, Step6TableTotals]:
         item = line.item
         row_cost = _product_row_cost(item=item)
         row_sale = _product_row_sale(line=line, budget=budget)
-        product_cost += row_cost
-        product_sale += row_sale
-        product_profit += _product_row_profit(item=item, sale=row_sale, cost=row_cost)
+        products = _accumulate_totals(
+            target=products,
+            row=BudgetTableTotals(
+                cost=row_cost,
+                sale=row_sale,
+                profit=_product_row_profit(item=item, sale=row_sale, cost=row_cost),
+            ),
+        )
 
     for line in review_display.direct_services:
         item = line.item
@@ -111,9 +186,14 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, Step6TableTotals]:
             component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
             row_cost = _money(exploded.get("product_cost_price"))
             row_sale = _money(exploded.get("total_price"))
-            product_cost += row_cost
-            product_sale += row_sale
-            product_profit += _product_row_profit(item=component, sale=row_sale, cost=row_cost)
+            products = _accumulate_totals(
+                target=products,
+                row=BudgetTableTotals(
+                    cost=row_cost,
+                    sale=row_sale,
+                    profit=_product_row_profit(item=component, sale=row_sale, cost=row_cost),
+                ),
+            )
 
         for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
             if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
@@ -126,6 +206,6 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, Step6TableTotals]:
             service_profit += _service_row_profit(item=component, sale=row_sale, cost=row_cost)
 
     return {
-        "products": Step6TableTotals(cost=product_cost, sale=product_sale, profit=product_profit),
-        "services": Step6TableTotals(cost=service_cost, sale=service_sale, profit=service_profit),
+        "products": products,
+        "services": BudgetTableTotals(cost=service_cost, sale=service_sale, profit=service_profit),
     }

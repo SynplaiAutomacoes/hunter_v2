@@ -171,6 +171,106 @@ class CommissionAllocationSyncTests(TestCase):
         self.assertEqual(errors["sum"], [])
 
 
+class CommissionAllocationValidationTests(TestCase):
+    def test_validate_ignores_stale_allocations_without_participation_rule(self) -> None:
+        workshop = create_workshop(suffix=96)
+        collaborator_product = create_collaborator(workshop=workshop, suffix=96)
+        collaborator_service = create_collaborator(workshop=workshop, suffix=97)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.DRAFT)
+        workorder.collaborators.set([collaborator_product, collaborator_service])
+        create_participation_rule(
+            collaborator=collaborator_product,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            percentage=Decimal("0.100000"),
+        )
+        create_participation_rule(
+            collaborator=collaborator_service,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            percentage=Decimal("0.060000"),
+        )
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator_product,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            distribution_percentage=Decimal("0.500000"),
+        )
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator_service,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            distribution_percentage=Decimal("0.500000"),
+        )
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator_service,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            distribution_percentage=Decimal("1.000000"),
+        )
+
+        product_errors = CommissionAllocationService.validate(
+            workorder=workorder,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+        )
+        service_errors = CommissionAllocationService.validate(
+            workorder=workorder,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+        )
+
+        self.assertEqual(product_errors["sum"], [])
+        self.assertEqual(service_errors["sum"], [])
+
+    def test_sync_removes_allocations_without_participation_rule(self) -> None:
+        workshop = create_workshop(suffix=98)
+        collaborator_product = create_collaborator(workshop=workshop, suffix=98)
+        collaborator_service = create_collaborator(workshop=workshop, suffix=99)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.DRAFT)
+        workorder.collaborators.set([collaborator_product, collaborator_service])
+        create_participation_rule(
+            collaborator=collaborator_product,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            percentage=Decimal("0.100000"),
+        )
+        create_participation_rule(
+            collaborator=collaborator_service,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            percentage=Decimal("0.060000"),
+        )
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator_product,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            distribution_percentage=Decimal("0.500000"),
+        )
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator_service,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            distribution_percentage=Decimal("0.500000"),
+        )
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator_service,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            distribution_percentage=Decimal("1.000000"),
+        )
+
+        CommissionAllocationService.sync_for_workorder(workorder=workorder)
+
+        self.assertFalse(
+            WorkOrderCommissionAllocation.objects.filter(
+                workorder=workorder,
+                collaborator=collaborator_service,
+                scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            ).exists()
+        )
+        service_allocation = WorkOrderCommissionAllocation.objects.get(
+            workorder=workorder,
+            collaborator=collaborator_service,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+        )
+        self.assertEqual(service_allocation.distribution_percentage, Decimal("0.500000"))
+
+
 class CommissionScopeTogglePersistenceTests(TestCase):
     def test_saving_service_only_does_not_create_inactive_product_rule(self) -> None:
         workshop = create_workshop(suffix=89)
