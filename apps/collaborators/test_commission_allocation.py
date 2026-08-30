@@ -289,3 +289,40 @@ class WorkOrderCommissionPoolSectionTests(TestCase):
         self.assertFalse(context["commission_is_sale"])
         self.assertEqual(pool["pool_S"], Money("0.00", "BRL"))
         self.assertEqual(pool["rows"][0]["preview_amount"], Money("0.00", "BRL"))
+
+
+class CommissionPoolScopeSumTests(TestCase):
+    @patch("apps.collaborators.commission.calculators.calculate_total_for_scope", return_value=Decimal("100.00"))
+    def test_product_and_service_base_sums_are_independent(self, _mock_total: object) -> None:
+        workshop = create_workshop(suffix=95)
+        collaborator = create_collaborator(workshop=workshop, suffix=95)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.DRAFT)
+        workorder.collaborators.set([collaborator])
+        create_participation_rule(
+            collaborator=collaborator,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            percentage=Decimal("0.100000"),
+        )
+        create_participation_rule(
+            collaborator=collaborator,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            percentage=Decimal("0.100000"),
+        )
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            distribution_percentage=Decimal("0.600000"),
+        )
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            distribution_percentage=Decimal("0.400000"),
+        )
+
+        product_pool = _build_pool_scope_context(workorder=workorder, scope=CollaboratorCommissionRule.Scope.PRODUCT)
+        service_pool = _build_pool_scope_context(workorder=workorder, scope=CollaboratorCommissionRule.Scope.SERVICE)
+
+        self.assertEqual(product_pool["sum_base_pct"], Decimal("0.600000"))
+        self.assertEqual(service_pool["sum_base_pct"], Decimal("0.400000"))

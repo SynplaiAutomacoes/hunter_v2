@@ -90,6 +90,8 @@ class WorkOrderCollaboratorsAutosaveTemplateTests(SimpleTestCase):
         self.assertIn('id="workorder-collaborators-form"', collaborators)
         self.assertIn('data-collaborators-autosave="1"', collaborators)
         self.assertIn("submit, collaborator-list-changed", collaborators)
+        self.assertIn('name="next"', collaborators)
+        self.assertIn("requestSubmit", collaborators)
         self.assertNotIn("Salvar colaboradores", collaborators)
 
     def test_collaborator_field_dispatches_autosave_and_hides_selected(self) -> None:

@@ -14,7 +14,7 @@
 
     {% for pool in pool_sections %}
         {% with scope=pool.scope scope_label=pool.scope_label %}
-        <div class="rounded-xl border border-base-200 p-4">
+        <div class="rounded-xl border border-base-200 p-4" data-commission-pool-scope="{{ scope }}">
             <div class="flex items-center justify-between mb-3">
                 <h5 class="font-semibold text-base">{{ scope_label }}</h5>
                 <span class="text-sm">Total máximo de comissão percentual à distribuir: <strong>{{ pool.pool_S }}</strong></span>
@@ -91,6 +91,9 @@
             } catch(e){}
         });
         function checkSumForPool(poolEl){
+            if (!poolEl || !poolEl.hasAttribute('data-commission-pool-scope')) {
+                return;
+            }
             const inputs = poolEl.querySelectorAll('input[x-ref="display"]');
             let sum = 0;
             inputs.forEach(function(inp){
@@ -125,11 +128,11 @@
         section.addEventListener('input', function(e){
             const input = e.target.closest('input[x-ref="display"]');
             if (!input) return;
-            const poolEl = input.closest('.rounded-xl.border');
+            const poolEl = input.closest('[data-commission-pool-scope]');
             if (poolEl) checkSumForPool(poolEl);
         });
         // Inicial: verificar soma ao carregar (caso DB já tenha soma>100)
-        section.querySelectorAll('.rounded-xl.border').forEach(function(poolEl){
+        section.querySelectorAll('[data-commission-pool-scope]').forEach(function(poolEl){
             checkSumForPool(poolEl);
         });
     })();

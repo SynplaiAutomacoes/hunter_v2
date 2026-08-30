@@ -56,8 +56,9 @@
             }
             event.preventDefault();
             event.stopPropagation();
+            const targetUrl = match[1];
             if (form.getAttribute('data-status-locked') === '1') {
-                window.location.href = match[1];
+                window.location.href = targetUrl;
                 return;
             }
             let input = form.querySelector('input[name="next"][data-stepper-next="1"]');
@@ -68,8 +69,20 @@
                 input.setAttribute('data-stepper-next', '1');
                 form.appendChild(input);
             }
-            input.value = match[1];
-            form.dispatchEvent(new Event('collaborator-list-changed', { bubbles: true }));
+            input.value = targetUrl;
+            const submitter = document.createElement('button');
+            submitter.type = 'submit';
+            submitter.name = 'next';
+            submitter.value = targetUrl;
+            submitter.hidden = true;
+            submitter.setAttribute('data-stepper-next', '1');
+            form.appendChild(submitter);
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit(submitter);
+            } else {
+                submitter.click();
+            }
+            submitter.remove();
         }, true);
     })();
 </script>
