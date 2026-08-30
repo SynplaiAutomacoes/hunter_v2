@@ -2,6 +2,15 @@ def build_step6_assets_html() -> str:
     return """
                 <style>
                     .table-fixed { table-layout: fixed; }
+                    .origin-cell {
+                        overflow: visible;
+                        vertical-align: middle;
+                        white-space: nowrap;
+                    }
+                    .budget-step4-table .origin-cell .badge,
+                    .table-fixed .origin-cell .badge {
+                        max-width: 100%;
+                    }
                 </style>
                 <script>
                     window.budgetPdfCacheVersion = Date.now().toString();

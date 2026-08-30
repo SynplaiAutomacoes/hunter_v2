@@ -49,6 +49,12 @@ class BudgetStep4Form(BudgetStepBaseForm):
                         width: 3.25rem;
                     }
 
+                    .budget-step4-table .origin-cell {
+                        overflow: visible;
+                        vertical-align: middle;
+                        white-space: nowrap;
+                    }
+
                     .budget-step4-table thead th {
                         font-size: 0.80rem;
                     }
@@ -109,6 +115,7 @@ class BudgetStep4Form(BudgetStepBaseForm):
                                                        style="border-color: white; color: white;" aria-label="Selecionar todas as peças">
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                                            <th class="w-[8%] text-center">ORIGEM</th>
                                             <th class="w-[12%] text-left">APLICAÇÃO</th>
                                             <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                             <th class="w-[8%] text-center">QTD.</th>
@@ -166,6 +173,7 @@ class BudgetStep4Form(BudgetStepBaseForm):
                                                        style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                                            <th class="w-[8%] text-center">ORIGEM</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
                                             <th class="w-[12%] text-right">VALOR VENDA</th>

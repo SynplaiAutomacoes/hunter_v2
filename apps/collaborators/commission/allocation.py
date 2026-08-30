@@ -55,9 +55,11 @@ class CommissionAllocationService:
         locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
         wo_collaborator_ids = set(locked_workorder.collaborators.values_list("id", flat=True))
 
-        WorkOrderCommissionAllocation.objects.filter(workorder=locked_workorder).exclude(
+        orphan_qs = WorkOrderCommissionAllocation.objects.filter(workorder=locked_workorder).exclude(
             collaborator_id__in=wo_collaborator_ids
-        ).delete()
+        )
+        scopes_with_removed_allocations = set(orphan_qs.values_list("scope", flat=True).distinct())
+        orphan_qs.delete()
 
         for scope in (CollaboratorCommissionRule.Scope.SERVICE, CollaboratorCommissionRule.Scope.PRODUCT):
             eligible_ids = set(
@@ -72,12 +74,20 @@ class CommissionAllocationService:
             eligible_collaborators = list(locked_workorder.collaborators.filter(id__in=eligible_ids).order_by("id"))
             if len(eligible_collaborators) != 1:
                 continue
-            CommissionAllocationService.upsert(
+
+            sole = eligible_collaborators[0]
+            sole_allocation = WorkOrderCommissionAllocation.objects.filter(
                 workorder=locked_workorder,
-                collaborator=eligible_collaborators[0],
                 scope=scope,
-                distribution_percentage=Decimal("1"),
-            )
+                collaborator=sole,
+            ).first()
+            if sole_allocation is None or scope in scopes_with_removed_allocations:
+                CommissionAllocationService.upsert(
+                    workorder=locked_workorder,
+                    collaborator=sole,
+                    scope=scope,
+                    distribution_percentage=Decimal("1"),
+                )
 
     @staticmethod
     def validate(*, workorder: WorkOrder, scope: str) -> dict[str, list[str]]:

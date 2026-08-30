@@ -92,6 +92,28 @@ class CommissionAllocationSyncTests(TestCase):
         )
         self.assertEqual(allocation.distribution_percentage, Decimal("1.000000"))
 
+    def test_sync_does_not_reset_manual_base_for_sole_collaborator(self) -> None:
+        workshop = create_workshop(suffix=94)
+        collaborator = create_collaborator(workshop=workshop, suffix=94)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.DRAFT)
+        workorder.collaborators.set([collaborator])
+        create_participation_rule(collaborator=collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
+        WorkOrderCommissionAllocation.objects.create(
+            workorder=workorder,
+            collaborator=collaborator,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            distribution_percentage=Decimal("0.500000"),
+        )
+
+        CommissionAllocationService.sync_for_workorder(workorder=workorder)
+
+        allocation = WorkOrderCommissionAllocation.objects.get(
+            workorder=workorder,
+            collaborator=collaborator,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+        )
+        self.assertEqual(allocation.distribution_percentage, Decimal("0.500000"))
+
     def test_sync_does_not_force_100_when_multiple_collaborators(self) -> None:
         workshop = create_workshop(suffix=85)
         collaborator_a = create_collaborator(workshop=workshop, suffix=85)

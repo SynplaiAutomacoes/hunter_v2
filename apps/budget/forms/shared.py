@@ -43,8 +43,8 @@ def _budget_item_type(item):
 
 
 def _empty_rows(step6=False):
-    product_colspan = 9 if step6 else 10
-    service_colspan = 7 if step6 else 7
+    product_colspan = 9 if step6 else 11
+    service_colspan = 8 if step6 else 10
     kit_colspan = 5 if step6 else 7
     return {
         "product": f'<tr><td colspan="{product_colspan}" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>',
@@ -219,6 +219,7 @@ def _render_budget_items_rows(budget, step6=False):
                         setattr(item, "excess_quantity", 0)
                         setattr(item, "has_invalid_ncm", False)
 
+            avulso_badge = build_origin_badge(label=AVULSO_ORIGIN_LABEL)
             for item in budget_for_render.items.all():
                 item_type = _budget_item_type(item)
                 context = {
@@ -226,6 +227,7 @@ def _render_budget_items_rows(budget, step6=False):
                     "budget": budget_for_render,
                     "is_full_render": True,
                     "step6": False,
+                    "origin_badge": avulso_badge,
                     "show_kit_duplicate_warning": False if is_locked else bool(((item.product_id and item.product_id in kit_product_ids) or (item.service_id and item.service_id in kit_service_ids)) and not item.is_local),
                 }
 

@@ -1,5 +1,6 @@
 # ruff: noqa: F403,F405
 from apps.budget.forms.steps.common import *
+from apps.budget.review_totals import build_step6_table_totals
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,6 +54,12 @@ class Step6ReviewContext:
     blocked_reopen: bool
     products_html: str
     services_html: str
+    products_total_cost_display: str
+    products_total_sale_display: str
+    products_total_profit_display: str
+    services_total_cost_display: str
+    services_total_sale_display: str
+    services_total_profit_display: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +379,11 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
     rows = _render_budget_items_rows(budget, step6=True)
     products_html = rows["product"]
     services_html = rows["service"]
+    table_totals = build_step6_table_totals(budget=budget)
+    from apps.core.templatetags.format_tags import money_br
+
+    products_totals = table_totals["products"]
+    services_totals = table_totals["services"]
 
     return Step6ReviewContext(
         budget=budget,
@@ -421,4 +433,10 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
         blocked_reopen=blocked_reopen,
         products_html=products_html,
         services_html=services_html,
+        products_total_cost_display=money_br(products_totals.cost),
+        products_total_sale_display=money_br(products_totals.sale),
+        products_total_profit_display=money_br(products_totals.profit),
+        services_total_cost_display=money_br(services_totals.cost),
+        services_total_sale_display=money_br(services_totals.sale),
+        services_total_profit_display=money_br(services_totals.profit),
     )

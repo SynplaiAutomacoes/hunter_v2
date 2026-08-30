@@ -72,6 +72,12 @@ def configure_budget_step6_form(form):
     reject_button_class = ctx.reject_button_class
     products_html = ctx.products_html
     services_html = ctx.services_html
+    products_total_cost_display = ctx.products_total_cost_display
+    products_total_sale_display = ctx.products_total_sale_display
+    products_total_profit_display = ctx.products_total_profit_display
+    services_total_cost_display = ctx.services_total_cost_display
+    services_total_sale_display = ctx.services_total_sale_display
+    services_total_profit_display = ctx.services_total_profit_display
 
     has_reopen_permission = bool(
         form.request and form.workshop and has_workshop_perm(
@@ -189,6 +195,11 @@ def configure_budget_step6_form(form):
                                   </tbody>
                                 </table>
                               </div>
+                              <div class="flex flex-wrap justify-end gap-4 px-3 py-2 text-sm font-semibold border-t border-base-300 bg-base-200/40">
+                                <div>Total Custo: {products_total_cost_display}</div>
+                                <div>Total Venda: {products_total_sale_display}</div>
+                                <div>Total Lucro: {products_total_profit_display}</div>
+                              </div>
                             </div>
                             """),
                 ),
@@ -239,6 +250,11 @@ def configure_budget_step6_form(form):
                                             {services_html}
                                         </tbody>
                                     </table>
+                                </div>
+                                <div class="flex flex-wrap justify-end gap-4 px-3 py-2 text-sm font-semibold border-t border-base-300 bg-base-200/40">
+                                    <div>Total Custo: {services_total_cost_display}</div>
+                                    <div>Total Venda: {services_total_sale_display}</div>
+                                    <div>Total Lucro: {services_total_profit_display}</div>
                                 </div>
                             </div>
                             """),

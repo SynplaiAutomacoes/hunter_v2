@@ -17,6 +17,13 @@ from apps.catalog.models.services import Service
 from apps.workshops.models.workshops import Workshop
 
 STEP6_LAYOUT_PATH = Path(__file__).resolve().parent / "forms" / "layouts" / "step6.py"
+STEP4_FORM_PATH = Path(__file__).resolve().parent / "forms" / "steps" / "step4_form.py"
+
+
+class BudgetStep4OriginTemplateTests(SimpleTestCase):
+    def test_step4_layout_includes_origin_column(self) -> None:
+        layout = STEP4_FORM_PATH.read_text(encoding="utf-8")
+        self.assertGreaterEqual(layout.count("ORIGEM"), 2)
 
 
 class BudgetStep6OriginTemplateTests(SimpleTestCase):
