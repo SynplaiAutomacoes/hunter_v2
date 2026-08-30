@@ -4,12 +4,14 @@
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     {% if not step6 %}
     <td class="budget-step4-select-col text-center">
+        {% if not item.is_kit_component %}
         <input
             type="checkbox"
             name="selected_service_items"
             value="{{ item.id|unlocalize }}"
             class="checkbox checkbox-primary checkbox-sm budget-service-select"
         >
+        {% endif %}
     </td>
     {% endif %}
     <td class="budget-step4-description">
@@ -68,6 +70,7 @@
     </td>
     {% if not step6 %}
     <td class="text-center budget-step4-actions">
+        {% if not item.is_kit_component %}
         <div class="flex justify-center items-center gap-1">
             <button type="button"
                     class="btn btn-ghost btn-xs text-info"
@@ -91,6 +94,7 @@
                 <span class="material-icons text-sm">delete</span>
             </button>
         </div>
+        {% endif %}
     </td>
     {% endif %}
 </tr>
