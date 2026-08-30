@@ -245,7 +245,7 @@ def _explode_kit_product_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
     return produtos
 
 
-def _explode_kit_service_rows(*, budget: Any, kit_line, kit_item) -> list[dict[str, Any]]:
+def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
     kit_quantity = kit_item.quantity
     labor_entries: list[tuple[Any, int, Money, Money]] = []
     third_party_entries: list[tuple[Any, int]] = []
@@ -477,7 +477,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             kit_item = line.item
             kit_quantity = kit_item.quantity
             produtos.extend(_explode_kit_product_rows(kit_line=line, kit_item=kit_item))
-            servicos.extend(_explode_kit_service_rows(budget=budget, kit_line=line, kit_item=kit_item))
+            servicos.extend(_explode_kit_service_rows(kit_line=line, kit_item=kit_item))
 
             kits.append(
                 {
