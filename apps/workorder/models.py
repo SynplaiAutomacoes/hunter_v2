@@ -20,6 +20,7 @@ from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.models.payment_method import PaymentMethod
 
 if TYPE_CHECKING:
@@ -40,6 +41,8 @@ class WorkOrderError(Exception):
 
 class WorkOrderStatus(models.TextChoices):
     DRAFT = "draft", "Aprovado"
+    WAITING_COLLABORATOR = "waiting_collaborator", "Aguardando Colaborador"
+    WAITING_DELIVERY = "waiting_delivery", "Aguardando Entrega"
     APPROVED = "approved", "Veículo Entregue"
     REJECTED = "rejected", "Reprovado"
     CANCELLED = "cancelled", "Cancelado"
@@ -52,6 +55,18 @@ WORKORDER_REOPENABLE_STATUSES = frozenset(
         WorkOrderStatus.CANCELLED,
     }
 )
+
+# O.S. aprovada que ainda está em execução ou aguardando a entrega do veículo.
+WORKORDER_OPEN_STATUSES = frozenset(
+    {
+        WorkOrderStatus.DRAFT,
+        WorkOrderStatus.WAITING_COLLABORATOR,
+        WorkOrderStatus.WAITING_DELIVERY,
+    }
+)
+
+# Status que entram nas agregações de receita do dashboard e DRE.
+WORKORDER_REVENUE_STATUSES = frozenset(WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED})
 
 
 class WorkOrderSignatureStatus(models.TextChoices):
@@ -74,6 +89,12 @@ class WorkOrderWarrantyPlan(models.TextChoices):
     DAYS_180 = "days_180", "180 dias"
     DAYS_365 = "days_365", "365 dias"
     NONE = "none", "Serviço sem garantia"
+
+
+class WorkOrderCourtesyReasonType(models.TextChoices):
+    PART_DEFECT = "part_defect", "Defeito de peça"
+    LABOR_FAILURE = "labor_failure", "Falha de mão de obra"
+    BOTH = "both", "Ambos"
 
 
 WARRANTY_PLAN_DAYS: dict[str, int | None] = {
