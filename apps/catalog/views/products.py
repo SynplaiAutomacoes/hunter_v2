@@ -499,7 +499,7 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "product": stock_obj.product,
                     "stock_obj": stock_obj,
                 },
-                status=400,
+                status=200,
             )
 
         try:
@@ -510,7 +510,6 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 user=request.user,
             )
         except ValidationError as exc:
-            form.add_error(None, exc.messages[0] if exc.messages else str(exc))
             return render(
                 request,
                 self.template_name,
@@ -518,8 +517,9 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "form": form,
                     "product": stock_obj.product,
                     "stock_obj": stock_obj,
+                    "alert_message": exc.messages[0] if exc.messages else str(exc),
                 },
-                status=400,
+                status=200,
             )
 
         redirect_url = reverse("catalog:product_update", kwargs={"pk": stock_obj.product_id})
