@@ -31,6 +31,7 @@ from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
 from apps.finance.services.reports import build_day_month_year_financial_overviews_with_open_workorder_credits, open_credits, open_debits
 from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
+from apps.suppliers.models import Supplier
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -48,8 +49,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     MOVEMENTS_PER_PAGE = 10
     FILTER_DIRECTION_CHOICES = (
         ("", "Todos"),
-        (FinancialMovement.MovementDirection.CREDIT, "Contas a receber"),
-        (FinancialMovement.MovementDirection.DEBIT, "Contas a pagar"),
+        (FinancialMovement.MovementDirection.CREDIT, "Receita"),
+        (FinancialMovement.MovementDirection.DEBIT, "Débito"),
     )
     FILTER_PAID_STATUS_CHOICES = (
         ("", "Todos"),
@@ -258,11 +259,17 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _get_resolved_filter_params(self) -> dict[str, Any]:
         filter_params = self._get_filter_params()
+        if self._get_search_value():
+            return filter_params
         if filter_params["start_date"] is None and filter_params["end_date"] is None:
             today = timezone.localdate()
             filter_params["start_date"] = today
             filter_params["end_date"] = today
         return filter_params
+
+    @staticmethod
+    def _should_apply_date_filters(*, search: str) -> bool:
+        return not str(search or "").strip()
 
     def _apply_paid_status_filter(self, queryset, paid_status: str):
         if not paid_status:
@@ -307,12 +314,15 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         opened_by_id = filter_params["opened_by_id"]
         payment_method_id = filter_params["payment_method_id"]
         reconciliation_status = filter_params["reconciliation_status"]
+        search = self._get_search_value()
+        apply_date_filters = self._should_apply_date_filters(search=search)
 
-        if start_date is not None:
-            queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
+        if apply_date_filters:
+            if start_date is not None:
+                queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
 
-        if end_date is not None:
-            queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
+            if end_date is not None:
+                queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
         if budget_plan_ids:
             queryset = queryset.filter(budget_plan_id__in=budget_plan_ids)
         if bank_account_id is not None:
@@ -343,7 +353,6 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             queryset = queryset.filter(is_reconciled=False)
         queryset = self._apply_paid_status_filter(queryset, paid_status)
 
-        search = self._get_search_value()
         if search:
             search_query = build_text_search_query(
                 search_value=search,
@@ -373,15 +382,18 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payment_method_id = filter_params["payment_method_id"]
         paid_status = filter_params["paid_status"]
         reconciliation_status = filter_params["reconciliation_status"]
+        search = self._get_search_value()
+        apply_date_filters = self._should_apply_date_filters(search=search)
 
         for payment in payments:
             payment_amount = self._resolve_money_amount(payment.total_paid)
             if payment_amount <= Decimal("0.00"):
                 continue
-            if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
-                continue
-            if end_date is not None and (payment.due_date is None or payment.due_date > end_date):
-                continue
+            if apply_date_filters:
+                if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
+                    continue
+                if end_date is not None and (payment.due_date is None or payment.due_date > end_date):
+                    continue
             if payment_method_id is not None and payment.payment_method_id != payment_method_id:
                 continue
             # Fix B2: Usa cache pré-carregado para evitar N+1 queries por payment
@@ -686,11 +698,18 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return [movements_by_id[key] for key in entry_refs if key in movements_by_id]
 
     def _get_agent_filter_choices(self) -> List[Tuple[str, str]]:
-        collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+        movement_qs = FinancialMovement.objects.filter(workshop=self.workshop)
+        collaborator_ids = movement_qs.filter(collaborator_id__isnull=False).values_list("collaborator_id", flat=True).distinct()
+        supplier_ids = movement_qs.filter(supplier_id__isnull=False).values_list("supplier_id", flat=True).distinct()
 
-        choices = [("", "Todos os colaboradores")]
-        for c in collaborators:
-            choices.append((f"coll_{c.pk}", c.name))
+        collaborators = WorkshopCollaborator.objects.filter(pk__in=collaborator_ids).order_by("name")
+        suppliers = Supplier.objects.filter(pk__in=supplier_ids).order_by("name")
+
+        choices: list[tuple[str, str]] = [("", "Todos")]
+        for collaborator in collaborators:
+            choices.append((f"coll_{collaborator.pk}", collaborator.name))
+        for supplier in suppliers:
+            choices.append((f"supp_{supplier.pk}", supplier.name))
         return choices
 
     def _get_opened_by_filter_choices(self) -> List[Tuple[str, str]]:

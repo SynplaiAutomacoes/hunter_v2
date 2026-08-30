@@ -80,7 +80,7 @@
                                 <td class="px-2 py-2 text-center {% if row.reconciliation_status == 'Conciliado' %}text-blue-700{% else %}text-yellow-700{% endif %}">{{ row.reconciliation_status }}</td>
                                 <td class="px-2 py-2 text-center">
                                     {% if row.direction == 'CREDIT' %}
-                                        <span class="uppercase text-green-700">Crédito</span>
+                                        <span class="uppercase text-green-700">Receita</span>
                                     {% elif row.direction == 'DEBIT' %}
                                         <span class="uppercase text-red-700">Débito</span>
                                     {% else %}

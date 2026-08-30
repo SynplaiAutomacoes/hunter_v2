@@ -130,7 +130,7 @@
                                                 </div>
 
                                                 <div class="sm:col-span-2">
-                                                    <label for="reports-filter-agent" class="mb-1 block text-sm font-medium text-base-content">Colaborador</label>
+                                                    <label for="reports-filter-agent" class="mb-1 block text-sm font-medium text-base-content">Colaborador/Fornecedor</label>
                                                     {% include "widgets/searchable_select.html" with widget=agent_filter_widget.widget %}
                                                 </div>
 
@@ -145,7 +145,7 @@
                                                 </div>
 
                                                 <div>
-                                                    <label for="reports-filter-direction">Tipo de conta</label>
+                                                    <label for="reports-filter-direction">Tipo</label>
                                                     <select name="direction" id="reports-filter-direction" class="select select-bordered w-full">
                                                         {% for value, label in direction_filter_choices %}
                                                             <option value="{{ value }}" {% if selected_direction == value %}selected{% endif %}>{{ label }}</option>
