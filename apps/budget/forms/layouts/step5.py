@@ -107,8 +107,8 @@ def configure_budget_step5_form(form):
                                                 <span id="display-venda-pecas"
                                                       class="font-bold text-success whitespace-nowrap"
                                                       data-base-val="{budget.total_products_value.amount}"
-                                                      data-cost-val="{custo_pecas.amount}"
-                                                      data-frete-val="{custo_frete_pecas.amount}">
+                                                      data-cost-val="{budget.total_costs_products_value.amount}"
+                                                      data-frete-val="{budget.total_products_shipping.amount}">
                                                     {venda_pecas}
                                                 </span>
                                             </div>

@@ -1444,9 +1444,9 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.save(update_fields=["slider"])
             budget.invalidate_pricing_snapshot_cache()
 
-        display_products_value = budget.display_total_products_by_slider
-        display_third_party_value = budget.display_total_third_party_by_slider
         step5_context = build_step5_context(budget)
+        display_products_value = step5_context.venda_pecas
+        display_third_party_value = budget.display_total_third_party_by_slider
         display_labor_value = step5_context.venda_mao_obra
         budget_for_lists = _get_budget_with_prefetched_items(budget)
         products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
