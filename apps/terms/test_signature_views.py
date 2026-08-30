@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from django.test import Client, TestCase
+from django.test import Client, RequestFactory, TestCase
 from django.urls import reverse
 
 from apps.accounts.models import Account
 from apps.budget.models import Budget, SignatureStatus
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.providers import get_signature_service
-from apps.core.infrastructure.services.signature_webhook import process_signature_webhook_payload
+from apps.core.infrastructure.services.signature_webhook import (
+    SignatureWebhookView,
+    build_synplaisign_webhook_signature,
+    process_signature_webhook_payload,
+)
+from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
 from apps.terms.models import BudgetTermSigning, TermTemplateType, WorkshopTermTemplate
 from apps.terms.services.signature import (
     BUDGET_TERM_SIGNATURE_DOCUMENT_ID_KEY,
@@ -116,6 +121,61 @@ class BudgetTermSignatureWebhookTests(TestCase):
         response = process_signature_webhook_payload(
             payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "env-term-webhook"},
         )
+        self.assertEqual(response.status_code, 200)
+        self.signing.refresh_from_db()
+        self.assertEqual(self.signing.signature_request_status, SignatureStatus.APPROVED)
+
+
+class BudgetTermSignatureWebhookViewTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.view = SignatureWebhookView.as_view()
+
+        account = Account.objects.create(name="Conta Webhook View Termo")
+        from apps.workshops.models.workshops import Workshop
+
+        self.workshop = Workshop.objects.create(
+            account=account,
+            name="Oficina Webhook View",
+            cnpj="99.888.777/0001-66",
+            phone="+5511555555555",
+            address="Rua View, 3",
+        )
+        self.workshop.synplaisign_webhook_secret = encrypt_secret("whsec_term_view")
+        self.workshop.save(update_fields=["synplaisign_webhook_secret"])
+
+        term_template = WorkshopTermTemplate.objects.create(
+            workshop=self.workshop,
+            template_type=TermTemplateType.VEHICLE_RECEIPT,
+            name="Recebimento",
+            document_title="TERMO",
+            is_default=True,
+            content={"sections": []},
+        )
+        budget = Budget.objects.create(workshop=self.workshop, entry_date="2026-08-30", number=3, slider=0)
+        self.signing = BudgetTermSigning.objects.create(budget=budget, term_template=term_template)
+        self.signing.mark_signature_sent("env-term-view", document_id="env-term-view")
+
+    def test_webhook_view_accepts_hmac_and_marks_term_approved(self) -> None:
+        import json
+
+        body = json.dumps(
+            {
+                "event": "ENVELOPE_COMPLETED",
+                "envelopeId": "env-term-view",
+                "timestamp": "2026-08-30T21:00:00.000Z",
+                "data": {"status": "SIGNED"},
+            }
+        ).encode("utf-8")
+        signature = build_synplaisign_webhook_signature(body=body, secret="whsec_term_view")
+        request = self.factory.post(
+            "/budget/signature/webhook/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_SYNPLAI_SIGNATURE=signature,
+            HTTP_X_SYNPLAI_EVENT="ENVELOPE_COMPLETED",
+        )
+        response = self.view(request)
         self.assertEqual(response.status_code, 200)
         self.signing.refresh_from_db()
         self.assertEqual(self.signing.signature_request_status, SignatureStatus.APPROVED)

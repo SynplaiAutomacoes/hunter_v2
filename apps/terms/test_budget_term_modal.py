@@ -26,4 +26,5 @@ class BudgetTermModalUrlsTests(SimpleTestCase):
         urls = resolve_budget_term_modal_urls(budget_id=10, signing=signing, term_template_id=3)
         self.assertTrue(urls.can_toggle_signed_pdf)
         self.assertTrue(urls.is_signature_resend)
+        self.assertFalse(urls.signature_blocked)
         self.assertIn("/terms/budget/signature-file/", urls.signed_pdf_url)

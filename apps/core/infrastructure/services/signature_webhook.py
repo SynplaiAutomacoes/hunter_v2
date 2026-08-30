@@ -494,6 +494,16 @@ class SignatureWebhookView(View):
 
         validation_response = validate_signature_webhook_request(request, workshop_secret=workshop_secret)
         if validation_response is not None:
+            logger.warning(
+                "signature_webhook_hmac_rejected",
+                extra={
+                    "envelope_id": envelope_id,
+                    "workshop_id": getattr(workshop, "pk", None),
+                    "has_workshop_secret": bool(workshop_secret),
+                    "budget_term_signing_id": getattr(budget_term_signing, "pk", None),
+                    "workorder_term_signing_id": getattr(workorder_term_signing, "pk", None),
+                },
+            )
             return validation_response
 
         header_event = str(request.headers.get("x-synplai-event") or "").strip()

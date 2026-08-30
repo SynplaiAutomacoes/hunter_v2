@@ -143,7 +143,7 @@ class BudgetStep2Form(BudgetStepBaseForm):
                 {
                     "canToggleSignedPdf": modal_urls.can_toggle_signed_pdf,
                     "isSignatureResend": modal_urls.is_signature_resend,
-                    "signatureBlocked": modal_urls.signature_blocked or self.term_signature_locked,
+                    "signatureBlocked": modal_urls.signature_blocked,
                     "initialPdfVariant": modal_urls.initial_pdf_variant,
                     "signedPdfUrl": modal_urls.signed_pdf_url,
                     "signedDownloadUrl": modal_urls.signed_download_url,
