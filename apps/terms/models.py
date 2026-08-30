@@ -30,7 +30,7 @@ class WorkshopTermTemplate(TimeStampedModel):
     subtitle = models.CharField(verbose_name="Subtítulo", max_length=255, blank=True, default="")
     intro_text = models.TextField(verbose_name="Texto de introdução", blank=True, default="")
     primary_color = models.CharField(verbose_name="Cor principal", max_length=7, default="#000000")
-    accent_color = models.CharField(verbose_name="Cor de destaque", max_length=7, default="#DC2626")
+    accent_color = models.CharField(verbose_name="Cor de destaque", max_length=7, default="#E30613")
     text_color = models.CharField(verbose_name="Cor do texto", max_length=7, default="#111827")
     muted_color = models.CharField(verbose_name="Cor secundária", max_length=7, default="#6B7280")
     is_active = models.BooleanField(verbose_name="Ativo", default=True)

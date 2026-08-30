@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -21,7 +21,7 @@ from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature_download import download_signed_pdf
 from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
-from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.presentation.tables import TableActionDefaults
@@ -59,6 +59,7 @@ class WorkshopTermTemplateListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
         search_query = str(self.request.GET.get("q") or "").strip()
         if search_query:
             queryset = apply_text_search(queryset, search_value=search_query, lookups=("name", "document_title"))
+        queryset = apply_is_active_filter(queryset, params=self.request.GET)
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,
@@ -69,7 +70,6 @@ class WorkshopTermTemplateListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
                     kind="choice",
                     allowed_values=frozenset(str(choice.value) for choice in TermTemplateType),
                 ),
-                QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),
             ),
         )
         return queryset.order_by("template_type", "name")
@@ -84,6 +84,12 @@ class WorkshopTermTemplateListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
             TableColumn("Criado em", attr="created_at_display"),
         ]
         context["actions"] = [
+            TableActionDefaults.view(
+                "terms:term_template_preview_modal",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                hx_push_url="false",
+            ),
             TableActionDefaults.edit("terms:term_template_update"),
             TableActionDefaults.delete("terms:term_template_delete"),
         ]
@@ -129,6 +135,9 @@ class WorkshopTermTemplateDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Ht
 
 
 class WorkshopTermTemplateDuplicateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopTermTemplate
+    workshop_permission_codename = "change_workshoptermtemplate"
+
     def post(self, request, pk: int) -> HttpResponse:
         source = get_object_or_404(WorkshopTermTemplate, pk=pk, workshop=self.workshop)
         duplicate = WorkshopTermTemplate.objects.create(
@@ -148,6 +157,19 @@ class WorkshopTermTemplateDuplicateView(LoginRequiredMixin, WorkshopScopedMixin,
         )
         messages.success(request, f"Termo duplicado como “{duplicate.name}”.")
         return redirect("terms:term_template_update", pk=duplicate.pk)
+
+
+class WorkshopTermTemplatePreviewModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopTermTemplate
+    workshop_permission_codename = "view_workshoptermtemplate"
+
+    def get(self, request, pk: int) -> HttpResponse:
+        term_template = get_object_or_404(WorkshopTermTemplate, pk=pk, workshop=self.workshop)
+        context = {
+            "term_template": term_template,
+            "preview_url": reverse("terms:term_template_preview", args=[term_template.pk]),
+        }
+        return render(request, "terms/partials/term_template_preview_modal.html", context)
 
 
 @xframe_options_exempt

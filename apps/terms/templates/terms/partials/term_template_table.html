@@ -1,2 +1,1 @@
-{% load table_tags %}
-{% render_table objects=term_templates fields=fields actions=actions %}
+{% include 'crud/partials/table.html' with queryset=term_templates fields=fields actions=actions table_id='term-templates-table' filter_fields_template='terms/partials/term_template_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar termos' filter_param_names='template_type,is_active' %}

@@ -11,6 +11,12 @@
       --term-muted: {{ colors.muted }};
       --term-on-primary: {{ colors.on_primary }};
       --term-on-accent: {{ colors.on_accent }};
+      --term-heading: #141414;
+      --term-body: #2b2b2b;
+      --term-subtitle: #787878;
+      --term-card-bg: #f5f5f5;
+      --term-card-border: #d1d5db;
+      --term-topbar-bg: #000000;
     }
 
     * { box-sizing: border-box; }
@@ -22,7 +28,7 @@
       padding: 0;
       background: #ececec;
       font-family: Arial, Helvetica, sans-serif;
-      color: var(--term-text);
+      color: var(--term-body);
     }
 
     body { padding: 24px 0; }
@@ -40,7 +46,6 @@
       overflow: hidden;
       margin: 0 auto 24px;
       box-shadow: 0 2px 16px rgba(0, 0, 0, 0.16);
-      padding: 18mm 16mm 16mm;
       page-break-after: always;
       break-after: page;
     }
@@ -51,173 +56,263 @@
       margin-bottom: 0;
     }
 
-    .term-header {
-      display: flex;
-      align-items: flex-start;
-      gap: 16px;
-      border-bottom: 3px solid var(--term-accent);
-      padding-bottom: 12px;
-      margin-bottom: 18px;
-    }
-
-    .term-logo-box {
-      width: 120px;
-      min-width: 120px;
-      height: 65px;
+    .term-topbar {
+      background: var(--term-topbar-bg);
+      min-height: 92px;
+      padding: 14px 15mm;
       display: flex;
       align-items: center;
-      justify-content: center;
-      border: 1px solid #e5e7eb;
-      border-radius: 6px;
-      overflow: hidden;
-      background: #fff;
+      justify-content: flex-start;
     }
 
     .term-logo {
-      max-width: 100%;
-      max-height: 100%;
+      max-width: 220px;
+      max-height: 64px;
       object-fit: contain;
+      display: block;
     }
 
     .term-logo-placeholder {
+      color: #ffffff;
       font-size: 10px;
-      color: var(--term-muted);
-      text-align: center;
-      padding: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
-    .term-header-text { flex: 1; min-width: 0; }
-
-    .term-title {
+    .term-accent-rule {
+      height: 3px;
+      background: var(--term-accent);
+      border: 0;
       margin: 0;
-      font-size: 22px;
-      line-height: 1.15;
+    }
+
+    .term-page-content {
+      padding: 10mm 15mm 14mm;
+    }
+
+    .term-page-heading {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.12;
       font-weight: 800;
       text-transform: uppercase;
-      color: var(--term-primary);
+      color: var(--term-heading);
+      letter-spacing: 0.01em;
+      max-width: 32rem;
     }
 
-    .term-subtitle {
-      margin: 6px 0 0;
-      font-size: 12px;
-      color: var(--term-muted);
-    }
-
-    .vehicle-banner {
-      background: var(--term-primary);
-      color: var(--term-on-primary);
-      padding: 10px 12px;
-      border-radius: 6px;
+    .term-page-subtitle {
+      margin: 8px 0 0;
       font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
+      line-height: 1.4;
+      font-weight: 600;
+      color: var(--term-subtitle);
+    }
+
+    .term-vehicle-card {
+      margin-top: 16px;
+      border: 1px solid var(--term-card-border);
+      background: var(--term-card-bg);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+      padding: 10px 12px 12px;
+    }
+
+    .term-vehicle-card-label {
+      grid-column: 1 / -1;
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      margin-bottom: 16px;
+      color: var(--term-accent);
+      margin-bottom: 2px;
+    }
+
+    .term-vehicle-card-value {
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.35;
+      text-transform: uppercase;
+      color: var(--term-heading);
+    }
+
+    .term-vehicle-card-plate {
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.35;
+      text-transform: uppercase;
+      color: var(--term-heading);
+      text-align: right;
+      white-space: nowrap;
     }
 
     .term-intro {
-      font-size: 12px;
-      line-height: 1.5;
-      margin: 0 0 18px;
-      color: var(--term-text);
-    }
-
-    .term-topic {
-      margin-bottom: 14px;
-      break-inside: avoid;
-      page-break-inside: avoid;
-    }
-
-    .term-topic h2 {
-      margin: 0 0 6px;
-      font-size: 12px;
-      line-height: 1.3;
-      color: var(--term-accent);
-      text-transform: uppercase;
-    }
-
-    .topic-number {
-      color: var(--term-primary);
-      font-weight: 800;
-      margin-right: 4px;
-    }
-
-    .term-topic p {
-      margin: 0 0 6px;
-      font-size: 11px;
-      line-height: 1.45;
-      color: var(--term-text);
-    }
-
-    .term-topic ul {
-      margin: 0;
-      padding-left: 18px;
-    }
-
-    .term-topic li {
-      font-size: 11px;
-      line-height: 1.45;
-      margin-bottom: 4px;
-    }
-
-    .signature-area {
-      margin-top: 24px;
-      break-inside: avoid;
-      page-break-inside: avoid;
-    }
-
-    .acknowledgment {
-      font-size: 11px;
-      line-height: 1.45;
-      margin: 0 0 16px;
-      font-weight: 600;
-    }
-
-    .signature-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
-
-    .signature-block {
-      text-align: center;
-    }
-
-    .signature-box {
-      width: 100%;
-      height: 80px;
-      border-bottom: 1px solid #9ca3af;
-    }
-
-    .signature-label {
-      margin: 8px 0 2px;
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    .signature-hint {
-      margin: 0;
-      font-size: 10px;
-      color: var(--term-muted);
-    }
-
-    .signature-date {
-      margin-top: 14px;
-      font-size: 10px;
-      color: var(--term-muted);
-      text-align: center;
+      margin: 16px 0 18px;
+      font-size: 10.5px;
+      line-height: 1.55;
+      color: var(--term-body);
     }
 
     .warranty-badge {
       display: inline-block;
-      margin-top: 8px;
-      padding: 4px 8px;
-      border-radius: 4px;
-      background: color-mix(in srgb, var(--term-accent) 15%, white);
-      color: var(--term-accent);
+      margin: 0 0 14px;
+      padding: 5px 10px;
+      background: var(--term-topbar-bg);
+      color: #ffffff;
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .term-topic {
+      margin-bottom: 18px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .term-topic-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .topic-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      padding: 0 6px;
+      background: var(--term-accent);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .topic-title {
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.35;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: var(--term-heading);
+      letter-spacing: 0.02em;
+    }
+
+    .term-topic p {
+      margin: 0 0 8px;
+      font-size: 10.5px;
+      line-height: 1.55;
+      color: var(--term-body);
+    }
+
+    .term-topic-list {
+      margin: 0;
+      padding-left: 1.25rem;
+      list-style: disc;
+    }
+
+    .term-topic-list li {
+      font-size: 10.5px;
+      line-height: 1.55;
+      margin-bottom: 6px;
+      color: var(--term-body);
+    }
+
+    .term-topic-list li::marker {
+      color: var(--term-accent);
+    }
+
+    .term-acknowledgment-card {
+      margin-top: 22px;
+      border: 1px solid var(--term-heading);
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .term-acknowledgment-card-header {
+      background: var(--term-topbar-bg);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 8px 12px;
+    }
+
+    .term-acknowledgment-card-body {
+      background: var(--term-card-bg);
+      padding: 12px;
+      font-size: 10.5px;
+      line-height: 1.55;
+      color: var(--term-body);
+    }
+
+    .term-signature-footer {
+      margin-top: 48px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .term-signature-grid {
+      display: grid;
+      grid-template-columns: 1fr 10.5rem;
+      grid-template-rows: auto auto auto;
+      column-gap: 24px;
+      row-gap: 0;
+      align-items: stretch;
+    }
+
+    .term-signature-above,
+    .term-date-above {
+      min-height: 72px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    .term-signature-above {
+      justify-content: stretch;
+    }
+
+    .term-signature-label,
+    .term-date-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #6b7280;
+      margin-top: 8px;
+      text-align: center;
+    }
+
+    .term-signature-line,
+    .term-date-line {
+      border-bottom: 1px solid #9ca3af;
+      height: 0;
+      width: 100%;
+      align-self: end;
+    }
+
+    .signature-box {
+      width: 100%;
+      min-height: 72px;
+      flex: 1;
+    }
+
+    .term-date-value {
+      margin-bottom: 6px;
+      font-size: 10px;
+      line-height: 1.35;
+      text-align: center;
+      color: var(--term-body);
+      white-space: nowrap;
     }
 
     @media print {
@@ -236,75 +331,93 @@
   <main class="document" aria-label="{{ document_title }}">
     {% for section in sections %}
     <section class="term-page" aria-label="Página {{ forloop.counter }}">
-      <header class="term-header">
-        <div class="term-logo-box">
-          {% if workshop_logo_data_uri %}
-            <img src="{{ workshop_logo_data_uri }}" alt="Logo da oficina" class="term-logo" />
-          {% else %}
-            <div class="term-logo-placeholder">Logo da oficina</div>
-          {% endif %}
-        </div>
-        <div class="term-header-text">
-          <h1 class="term-title">{{ section.title|default:document_title }}</h1>
-          {% if section.subtitle %}
-            <p class="term-subtitle">{{ section.subtitle }}</p>
-          {% elif subtitle and forloop.first %}
-            <p class="term-subtitle">{{ subtitle }}</p>
-          {% endif %}
-        </div>
-      </header>
-
-      {% if section.show_vehicle_banner and vehicle %}
-      <div class="vehicle-banner">
-        Veículo recebido — {{ vehicle.brand }} / {{ vehicle.model }} — Placa {{ vehicle.plate }}
-      </div>
-      {% endif %}
-
-      {% if forloop.first and intro_text %}
-        <p class="term-intro">{{ intro_text }}</p>
-      {% endif %}
-
-      {% if warranty_plan_display and forloop.first %}
-        <div class="warranty-badge">Garantia: {{ warranty_plan_display }}</div>
-      {% endif %}
-
-      {% for topic in section.topics %}
-      <article class="term-topic">
-        <h2>
-          {% if topic.number %}<span class="topic-number">{{ topic.number }}</span>{% endif %}
-          {{ topic.title }}
-        </h2>
-        {% for paragraph in topic.paragraphs %}
-          <p>{{ paragraph }}</p>
-        {% endfor %}
-        {% if topic.bullets %}
-          <ul>
-            {% for item in topic.bullets %}
-              <li>{{ item }}</li>
-            {% endfor %}
-          </ul>
+      <header class="term-topbar">
+        {% if workshop_logo_data_uri %}
+          <img src="{{ workshop_logo_data_uri }}" alt="Logo da oficina" class="term-logo" />
+        {% else %}
+          <div class="term-logo-placeholder">Logo da oficina</div>
         {% endif %}
-      </article>
-      {% endfor %}
+      </header>
+      <hr class="term-accent-rule" aria-hidden="true" />
 
-      {% if section.include_signature_block %}
-      <footer class="signature-area">
-        <p class="acknowledgment">{{ acknowledgment_text }}</p>
-        <div class="signature-row">
-          <div class="signature-block">
-            <div class="signature-box" sign-box></div>
-            <p class="signature-label">{% if customer %}{{ customer.name }}{% else %}Cliente{% endif %}</p>
-            <p class="signature-hint">Assinatura do cliente ou pessoa por ele autorizada</p>
-          </div>
-          <div class="signature-block">
-            <div class="signature-box" sign-box></div>
-            <p class="signature-label">{{ workshop_name }}</p>
-            <p class="signature-hint">Assinatura da oficina</p>
-          </div>
+      <div class="term-page-content">
+        {% if forloop.first %}
+          <h1 class="term-page-heading">{{ document_title }}</h1>
+          {% if section.subtitle or subtitle %}
+            <p class="term-page-subtitle">{{ section.subtitle|default:subtitle }}</p>
+          {% endif %}
+        {% else %}
+          <h1 class="term-page-heading">{{ section.title|default:document_title }}</h1>
+          {% if section.subtitle %}
+            <p class="term-page-subtitle">{{ section.subtitle }}</p>
+          {% endif %}
+        {% endif %}
+
+        {% if section.show_vehicle_banner and vehicle %}
+        <div class="term-vehicle-card">
+          <div class="term-vehicle-card-label">Veículo recebido</div>
+          <div class="term-vehicle-card-value">{{ vehicle_display }}</div>
+          <div class="term-vehicle-card-plate">Placa {{ vehicle_plate_display }}</div>
         </div>
-        <p class="signature-date">Data: ____/____/________</p>
-      </footer>
-      {% endif %}
+        {% endif %}
+
+        {% if forloop.first and intro_text %}
+          <p class="term-intro">{{ intro_text }}</p>
+        {% endif %}
+
+        {% if warranty_plan_display and forloop.first %}
+          <div class="warranty-badge">Garantia: {{ warranty_plan_display }}</div>
+        {% endif %}
+
+        {% for topic in section.topics %}
+        <article class="term-topic">
+          <div class="term-topic-header">
+            {% if topic.number %}
+              <span class="topic-badge">{{ topic.number }}</span>
+            {% endif %}
+            <h2 class="topic-title">{{ topic.title }}</h2>
+          </div>
+          {% for paragraph in topic.paragraphs %}
+            {% if paragraph %}
+              <p>{{ paragraph }}</p>
+            {% endif %}
+          {% endfor %}
+          {% if topic.bullets %}
+            <ul class="term-topic-list">
+              {% for item in topic.bullets %}
+                {% if item %}
+                  <li>{{ item }}</li>
+                {% endif %}
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </article>
+        {% endfor %}
+
+        {% if section.include_signature_block %}
+        <div class="term-acknowledgment-card">
+          <div class="term-acknowledgment-card-header">Ciência do cliente</div>
+          <div class="term-acknowledgment-card-body">{{ acknowledgment_text }}</div>
+        </div>
+
+        <footer class="term-signature-footer">
+          <div class="term-signature-grid">
+            <div class="term-signature-above">
+              <div class="signature-box" sign-box></div>
+            </div>
+            <div class="term-date-above">
+              {% if generated_at %}
+                <div class="term-date-value">{{ generated_at|date:"d/m/Y" }} às {{ generated_at|date:"H:i" }}</div>
+              {% endif %}
+            </div>
+            <div class="term-signature-line" aria-hidden="true"></div>
+            <div class="term-date-line" aria-hidden="true"></div>
+            <div class="term-signature-label">Assinatura do cliente</div>
+            <div class="term-date-label">Data</div>
+          </div>
+        </footer>
+        {% endif %}
+      </div>
     </section>
     {% endfor %}
   </main>

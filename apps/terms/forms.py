@@ -108,7 +108,7 @@ class WorkshopTermTemplateForm(CoreModelForm):
         cleaned_data = super().clean()
         colors = resolve_term_colors(
             primary=str(cleaned_data.get("primary_color") or "#000000"),
-            accent=str(cleaned_data.get("accent_color") or "#DC2626"),
+            accent=str(cleaned_data.get("accent_color") or "#E30613"),
             text=str(cleaned_data.get("text_color") or "#111827"),
             muted=str(cleaned_data.get("muted_color") or "#6B7280"),
         )

@@ -11,6 +11,7 @@ urlpatterns = [
     path("<int:pk>/edit/", views.WorkshopTermTemplateUpdateView.as_view(), name="term_template_update"),
     path("<int:pk>/delete/", views.WorkshopTermTemplateDeleteView.as_view(), name="term_template_delete"),
     path("<int:pk>/duplicate/", views.WorkshopTermTemplateDuplicateView.as_view(), name="term_template_duplicate"),
+    path("<int:pk>/preview-modal/", views.WorkshopTermTemplatePreviewModalView.as_view(), name="term_template_preview_modal"),
     path("<int:pk>/preview/", views.term_template_preview, name="term_template_preview"),
     path("budget/<int:budget_id>/preview/", views.budget_term_preview, name="budget_term_preview"),
     path("budget/<int:budget_id>/send-signature/", views.SendBudgetTermSignatureView.as_view(), name="budget_term_send_signature"),

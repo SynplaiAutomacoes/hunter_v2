@@ -61,7 +61,7 @@ def resolve_term_colors(
     muted: str,
 ) -> ResolvedTermColors:
     resolved_primary = _normalize_hex(primary, fallback="#000000")
-    resolved_accent = _normalize_hex(accent, fallback="#DC2626")
+    resolved_accent = _normalize_hex(accent, fallback="#E30613")
     resolved_text = _normalize_hex(text, fallback="#111827")
     resolved_muted = _normalize_hex(muted, fallback="#6B7280")
 
