@@ -2,6 +2,15 @@ def build_step6_assets_html() -> str:
     return """
                 <style>
                     .table-fixed { table-layout: fixed; }
+                    .budget-step6-table :where(th, td) {
+                        vertical-align: middle;
+                    }
+                    .budget-step6-table thead th {
+                        font-size: 0.70rem;
+                    }
+                    .budget-step6-table tbody td {
+                        font-size: 0.70rem;
+                    }
                     .origin-cell {
                         overflow: visible;
                         vertical-align: middle;

@@ -278,7 +278,7 @@ class BudgetStep4Form(BudgetStepBaseForm):
                         ),
                         css_class="mb-6",
                     ),
-                    css_class="col-span-12 xl:col-span-8",
+                    css_class="col-span-12 xl:col-span-9",
                 ),
                 #
                 # Coluna Direita
@@ -290,9 +290,9 @@ class BudgetStep4Form(BudgetStepBaseForm):
                             css_class="sticky top-4",
                             css_id="budget-summary",
                         ),
-                        css_class="p-6 h-fit text-lg",
+                        css_class="p-4 h-fit text-base",
                     ),
-                    css_class="col-span-12 xl:col-span-4 mt-10 xl:mt-0",
+                    css_class="col-span-12 xl:col-span-3 mt-10 xl:mt-0",
                 ),
                 css_class="grid grid-cols-1 xl:grid-cols-12 gap-4",
             ),
