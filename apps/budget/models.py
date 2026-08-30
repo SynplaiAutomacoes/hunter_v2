@@ -169,7 +169,23 @@ class Budget(TimeStampedModel):
     # Status e Controle
     status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
+    cancellation_responsible = models.ForeignKey(
+        "collaborators.WorkshopCollaborator",
+        verbose_name="Responsável pelo atendimento no cancelamento",
+        on_delete=models.SET_NULL,
+        related_name="cancelled_budgets",
+        null=True,
+        blank=True,
+    )
     rejection_reason = models.CharField(verbose_name="Motivo da Reprovação", max_length=255, blank=True, null=True)
+    rejection_responsible = models.ForeignKey(
+        "collaborators.WorkshopCollaborator",
+        verbose_name="Responsável pelo atendimento na reprovação",
+        on_delete=models.SET_NULL,
+        related_name="rejected_budgets",
+        null=True,
+        blank=True,
+    )
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
     step5_calculation_viewed = models.BooleanField(verbose_name="Calculo da etapa 5 visualizado", default=False)
 
@@ -1009,23 +1025,39 @@ class Budget(TimeStampedModel):
             return self.summary_total_before_benefit_value
         return self.total_budget_value
 
+    def _raw_selected_items_total_products_without_shipping(self) -> Money:
+        return sum((item.summary_products_total_without_shipping for item in self._iter_items()), Money(0, "BRL"))
+
+    def _raw_selected_items_total_services_value(self) -> Money:
+        return sum((item.summary_services_total for item in self._iter_items()), Money(0, "BRL"))
+
+    def _raw_selected_items_total_shipping_value(self) -> Money:
+        return sum((item.summary_shipping_total for item in self._iter_items()), Money(0, "BRL"))
+
     @property
     def selected_items_total_products_without_shipping(self) -> Money:
-        # The pricing snapshot already excludes freight from the sale total.
-        return self.total_products_value
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_products_without_shipping()
+        return self.total_products_value - self.total_products_shipping
 
     @property
     def selected_items_total_services_value(self) -> Money:
-        # The pricing snapshot already excludes freight from the sale total.
-        return self.total_services_value
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_services_value()
+        return self.total_services_value - self.total_services_shipping
 
     @property
     def selected_items_total_shipping_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self._raw_selected_items_total_shipping_value()
         return self.total_shipping
     @property
     def selected_items_total_base_value(self) -> Money:
-        # Freight is shown separately as an internal cost and must not be charged to the customer.
-        return self.selected_items_total_products_without_shipping + self.selected_items_total_services_value
+        return (
+            self.selected_items_total_products_without_shipping
+            + self.selected_items_total_services_value
+            + self.selected_items_total_shipping_value
+        )
 
     @property
     def selected_items_total_budget_value(self) -> Money:
@@ -1384,7 +1416,7 @@ class BudgetItem(TimeStampedModel):
                 continue
             service_cost_total += override.service_cost_price * override.quantity
             service_selling_total += override.service_selling_price * override.quantity
-            if override.duration:
+            if not override.excluded_from_composition and override.duration:
                 total_duration += override.duration * override.quantity
 
         BudgetItem.objects.filter(pk=self.pk).update(
@@ -1922,6 +1954,11 @@ class BudgetKitItemOverride(TimeStampedModel):
     service_cost_price = MoneyField(verbose_name="Custo do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     service_selling_price = MoneyField(verbose_name="Preço de Venda do Serviço", max_digits=14, decimal_places=2, default=0, default_currency="BRL")
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+    excluded_from_composition = models.BooleanField(
+        verbose_name="Excluído da composição",
+        default=False,
+        help_text="Remove o serviço da execução do kit mantendo o valor no total.",
+    )
 
     class Meta:
         verbose_name = "Override de Item do Kit"

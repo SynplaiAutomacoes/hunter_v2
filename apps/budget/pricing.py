@@ -408,6 +408,8 @@ def build_pricing_snapshot(
 
     product_aggregates: dict[str, _ProductAggregate] = {}
     service_aggregates: dict[str, _ServiceAggregate] = {}
+    retained_excluded_service_selling = zero_money()
+    retained_excluded_labor_selling = zero_money()
 
     for sort_order, item in enumerate(items):
         item_quantity = int(getattr(item, "quantity", 0) or 0)
@@ -533,17 +535,32 @@ def build_pricing_snapshot(
             unit_price = override.product_selling_price
             unit_cost = override.product_cost_price
 
-            aggregate.kit_quantity += consolidated_quantity
-            aggregate.kit_total += (unit_price * consolidated_quantity) + shipping
-            aggregate.kit_cost_total += unit_cost * consolidated_quantity
-            aggregate.kit_shipping += shipping
-            aggregate.kit_code = str(getattr(product, "code", "") or "")
-            aggregate.kit_application = str(getattr(product, "application", "") or "")
-            aggregate.kit_location = str(getattr(product, "location", "") or "")
-            aggregate.kit_source_object = product
-            aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
+            kit_total = (unit_price * consolidated_quantity) + shipping
+            if _is_better_source(
+                candidate_quantity=consolidated_quantity,
+                candidate_total=kit_total,
+                current_quantity=aggregate.kit_quantity,
+                current_total=aggregate.kit_total,
+            ):
+                aggregate.kit_quantity = consolidated_quantity
+                aggregate.kit_total = kit_total
+                aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                aggregate.kit_shipping = shipping
+                aggregate.kit_code = str(getattr(product, "code", "") or "")
+                aggregate.kit_application = str(getattr(product, "application", "") or "")
+                aggregate.kit_location = str(getattr(product, "location", "") or "")
+                aggregate.kit_source_object = product
+                aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
 
         for override in item._iter_frozen_kit_service_overrides():
+            if getattr(override, "excluded_from_composition", False):
+                per_kit_quantity = int(getattr(override, "quantity", 0) or 0)
+                if per_kit_quantity > 0:
+                    retained = _coerce_money(getattr(override, "service_selling_price", None)) * per_kit_quantity * item_quantity
+                    retained_excluded_service_selling += retained
+                    if not bool(getattr(getattr(override, "service", None), "is_third_party", False)):
+                        retained_excluded_labor_selling += retained
+                continue
             service = override.service
             per_kit_quantity = override.quantity
             if per_kit_quantity <= 0:
@@ -573,16 +590,22 @@ def build_pricing_snapshot(
             if override.duration:
                 service_duration = override.duration * consolidated_quantity
 
-            service_aggregate.kit_quantity += consolidated_quantity
-            service_aggregate.kit_raw_total += unit_price * consolidated_quantity
-            service_aggregate.kit_cost_total += unit_cost * consolidated_quantity
-            service_aggregate.kit_fixed_cost_total += fixed_cost_total
-            service_aggregate.kit_duration += service_duration
-            service_aggregate.kit_description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
-            service_aggregate.kit_source_object = service
-
+            kit_raw_total = unit_price * consolidated_quantity
+            if _is_better_service_source(
+                candidate_duration=service_duration,
+                candidate_total=kit_raw_total,
+                current_duration=service_aggregate.kit_duration,
+                current_total=service_aggregate.kit_raw_total,
+            ):
+                service_aggregate.kit_quantity = consolidated_quantity
+                service_aggregate.kit_raw_total = kit_raw_total
+                service_aggregate.kit_cost_total = unit_cost * consolidated_quantity
+                service_aggregate.kit_fixed_cost_total = fixed_cost_total
+                service_aggregate.kit_duration = service_duration
+                service_aggregate.kit_description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
+                service_aggregate.kit_source_object = service
+                service_aggregate.third_party = bool(getattr(service, "is_third_party", False))
             service_aggregate.has_kit_source = True
-            service_aggregate.third_party = service_aggregate.third_party or bool(getattr(service, "is_third_party", False))
 
     product_lines: list[ConsolidatedPricingLine] = []
     for product_aggregate in sorted(product_aggregates.values(), key=lambda value: (value.sort_order, value.description.lower())):
@@ -730,10 +753,14 @@ def build_pricing_snapshot(
     third_party_service_lines = [line for line in service_lines if line.third_party]
     total_duration = sum((line.duration for line in service_lines), timedelta())
     total_third_party_services_selling = sum((line.raw_total + line.shipping for line in third_party_service_lines), zero_money())
-    total_services_value = sum((line.raw_total + line.shipping for line in service_lines), zero_money())
+    total_services_value = sum((line.raw_total + line.shipping for line in service_lines), zero_money()) + retained_excluded_service_selling
 
     total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
-    total_labor_selling_value = labor_selling_value_override if labor_selling_value_override is not None else sum((line.raw_total for line in labor_service_lines), zero_money())
+    total_labor_selling_value = (
+        labor_selling_value_override
+        if labor_selling_value_override is not None
+        else sum((line.raw_total for line in labor_service_lines), zero_money()) + retained_excluded_labor_selling
+    )
     # Hunter labor cost (mechanic hour * duration). This is the slider floor shown in step 5.
     # Never fall back to sum(service_cost_price) for the floor — those can equal selling and block transfer.
     has_explicit_labor_cost = labor_cost_value is not None or labor_hourly_cost_value is not None
