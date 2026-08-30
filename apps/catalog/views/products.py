@@ -473,8 +473,9 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, *args, **kwargs):
         stock_obj = self._get_stock_product(kwargs["product_id"])
+        recover_missing_stock_balance(stock_product=stock_obj)
         form = StockAdjustForm(current_quantity=stock_obj.current_quantity)
-        return render(
+        response = render(
             request,
             self.template_name,
             {
@@ -483,6 +484,8 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "stock_obj": stock_obj,
             },
         )
+        response["Cache-Control"] = "no-store"
+        return response
 
     def post(self, request, *args, **kwargs):
         stock_obj = self._get_stock_product(kwargs["product_id"])

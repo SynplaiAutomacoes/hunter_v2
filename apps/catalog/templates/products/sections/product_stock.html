@@ -6,7 +6,7 @@
       <button
         type="button"
         class="btn btn-primary btn-sm"
-        hx-get="{% url 'catalog:stock_adjust' product_id=product.id %}"
+        hx-get="{% url 'catalog:stock_adjust' product_id=product.id %}?stock_version={{ stock_obj.atualizado_em|date:'U' }}"
         hx-target="#modal-container"
         hx-swap="innerHTML"
       >
