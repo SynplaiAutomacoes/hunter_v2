@@ -59,6 +59,7 @@ class AdjustStockQuantityServiceTests(TestCase):
         self.assertEqual(movement.quantity, 5)
         self.assertEqual(movement.status, StockMovement.MovementStatus.APPROVED)
         self.assertEqual(movement.reason, "Inventário físico")
+        self.assertTrue(movement.is_stock_adjustment)
         self.assertEqual(movement.transcation_by_id, self.user.pk)
         self.assertIsNone(movement.supplier_id)
 
@@ -160,6 +161,16 @@ class StockAdjustViewTests(TestCase):
         self.assertEqual(movement.transcation_by_id, self.user.pk)
         self.assertEqual(movement.workshop_id, self.workshop.pk)
 
+    def test_get_starts_adjustment_empty_without_cache(self) -> None:
+        self.stock.current_quantity = 9
+        self.stock.save(update_fields=["current_quantity"])
+
+        response = self.client.get(reverse("catalog:stock_adjust", kwargs={"product_id": self.product.pk}), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertNotContains(response, 'value="0"')
+
     def test_post_rejects_same_quantity(self) -> None:
         url = reverse("catalog:stock_adjust", kwargs={"product_id": self.product.pk})
         response = self.client.post(
@@ -168,7 +179,9 @@ class StockAdjustViewTests(TestCase):
             HTTP_HX_REQUEST="true",
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "A quantidade informada é igual ao estoque atual. Nada a ajustar.")
+        self.assertContains(response, 'role="alert"')
         self.assertEqual(StockMovement.objects.filter(stock_product=self.stock).count(), 0)
         self.stock.refresh_from_db()
         self.assertEqual(self.stock.current_quantity, 4)

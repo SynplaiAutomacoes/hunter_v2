@@ -17,7 +17,9 @@ from django.db import transaction
 from django.http import HttpRequest
 from django.urls import reverse
 
+from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
+from apps.finance.services.fiscal_recipient import FiscalRecipient, resolve_fiscal_recipient_for_nfse_request
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfse_request_rps_number
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
@@ -46,7 +48,7 @@ def build_default_service_description_for_workorder(*, workorder: Any) -> str:
     if service_descriptions:
         return "; ".join(service_descriptions)
 
-    return f"Prestacao de servico referente a OS #{getattr(workorder, 'pk', '-')}"
+    return f"Prestacao de servico referente a OS #{resolve_workorder_number(workorder)}"
 
 
 def _is_debug_enabled() -> bool:
@@ -361,37 +363,55 @@ def _build_taker_contact_payload(customer: Any) -> dict[str, str]:
     return payload
 
 
-def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:
-    customer = nfse_request.workorder.budget.customer
-    if not customer:
-        raise NfseEmissionError("A OS selecionada não possui cliente vinculado.")
-
-    document = re.sub(r"\D", "", customer.cpf_or_cnpj or "")
+def _build_taker_payload_from_recipient(recipient: FiscalRecipient) -> dict[str, str]:
+    document = re.sub(r"\D", "", recipient.cpf_or_cnpj or "")
     if len(document) == 11:
         payload = {
-            "cpf": customer.cpf_or_cnpj,
-            "nome_completo": customer.name,
+            "cpf": recipient.cpf_or_cnpj,
+            "nome_completo": recipient.name,
         }
     elif len(document) == 14:
-        razao_social = (customer.name or "").strip()
+        razao_social = (recipient.name or "").strip()
         if not razao_social:
             raise NfseEmissionError("Razão social do cliente é obrigatória para emissão da Nota Fiscal de Serviço com CNPJ.")
 
         payload = {
-            "cnpj": customer.cpf_or_cnpj,
+            "cnpj": recipient.cpf_or_cnpj,
             "razao_social": razao_social,
         }
     else:
         raise NfseEmissionError("Documento do cliente inválido para emissão da Nota Fiscal de Serviço.")
 
-    payload.update(_build_taker_address_payload(customer))
-    payload.update(_build_taker_contact_payload(customer))
+    payload.update(_build_taker_address_payload(recipient))
+    payload.update(_build_taker_contact_payload(recipient))
     return payload
+
+
+def _build_taker_payload(nfse_request: NfseRequest) -> dict[str, str]:
+    recipient = resolve_fiscal_recipient_for_nfse_request(nfse_request)
+    if recipient is None:
+        if getattr(nfse_request, "workorder", None) is None:
+            raise NfseEmissionError("Informe os dados do destinatário para emissão avulsa de Nota Fiscal de Serviço.")
+        raise NfseEmissionError("A OS selecionada não possui cliente vinculado.")
+    return _build_taker_payload_from_recipient(recipient)
+
+
+def _default_standalone_service_description(nfse_request: NfseRequest) -> str:
+    lines = list(nfse_request.standalone_lines.order_by("sort_order", "id"))
+    if not lines:
+        raise NfseEmissionError("Informe ao menos um servico para emissao avulsa de Nota Fiscal de Servico.")
+    return "\n".join(f"{line.quantity}x {line.description}" for line in lines)
 
 
 def _default_service_description(nfse_request: NfseRequest) -> str:
     if nfse_request.service_description.strip():
         return nfse_request.service_description.strip()
+
+    if nfse_request.standalone_lines.exists():
+        return _default_standalone_service_description(nfse_request)
+
+    if getattr(nfse_request, "workorder_id", None) is None:
+        raise NfseEmissionError("Informe a discriminacao do servico para emissao avulsa de Nota Fiscal de Servico.")
 
     return build_default_service_description_for_workorder(workorder=nfse_request.workorder)
 
@@ -456,6 +476,15 @@ def normalize_codigo_nbs(value: object) -> str:
 
 
 def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
+    if nfse_request.standalone_lines.exists():
+        net_amount = _quantize_money(sum((Decimal(line.total_value) for line in nfse_request.standalone_lines.all()), Decimal("0.00")))
+        if net_amount <= 0:
+            raise NfseEmissionError("Informe ao menos um servico com valor valido para emissao avulsa de Nota Fiscal de Servico.")
+        return str(net_amount)
+
+    if getattr(nfse_request, "workorder_id", None) is None:
+        raise NfseEmissionError("A emissao de Nota Fiscal de Servico exige uma OS ou itens avulsos.")
+
     allocation = build_slider_allocation_for_workorder(
         workorder=nfse_request.workorder,
         persisted_slider=getattr(nfse_request, "pricing_slider", None),
@@ -516,7 +545,7 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
         "Payload de emissao montado",
         {
             "nfse_request_id": nfse_request.pk,
-            "workorder_id": nfse_request.workorder.pk,
+            "workorder_id": getattr(nfse_request.workorder, "pk", None),
             "ambiente": ambiente,
             "tax_class": nfse_request.tax_class,
             "taker_type": taker_type,
@@ -524,7 +553,7 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
         },
     )
 
-    logger.info("nfse_payload_built", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk, "workorder_id": nfse_request.workorder.pk, "tax_class": str(nfse_request.tax_class or ""), "taker_type": taker_type})
+    logger.info("nfse_payload_built", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk, "workorder_id": getattr(nfse_request.workorder, "pk", None), "tax_class": str(nfse_request.tax_class or ""), "taker_type": taker_type})
 
     return payload
 
@@ -739,10 +768,10 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
         "Iniciando emissao de Nota Fiscal de Serviço",
         {
             "nfse_request_id": nfse_request.pk,
-            "workorder_id": nfse_request.workorder.pk,
+            "workorder_id": getattr(nfse_request.workorder, "pk", None),
         },
     )
-    logger.info("nfse_emission_started", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk, "workorder_id": nfse_request.workorder.pk})
+    logger.info("nfse_emission_started", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk, "workorder_id": getattr(nfse_request.workorder, "pk", None)})
     _debug_print("URL de emissao", emit_url)
     _debug_print("Headers de emissao", _redact_headers(headers))
     _debug_print("Payload de emissao", payload)
@@ -763,7 +792,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
         elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
         error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota Fiscal de Serviço", scope="nfse")
         _debug_print("Falha HTTP na emissao", error_message)
-        logger.exception("nfse_emission_failed", extra={"workorder_id": nfse_request.workorder.pk, "duration_ms": elapsed_ms})
+        logger.exception("nfse_emission_failed", extra={"workorder_id": getattr(nfse_request.workorder, "pk", None), "duration_ms": elapsed_ms})
         logger.warning("nfse_emission_http_error", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk, "error": error_message, "duration_ms": elapsed_ms})
         raise NfseEmissionError(error_message) from exc
 
@@ -1001,10 +1030,10 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                 return
 
             batch, batch_created = NfseBatch.objects.update_or_create(
-                workorder=nfse_request.workorder,
                 uuid=batch_uuid,
                 defaults={
                     "workshop": nfse_request.workshop,
+                    "workorder": nfse_request.workorder,
                     "request": nfse_request,
                     "raw_payload": response_payload,
                     "last_sync_error": "",
@@ -1035,10 +1064,10 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                     continue
 
                 _, item_created = NfseItem.objects.update_or_create(
-                    workorder=nfse_request.workorder,
                     uuid=item_uuid,
                     defaults={
                         "workshop": nfse_request.workshop,
+                        "workorder": nfse_request.workorder,
                         "request": nfse_request,
                         "batch": batch,
                         "raw_payload": response_payload,
@@ -1080,10 +1109,10 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
             return
 
         item, item_created = NfseItem.objects.update_or_create(
-            workorder=nfse_request.workorder,
             uuid=item_uuid,
             defaults={
                 "workshop": nfse_request.workshop,
+                "workorder": nfse_request.workorder,
                 "request": nfse_request,
                 "raw_payload": response_payload,
                 "last_sync_error": "",

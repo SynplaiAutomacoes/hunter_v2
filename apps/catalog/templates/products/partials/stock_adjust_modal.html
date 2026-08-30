@@ -3,6 +3,11 @@
     <div class="modal-box w-11/12 max-w-lg">
         <h3 class="font-bold text-lg mb-2">Ajustar estoque</h3>
         <p class="text-sm opacity-70 mb-4">Informe a quantidade atual correta e o motivo do ajuste.</p>
+        {% if alert_message %}
+        <div role="alert" class="alert alert-warning mb-4">
+            <span>{{ alert_message }}</span>
+        </div>
+        {% endif %}
         <form hx-post="{% url 'catalog:stock_adjust' product_id=product.id %}" hx-target="#modal-container">
             {% csrf_token %}
             {% crispy form %}

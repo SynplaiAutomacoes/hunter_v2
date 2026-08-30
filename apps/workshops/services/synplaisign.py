@@ -111,7 +111,7 @@ def _generate_owner_password() -> str:
     return secrets.token_urlsafe(24)
 
 
-EXPECTED_WEBHOOK_EVENTS: tuple[str, ...] = ("ENVELOPE_COMPLETED", "DOCUMENT_DECLINED")
+EXPECTED_WEBHOOK_EVENTS: tuple[str, ...] = ("ENVELOPE_COMPLETED", "DOCUMENT_SIGNED", "DOCUMENT_DECLINED")
 
 
 def _delete_remote_webhooks(*, api_key: str, webhooks: list[dict[str, Any]]) -> None:

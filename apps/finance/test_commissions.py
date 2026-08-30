@@ -40,7 +40,7 @@ class CommissionReportVisibilityTests(TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], CollaboratorCommissionEntry.Status.PAID)
-        self.assertEqual(rows[0]["workorder_id"], paid_entry.workorder.budget_id)
+        self.assertEqual(rows[0]["workorder_id"], paid_entry.workorder.get_id)
         self.assertNotIn("edit_url", rows[0])
 
     def test_forecast_commission_hidden_when_workorder_reopened(self) -> None:
@@ -195,3 +195,42 @@ class CommissionReportVisibilityTests(TestCase):
         self.assertEqual(cards[0]["title"], "Total de serviços")
         self.assertEqual(cards[0]["value"], "R$ 1.500,00")
         self.assertEqual(cards[0]["support"], "somente serviços de O.S. de venda")
+
+    def test_manual_commission_appears_in_report_and_pdf_with_notes(self) -> None:
+        workshop = create_workshop(suffix=99)
+        collaborator = create_collaborator(workshop=workshop, suffix=99)
+        manual_entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=None,
+            origin=CollaboratorCommissionEntry.Origin.MANUAL,
+            notes="Ajuste pontual",
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.000000"),
+            base_amount=Money(80, "BRL"),
+            commission_amount=Money(80, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+
+        request = RequestFactory().get(reverse("finance:commission_report"), {"mes": 8, "ano": 2026})
+        view = CommissionReportView()
+        view.request = request
+        view.workshop = workshop
+
+        queryset = list(view._get_queryset())
+        rows = view._build_rows(entries=queryset)
+
+        self.assertEqual([entry.pk for entry in queryset], [manual_entry.pk])
+        self.assertEqual(rows[0]["workorder_label"], "Manual")
+        self.assertIsNone(rows[0]["workorder_id"])
+        self.assertEqual(rows[0]["description"], "Ajuste pontual")
+        self.assertEqual(rows[0]["workorder_url"], "")
+
+        pdf_view = CommissionReportPdfView()
+        pdf_view.request = RequestFactory().get(reverse("finance:commission_report_pdf"), {"mes": 8, "ano": 2026})
+        pdf_view.workshop = workshop
+        collaborators_data = pdf_view._build_collaborators_data(list(pdf_view._get_queryset()))
+
+        self.assertEqual(collaborators_data[0]["entries"][0]["is_manual"], True)
+        self.assertEqual(collaborators_data[0]["entries"][0]["customer"], "Ajuste pontual")

@@ -77,70 +77,6 @@ def build_step6_assets_html() -> str:
                         }));
                     }
 
-                    function openKitModal(button) {
-                        const modal = document.getElementById('kitModal');
-
-                        const title = document.getElementById('kit-modal-title');
-                        const productsList = document.getElementById('kit-modal-products');
-                        const servicesList = document.getElementById('kit-modal-services');
-
-                        const productsCount = document.getElementById('kit-products-count');
-                        const servicesCount = document.getElementById('kit-services-count');
-
-                        const productsCountSide = document.getElementById('kit-products-count-side');
-                        const servicesCountSide = document.getElementById('kit-services-count-side');
-
-                        title.textContent = button.dataset.kitName;
-
-                        productsList.innerHTML = '';
-                        servicesList.innerHTML = '';
-
-                        const products = button.dataset.kitProductsList
-                            .split('|').map(i => i.trim()).filter(Boolean);
-
-                        const services = button.dataset.kitServicesList
-                            .split('|').map(i => i.trim()).filter(Boolean);
-
-                        productsCount.textContent = products.length;
-                        servicesCount.textContent = services.length;
-
-                        productsCountSide.textContent = products.length;
-                        servicesCountSide.textContent = services.length;
-
-                        products.forEach(s => {
-                            const li = document.createElement('li');
-                            li.className = 'flex items-start gap-3';
-                            li.innerHTML = `
-                              <span class="material-icons text-info text-sm mt-0.5 flex-shrink-0">circle</span>
-                              <span class="break-words break-all whitespace-normal">
-                                ${s}
-                              </span>
-                            `;
-                            productsList.appendChild(li);
-                        });
-
-                        services.forEach(s => {
-                            const li = document.createElement('li');
-                            li.className = 'flex items-start gap-3';
-                            li.innerHTML = `
-                              <span class="material-icons text-info text-sm mt-0.5 flex-shrink-0">circle</span>
-                              <span class="break-words break-all whitespace-normal">
-                                ${s}
-                              </span>
-                            `;
-                            servicesList.appendChild(li);
-                        });
-
-                        modal.showModal();
-                    }
-
-                    function closeKitModal() {
-                        const modal = document.getElementById('kitModal');
-                        if (modal) {
-                            modal.close();
-                        }
-                    }
-
                     async function updateBudgetStatus(budgetId, status) {
                         const canReopenBudget = arguments.length > 2 ? Boolean(arguments[2]) : true;
 
@@ -155,9 +91,11 @@ def build_step6_assets_html() -> str:
                         if (status === 'cancel') {
                             const modal = document.getElementById('cancelBudgetModal');
                             const input = document.getElementById('cancellation-reason-input');
+                            const responsibleInput = document.getElementById('cancellation-responsible-input');
                             const confirmBtn = document.getElementById('confirm-cancel-btn');
 
                             input.value = '';
+                            responsibleInput.value = '';
                             modal.showModal();
 
                             confirmBtn.onclick = async () => {
@@ -168,10 +106,17 @@ def build_step6_assets_html() -> str:
                                     }));
                                     return;
                                 }
+                                if (!responsibleInput.value) {
+                                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                                        detail: { type: 'error', message: 'O responsável pelo atendimento é obrigatório.' },
+                                    }));
+                                    return;
+                                }
                                 modal.close();
 
                                 const formData = new FormData();
                                 formData.append('cancellation_reason', reason);
+                                formData.append('cancellation_responsible_id', responsibleInput.value);
                                 executeStatusUpdate(budgetId, status, formData);
                             };
                             return;
@@ -180,9 +125,11 @@ def build_step6_assets_html() -> str:
                         if (status === 'reject') {
                             const modal = document.getElementById('rejectBudgetModal');
                             const input = document.getElementById('rejection-reason-input');
+                            const responsibleInput = document.getElementById('rejection-responsible-input');
                             const confirmBtn = document.getElementById('confirm-reject-btn');
 
                             input.value = '';
+                            responsibleInput.value = '';
                             modal.showModal();
 
                             confirmBtn.onclick = async () => {
@@ -193,10 +140,17 @@ def build_step6_assets_html() -> str:
                                     }));
                                     return;
                                 }
+                                if (!responsibleInput.value) {
+                                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                                        detail: { type: 'error', message: 'O responsável pelo atendimento é obrigatório.' },
+                                    }));
+                                    return;
+                                }
                                 modal.close();
 
                                 const formData = new FormData();
                                 formData.append('rejection_reason', reason);
+                                formData.append('rejection_responsible_id', responsibleInput.value);
                                 executeStatusUpdate(budgetId, status, formData);
                             };
                             return;

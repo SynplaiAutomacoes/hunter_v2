@@ -1,0 +1,319 @@
+{% load crispy_forms_tags %}
+{% include 'navbar/stepper.html' %}
+
+<div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
+    {% if previous_step %}
+        <button type="button"
+                hx-get="{% url 'finance:standalone_emission' %}?step={{ previous_step }}"
+                hx-target="#step-container"
+                hx-push-url="true"
+                class="btn btn-outline">
+            <span class="material-icons">arrow_back</span> Voltar
+        </button>
+    {% else %}
+        <div></div>
+    {% endif %}
+
+    <div class="flex items-center gap-3 flex-wrap justify-end">
+        <a href="{{ close_emission_url }}" class="btn btn-ghost">Fechar emissão</a>
+        <button type="submit" form="standalone-emission-form" class="btn btn-primary" id="standalone-submit-btn" {% if submit_button_intent %}name="intent" value="{{ submit_button_intent }}"{% endif %}>
+            <span class="loading loading-spinner loading-sm hidden" id="standalone-submit-spinner"></span>
+            <span id="standalone-submit-label">{{ submit_button_label }}</span>
+        </button>
+    </div>
+</div>
+
+{% if current_step_key == 'items' %}
+    {{ product_price_map|json_script:"standalone-product-prices" }}
+    {{ service_price_map|json_script:"standalone-service-prices" }}
+    <script>
+        (function () {
+            const productEl = document.getElementById('standalone-product-prices');
+            const serviceEl = document.getElementById('standalone-service-prices');
+            window.__standaloneProductPrices = productEl ? JSON.parse(productEl.textContent) : {};
+            window.__standaloneServicePrices = serviceEl ? JSON.parse(serviceEl.textContent) : {};
+
+            window.standaloneLinePricing = function standaloneLinePricing(options) {
+                const opts = options || {};
+                return {
+                    syncing: false,
+                    selectName: opts.selectName || null,
+                    priceMap: opts.priceMap || {},
+                    init() {
+                        const handler = (event) => this.onFieldEvent(event);
+                        this.$el.addEventListener('input', handler);
+                        this.$el.addEventListener('change', handler);
+                        this.$el.addEventListener('blur', handler, true);
+                        this.$el.addEventListener('widget:formatted-change', handler);
+                        this.$nextTick(() => this.recalcTotalFromUnit());
+                    },
+                    resolveFieldName(target) {
+                        if (!target) return '';
+                        if (target.name) return target.name;
+                        const widgetRoot = target.closest('[x-data]');
+                        const hidden = widgetRoot ? widgetRoot.querySelector('input[type="hidden"][name]') : null;
+                        return hidden ? hidden.name : '';
+                    },
+                    getHidden(name) {
+                        return this.$el.querySelector(`input[type="hidden"][name="${name}"]`);
+                    },
+                    parseNumber(value) {
+                        if (value === null || value === undefined || value === '') return 0;
+                        const raw = String(value);
+                        if (/^-?\d+(?:\.\d+)?$/.test(raw)) {
+                            const number = Number(raw);
+                            return Number.isFinite(number) ? number : 0;
+                        }
+                        const normalized = raw.replace(/\./g, '').replace(',', '.');
+                        const number = Number(normalized);
+                        return Number.isFinite(number) ? number : 0;
+                    },
+                    formatDisplay(value, places) {
+                        return Number(value || 0).toFixed(places).replace('.', ',');
+                    },
+                    setDecimalField(name, value, places) {
+                        const hidden = this.getHidden(name);
+                        if (!hidden) return;
+                        const root = hidden.closest('[x-data]');
+                        const fixed = Number(value || 0).toFixed(places);
+                        hidden.value = fixed;
+                        if (root && window.Alpine) {
+                            const widget = Alpine.$data(root);
+                            if (widget && widget.$refs) {
+                                if (widget.$refs.value) widget.$refs.value.value = fixed;
+                                if (widget.$refs.display) widget.$refs.display.value = this.formatDisplay(fixed, places);
+                            }
+                        }
+                    },
+                    readField(name) {
+                        const hidden = this.getHidden(name);
+                        return this.parseNumber(hidden ? hidden.value : 0);
+                    },
+                    applyCatalogPrices() {
+                        if (!this.selectName) return;
+                        const select = this.$el.querySelector(`[name="${this.selectName}"]`);
+                        if (!select || !select.value) return;
+                        const prices = this.priceMap[String(select.value)];
+                        if (!prices) return;
+                        this.syncing = true;
+                        this.setDecimalField('cost_value', prices.cost || 0, 2);
+                        this.setDecimalField('unit_value', prices.sell || 0, 2);
+                        this.syncing = false;
+                        this.recalcTotalFromUnit();
+                    },
+                    recalcTotalFromUnit() {
+                        if (this.syncing) return;
+                        this.syncing = true;
+                        const quantity = this.readField('quantity') || 1;
+                        const unit = this.readField('unit_value');
+                        this.setDecimalField('total_value', quantity * unit, 2);
+                        this.syncing = false;
+                    },
+                    recalcUnitFromTotal() {
+                        if (this.syncing) return;
+                        this.syncing = true;
+                        const quantity = this.readField('quantity') || 1;
+                        const total = this.readField('total_value');
+                        this.setDecimalField('unit_value', quantity > 0 ? total / quantity : 0, 2);
+                        this.syncing = false;
+                    },
+                    onFieldEvent(event) {
+                        const fieldName = this.resolveFieldName(event.target);
+                        if (!fieldName) return;
+                        queueMicrotask(() => {
+                            if (this.selectName && fieldName === this.selectName) {
+                                this.applyCatalogPrices();
+                                return;
+                            }
+                            if (fieldName === 'quantity' || fieldName === 'unit_value') {
+                                this.recalcTotalFromUnit();
+                                return;
+                            }
+                            if (fieldName === 'total_value') {
+                                this.recalcUnitFromTotal();
+                            }
+                        });
+                    },
+                };
+            };
+        })();
+    </script>
+
+    <div class="mb-6">
+        <h2 class="text-2xl font-bold">Itens da emissão avulsa</h2>
+        <p class="text-base-content/70 mt-1">Cadastre os itens e confira a listagem abaixo antes de continuar.</p>
+    </div>
+
+    <div class="grid grid-cols-1 {% if note_mode == 'both' %}xl:grid-cols-2{% endif %} gap-6 mb-8">
+        {% if note_mode == 'nfe' or note_mode == 'both' %}
+            <div class="rounded-xl border border-base-300 bg-base-200/30 p-5 space-y-4"
+                 x-data="{ source: 'catalog' }">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="material-icons text-base-content/50 text-xl">inventory_2</span>
+                        <h3 class="font-semibold text-base-content">Adicionar produto</h3>
+                    </div>
+                    <div class="join">
+                        <input class="join-item btn btn-sm bg-base-200 border-base-300 font-normal shadow-none checked:btn-primary"
+                               type="radio"
+                               name="product_source"
+                               value="catalog"
+                               aria-label="Catálogo"
+                               x-model="source" />
+                        <input class="join-item btn btn-sm bg-base-200 border-base-300 font-normal shadow-none checked:btn-primary"
+                               type="radio"
+                               name="product_source"
+                               value="manual"
+                               aria-label="Avulso"
+                               x-model="source" />
+                    </div>
+                </div>
+
+                <div x-show="source === 'catalog'" x-cloak>
+                    <p class="text-sm text-base-content/60 mb-3">Busque um produto já cadastrado no catálogo da oficina.</p>
+                    <form method="post"
+                          action="{% url 'finance:standalone_emission' %}?step={{ current_step }}"
+                          class="space-y-3"
+                          x-data="standaloneLinePricing({ selectName: 'product', priceMap: window.__standaloneProductPrices || {} })"
+                          x-init="init()">
+                        {% csrf_token %}
+                        {% crispy add_product_form %}
+                        <div class="flex justify-end pt-1">
+                            <button type="submit" name="add_catalog_product" value="1" class="btn btn-primary btn-sm">
+                                <span class="material-icons text-sm">add</span>
+                                Adicionar produto
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div x-show="source === 'manual'" x-cloak>
+                    <p class="text-sm text-base-content/60 mb-3">Informe os dados fiscais de um produto que não está no catálogo.</p>
+                    <form method="post"
+                          action="{% url 'finance:standalone_emission' %}?step={{ current_step }}"
+                          class="space-y-3"
+                          x-data="standaloneLinePricing({ selectName: null, priceMap: {} })"
+                          x-init="init()">
+                        {% csrf_token %}
+                        {% crispy manual_product_form %}
+                        <div class="flex justify-end pt-1">
+                            <button type="submit" name="add_manual_product" value="1" class="btn btn-primary btn-sm">
+                                <span class="material-icons text-sm">add</span>
+                                Adicionar produto avulso
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if note_mode == 'nfse' or note_mode == 'both' %}
+            <div class="rounded-xl border border-base-300 bg-base-200/30 p-5 space-y-4"
+                 x-data="{ source: 'catalog' }">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="material-icons text-base-content/50 text-xl">build</span>
+                        <h3 class="font-semibold text-base-content">Adicionar serviço</h3>
+                    </div>
+                    <div class="join">
+                        <input class="join-item btn btn-sm bg-base-200 border-base-300 font-normal shadow-none checked:btn-primary"
+                               type="radio"
+                               name="service_source"
+                               value="catalog"
+                               aria-label="Catálogo"
+                               x-model="source" />
+                        <input class="join-item btn btn-sm bg-base-200 border-base-300 font-normal shadow-none checked:btn-primary"
+                               type="radio"
+                               name="service_source"
+                               value="manual"
+                               aria-label="Avulso"
+                               x-model="source" />
+                    </div>
+                </div>
+
+                <div x-show="source === 'catalog'" x-cloak>
+                    <p class="text-sm text-base-content/60 mb-3">Busque um serviço já cadastrado no catálogo da oficina.</p>
+                    <form method="post"
+                          action="{% url 'finance:standalone_emission' %}?step={{ current_step }}"
+                          class="space-y-3"
+                          x-data="standaloneLinePricing({ selectName: 'service', priceMap: window.__standaloneServicePrices || {} })"
+                          x-init="init()">
+                        {% csrf_token %}
+                        {% crispy add_service_form %}
+                        <div class="flex justify-end pt-1">
+                            <button type="submit" name="add_catalog_service" value="1" class="btn btn-primary btn-sm">
+                                <span class="material-icons text-sm">add</span>
+                                Adicionar serviço
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div x-show="source === 'manual'" x-cloak>
+                    <p class="text-sm text-base-content/60 mb-3">Informe os dados de um serviço que não está no catálogo.</p>
+                    <form method="post"
+                          action="{% url 'finance:standalone_emission' %}?step={{ current_step }}"
+                          class="space-y-3"
+                          x-data="standaloneLinePricing({ selectName: null, priceMap: {} })"
+                          x-init="init()">
+                        {% csrf_token %}
+                        {% crispy manual_service_form %}
+                        <div class="flex justify-end pt-1">
+                            <button type="submit" name="add_manual_service" value="1" class="btn btn-primary btn-sm">
+                                <span class="material-icons text-sm">add</span>
+                                Adicionar serviço avulso
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="divider my-2"></div>
+{% endif %}
+
+<div id="form-container" class="{% if current_step_key == 'items' %}mt-6{% endif %}">
+    <form id="standalone-emission-form"
+          hx-post="{{ request.path }}?step={{ current_step }}"
+          hx-target="#step-container"
+          hx-indicator="#standalone-submit-spinner"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        {% crispy form %}
+    </form>
+</div>
+
+<script>
+    (function () {
+        const form = document.getElementById('standalone-emission-form');
+        if (!form || form.dataset.submitLoadingBound === '1') {
+            return;
+        }
+        form.dataset.submitLoadingBound = '1';
+        const submitBtn = document.getElementById('standalone-submit-btn');
+        const submitLabel = document.getElementById('standalone-submit-label');
+        const submitSpinner = document.getElementById('standalone-submit-spinner');
+        if (!submitBtn || !submitLabel) {
+            return;
+        }
+        const defaultLabel = submitLabel.textContent;
+        const startLoading = function () {
+            submitBtn.disabled = true;
+            submitLabel.textContent = 'Enviando...';
+            if (submitSpinner) {
+                submitSpinner.classList.remove('hidden');
+            }
+        };
+        const stopLoading = function () {
+            submitBtn.disabled = false;
+            submitLabel.textContent = defaultLabel;
+            if (submitSpinner) {
+                submitSpinner.classList.add('hidden');
+            }
+        };
+        form.addEventListener('htmx:beforeRequest', startLoading);
+        form.addEventListener('htmx:afterRequest', stopLoading);
+        form.addEventListener('htmx:responseError', stopLoading);
+    })();
+</script>
