@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -47,7 +49,19 @@ class DreFormValidationTests(TestCase):
         response = self.client.get(reverse("finance:dre_results"), query)
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("finance:dre_report"))
+        self.assertEqual(response.url, f"{reverse('finance:dre_report')}?{urlencode(query)}")
+
+    def test_results_preserves_filled_fields_after_validation_error(self) -> None:
+        query = self._valid_query()
+        query.pop("tipo_data")
+
+        response = self.client.get(reverse("finance:dre_results"), query, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Preencha todos os filtros obrigatórios para gerar o DRE.")
+        self.assertContains(response, 'value="2026-01-01"')
+        self.assertContains(response, 'value="2026-01-31"')
+        self.assertContains(response, str(self.workshop.pk))
 
     def test_results_renders_when_tipo_data_is_selected(self) -> None:
         response = self.client.get(reverse("finance:dre_results"), self._valid_query())
@@ -62,7 +76,7 @@ class DreFormValidationTests(TestCase):
         response = self.client.get(reverse("finance:dre_pdf"), query)
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("finance:dre_report"))
+        self.assertEqual(response.url, f"{reverse('finance:dre_report')}?{urlencode(query)}")
 
     def test_excel_redirects_when_tipo_data_is_missing(self) -> None:
         query = self._valid_query()
@@ -71,4 +85,4 @@ class DreFormValidationTests(TestCase):
         response = self.client.get(reverse("finance:dre_excel"), query)
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("finance:dre_report"))
+        self.assertEqual(response.url, f"{reverse('finance:dre_report')}?{urlencode(query)}")

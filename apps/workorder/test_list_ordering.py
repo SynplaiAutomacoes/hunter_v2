@@ -46,10 +46,10 @@ class WorkOrderListOrderingTests(TestCase):
             budget_type="sale",
         )
 
-    def test_filtered_queryset_orders_by_budget_number_ascending(self) -> None:
-        self._create_workorder(number=30)
-        self._create_workorder(number=10)
-        self._create_workorder(number=20)
+    def test_filtered_queryset_orders_by_newest_first(self) -> None:
+        first = self._create_workorder(number=10)
+        second = self._create_workorder(number=20)
+        third = self._create_workorder(number=30)
 
         request = RequestFactory().get("/workorder/")
         request.user = self.user
@@ -58,8 +58,6 @@ class WorkOrderListOrderingTests(TestCase):
         view.workshop = self.workshop
         view.kwargs = {}
 
-        ordered_numbers = list(
-            view._get_filtered_workorder_queryset().values_list("budget__number", flat=True)
-        )
+        ordered_ids = list(view._get_filtered_workorder_queryset().values_list("pk", flat=True))
 
-        self.assertEqual(ordered_numbers, [10, 20, 30])
+        self.assertEqual(ordered_ids, [third.pk, second.pk, first.pk])

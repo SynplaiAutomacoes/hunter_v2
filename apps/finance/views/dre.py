@@ -46,7 +46,11 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
     def _redirect_invalid_dre_form(self) -> HttpResponseRedirect:
         messages.error(self.request, "Preencha todos os filtros obrigatórios para gerar o DRE.")
-        return redirect(reverse("finance:dre_report"))
+        report_url = reverse("finance:dre_report")
+        query_string = self.request.GET.urlencode()
+        if query_string:
+            report_url = f"{report_url}?{query_string}"
+        return redirect(report_url)
 
     def _get_workshops_queryset(self):
         user_account_id = getattr(self.request.user, "account_id", None)
@@ -231,6 +235,8 @@ class DreReportView(DreBaseView):
         ]
 
         form = DreForm(self.request.GET or None, workshops=workshops, financial_groups_qs=financial_groups)
+        if self.request.GET:
+            form.is_valid()
         context["form"] = form
 
         return context
