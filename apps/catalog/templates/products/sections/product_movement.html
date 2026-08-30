@@ -1,2 +1,78 @@
-<section class="card bg-base-100 shadow-md"><div class="card-body"><h2 class="text-lg font-semibold">Histórico de Movimentações</h2><div class="mt-2 border-b-2 border-primary w-full mb-6"></div><div class="overflow-x-auto"><table class="table w-full"><thead><tr class="bg-base-200"><th>Data</th><th>Documento</th><th>Cliente/Veículo</th><th>Fornecedor</th><th>Tipo</th><th>Responsável</th><th>Qtd.</th><th>Nota de Entrada</th><th>Status</th></tr></thead><tbody>{% for m in movements %}
-<tr class="{% if m.is_stock_adjustment %}bg-warning/10 hover:bg-warning/20{% else %}hover{% endif %}"><td>{{ m.display_date|date:"d/m/Y H:i" }}</td><td>{% if m.workorder_id and m.workorder_reference %}<a href="{% url 'workorder:workorder_detail' m.workorder_id %}" class="link link-primary font-medium hover:underline">{{ m.workorder_reference }}</a>{% else %}{{ m.workorder_reference|default:"—" }}{% endif %}</td><td>{% if m.is_stock_adjustment %}AJUSTE ESTOQUE{% elif m.workorder and m.workorder.budget %}<div class="font-medium">{{ m.workorder.budget.customer.name|default:"Consumidor Final" }}</div>{% if m.workorder.budget.vehicle %}<div class="text-sm text-base-content/60">{{ m.workorder.budget.vehicle.model }}{% if m.workorder.budget.vehicle.plate %} ({{ m.workorder.budget.vehicle.plate }}){% endif %}</div>{% else %}<div class="text-sm text-base-content/60">—</div>{% endif %}{% else %}<span class="opacity-50">—</span>{% endif %}</td><td>{% if m.is_stock_adjustment %}AJUSTE ESTOQUE{% else %}{{ m.historical_supplier.name|default:"—" }}{% endif %}</td><td>{% if m.type == "ENTRADA" %}<span class="badge badge-success">Entrada</span>{% else %}<span class="badge badge-error">Saída</span>{% endif %}</td><td>{% if m.transcation_by %}{{ m.transcation_by.get_full_name|default:m.transcation_by.username }}{% else %}Sistema{% endif %}</td><td class="font-bold">{{ m.quantity }}</td><td>{% if m.is_stock_adjustment %}—{% else %}{{ m.stock_product.last_nf_display|default:"—" }}{% endif %}</td><td><span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">{{ m.get_status_display }}</span></td></tr>{% empty %}<tr><td colspan="9" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td></tr>{% endfor %}</tbody></table></div></div></section>
+<section class="card bg-base-100 shadow-md">
+  <div class="card-body">
+    <h2 class="text-lg font-semibold">Histórico de Movimentações</h2>
+    <div class="mt-2 border-b-2 border-primary w-full mb-6"></div>
+
+    <div class="overflow-x-auto">
+      <table class="table w-full">
+        <thead>
+          <tr class="bg-base-200">
+            <th>Data</th>
+            <th>Documento</th>
+            <th>Cliente/Veículo</th>
+            <th>Fornecedor</th>
+            <th>Tipo</th>
+            <th>Responsável</th>
+            <th>Qtd.</th>
+            <th>Nota de Entrada</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in movements %}
+          <tr class="{% if m.is_stock_adjustment %}bg-warning/10 hover:bg-warning/20{% else %}hover{% endif %}">
+            <td>{{ m.display_date|date:"d/m/Y H:i" }}</td>
+            <td>
+              {% if m.workorder_id and m.workorder_reference %}
+                <a href="{% url 'workorder:workorder_detail' m.workorder_id %}" class="link link-primary font-medium hover:underline">{{ m.workorder_reference }}</a>
+              {% else %}
+                {{ m.workorder_reference|default:"—" }}
+              {% endif %}
+            </td>
+            <td>
+              {% if m.is_stock_adjustment %}
+                AJUSTE ESTOQUE
+              {% elif m.workorder and m.workorder.budget %}
+                <div class="font-medium">{{ m.workorder.budget.customer.name|default:"Consumidor Final" }}</div>
+                {% if m.workorder.budget.vehicle %}
+                  <div class="text-sm text-base-content/60">{{ m.workorder.budget.vehicle.model }}{% if m.workorder.budget.vehicle.plate %} ({{ m.workorder.budget.vehicle.plate }}){% endif %}</div>
+                {% else %}
+                  <div class="text-sm text-base-content/60">—</div>
+                {% endif %}
+              {% else %}
+                <span class="opacity-50">—</span>
+              {% endif %}
+            </td>
+            <td>{% if m.is_stock_adjustment %}AJUSTE ESTOQUE{% else %}{{ m.historical_supplier.name|default:"—" }}{% endif %}</td>
+            <td>
+              {% if m.type == "ENTRADA" %}
+                <span class="badge badge-success">Entrada</span>
+              {% else %}
+                <span class="badge badge-error">Saída</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if m.transcation_by %}
+                {{ m.transcation_by.get_full_name|default:m.transcation_by.username }}
+              {% else %}
+                Sistema
+              {% endif %}
+            </td>
+            <td class="font-bold">{{ m.quantity }}</td>
+            <td>{% if m.is_stock_adjustment %}—{% else %}{{ m.stock_product.last_nf_display|default:"—" }}{% endif %}</td>
+            <td>
+              <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
+                {{ m.get_status_display }}
+              </span>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="9" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>

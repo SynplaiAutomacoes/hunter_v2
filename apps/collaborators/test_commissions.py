@@ -13,7 +13,7 @@ from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetStatus
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
-from apps.collaborators.services import get_reference_work_days, sync_collaborator_commission_entries, sync_collaborator_payroll, sync_workorder_collaborator_payrolls
+from apps.collaborators.services import add_manual_payroll_commission, get_reference_work_days, sync_collaborator_commission_entries, sync_collaborator_payroll, sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.payroll import _mark_payroll_as_paid, _mark_payroll_commissions_as_paid, _unmark_payroll_commissions_as_paid
@@ -230,6 +230,56 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertEqual(benefit_movement.amount, Money(80, "BRL"))
         self.assertEqual(benefit_movement.payroll_benefit_id, benefit.pk)
         self.assertEqual(getattr(benefit_movement.budget_plan, "code", None), "5.1.5")
+
+    def test_payroll_uses_collaborator_transport_budget_plan_when_set(self) -> None:
+        workshop = create_workshop(suffix=46)
+        collaborator = create_collaborator(workshop=workshop, suffix=46)
+        collaborator.transport_allowance_daily = Money(10, "BRL")
+        default_plan = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 13],
+            names=["Despesas Trabalhistas", "Folha", "Vale Transporte"],
+        )
+        custom_plan = FinancialGroup.objects.create(workshop=workshop, parent=default_plan.parent, name="VT Personalizado")
+        collaborator.transport_budget_plan = custom_plan
+        collaborator.save(update_fields=["transport_allowance_daily", "transport_budget_plan"])
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            year=2026,
+            month=8,
+            mechanic_quantity=1,
+            work_days_per_month=10,
+        )
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+
+        transport_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.TRANSPORT)
+        self.assertEqual(transport_movement.budget_plan_id, custom_plan.pk)
+        self.assertEqual(transport_movement.amount, Money(100, "BRL"))
+
+    def test_payroll_uses_default_transport_plan_when_collaborator_has_no_custom_plan(self) -> None:
+        workshop = create_workshop(suffix=47)
+        collaborator = create_collaborator(workshop=workshop, suffix=47)
+        collaborator.transport_allowance_daily = Money(8, "BRL")
+        collaborator.save(update_fields=["transport_allowance_daily"])
+        default_plan = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 13],
+            names=["Despesas Trabalhistas", "Folha", "Vale Transporte"],
+        )
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            year=2026,
+            month=8,
+            mechanic_quantity=1,
+            work_days_per_month=5,
+        )
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+
+        transport_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.TRANSPORT)
+        self.assertEqual(transport_movement.budget_plan_id, default_plan.pk)
+        self.assertEqual(getattr(transport_movement.budget_plan, "code", None), "5.1.13")
 
     def test_sale_workorder_generates_commission_but_courtesy_and_warranty_do_not(self) -> None:
         workshop = create_workshop(suffix=1)
@@ -744,6 +794,23 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertTrue(refreshed_payroll.financial_movement.is_paid)
         self.assertEqual(commission_entry.status, CollaboratorCommissionEntry.Status.PAID)
         self.assertIsNotNone(commission_entry.paid_at)
+
+    def test_os_sync_does_not_delete_manual_commission_entries(self) -> None:
+        workshop = create_workshop(suffix=55)
+        collaborator = create_collaborator(workshop=workshop, suffix=55)
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+        entry = add_manual_payroll_commission(payroll=payroll, amount=Money(75, "BRL"), notes="Ajuste")
+
+        sync_collaborator_commission_entries(collaborator=collaborator, reference_date=date(2026, 8, 1))
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.origin, CollaboratorCommissionEntry.Origin.MANUAL)
+        self.assertEqual(entry.commission_amount, Money(75, "BRL"))
+        self.assertEqual(entry.notes, "Ajuste")
+        self.assertIsNone(entry.workorder_id)
+        payroll.refresh_from_db()
+        commission_item = payroll.items.get(item_type="COMMISSION")
+        self.assertEqual(commission_item.description, "Ajuste")
 
 
 class CommissionAndPayrollCommandTests(TestCase):

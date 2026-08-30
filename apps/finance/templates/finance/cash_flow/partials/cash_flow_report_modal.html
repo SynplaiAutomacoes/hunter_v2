@@ -1,0 +1,25 @@
+<div class="flex h-full w-full flex-col bg-base-200 text-base-content">
+    <div class="sticky top-0 z-10 border-b border-base-300/80 bg-base-100/90 px-6 py-5 backdrop-blur supports-[backdrop-filter]:bg-base-100/80">
+        <div class="flex flex-wrap items-center justify-end gap-2">
+            <div class="rounded-full border border-success/20 bg-success/10 px-4 py-2 text-sm font-semibold text-success">
+                Total {{ total_value }}
+            </div>
+            <a href="{{ excel_url }}" class="btn btn-sm btn-success gap-2 text-white shadow-sm">
+                <span class="material-icons text-sm">table_view</span>
+                Exportar Excel
+            </a>
+            <a href="{{ pdf_url }}" target="_blank" class="btn btn-sm btn-primary gap-2 shadow-sm">
+                <span class="material-icons text-sm">picture_as_pdf</span>
+                Exportar PDF
+            </a>
+            <button type="button" class="btn btn-sm btn-ghost border border-base-300"
+                    onclick="document.getElementById('cashflowReportModal').close()">
+                Fechar
+            </button>
+        </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+        {% include "finance/cash_flow/partials/cash_flow_report_content.html" %}
+    </div>
+</div>

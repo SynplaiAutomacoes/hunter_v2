@@ -116,7 +116,7 @@
             <div class="card-body gap-4 p-5 md:p-6">
                 <div>
                         <h2 class="text-lg font-semibold text-base-content">Comissões por ordem de serviço</h2>
-                        <p class="text-sm text-base-content/65">As linhas abaixo entram na apuração quando a O.S. é concluída.</p>
+                        <p class="text-sm text-base-content/65">Inclui O.S. concluídas e lançamentos manuais da folha.</p>
                     </div>
 
                 {% if commission_rows %}
@@ -141,9 +141,15 @@
                                 {% for row in commission_rows %}
                                     <tr class="bg-base-100">
                                         <td>{{ row.collaborator_name }}</td>
-                                        <td><a href="{{ row.workorder_url }}" class="link link-primary">#{{ row.workorder_id }}</a></td>
+                                        <td>
+                                            {% if row.workorder_url %}
+                                                <a href="{{ row.workorder_url }}" class="link link-primary">#{{ row.workorder_id }}</a>
+                                            {% else %}
+                                                {{ row.workorder_label }}
+                                            {% endif %}
+                                        </td>
                                         <td>{{ row.customer_name }}</td>
-                                        <td>{{ row.description }}</td>
+                                        <td class="max-w-xs whitespace-pre-wrap break-words">{{ row.description }}</td>
                                         <td>{{ row.reference }}</td>
                                         <td>{{ row.applied_at|date:"d/m/Y"|default:"-" }}</td>
                                         <td>{{ row.base_amount }}</td>

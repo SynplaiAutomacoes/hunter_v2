@@ -5,7 +5,9 @@ from django.db import transaction
 from djmoney.money import Money
 
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.payment_method import PaymentMethod
 from apps.sources.models import Source
+from apps.stock.financial_entries import resolve_import_budget_plan
 from apps.stock.models import StockImport
 
 
@@ -56,12 +58,17 @@ class Command(BaseCommand):
                     source_cnpj = stock_import.supplier_cnpj or ""
                     source, _ = Source.objects.get_or_create(workshop=workshop, name=source_name, defaults={"cnpj": source_cnpj})
 
-                    from apps.finance.models.payment_method import PaymentMethod
-
                     method_id = pay.get("method")
                     payment_method_obj = PaymentMethod.objects.filter(id=method_id, workshop=workshop).first()
                     if not payment_method_obj:
                         self.stderr.write(f"PaymentMethod {method_id} não encontrado para oficina {workshop.pk}. Pulando.")
+                        continue
+
+                    budget_plan = resolve_import_budget_plan(workshop=workshop, budget_plan_id=pay.get("budget_plan_id"))
+                    if budget_plan is None:
+                        self.stderr.write(
+                            f"Plano orçamentário {pay.get('budget_plan_id')} não encontrado para oficina {workshop.pk}. Pulando."
+                        )
                         continue
 
                     total_val = Decimal(str(pay.get("total_paid", 0)))
@@ -74,6 +81,7 @@ class Command(BaseCommand):
                         direction=FinancialMovement.MovementDirection.DEBIT,
                         description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
                         payment_method=payment_method_obj,
+                        budget_plan=budget_plan,
                         nf_number=stock_import.nf_number,
                         amount=Money(total_val, "BRL"),
                         due_date=payment_date,
