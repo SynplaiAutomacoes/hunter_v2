@@ -161,7 +161,7 @@ class StockAdjustViewTests(TestCase):
         self.assertEqual(movement.transcation_by_id, self.user.pk)
         self.assertEqual(movement.workshop_id, self.workshop.pk)
 
-    def test_get_starts_adjustment_at_zero_without_cache(self) -> None:
+    def test_get_starts_adjustment_empty_without_cache(self) -> None:
         self.stock.current_quantity = 9
         self.stock.save(update_fields=["current_quantity"])
 
@@ -169,7 +169,7 @@ class StockAdjustViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Cache-Control"], "no-store")
-        self.assertContains(response, 'value="0"')
+        self.assertNotContains(response, 'value="0"')
 
     def test_post_rejects_same_quantity(self) -> None:
         url = reverse("catalog:stock_adjust", kwargs={"product_id": self.product.pk})
