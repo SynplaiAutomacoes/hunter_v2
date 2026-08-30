@@ -33,6 +33,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.stock.models import StockMovement
 from apps.stock.services.adjust_stock import adjust_stock_quantity
+from apps.stock.services.stock_balance import recover_missing_stock_balance
 from apps.workshops.mixin import WorkshopScopedMixin
 
 _PRODUCT_ACTIVE_TABS = frozenset({"cadastro", "atribuicao_kit", "estoque", "historico", "movimentacao", "fornecedor"})
@@ -186,6 +187,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         context = super().get_context_data(**kwargs)
         product = self.object
         stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=product)
+        recover_missing_stock_balance(stock_product=stock_obj)
 
         context["stock_obj"] = stock_obj
         movements = list(
@@ -471,8 +473,9 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, *args, **kwargs):
         stock_obj = self._get_stock_product(kwargs["product_id"])
+        recover_missing_stock_balance(stock_product=stock_obj)
         form = StockAdjustForm(current_quantity=stock_obj.current_quantity)
-        return render(
+        response = render(
             request,
             self.template_name,
             {
@@ -481,6 +484,8 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "stock_obj": stock_obj,
             },
         )
+        response["Cache-Control"] = "no-store"
+        return response
 
     def post(self, request, *args, **kwargs):
         stock_obj = self._get_stock_product(kwargs["product_id"])
@@ -494,7 +499,7 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "product": stock_obj.product,
                     "stock_obj": stock_obj,
                 },
-                status=400,
+                status=200,
             )
 
         try:
@@ -505,7 +510,6 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 user=request.user,
             )
         except ValidationError as exc:
-            form.add_error(None, exc.messages[0] if exc.messages else str(exc))
             return render(
                 request,
                 self.template_name,
@@ -513,8 +517,9 @@ class StockAdjustView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "form": form,
                     "product": stock_obj.product,
                     "stock_obj": stock_obj,
+                    "alert_message": exc.messages[0] if exc.messages else str(exc),
                 },
-                status=400,
+                status=200,
             )
 
         redirect_url = reverse("catalog:product_update", kwargs={"pk": stock_obj.product_id})

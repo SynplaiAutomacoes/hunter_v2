@@ -83,6 +83,7 @@ class StockMovement(TimeStampedModel):
     reversal_of = models.OneToOneField("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reversal_entry")
     quantity = models.DecimalField(max_digits=15, decimal_places=4, default=Decimal("1"), verbose_name="Quantidade")
     reason = models.TextField(blank=True, default="", verbose_name="Motivo")
+    is_stock_adjustment = models.BooleanField(default=False, verbose_name="É ajuste de estoque")
     status = models.CharField(max_length=10, choices=MovementStatus.choices, verbose_name="Status", default=MovementStatus.WAITING)
 
     class Meta:

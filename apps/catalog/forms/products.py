@@ -397,7 +397,7 @@ class StockAdjustForm(CoreForm):
     quantity = forms.IntegerField(
         label="Quantidade em estoque",
         min_value=0,
-        widget=NumberInput(attrs={"min": "0", "step": "1"}),
+        widget=NumberInput(attrs={"min": "0", "step": "1", "placeholder": "0"}),
     )
     reason = forms.CharField(
         label="Motivo",
@@ -408,7 +408,7 @@ class StockAdjustForm(CoreForm):
         super().__init__(*args, **kwargs)
         self.current_quantity = current_quantity
         if not self.is_bound:
-            self.fields["quantity"].initial = current_quantity
+            self.fields["quantity"].initial = None
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -427,7 +427,4 @@ class StockAdjustForm(CoreForm):
         return sentence_case(reason)
 
     def clean_quantity(self) -> int:
-        quantity = int(self.cleaned_data["quantity"])
-        if quantity == self.current_quantity:
-            raise forms.ValidationError("A quantidade informada é igual ao estoque atual. Nada a ajustar.")
-        return quantity
+        return int(self.cleaned_data["quantity"])

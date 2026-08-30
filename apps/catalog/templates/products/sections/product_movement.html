@@ -14,12 +14,13 @@
             <th>Tipo</th>
             <th>Responsável</th>
             <th>Qtd.</th>
+            <th>Nota de Entrada</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody>
           {% for m in movements %}
-          <tr class="hover">
+          <tr class="{% if m.is_stock_adjustment %}bg-warning/10 hover:bg-warning/20{% else %}hover{% endif %}">
             <td>{{ m.display_date|date:"d/m/Y H:i" }}</td>
             <td>
               {% if m.workorder_id and m.workorder_reference %}
@@ -29,7 +30,9 @@
               {% endif %}
             </td>
             <td>
-              {% if m.workorder and m.workorder.budget %}
+              {% if m.is_stock_adjustment %}
+                AJUSTE ESTOQUE
+              {% elif m.workorder and m.workorder.budget %}
                 <div class="font-medium">{{ m.workorder.budget.customer.name|default:"Consumidor Final" }}</div>
                 {% if m.workorder.budget.vehicle %}
                   <div class="text-sm text-base-content/60">{{ m.workorder.budget.vehicle.model }}{% if m.workorder.budget.vehicle.plate %} ({{ m.workorder.budget.vehicle.plate }}){% endif %}</div>
@@ -40,7 +43,7 @@
                 <span class="opacity-50">—</span>
               {% endif %}
             </td>
-            <td>{{ m.historical_supplier.name|default:"—" }}</td>
+            <td>{% if m.is_stock_adjustment %}AJUSTE ESTOQUE{% else %}{{ m.historical_supplier.name|default:"—" }}{% endif %}</td>
             <td>
               {% if m.type == "ENTRADA" %}
                 <span class="badge badge-success">Entrada</span>
@@ -56,15 +59,16 @@
               {% endif %}
             </td>
             <td class="font-bold">{{ m.quantity }}</td>
+            <td>{% if m.is_stock_adjustment %}—{% else %}{{ m.stock_product.last_nf_display|default:"—" }}{% endif %}</td>
             <td>
-                <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
-                    {{ m.get_status_display }}
-                </span>
+              <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
+                {{ m.get_status_display }}
+              </span>
             </td>
           </tr>
           {% empty %}
           <tr>
-            <td colspan="8" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
+            <td colspan="9" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
           </tr>
           {% endfor %}
         </tbody>
