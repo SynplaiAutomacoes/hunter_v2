@@ -516,6 +516,15 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
 
+    # The manager PDF presents the complete operational cost of each service
+    # in its "Custo/Mecânico" column. Keep the underlying mechanic cost
+    # separate for the existing profit and aggregate calculations, and expose
+    # the display-only amount explicitly so freight is not counted twice.
+    for servico in servicos:
+        servico["service_effective_cost_price"] = (
+            servico["service_mechanic_cost_price"] + servico["shipping"]
+        )
+
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
