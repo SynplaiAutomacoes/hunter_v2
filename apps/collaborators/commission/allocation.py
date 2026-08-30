@@ -9,6 +9,21 @@ from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorC
 from apps.workorder.models import WorkOrder
 
 
+def participation_pct_collaborator_ids(*, workorder: WorkOrder, scope: str) -> set[int]:
+    wo_collaborator_ids = set(workorder.collaborators.values_list("id", flat=True))
+    if not wo_collaborator_ids:
+        return set()
+    return set(
+        CollaboratorCommissionRule.objects.filter(
+            collaborator_id__in=wo_collaborator_ids,
+            scope=scope,
+            is_active=True,
+            modality=CollaboratorCommissionRule.Modality.PERCENTAGE,
+            apply_scope=CollaboratorCommissionRule.ApplyScope.PARTICIPATION,
+        ).values_list("collaborator_id", flat=True)
+    )
+
+
 class CommissionAllocationService:
     """Gerencia Base (%) por WO — alocação do pool."""
 
@@ -55,40 +70,50 @@ class CommissionAllocationService:
         locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
         wo_collaborator_ids = set(locked_workorder.collaborators.values_list("id", flat=True))
 
-        WorkOrderCommissionAllocation.objects.filter(workorder=locked_workorder).exclude(
+        orphan_qs = WorkOrderCommissionAllocation.objects.filter(workorder=locked_workorder).exclude(
             collaborator_id__in=wo_collaborator_ids
-        ).delete()
+        )
+        scopes_with_removed_allocations = set(orphan_qs.values_list("scope", flat=True).distinct())
+        orphan_qs.delete()
 
         for scope in (CollaboratorCommissionRule.Scope.SERVICE, CollaboratorCommissionRule.Scope.PRODUCT):
-            eligible_ids = set(
-                CollaboratorCommissionRule.objects.filter(
-                    collaborator_id__in=wo_collaborator_ids,
-                    scope=scope,
-                    is_active=True,
-                    modality=CollaboratorCommissionRule.Modality.PERCENTAGE,
-                    apply_scope=CollaboratorCommissionRule.ApplyScope.PARTICIPATION,
-                ).values_list("collaborator_id", flat=True)
-            )
+            eligible_ids = participation_pct_collaborator_ids(workorder=locked_workorder, scope=scope)
+            WorkOrderCommissionAllocation.objects.filter(
+                workorder=locked_workorder,
+                scope=scope,
+            ).exclude(collaborator_id__in=eligible_ids).delete()
+
             eligible_collaborators = list(locked_workorder.collaborators.filter(id__in=eligible_ids).order_by("id"))
             if len(eligible_collaborators) != 1:
                 continue
-            CommissionAllocationService.upsert(
+
+            sole = eligible_collaborators[0]
+            sole_allocation = WorkOrderCommissionAllocation.objects.filter(
                 workorder=locked_workorder,
-                collaborator=eligible_collaborators[0],
                 scope=scope,
-                distribution_percentage=Decimal("1"),
-            )
+                collaborator=sole,
+            ).first()
+            if sole_allocation is None or scope in scopes_with_removed_allocations:
+                CommissionAllocationService.upsert(
+                    workorder=locked_workorder,
+                    collaborator=sole,
+                    scope=scope,
+                    distribution_percentage=Decimal("1"),
+                )
 
     @staticmethod
     def validate(*, workorder: WorkOrder, scope: str) -> dict[str, list[str]]:
         """Valida soma das Bases ≤100% (apenas alertas)."""
         errors: dict[str, list[str]] = {"cap": [], "sum": []}
-        wo_collaborator_ids = list(workorder.collaborators.values_list("id", flat=True))
+        eligible_ids = participation_pct_collaborator_ids(workorder=workorder, scope=scope)
+        if not eligible_ids:
+            return errors
+
         allocations = list(
             WorkOrderCommissionAllocation.objects.filter(
                 workorder=workorder,
                 scope=scope,
-                collaborator_id__in=wo_collaborator_ids,
+                collaborator_id__in=eligible_ids,
             )
         )
         if not allocations:

@@ -10,7 +10,7 @@
             hx-post="{% url 'workorder:update_collaborators' workorder.pk %}"
             hx-target="#collaborators-section"
             hx-swap="innerHTML"
-            hx-trigger="submit, collaborator-list-changed"
+            hx-trigger="collaborator-list-changed"
             hx-include="this"
             hx-sync="this:replace"
             data-collaborators-autosave="1"
@@ -27,15 +27,78 @@
 </div>
 <script>
     (function () {
-        if (window.__workorderCollaboratorsStepperGuard) {
+        if (window.__workorderCollaboratorsNavigationBound) {
             return;
         }
-        window.__workorderCollaboratorsStepperGuard = true;
+        window.__workorderCollaboratorsNavigationBound = true;
 
         const sectionIsVisible = () => {
             const section = document.getElementById('collaborators-section');
             return Boolean(section && !section.classList.contains('hidden'));
         };
+
+        window.navigateWorkorderCollaborators = async function navigateWorkorderCollaborators(form, targetUrl) {
+            if (!form || !targetUrl) {
+                return;
+            }
+            form.dataset.navigating = '1';
+            const formData = new FormData(form);
+            formData.set('next', targetUrl);
+            const csrfToken = form.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            const postUrl = form.getAttribute('hx-post') || form.getAttribute('action') || window.location.pathname;
+
+            try {
+                const response = await fetch(postUrl, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'HX-Request': 'true',
+                    },
+                    credentials: 'same-origin',
+                });
+
+                const redirectUrl = response.headers.get('HX-Redirect');
+                if (redirectUrl) {
+                    window.location.assign(redirectUrl);
+                    return;
+                }
+
+                if (response.ok) {
+                    const destination = targetUrl.startsWith('?')
+                        ? `${window.location.pathname}${targetUrl}`
+                        : targetUrl;
+                    window.location.assign(destination);
+                }
+            } catch (error) {
+                console.error('workorder collaborators navigation failed', error);
+            } finally {
+                delete form.dataset.navigating;
+            }
+        };
+
+        document.addEventListener('submit', (event) => {
+            const form = event.target;
+            if (!form || form.id !== 'workorder-collaborators-form') {
+                return;
+            }
+            const submitter = event.submitter;
+            const nextValue = submitter && submitter.name === 'next' ? submitter.value : '';
+            if (!nextValue) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            if (form.getAttribute('data-status-locked') === '1') {
+                const destination = nextValue.startsWith('?')
+                    ? `${window.location.pathname}${nextValue}`
+                    : nextValue;
+                window.location.assign(destination);
+                return;
+            }
+            window.navigateWorkorderCollaborators(form, nextValue);
+        }, true);
 
         document.addEventListener('click', (event) => {
             if (!sectionIsVisible()) {
@@ -56,20 +119,15 @@
             }
             event.preventDefault();
             event.stopPropagation();
+            const targetUrl = match[1];
             if (form.getAttribute('data-status-locked') === '1') {
-                window.location.href = match[1];
+                const destination = targetUrl.startsWith('?')
+                    ? `${window.location.pathname}${targetUrl}`
+                    : targetUrl;
+                window.location.assign(destination);
                 return;
             }
-            let input = form.querySelector('input[name="next"][data-stepper-next="1"]');
-            if (!input) {
-                input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = 'next';
-                input.setAttribute('data-stepper-next', '1');
-                form.appendChild(input);
-            }
-            input.value = match[1];
-            form.dispatchEvent(new Event('collaborator-list-changed', { bubbles: true }));
+            window.navigateWorkorderCollaborators(form, targetUrl);
         }, true);
     })();
 </script>

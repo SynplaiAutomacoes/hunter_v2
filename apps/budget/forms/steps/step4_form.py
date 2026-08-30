@@ -1,5 +1,7 @@
 # ruff: noqa: F403,F405
 from apps.budget.forms.layouts.step4_assets import build_step4_assets_html
+from apps.budget.review_totals import build_step4_table_totals
+from apps.core.templatetags.format_tags import money_br
 from .base import BudgetStepBaseForm
 from .common import *
 
@@ -18,6 +20,13 @@ class BudgetStep4Form(BudgetStepBaseForm):
         products_html = rows["product"]
         services_html = rows["service"]
         kits_html = rows["kit"]
+        table_totals = build_step4_table_totals(budget=budget)
+        products_total_cost_display = money_br(table_totals["products"].cost)
+        products_total_profit_display = money_br(table_totals["products"].profit)
+        products_total_sale_display = money_br(table_totals["products"].sale)
+        services_total_cost_display = money_br(table_totals["services"].cost)
+        services_total_profit_display = money_br(table_totals["services"].profit)
+        services_total_sale_display = money_br(table_totals["services"].sale)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -49,8 +58,18 @@ class BudgetStep4Form(BudgetStepBaseForm):
                         width: 3.25rem;
                     }
 
+                    .budget-step4-table .origin-cell {
+                        overflow: visible;
+                        vertical-align: middle;
+                        white-space: nowrap;
+                    }
+
                     .budget-step4-table thead th {
-                        font-size: 0.80rem;
+                        font-size: 0.70rem;
+                    }
+
+                    .budget-step4-table tbody td {
+                        font-size: 0.70rem;
                     }
                 </style>
                 """
@@ -101,30 +120,40 @@ class BudgetStep4Form(BudgetStepBaseForm):
                         ),
                         Div(
                             HTML(f"""
-                                <table class="table table-sm table-zebra w-full budget-step4-table">
-                                    <thead class="bg-primary text-primary-content">
-                                        <tr>
-                                            <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-products" class="checkbox text-white checkbox-sm" 
-                                                       style="border-color: white; color: white;" aria-label="Selecionar todas as peças">
-                                            </th>
-                                            <th class="w-[16%] text-left">DESCRIÇÃO</th>
-                                            <th class="w-[12%] text-left">APLICAÇÃO</th>
-                                            <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
-                                            <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[10%] text-right">CUSTO</th>
-                                            <th class="w-[10%] text-right">VALOR VENDA</th>
-                                            <th class="w-[10%] text-right">CUSTO DE FRETE</th>
-                                            <th class="w-[10%] text-right">TOTAL</th>
-                                            <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="product-list-body">
-                                        {products_html}
-                                    </tbody>
-                                </table>
+                                <div class="rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
+                                    <div class="overflow-x-auto">
+                                        <table class="table table-sm table-zebra w-full budget-step4-table">
+                                            <thead class="bg-primary text-primary-content">
+                                                <tr>
+                                                    <th class="budget-step4-select-col text-center">
+                                                        <input type="checkbox" id="select-all-products" class="checkbox text-white checkbox-sm" 
+                                                               style="border-color: white; color: white;" aria-label="Selecionar todas as peças">
+                                                    </th>
+                                                    <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                                                    <th class="w-[8%] text-center">ORIGEM</th>
+                                                    <th class="w-[12%] text-left">APLICAÇÃO</th>
+                                                    <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                                                    <th class="w-[8%] text-center">QTD.</th>
+                                                    <th class="w-[10%] text-right">CUSTO</th>
+                                                    <th class="w-[10%] text-right">VALOR VENDA</th>
+                                                    <th class="w-[10%] text-right">CUSTO DE FRETE</th>
+                                                    <th class="w-[10%] text-right">TOTAL</th>
+                                                    <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="product-list-body">
+                                                {products_html}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="flex flex-wrap justify-end gap-4 px-3 py-2 text-xs font-semibold border-t border-base-300 bg-base-200/40">
+                                        <div>Total de Custo: {products_total_cost_display}</div>
+                                        <div>Total de Lucro: {products_total_profit_display}</div>
+                                        <div>Total de Venda: {products_total_sale_display}</div>
+                                    </div>
+                                </div>
                             """),
-                            css_class="mb-8 rounded-lg shadow-md shadow-gray-300/50 overflow-x-auto",
+                            css_class="mb-8",
                         ),
                         css_class="mb-10",
                     ),
@@ -158,29 +187,39 @@ class BudgetStep4Form(BudgetStepBaseForm):
                         ),
                         Div(
                             HTML(f"""
-                                <table class="table table-sm table-zebra w-full budget-step4-table">
-                                    <thead class="bg-primary text-primary-content">
-                                        <tr>
-                                            <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-services" class="checkbox text-white checkbox-sm" 
-                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
-                                            </th>
-                                            <th class="w-[16%] text-left">DESCRIÇÃO</th>
-                                            <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
-                                            <th class="w-[12%] text-right">VALOR VENDA</th>
-                                            <th class="w-[12%] text-right">CUSTO DE FRETE</th>
-                                            <th class="w-[12%] text-center">TEMPO</th>
-                                            <th class="w-[12%] text-right">TOTAL</th>
-                                            <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="service-list-body">
-                                        {services_html}
-                                    </tbody>
-                                </table>
+                                <div class="rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
+                                    <div class="overflow-x-auto">
+                                        <table class="table table-sm table-zebra w-full budget-step4-table">
+                                            <thead class="bg-primary text-primary-content">
+                                                <tr>
+                                                    <th class="budget-step4-select-col text-center">
+                                                        <input type="checkbox" id="select-all-services" class="checkbox text-white checkbox-sm" 
+                                                               style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
+                                                    </th>
+                                                    <th class="w-[16%] text-left">DESCRIÇÃO</th>
+                                                    <th class="w-[8%] text-center">ORIGEM</th>
+                                                    <th class="w-[8%] text-center">QTD.</th>
+                                                    <th class="w-[16%] text-right">CUSTO/MECÂNICO</th>
+                                                    <th class="w-[12%] text-right">VALOR VENDA</th>
+                                                    <th class="w-[12%] text-right">CUSTO DE FRETE</th>
+                                                    <th class="w-[12%] text-center">TEMPO</th>
+                                                    <th class="w-[12%] text-right">TOTAL</th>
+                                                    <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="service-list-body">
+                                                {services_html}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="flex flex-wrap justify-end gap-4 px-3 py-2 text-xs font-semibold border-t border-base-300 bg-base-200/40">
+                                        <div>Total de Custo: {services_total_cost_display}</div>
+                                        <div>Total de Lucro: {services_total_profit_display}</div>
+                                        <div>Total de Venda: {services_total_sale_display}</div>
+                                    </div>
+                                </div>
                             """),
-                            css_class="mb-8 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden",
+                            css_class="mb-8",
                         ),
                         css_class="mb-10",
                     ),
@@ -239,7 +278,7 @@ class BudgetStep4Form(BudgetStepBaseForm):
                         ),
                         css_class="mb-6",
                     ),
-                    css_class="col-span-12 xl:col-span-8",
+                    css_class="col-span-12 xl:col-span-9",
                 ),
                 #
                 # Coluna Direita
@@ -251,9 +290,9 @@ class BudgetStep4Form(BudgetStepBaseForm):
                             css_class="sticky top-4",
                             css_id="budget-summary",
                         ),
-                        css_class="p-6 h-fit text-lg",
+                        css_class="p-4 h-fit text-base",
                     ),
-                    css_class="col-span-12 xl:col-span-4 mt-10 xl:mt-0",
+                    css_class="col-span-12 xl:col-span-3 mt-10 xl:mt-0",
                 ),
                 css_class="grid grid-cols-1 xl:grid-cols-12 gap-4",
             ),

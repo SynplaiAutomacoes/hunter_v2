@@ -676,7 +676,7 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
     def post(self, request, pk):
         from decimal import Decimal, InvalidOperation
 
-        from apps.collaborators.commission.allocation import CommissionAllocationService
+        from apps.collaborators.commission.allocation import CommissionAllocationService, participation_pct_collaborator_ids
         from apps.collaborators.models import WorkshopCollaborator
 
         workorder = _get_workorder_for_workshop(self.workshop, pk)
@@ -764,11 +764,12 @@ class UpdateWorkOrderCommissionAllocationView(LoginRequiredMixin, WorkshopScoped
                         return resp
                     return JsonResponse({"ok": False, "error": msg}, status=400)
                 # Validar soma Σ Base% ≤100% (considerando novo valor)
+                eligible_ids = participation_pct_collaborator_ids(workorder=locked_wo, scope=scope)
                 existing_allocs = list(
                     WorkOrderCommissionAllocation.objects.select_for_update().filter(
                         workorder=locked_wo,
                         scope=scope,
-                        collaborator_id__in=wo_collab_ids,
+                        collaborator_id__in=eligible_ids,
                     )
                 )
                 sum_others = sum(
