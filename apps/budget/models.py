@@ -537,7 +537,7 @@ class Budget(TimeStampedModel):
         duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
 
         # Custos
-        custo_pecas = self.total_costs_products_value
+        custo_pecas = self.total_costs_products_value + self.total_benefit_products_cost
         custo_servico_terceiro = self.total_third_party_services_cost
         custo_frete_servico = self.total_cost_services_shipping
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
@@ -569,7 +569,7 @@ class Budget(TimeStampedModel):
             return fallback_data
 
         # Custos
-        custo_pecas = self.total_costs_products_value
+        custo_pecas = self.total_costs_products_value + self.total_benefit_products_cost
         custo_frete_pecas = self.total_cost_products_shipping
         custo_servico_terceiro = self.total_third_party_services_cost
         custo_frete_servicos = self.total_cost_services_shipping
@@ -645,7 +645,7 @@ class Budget(TimeStampedModel):
         return data_hun
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
-        custo_pecas = self.total_costs_products_value
+        custo_pecas = self.total_costs_products_value + self.total_benefit_products_cost
         custo_frete_pecas = self.total_cost_products_shipping
         custo_servico_terceiro = self.total_third_party_services_cost
         custo_frete_servicos = self.total_cost_services_shipping
@@ -873,6 +873,19 @@ class Budget(TimeStampedModel):
     @property
     def total_cost_products_shipping(self) -> Money:
         return self.total_products_shipping + self.total_benefit_products_shipping
+
+    @property
+    def total_benefit_products_cost(self) -> Money:
+        """Custo das peças de garantia/cortesia, absorvido pela oficina."""
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            if not item.is_benefit_item or item.is_customer_supplied:
+                continue
+            if item.kit:
+                total += item.get_kit_products_cost_total()
+            elif item.product_id or self._is_local_product_item(item):
+                total += item.product_cost_price * item.quantity
+        return total
 
     @property
     def total_costs_products_value(self) -> Money:
