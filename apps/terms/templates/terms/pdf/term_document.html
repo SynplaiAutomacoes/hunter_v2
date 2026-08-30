@@ -174,7 +174,7 @@
     }
 
     .term-topic {
-      margin-bottom: 18px;
+      margin: 18px 0;
       break-inside: avoid;
       page-break-inside: avoid;
     }
@@ -332,17 +332,17 @@
 </head>
 <body>
   <main class="document" aria-label="{{ document_title }}">
+    <header class="term-topbar">
+      {% if workshop_logo_data_uri %}
+        <img src="{{ workshop_logo_data_uri }}" alt="Logo da oficina" class="term-logo" />
+      {% else %}
+        <div class="term-logo-placeholder">Logo da oficina</div>
+      {% endif %}
+    </header>
+    <hr class="term-accent-rule" aria-hidden="true" />
+
     {% for section in sections %}
     <section class="term-section" aria-label="Seção {{ forloop.counter }}">
-      <header class="term-topbar">
-        {% if workshop_logo_data_uri %}
-          <img src="{{ workshop_logo_data_uri }}" alt="Logo da oficina" class="term-logo" />
-        {% else %}
-          <div class="term-logo-placeholder">Logo da oficina</div>
-        {% endif %}
-      </header>
-      <hr class="term-accent-rule" aria-hidden="true" />
-
       <div class="term-page-content">
         {% if forloop.first %}
           <h1 class="term-page-heading">{{ document_title }}</h1>

@@ -48,6 +48,67 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 logger = logging.getLogger(__name__)
 
 
+def _get_budget_term_signing_from_token(token: str) -> BudgetTermSigning:
+    try:
+        payload = get_signature_service().parse_signature_token(
+            token=token,
+            token_salt=BUDGET_TERM_SIGNATURE_TOKEN_SALT,
+            document_id_key=BUDGET_TERM_SIGNATURE_DOCUMENT_ID_KEY,
+        )
+    except SignatureTokenError as exc:
+        raise Http404(str(exc)) from exc
+
+    signing = get_object_or_404(
+        BudgetTermSigning.objects.select_related(
+            "budget",
+            "budget__customer",
+            "budget__vehicle",
+            "budget__workshop",
+            "term_template",
+        ),
+        pk=payload["document_id"],
+    )
+
+    if not signing.signature_token_active:
+        raise Http404("Arquivo não encontrado")
+
+    if signing.signature_token_version != payload["version"]:
+        raise Http404("Arquivo não encontrado")
+
+    return signing
+
+
+def _get_workorder_term_signing_from_token(token: str) -> WorkOrderTermSigning:
+    try:
+        payload = get_signature_service().parse_signature_token(
+            token=token,
+            token_salt=WORKORDER_TERM_SIGNATURE_TOKEN_SALT,
+            document_id_key=WORKORDER_TERM_SIGNATURE_DOCUMENT_ID_KEY,
+        )
+    except SignatureTokenError as exc:
+        raise Http404(str(exc)) from exc
+
+    signing = get_object_or_404(
+        WorkOrderTermSigning.objects.select_related(
+            "workorder",
+            "workorder__budget",
+            "workorder__budget__customer",
+            "workorder__budget__vehicle",
+            "workorder__workshop",
+            "term_template",
+        ),
+        pk=payload["document_id"],
+    )
+
+    if not signing.signature_token_active:
+        raise Http404("Arquivo não encontrado")
+
+    if signing.signature_token_version != payload["version"]:
+        raise Http404("Arquivo não encontrado")
+
+    return signing
+
+
 class WorkshopTermTemplateListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkshopTermTemplate
     template_name = "terms/term_template_list.html"
@@ -284,21 +345,7 @@ class SendBudgetTermSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View)
 
 @xframe_options_exempt
 def budget_term_signature_preview(request, token: str):
-    try:
-        payload = get_signature_service().parse_signature_token(
-            token=token,
-            token_salt=BUDGET_TERM_SIGNATURE_TOKEN_SALT,
-            document_id_key=BUDGET_TERM_SIGNATURE_DOCUMENT_ID_KEY,
-        )
-    except SignatureTokenError as exc:
-        raise Http404(str(exc)) from exc
-
-    signing = get_object_or_404(
-        BudgetTermSigning.objects.select_related("budget", "budget__customer", "budget__vehicle", "budget__workshop", "term_template"),
-        pk=payload.document_id,
-        signature_token_version=payload.version,
-        signature_token_active=True,
-    )
+    signing = _get_budget_term_signing_from_token(token)
     context = build_term_pdf_context(
         term_template=signing.term_template,
         snapshot=signing.content_snapshot or None,
@@ -311,16 +358,7 @@ def budget_term_signature_preview(request, token: str):
 
 @xframe_options_exempt
 def budget_term_signature_file(request, token: str):
-    try:
-        payload = get_signature_service().parse_signature_token(
-            token=token,
-            token_salt=BUDGET_TERM_SIGNATURE_TOKEN_SALT,
-            document_id_key=BUDGET_TERM_SIGNATURE_DOCUMENT_ID_KEY,
-        )
-    except SignatureTokenError as exc:
-        raise Http404(str(exc)) from exc
-
-    signing = get_object_or_404(BudgetTermSigning, pk=payload.document_id, signature_token_version=payload.version, signature_token_active=True)
+    signing = _get_budget_term_signing_from_token(token)
 
     if signing.signature_request_status == SignatureStatus.APPROVED and signing.signature_external_id:
         try:
@@ -386,28 +424,7 @@ def workorder_term_preview(request, workorder_id: int):
 
 @xframe_options_exempt
 def workorder_term_signature_preview(request, token: str):
-    try:
-        payload = get_signature_service().parse_signature_token(
-            token=token,
-            token_salt=WORKORDER_TERM_SIGNATURE_TOKEN_SALT,
-            document_id_key=WORKORDER_TERM_SIGNATURE_DOCUMENT_ID_KEY,
-        )
-    except SignatureTokenError as exc:
-        raise Http404(str(exc)) from exc
-
-    signing = get_object_or_404(
-        WorkOrderTermSigning.objects.select_related(
-            "workorder",
-            "workorder__budget",
-            "workorder__budget__customer",
-            "workorder__budget__vehicle",
-            "workorder__workshop",
-            "term_template",
-        ),
-        pk=payload.document_id,
-        signature_token_version=payload.version,
-        signature_token_active=True,
-    )
+    signing = _get_workorder_term_signing_from_token(token)
     workorder = signing.workorder
     budget = workorder.budget
     context = build_term_pdf_context(
@@ -423,21 +440,7 @@ def workorder_term_signature_preview(request, token: str):
 
 @xframe_options_exempt
 def workorder_term_signature_file(request, token: str):
-    try:
-        payload = get_signature_service().parse_signature_token(
-            token=token,
-            token_salt=WORKORDER_TERM_SIGNATURE_TOKEN_SALT,
-            document_id_key=WORKORDER_TERM_SIGNATURE_DOCUMENT_ID_KEY,
-        )
-    except SignatureTokenError as exc:
-        raise Http404(str(exc)) from exc
-
-    signing = get_object_or_404(
-        WorkOrderTermSigning.objects.select_related("workorder", "workorder__budget", "workorder__workshop"),
-        pk=payload.document_id,
-        signature_token_version=payload.version,
-        signature_token_active=True,
-    )
+    signing = _get_workorder_term_signing_from_token(token)
     workorder = signing.workorder
     budget = workorder.budget
 
