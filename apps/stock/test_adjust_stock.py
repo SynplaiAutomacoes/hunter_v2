@@ -59,6 +59,7 @@ class AdjustStockQuantityServiceTests(TestCase):
         self.assertEqual(movement.quantity, 5)
         self.assertEqual(movement.status, StockMovement.MovementStatus.APPROVED)
         self.assertEqual(movement.reason, "Inventário físico")
+        self.assertTrue(movement.is_stock_adjustment)
         self.assertEqual(movement.transcation_by_id, self.user.pk)
         self.assertIsNone(movement.supplier_id)
 

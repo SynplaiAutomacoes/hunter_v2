@@ -20,7 +20,7 @@
         </thead>
         <tbody>
           {% for m in movements %}
-          <tr class="hover">
+          <tr class="{% if m.is_stock_adjustment %}bg-warning/10 hover:bg-warning/20{% else %}hover{% endif %}">
             <td>{{ m.display_date|date:"d/m/Y H:i" }}</td>
             <td>{{ m.workorder_reference|default:"—" }}</td>
             <td>
@@ -40,7 +40,7 @@
             <td class="font-bold">{{ m.quantity }}</td>
             <td>{{ m.stock_product.last_nf_display|default:"—" }}</td>
             <td class="max-w-xs truncate" title="{{ m.reason }}">{{ m.reason|default:"—" }}</td>
-            <td>{{ m.supplier.name|default:"—" }}</td>
+            <td>{% if m.is_stock_adjustment %}AJUSTE ESTOQUE{% else %}{{ m.supplier.name|default:"—" }}{% endif %}</td>
             <td>
                 <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
                     {{ m.get_status_display }}

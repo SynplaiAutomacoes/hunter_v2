@@ -190,7 +190,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
         context["stock_obj"] = stock_obj
         context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).select_related(
-            "workorder__budget"
+            "supplier", "workorder__budget"
         ).order_by("-criado_em")
 
         budget_items = BudgetItem.objects.filter(product=product, workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle")
