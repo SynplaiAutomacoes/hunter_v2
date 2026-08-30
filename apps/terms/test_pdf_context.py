@@ -89,7 +89,7 @@ class TermTemplateRenderTests(SimpleTestCase):
 
     def test_template_renders_faithful_layout(self) -> None:
         html = self._render_default_receipt_html()
-        self.assertEqual(html.count('class="term-page"'), 2)
+        self.assertEqual(html.count('class="term-section"'), 2)
         self.assertEqual(html.count('class="term-topbar"'), 2)
         self.assertIn("Informações importantes para diagnóstico e manutenção", html)
         self.assertIn('class="term-vehicle-card"', html)

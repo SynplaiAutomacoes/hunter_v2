@@ -103,7 +103,7 @@ class BudgetStep2Form(BudgetStepBaseForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
 
-        term_section_layout = []
+        term_section_layout: list = []
         if self.instance.pk:
             status_label = "Não enviado"
             status_class = "badge-ghost"
@@ -155,32 +155,60 @@ class BudgetStep2Form(BudgetStepBaseForm):
 
             term_section_layout = [
                 Div(
-                    HTML('<h3 class="text-2xl font-bold col-span-12">Termo de Recebimento</h3>'),
                     HTML(
                         f"""
-                        <div class="col-span-12 rounded-box border border-base-300 p-4 bg-base-200/40">
-                            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-                                <span class="badge {status_class}">{status_label}</span>
+                        <div class="rounded-box border border-base-300 p-4 bg-base-200/40 h-full flex flex-col">
+                            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                                <h4 class="font-bold text-lg">Termo de Recebimento</h4>
                                 <a href="{terms_create_url}" target="_blank" class="btn btn-primary btn-sm gap-2">
                                     <span class="material-icons text-base">add</span>
                                     Novo termo
                                 </a>
                             </div>
-                            <div class="grid grid-cols-12 gap-4 items-end">
-                                <div class="col-span-12 lg:col-span-8">
+                            <div class="mb-3">
+                                <span class="badge {status_class}">{status_label}</span>
+                            </div>
+                            <div class="budget-term-row">
                         """
                     ),
-                    Field("term_template", wrapper_class="mb-0"),
+                    Field("term_template", wrapper_class="mb-0 budget-term-field-wrapper", css_class="mb-0"),
                     HTML(
                         f"""
-                                </div>
-                                <div class="col-span-12 lg:col-span-4 flex flex-wrap gap-2">
-                                    <button type="button" class="btn btn-primary btn-sm gap-2" id="budget-term-preview-btn" {"disabled" if not self.term_templates else ""}>
-                                        <span class="material-icons text-base">visibility</span>
-                                        Visualizar PDF
-                                    </button>
-                                </div>
+                                <button type="button" class="btn btn-primary btn-sm gap-2 budget-term-preview-btn" id="budget-term-preview-btn" {"disabled" if not self.term_templates else ""}>
+                                    <span class="material-icons text-base">visibility</span>
+                                    Visualizar PDF
+                                </button>
                             </div>
+                            <style>
+                                .budget-term-row {{
+                                    display: grid;
+                                    grid-template-columns: minmax(0, 1fr) auto;
+                                    column-gap: 0.5rem;
+                                    row-gap: 0.25rem;
+                                    align-items: center;
+                                }}
+                                .budget-term-row .budget-term-field-wrapper {{
+                                    display: contents;
+                                }}
+                                .budget-term-row .budget-term-field-wrapper > label {{
+                                    grid-column: 1 / -1;
+                                    margin-bottom: 0;
+                                }}
+                                .budget-term-row .budget-term-field-wrapper > div {{
+                                    grid-column: 1;
+                                    min-width: 0;
+                                    margin-bottom: 0 !important;
+                                }}
+                                .budget-term-row .budget-term-field-wrapper > .text-red-500,
+                                .budget-term-row .budget-term-field-wrapper > ul {{
+                                    grid-column: 1 / -1;
+                                }}
+                                .budget-term-row .budget-term-preview-btn {{
+                                    grid-column: 2;
+                                    grid-row: 2;
+                                    align-self: center;
+                                }}
+                            </style>
                             {"<p class='text-sm text-base-content/70 mt-3'>O termo selecionado foi bloqueado após o envio para assinatura.</p>" if self.term_signature_locked else ""}
                             {"<div class='alert alert-warning mt-3'><span>Cadastre ao menos um termo de recebimento ativo para visualizar ou enviar ao cliente.</span></div>" if not self.term_templates else ""}
                         </div>
@@ -346,12 +374,15 @@ class BudgetStep2Form(BudgetStepBaseForm):
                         </script>
                         """
                     ),
-                    css_class="grid grid-cols-12 gap-6 mt-8",
+                    css_class="col-span-12 lg:col-span-6",
                 )
             ]
         else:
             term_section_layout = [
-                HTML('<div class="col-span-12 alert alert-info mt-6">Salve a etapa 1 para configurar o termo de recebimento.</div>')
+                Div(
+                    HTML('<div class="alert alert-info h-full">Salve a etapa 1 para configurar o termo de recebimento.</div>'),
+                    css_class="col-span-12 lg:col-span-6",
+                )
             ]
 
         self.helper.layout = Layout(
@@ -365,11 +396,11 @@ class BudgetStep2Form(BudgetStepBaseForm):
                     Div(*question_layout_fields, css_class="border bg-base-200 px-4 py-2 rounded-lg pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400", style="border-color: var(--color-input-ring); height: 40vh; min-height: 40vh; max-height: 40vh;"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
-                # Observações
-                Div(Field("notes", wrapper_class="w-full", css_class="bg-base-200"), css_class="col-span-12"),
+                # Observações + Termo lado a lado
+                Div(Field("notes", wrapper_class="w-full", css_class="bg-base-200"), css_class="col-span-12 lg:col-span-6"),
+                *term_section_layout,
                 css_class="budget-step2-client-report grid grid-cols-12 gap-6",
             ),
-            *term_section_layout,
         )
 
     def save(self, commit=True):
