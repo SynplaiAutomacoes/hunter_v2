@@ -1203,11 +1203,6 @@ class WorkOrder(TimeStampedModel):
             self.budget_type = self.budget.budget_type
             self.save(update_fields=["discount_value", "discount_percentage", "discount_type", "budget_type"])
 
-            collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
-            if not collaborator_ids and self.budget.collaborator_id:
-                collaborator_ids = [self.budget.collaborator_id]
-            self.collaborators.set(collaborator_ids)
-
             self.invalidate_pricing_snapshot_cache()
             self.refresh_stored_amounts()
 
