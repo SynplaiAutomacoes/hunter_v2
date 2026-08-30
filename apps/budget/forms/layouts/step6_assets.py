@@ -2,6 +2,24 @@ def build_step6_assets_html() -> str:
     return """
                 <style>
                     .table-fixed { table-layout: fixed; }
+                    .budget-step6-table :where(th, td) {
+                        vertical-align: middle;
+                    }
+                    .budget-step6-table thead th {
+                        font-size: 0.70rem;
+                    }
+                    .budget-step6-table tbody td {
+                        font-size: 0.70rem;
+                    }
+                    .origin-cell {
+                        overflow: visible;
+                        vertical-align: middle;
+                        white-space: nowrap;
+                    }
+                    .budget-step4-table .origin-cell .badge,
+                    .table-fixed .origin-cell .badge {
+                        max-width: 100%;
+                    }
                 </style>
                 <script>
                     window.budgetPdfCacheVersion = Date.now().toString();

@@ -50,10 +50,13 @@ document.addEventListener('alpine:init', () => {
         },
         notifyAutosave() {
             const form = this.$root && this.$root.closest ? this.$root.closest('form[data-collaborators-autosave]') : null;
-            if (!form) {
+            if (!form || form.dataset.navigating === '1') {
                 return;
             }
             this.$nextTick(() => {
+                if (form.dataset.navigating === '1') {
+                    return;
+                }
                 form.dispatchEvent(new Event('collaborator-list-changed', { bubbles: true }));
             });
         },

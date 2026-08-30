@@ -9,6 +9,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget
+from apps.core.templatetags.format_tags import money_br
 from apps.budget.pdf_context import (
     _merge_selected_product_rows,
     _merge_selected_service_rows,
@@ -289,3 +290,13 @@ class BudgetPdfDocumentTitleTests(TestCase):
         gestor_html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
         self.assertIn("Aberto por: Sistema", cliente_html)
         self.assertIn("Aberto por: Sistema", gestor_html)
+
+    def test_gestor_pdf_renders_effective_cost_totals(self) -> None:
+        budget = _create_budget(suffix=2)
+        context = build_budget_pdf_context(budget=budget)
+        products_cost = context["total_products_effective_cost_value"]
+        services_cost = context["total_services_effective_cost_value"]
+
+        gestor_html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
+        self.assertIn(f"Total Custos: {money_br(products_cost)}", gestor_html)
+        self.assertIn(f"Total Custos: {money_br(services_cost)}", gestor_html)

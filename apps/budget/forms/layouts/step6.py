@@ -72,6 +72,12 @@ def configure_budget_step6_form(form):
     reject_button_class = ctx.reject_button_class
     products_html = ctx.products_html
     services_html = ctx.services_html
+    products_total_cost_display = ctx.products_total_cost_display
+    products_total_sale_display = ctx.products_total_sale_display
+    products_total_profit_display = ctx.products_total_profit_display
+    services_total_cost_display = ctx.services_total_cost_display
+    services_total_sale_display = ctx.services_total_sale_display
+    services_total_profit_display = ctx.services_total_profit_display
 
     has_reopen_permission = bool(
         form.request and form.workshop and has_workshop_perm(
@@ -170,7 +176,7 @@ def configure_budget_step6_form(form):
                     HTML(f"""
                             <div class="mb-10 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
                               <div class="overflow-x-auto">
-                                <table class="table table-zebra table-fixed w-full">
+                                <table class="table table-zebra table-fixed w-full budget-step6-table">
                                   <thead class="bg-primary text-primary-content">
                                     <tr>
                                       <th class="w-[16%]">NOME</th>
@@ -189,6 +195,11 @@ def configure_budget_step6_form(form):
                                   </tbody>
                                 </table>
                               </div>
+                              <div class="flex flex-wrap justify-end gap-4 px-3 py-2 text-sm font-semibold border-t border-base-300 bg-base-200/40">
+                                <div>Total Custo: {products_total_cost_display}</div>
+                                <div>Total Venda: {products_total_sale_display}</div>
+                                <div>Total Lucro: {products_total_profit_display}</div>
+                              </div>
                             </div>
                             """),
                 ),
@@ -198,7 +209,7 @@ def configure_budget_step6_form(form):
                     HTML(f"""
                             <div class="mb-10 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
                                 <div class="overflow-x-auto">
-                                    <table class="table table-zebra table-fixed w-full">
+                                    <table class="table table-zebra table-fixed w-full budget-step6-table">
                                         <thead class="bg-primary text-primary-content">
                                             <tr>
                                                 <th class="w-[28%] whitespace-nowrap text-left">
@@ -240,10 +251,15 @@ def configure_budget_step6_form(form):
                                         </tbody>
                                     </table>
                                 </div>
+                                <div class="flex flex-wrap justify-end gap-4 px-3 py-2 text-sm font-semibold border-t border-base-300 bg-base-200/40">
+                                    <div>Total Custo: {services_total_cost_display}</div>
+                                    <div>Total Venda: {services_total_sale_display}</div>
+                                    <div>Total Lucro: {services_total_profit_display}</div>
+                                </div>
                             </div>
                             """),
                 ),
-                css_class="col-span-12 lg:col-span-7",
+                css_class="col-span-12 lg:col-span-8",
             ),
             # Div(css_class="hidden lg:block lg:col-span-0"),
             # ===== COLUNA DIREITA =====
@@ -344,7 +360,7 @@ def configure_budget_step6_form(form):
                             """),
                     css_class="p-4 bg-base-200/50 rounded-lg",
                 ),
-                css_class="col-span-12 lg:col-span-5 sticky top-4",
+                css_class="col-span-12 lg:col-span-4 sticky top-4",
             ),
             css_class="grid grid-cols-1 lg:grid-cols-12 gap-8",
         ),
