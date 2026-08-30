@@ -47,8 +47,8 @@ def build_step5_context(budget) -> Step5PricingContext:
     zerado = Money(0, "BRL")
 
     custo_pecas = budget.total_costs_products_value
-    custo_frete_pecas = budget.total_products_shipping
-    custo_frete_servicos = budget.total_services_shipping
+    custo_frete_pecas = budget.total_cost_products_shipping
+    custo_frete_servicos = budget.total_cost_services_shipping
     custo_servico_terceiros = budget.total_third_party_services_cost
 
     benefit_tp_agg = (
