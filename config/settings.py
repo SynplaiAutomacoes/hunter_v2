@@ -160,6 +160,7 @@ INSTALLED_APPS = [
     "apps.stock",
     "apps.finance",
     "apps.messaging",
+    "apps.terms",
 ]
 
 MIDDLEWARE = [

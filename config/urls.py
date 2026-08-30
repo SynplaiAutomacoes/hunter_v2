@@ -45,6 +45,7 @@ urlpatterns = [
     path("stock/", include("apps.stock.urls")),
     path("finance/", include("apps.finance.urls")),
     path("messaging/", include("apps.messaging.urls")),
+    path("terms/", include("apps.terms.urls")),
     path("review/<str:token>/", PublicSatisfactionReviewView.as_view(), name="public_satisfaction_review"),
 ]
 

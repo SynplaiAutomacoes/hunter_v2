@@ -52,6 +52,106 @@
         </form>
     </div>
 
+    {% if term_signing or approval_form.fields.warranty_term_template.queryset.exists %}
+    <div class="p-4 bg-base-200/50 rounded-lg">
+        <div class="flex items-center justify-between gap-3 mb-3">
+            <h4 class="font-bold text-lg border-b flex-1 pb-2">Termo de Garantia</h4>
+            <a href="{% url 'terms:term_template_list' %}" target="_blank" class="link link-primary text-sm">Gerenciar termos</a>
+        </div>
+        {% if term_signing %}
+            <p class="text-sm mb-3">
+                Status:
+                <span class="badge badge-ghost">{{ term_signing.get_signature_request_status_display }}</span>
+                {% if term_signing.term_template %}
+                    — {{ term_signing.term_template.name }}
+                {% endif %}
+            </p>
+        {% endif %}
+        <div class="flex flex-wrap gap-2">
+            <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                id="workorder-term-preview-btn"
+                data-base-url="{% url 'terms:workorder_term_preview' workorder.pk %}"
+            >
+                Visualizar
+            </button>
+            <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                id="workorder-term-send-btn"
+                data-url="{% url 'terms:workorder_term_send_signature' workorder.pk %}"
+                {% if term_signing and term_signing.is_signature_locked %}disabled{% endif %}
+            >
+                Enviar termo de garantia para assinatura
+            </button>
+        </div>
+        <p class="text-xs text-base-content/70 mt-2">Selecione o termo no formulário de entrega acima antes de enviar.</p>
+        <dialog id="workorder-term-preview-modal" class="modal">
+            <div class="modal-box w-[95vw] max-w-5xl">
+                <h3 class="font-bold text-lg mb-3">Pré-visualização do termo de garantia</h3>
+                <iframe id="workorder-term-preview-frame" class="w-full min-h-[70vh] border border-base-300 rounded-box bg-white" title="Pré-visualização do termo de garantia"></iframe>
+                <div class="modal-action">
+                    <form method="dialog">
+                        <button class="btn">Fechar</button>
+                    </form>
+                </div>
+            </div>
+            <form method="dialog" class="modal-backdrop bg-black/50">
+                <button>close</button>
+            </form>
+        </dialog>
+    </div>
+    <script>
+    (function () {
+        const previewBtn = document.getElementById('workorder-term-preview-btn');
+        const previewModal = document.getElementById('workorder-term-preview-modal');
+        const previewFrame = document.getElementById('workorder-term-preview-frame');
+        const termSelect = document.getElementById('id_warranty_term_template');
+        if (previewBtn && previewModal && previewFrame) {
+            previewBtn.addEventListener('click', function () {
+                const termId = termSelect ? termSelect.value : '';
+                if (!termId) {
+                    window.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Selecione um termo de garantia no formulário de entrega.', type: 'warning' } }));
+                    return;
+                }
+                previewFrame.src = `${previewBtn.dataset.baseUrl}?term_template=${encodeURIComponent(termId)}`;
+                previewModal.showModal();
+            });
+        }
+
+        const sendBtn = document.getElementById('workorder-term-send-btn');
+        if (!sendBtn || sendBtn.disabled) return;
+        sendBtn.addEventListener('click', async function () {
+            const termId = termSelect ? termSelect.value : '';
+            if (!termId) {
+                window.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Selecione um termo de garantia no formulário de entrega.', type: 'warning' } }));
+                return;
+            }
+            sendBtn.disabled = true;
+            try {
+                const body = new FormData();
+                body.append('term_template', termId);
+                const response = await fetch(sendBtn.dataset.url, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value },
+                    body,
+                });
+                const data = await response.json();
+                window.dispatchEvent(new CustomEvent('showToast', {
+                    detail: { message: data.message || data.error || 'Operação concluída.', type: data.ok ? 'success' : 'error' }
+                }));
+                if (data.ok) window.location.reload();
+            } catch (_error) {
+                window.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Falha ao enviar termo de garantia.', type: 'error' } }));
+            } finally {
+                sendBtn.disabled = false;
+            }
+        });
+    })();
+    </script>
+    {% endif %}
+
     <div class="p-4 bg-base-200/50 rounded-lg">
         <h4 class="font-bold text-lg mb-2 border-b">Anexos</h4>
 

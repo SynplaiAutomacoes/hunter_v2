@@ -81,6 +81,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "items": (
             {"label": "Cliente", "view_name": "customer:customer_list"},
             {"label": "Mensagens WhatsApp", "view_name": "messaging:message_template_list"},
+            {"label": "Termos", "view_name": "terms:term_template_list"},
             {"label": "Grupos de Mensagens", "view_name": "messaging:customer_message_group_list"},
             {"label": "Colaborador", "view_name": "collaborators:collaborator_list"},
             {"label": "Fornecedor", "view_name": "suppliers:supplier_list"},

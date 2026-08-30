@@ -40,7 +40,8 @@ from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.collaborators.services import workorder_commission_context
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType, WorkOrderStatus
+from apps.terms.models import WorkOrderTermSigning
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -803,10 +804,12 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         can_reopen = bool(request and can_reopen_workorder(request=request, workorder=workorder))
     except AttributeError:
         can_reopen = False
+    term_signing = WorkOrderTermSigning.objects.filter(workorder=workorder).select_related("term_template").first()
     return {
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
         "approval_form": WorkOrderCustomerApprovalForm(workorder=workorder),
+        "term_signing": term_signing,
         "cancel_form": WorkOrderStatusReasonForm(workorder=workorder, action="cancel"),
         "reject_form": WorkOrderStatusReasonForm(workorder=workorder, action="reject"),
         "reopen_form": WorkOrderReopenForm(workorder=workorder),

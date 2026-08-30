@@ -207,6 +207,13 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
         visible=True,
         description="Gerenciar a associação de clientes aos grupos de mensagem.",
     ),
+    # ---- Termos ----
+    ("terms", "workshoptermtemplate"): PermissionInfo(
+        visible=True,
+        description="Gerenciar termos de recebimento e garantia para assinatura digital.",
+    ),
+    ("terms", "budgettermsigning"): PermissionInfo(visible=False, auto_grant=True),
+    ("terms", "workordertermsigning"): PermissionInfo(visible=False, auto_grant=True),
     # ---- Triagem ----
     ("quote", "investigativequestion"): PermissionInfo(
         visible=True,
