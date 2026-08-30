@@ -15,6 +15,35 @@ from apps.budget.pricing import build_pricing_snapshot
 
 
 class FreightCostPricingTests(SimpleTestCase):
+    def test_benefit_product_shipping_is_an_internal_cost_without_changing_sale_total(self):
+        normal_item = SimpleNamespace(
+            is_benefit_item=False,
+            is_customer_supplied=False,
+            kit=None,
+            product_id=1,
+            shipping=Money(10, "BRL"),
+        )
+        courtesy_item = SimpleNamespace(
+            is_benefit_item=True,
+            is_customer_supplied=False,
+            kit=None,
+            product_id=2,
+            shipping=Money(20, "BRL"),
+        )
+        budget = SimpleNamespace(
+            total_products_shipping=Money(10, "BRL"),
+            _iter_items=lambda: (normal_item, courtesy_item),
+            _is_local_product_item=lambda _item: False,
+        )
+
+        self.assertEqual(Budget.total_benefit_products_shipping.fget(budget), Money(20, "BRL"))
+        self.assertEqual(
+            Budget.total_cost_products_shipping.fget(
+                SimpleNamespace(total_products_shipping=Money(10, "BRL"), total_benefit_products_shipping=Money(20, "BRL"))
+            ),
+            Money(30, "BRL"),
+        )
+
     def test_step_4_summary_does_not_subtract_freight_from_sales_twice(self):
         budget = SimpleNamespace(
             is_fixed_budget=False,

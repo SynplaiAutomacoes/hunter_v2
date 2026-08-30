@@ -523,10 +523,10 @@ class Budget(TimeStampedModel):
         # Custos
         custo_pecas = self.total_costs_products_value
         custo_servico_terceiro = self.total_third_party_services_cost
-        custo_frete_servico = self.total_services_shipping
+        custo_frete_servico = self.total_cost_services_shipping
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
-        custo_frete_pecas = self.total_products_shipping
+        custo_frete_pecas = self.total_cost_products_shipping
 
         # Venda
         venda_servico_terceiro = self.total_third_party_services_selling
@@ -554,9 +554,9 @@ class Budget(TimeStampedModel):
 
         # Custos
         custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
+        custo_frete_pecas = self.total_cost_products_shipping
         custo_servico_terceiro = self.total_third_party_services_cost
-        custo_frete_servicos = self.total_services_shipping
+        custo_frete_servicos = self.total_cost_services_shipping
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
 
@@ -630,9 +630,9 @@ class Budget(TimeStampedModel):
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
         custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
+        custo_frete_pecas = self.total_cost_products_shipping
         custo_servico_terceiro = self.total_third_party_services_cost
-        custo_frete_servicos = self.total_services_shipping
+        custo_frete_servicos = self.total_cost_services_shipping
         custo_hora_mecanico = Money(0, "BRL")
         custo_total_mao_obra = Money(0, "BRL")
 
@@ -842,6 +842,23 @@ class Budget(TimeStampedModel):
         return self.pricing_snapshot.total_products_shipping
 
     @property
+    def total_benefit_products_shipping(self) -> Money:
+        """Frete pago em peças de cortesia/garantia, que não integra a venda."""
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            if not item.is_benefit_item or item.is_customer_supplied:
+                continue
+            if item.kit:
+                total += item.get_kit_products_shipping_total()
+            elif item.product_id or self._is_local_product_item(item):
+                total += item.shipping
+        return total
+
+    @property
+    def total_cost_products_shipping(self) -> Money:
+        return self.total_products_shipping + self.total_benefit_products_shipping
+
+    @property
     def total_costs_products_value(self) -> Money:
         return self.pricing_snapshot.total_costs_products_value
 
@@ -855,8 +872,20 @@ class Budget(TimeStampedModel):
         return self.pricing_snapshot.total_services_shipping
 
     @property
+    def total_benefit_services_shipping(self) -> Money:
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            if item.is_benefit_item and (item.service_id or self._is_local_service_item(item)):
+                total += item.service_shipping * item.quantity
+        return total
+
+    @property
+    def total_cost_services_shipping(self) -> Money:
+        return self.total_services_shipping + self.total_benefit_services_shipping
+
+    @property
     def total_shipping(self) -> Money:
-        return self.total_products_shipping + self.total_services_shipping
+        return self.total_cost_products_shipping + self.total_cost_services_shipping
 
     @property
     def total_duration(self) -> timedelta:
