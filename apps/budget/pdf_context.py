@@ -244,7 +244,7 @@ def _explode_kit_product_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
             "item_benefit_type": kit_item.item_benefit_type,
         }
         if produto["item_benefit_type"] != "normal":
-            produto["profit_value"] = -produto["product_cost_price"]
+            produto["profit_value"] = -produto["product_cost_price"] - produto["shipping"]
         produtos.append(produto)
     return produtos
 
@@ -308,7 +308,7 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
             "_is_labor": True,
         }
         if servico["item_benefit_type"] != "normal":
-            servico["profit_value"] = -servico["service_mechanic_cost_price"]
+            servico["profit_value"] = -servico["service_mechanic_cost_price"] - servico["shipping"]
         servicos.append(servico)
 
     third_party_raw_bases = [override.service_selling_price * total_quantity for override, total_quantity in third_party_entries]
@@ -452,7 +452,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             if produto["is_customer_supplied"]:
                 produto["profit_value"] = zero_money()
             elif produto["item_benefit_type"] != "normal":
-                produto["profit_value"] = -produto["product_cost_price"]
+                produto["profit_value"] = -produto["product_cost_price"] - produto["shipping"]
 
             produtos.append(produto)
 
@@ -477,7 +477,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             }
 
             if servico["item_benefit_type"] != "normal":
-                servico["profit_value"] = -servico["service_mechanic_cost_price"]
+                servico["profit_value"] = -servico["service_mechanic_cost_price"] - servico["shipping"]
 
             servicos.append(servico)
 
@@ -573,6 +573,10 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     total_profit_product_value = sum((line["profit_value"] for line in produtos if not line.get("is_customer_supplied", False)), Money(0, "BRL"))
     total_products_effective_cost_value = total_products_cost_value + total_products_shipping_value
     total_services_effective_cost_value = total_services_mechanic_cost_value + total_services_shipping_value
+    # Keep the PDF totals aligned with Step 5: benefit items are an internal
+    # cost, never a sale, including their freight.
+    total_profit_product_value = total_produtos - total_products_effective_cost_value
+    total_profit_service_value = total_servicos - total_services_effective_cost_value
     if total_geral.amount > 0:
         net_profit = total_profit_product_value + total_profit_service_value - desconto
         rentability = ((net_profit.amount / total_geral.amount) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
