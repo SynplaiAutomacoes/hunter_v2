@@ -62,7 +62,7 @@ class FreightCostPricingTests(SimpleTestCase):
             Money(0, "BRL"),
         )
 
-    def test_product_and_service_freight_reduce_margin_without_changing_sale_total(self):
+    def test_product_and_service_freight_are_part_of_the_sale_total(self):
         product = SimpleNamespace(id=1, code="P1", application="", location="", name="Peça")
         service = SimpleNamespace(id=2, name="Serviço", is_third_party=True)
         items = [
@@ -86,13 +86,13 @@ class FreightCostPricingTests(SimpleTestCase):
             discount_percentage=Decimal("0"),
         )
 
-        self.assertEqual(snapshot.total_products_value, Money(100, "BRL"))
-        self.assertEqual(snapshot.total_services_value, Money(100, "BRL"))
-        self.assertEqual(snapshot.total_budget_value, Money(200, "BRL"))
+        self.assertEqual(snapshot.total_products_value, Money(120, "BRL"))
+        self.assertEqual(snapshot.total_services_value, Money(110, "BRL"))
+        self.assertEqual(snapshot.total_budget_value, Money(230, "BRL"))
         self.assertEqual(snapshot.total_products_shipping, Money(20, "BRL"))
         self.assertEqual(snapshot.total_services_shipping, Money(10, "BRL"))
-        self.assertEqual(snapshot.product_lines[0].profit_value, Money(30, "BRL"))
-        self.assertEqual(snapshot.service_lines[0].profit_value, Money(50, "BRL"))
+        self.assertEqual(snapshot.product_lines[0].profit_value, Money(50, "BRL"))
+        self.assertEqual(snapshot.service_lines[0].profit_value, Money(60, "BRL"))
 
     def test_labor_cost_uses_consolidated_duration_and_hourly_cost(self):
         service = SimpleNamespace(id=2, name="Serviço", is_third_party=False)
@@ -123,7 +123,7 @@ class FreightCostPricingTests(SimpleTestCase):
         self.assertEqual(snapshot.total_duration, timedelta(hours=1, minutes=30))
         self.assertEqual(snapshot.total_labor_cost_value, Money(Decimal("42.96"), "BRL"))
         self.assertEqual(snapshot.service_lines[0].cost_total, Money(Decimal("42.96"), "BRL"))
-        self.assertEqual(snapshot.service_lines[0].profit_value, Money(Decimal("37.04"), "BRL"))
+        self.assertEqual(snapshot.service_lines[0].profit_value, Money(Decimal("57.04"), "BRL"))
 
     def test_reported_budget_totals_match_step_5(self):
         direct_product = SimpleNamespace(id=1, code="P1", application="", location="", name="Lâmpada")
@@ -211,14 +211,14 @@ class FreightCostPricingTests(SimpleTestCase):
         profitability = ((operational_profit.amount / snapshot.total_budget_value.amount) * Decimal("100")).quantize(Decimal("0.01"))
         markup = (snapshot.total_budget_value.amount / effective_cost.amount).quantize(Decimal("0.01"))
 
-        self.assertEqual(snapshot.total_products_by_slider, Money(Decimal("47.92"), "BRL"))
-        self.assertEqual(snapshot.total_services_by_slider, Money(Decimal("524.39"), "BRL"))
-        self.assertEqual(snapshot.total_budget_value, Money(Decimal("572.31"), "BRL"))
+        self.assertEqual(snapshot.total_products_by_slider, Money(Decimal("87.92"), "BRL"))
+        self.assertEqual(snapshot.total_services_by_slider, Money(Decimal("544.39"), "BRL"))
+        self.assertEqual(snapshot.total_budget_value, Money(Decimal("632.31"), "BRL"))
         self.assertEqual(snapshot.total_costs_products_value, Money(Decimal("20.73"), "BRL"))
         self.assertEqual(snapshot.total_products_shipping, Money(40, "BRL"))
         self.assertEqual(snapshot.total_labor_cost_value, Money(Decimal("42.96"), "BRL"))
         self.assertEqual(snapshot.total_services_shipping, Money(20, "BRL"))
         self.assertEqual(effective_cost, Money(Decimal("123.69"), "BRL"))
-        self.assertEqual(operational_profit, Money(Decimal("448.62"), "BRL"))
-        self.assertEqual(profitability, Decimal("78.39"))
-        self.assertEqual(markup, Decimal("4.63"))
+        self.assertEqual(operational_profit, Money(Decimal("508.62"), "BRL"))
+        self.assertEqual(profitability, Decimal("80.44"))
+        self.assertEqual(markup, Decimal("5.11"))

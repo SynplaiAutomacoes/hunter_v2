@@ -1581,7 +1581,8 @@ class BudgetItem(TimeStampedModel):
         # Se for kit, calcular com base nos overrides
         if self.kit:
             return self.get_kit_total_with_overrides()
-        return (self.product_selling_price + self.service_selling_price) * self.quantity
+        shipping_total = self.shipping + (self.service_shipping * self.quantity)
+        return ((self.product_selling_price + self.service_selling_price) * self.quantity) + shipping_total
 
     @property
     def display_product_selling_price(self) -> Money:
@@ -1650,7 +1651,7 @@ class BudgetItem(TimeStampedModel):
         """Calcula o total do kit considerando os overrides
 
         Total = (Soma total de produtos) + (Soma total de serviços)
-        Produto total = preço * quantidade do produto
+        Produto total = (preço * quantidade do produto) + frete
         Serviço total = preço * quantidade do serviço
 
         Depois multiplica pela quantidade de kits no orçamento
@@ -1661,12 +1662,12 @@ class BudgetItem(TimeStampedModel):
         total_produtos = Money(0, "BRL")
         total_servicos = Money(0, "BRL")
 
-        # Frete é custo interno e não compõe o valor cobrado do cliente.
+        # Frete compõe o valor cobrado e permanece discriminado como custo.
         for override in self._iter_frozen_kit_product_overrides():
             if override.quantity <= 0:
                 produto_subtotal = Money(0, "BRL")
             else:
-                produto_subtotal = override.product_selling_price * override.quantity
+                produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
             total_produtos += produto_subtotal
 
         # Calcular total dos serviços: preço * qtd para cada serviço
@@ -1693,7 +1694,7 @@ class BudgetItem(TimeStampedModel):
             if override.quantity <= 0:
                 produto_subtotal = Money(0, "BRL")
             else:
-                produto_subtotal = override.product_selling_price * override.quantity
+                produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
             total_produtos += produto_subtotal
 
         return total_produtos * self.quantity

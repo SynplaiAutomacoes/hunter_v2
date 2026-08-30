@@ -377,7 +377,7 @@ def build_pricing_snapshot(
                 product_aggregates[key] = aggregate
 
             effective_selling = _coerce_money(getattr(item, "product_selling_price", None))
-            direct_total = effective_selling * item_quantity
+            direct_total = (effective_selling * item_quantity) + _coerce_money(getattr(item, "shipping", None))
             direct_cost_total = _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
             direct_shipping = _coerce_money(getattr(item, "shipping", None))
             should_replace_direct = product_id is not None and (item_quantity > aggregate.direct_quantity or (item_quantity == aggregate.direct_quantity and direct_total.amount > aggregate.direct_total.amount))
@@ -464,8 +464,7 @@ def build_pricing_snapshot(
             unit_cost = override.product_cost_price
 
             aggregate.kit_quantity += consolidated_quantity
-            # Freight is an internal cost and must not increase the amount charged.
-            aggregate.kit_total += unit_price * consolidated_quantity
+            aggregate.kit_total += (unit_price * consolidated_quantity) + shipping
             aggregate.kit_cost_total += unit_cost * consolidated_quantity
             aggregate.kit_shipping += shipping
             aggregate.kit_code = str(getattr(product, "code", "") or "")
@@ -660,8 +659,8 @@ def build_pricing_snapshot(
     labor_service_lines = [line for line in service_lines if not line.third_party]
     third_party_service_lines = [line for line in service_lines if line.third_party]
     total_duration = sum((line.duration for line in service_lines), timedelta())
-    total_third_party_services_selling = sum((line.raw_total for line in third_party_service_lines), zero_money())
-    total_services_value = sum((line.raw_total for line in service_lines), zero_money())
+    total_third_party_services_selling = sum((line.raw_total + line.shipping for line in third_party_service_lines), zero_money())
+    total_services_value = sum((line.raw_total + line.shipping for line in service_lines), zero_money())
 
     total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
     total_labor_selling_value = labor_selling_value_override if labor_selling_value_override is not None else sum((line.raw_total for line in labor_service_lines), zero_money())
@@ -729,17 +728,18 @@ def build_pricing_snapshot(
         total_products_by_slider = total_products_value - transfer
         total_labor_by_slider = total_labor_selling_value + transfer
 
-    total_services_by_slider = total_third_party_by_slider + total_labor_by_slider
+    total_labor_services_shipping = sum((line.shipping for line in labor_service_lines), zero_money())
+    total_services_by_slider = total_third_party_by_slider + total_labor_by_slider + total_labor_services_shipping
 
     for line, adjusted_subtotal in zip(
         chargeable_product_lines,
         _distribute_totals(
-            base_values=[line.raw_total for line in chargeable_product_lines],
-            target_total=total_products_by_slider,
+            base_values=[line.raw_total - line.shipping for line in chargeable_product_lines],
+            target_total=total_products_by_slider - total_products_shipping,
         ),
         strict=False,
     ):
-        line.adjusted_total = adjusted_subtotal
+        line.adjusted_total = adjusted_subtotal + line.shipping
 
     for line in customer_supplied_product_lines:
         line.adjusted_total = line.raw_total
@@ -747,7 +747,7 @@ def build_pricing_snapshot(
     for line, adjusted_total in zip(
         third_party_service_lines,
         _distribute_totals(
-            base_values=[line.raw_total for line in third_party_service_lines],
+            base_values=[line.raw_total + line.shipping for line in third_party_service_lines],
             target_total=total_third_party_by_slider,
         ),
         strict=False,
@@ -766,7 +766,7 @@ def build_pricing_snapshot(
         _distribute_money_by_weights(weights=labor_profit_weights, target_total=remaining_labor_profit),
         strict=False,
     ):
-        line.adjusted_total = line.cost_total + adjusted_total
+        line.adjusted_total = line.cost_total + adjusted_total + line.shipping
 
     total_base_value = total_products_by_slider + total_services_by_slider
 
