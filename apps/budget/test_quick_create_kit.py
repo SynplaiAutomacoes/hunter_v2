@@ -140,3 +140,25 @@ class BudgetKitCatalogCreateRedirectTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, kit.name)
         self.assertNotContains(response, 'data-hidden-by-kit-filter="true" style="display: none;"')
+
+    def test_budget_update_missing_budget_redirects_to_list(self) -> None:
+        url = f"{reverse('budget:budget_update', kwargs={'pk': 999999})}?step=2"
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse("budget:budget_list"))
+
+    def test_budget_update_other_workshop_budget_redirects_to_list(self) -> None:
+        other_workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina Outra",
+            cnpj="98.765.432/0001-10",
+            phone="+5511888888881",
+            address="Rua Outra, 2",
+        )
+        foreign_budget = Budget.objects.create(
+            workshop=other_workshop,
+            entry_date=date(2026, 8, 2),
+            current_step=2,
+        )
+        url = f"{reverse('budget:budget_update', kwargs={'pk': foreign_budget.pk})}?step=2"
+        response = self.client.get(url)
+        self.assertRedirects(response, reverse("budget:budget_list"))
