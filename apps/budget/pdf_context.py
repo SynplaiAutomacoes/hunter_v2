@@ -137,7 +137,10 @@ def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
         merged_rows[key] = _keep_better_selected_service_row(existing, row)
 
     for row in merged_rows.values():
-        row["duration_display"] = format_duration_display(timedelta(seconds=int(row.pop("_duration_seconds", 0) or 0)))
+        # Keep the raw duration available until the PDF labor-cost allocation
+        # runs. It is the weight that distributes the mechanic cost correctly
+        # among the selected service rows.
+        row["duration_display"] = format_duration_display(timedelta(seconds=int(row.get("_duration_seconds", 0) or 0)))
 
     return list(merged_rows.values())
 
@@ -522,9 +525,21 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
         labor_rows = [row for row in servicos if row.get("_is_labor")]
         if labor_rows:
+            labor_cost_target = snapshot.total_labor_cost_value
+            # Some historical/review snapshots do not retain the labor-cost
+            # allocation. In that case use the same hourly-cost calculation
+            # shown in Step 5, so the manager PDF remains consistent with it.
+            if labor_cost_target.amount <= 0:
+                pricing_data = budget.calculate_pricing_methods(include_method_extras=False)
+                hourly_cost = pricing_data.get("custo_hora_mecanico") or zero_money()
+                total_labor_seconds = sum(
+                    (int(row.get("_duration_seconds") or 0) for row in labor_rows),
+                    0,
+                )
+                labor_cost_target = hourly_cost * (Decimal(total_labor_seconds) / Decimal(3600))
             labor_costs = _distribute_money_by_weights(
                 weights=[Decimal(int(row.get("_duration_seconds") or 0)) for row in labor_rows],
-                target_total=snapshot.total_labor_cost_value,
+                target_total=labor_cost_target,
             )
             for row, labor_cost in zip(labor_rows, labor_costs, strict=False):
                 row["service_mechanic_cost_price"] = labor_cost
@@ -533,6 +548,15 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         produtos = _build_snapshot_product_rows(snapshot=snapshot)
         servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
+
+    # The manager PDF presents the complete operational cost of each service
+    # in its "Custo/Mecânico" column. Keep the underlying mechanic cost
+    # separate for the existing profit and aggregate calculations, and expose
+    # the display-only amount explicitly so freight is not counted twice.
+    for servico in servicos:
+        servico["service_effective_cost_price"] = (
+            servico["service_mechanic_cost_price"] + servico["shipping"]
+        )
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     expected_delivery_at = resolve_expected_delivery_at(budget=budget)

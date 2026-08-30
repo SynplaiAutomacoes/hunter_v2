@@ -129,8 +129,8 @@ def configure_budget_step5_form(form):
                                                 <span class="font-medium">Valor de venda mão de obra</span>
                                                 <span id="display-venda-mo"
                                                       class="font-bold text-success whitespace-nowrap"
-                                                      data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}"
-                                                      data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
+                                                      data-base-val="{ctx.venda_mao_obra_base.amount}"
+                                                      data-cost-val="{ctx.custo_efetivo_mao_obra.amount}">
                                                     {venda_mao_obra}
                                                 </span>
                                             </div>
