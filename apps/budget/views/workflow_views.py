@@ -653,7 +653,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
     def get_object(self, queryset=None):
         pk = _parse_budget_pk(self.kwargs.get("pk") or self.request.GET.get("pk"))
         if pk:
-            return Budget.objects.get(pk=pk, workshop=self.workshop)
+            return Budget.objects.filter(pk=pk, workshop=self.workshop).first()
         return None
 
     def get_form_kwargs(self):
@@ -865,10 +865,10 @@ class BudgetUpdateView(BudgetCreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk")
+        pk = _parse_budget_pk(self.kwargs.get("pk"))
         if pk:
-            return Budget.objects.get(pk=pk, workshop=self.workshop)
-        return super().get_object()
+            return Budget.objects.filter(pk=pk, workshop=self.workshop).first()
+        return None
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

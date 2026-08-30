@@ -47,6 +47,7 @@ from apps.core.text_normalization import sentence_case
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
+from apps.terms.selectors import update_workorder_term_template
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock, workorder_can_finalize_after_signature
 from apps.workorder import util as workorder_util
@@ -901,6 +902,9 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         posted_fields = {name for name in request.POST if name in WorkOrderCustomerApprovalForm.DRAFT_FIELD_NAMES}
         workorder.save_delivery_draft(cleaned_data=approval_form.cleaned_data, posted_fields=posted_fields)
+        warranty_term_template = approval_form.cleaned_data.get("warranty_term_template")
+        if warranty_term_template is not None:
+            update_workorder_term_template(workorder=workorder, term_template_id=warranty_term_template.pk)
         workorder.refresh_from_db()
 
         finalized = False
@@ -1535,6 +1539,9 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         delivery_kwargs["warranty_origin_id"] = warranty_origin.pk if warranty_origin else None
                     delivery_kwargs["update_courtesy_fields"] = True
                 workorder.complete_delivery(**delivery_kwargs)
+                warranty_term_template = approval_form.cleaned_data.get("warranty_term_template")
+                if warranty_term_template is not None:
+                    update_workorder_term_template(workorder=workorder, term_template_id=warranty_term_template.pk)
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)

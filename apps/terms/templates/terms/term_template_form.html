@@ -1,0 +1,234 @@
+{% extends 'crud/form_page.html' %}
+{% load crispy_forms_tags %}
+
+{% block crud_title %}{% if object %}Editar termo{% else %}Novo termo{% endif %}{% endblock %}
+{% block crud_subtitle %}Cada página abaixo será impressa em uma folha separada.{% endblock %}
+{% block crud_back_url %}{% url 'terms:term_template_list' %}{% endblock %}
+
+{% block crud_content %}
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <form method="post" id="term-template-form" class="space-y-4">
+                {% csrf_token %}
+                {% crispy form %}
+
+                <div
+                    class="rounded-box border border-base-300 p-4"
+                    x-data="termContentEditor()"
+                    x-init="init()"
+                >
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h3 class="font-bold text-lg">Páginas do termo</h3>
+                            <p class="text-sm text-base-content/70">Adicione tópicos e textos. Cada página vira uma folha na impressão.</p>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline" @click="addSection()">Adicionar página</button>
+                    </div>
+
+                    <template x-for="(section, sectionIndex) in sections" :key="section.id">
+                        <div class="border border-base-300 rounded-box p-4 mb-4 bg-base-200/40">
+                            <div class="flex items-center justify-between gap-2 mb-3">
+                                <h4 class="font-semibold" x-text="'Página ' + (sectionIndex + 1)"></h4>
+                                <div class="flex gap-1">
+                                    <button type="button" class="btn btn-xs btn-ghost" @click="moveSection(sectionIndex, -1)" :disabled="sectionIndex === 0">↑</button>
+                                    <button type="button" class="btn btn-xs btn-ghost" @click="moveSection(sectionIndex, 1)" :disabled="sectionIndex === sections.length - 1">↓</button>
+                                    <button type="button" class="btn btn-xs btn-error btn-outline" @click="removeSection(sectionIndex)" :disabled="sections.length === 1">Remover</button>
+                                </div>
+                            </div>
+
+                            <label class="form-control w-full mb-2">
+                                <span class="label-text font-medium">Título da página</span>
+                                <input type="text" class="input input-bordered w-full" x-model="section.title">
+                            </label>
+                            <label class="form-control w-full mb-2">
+                                <span class="label-text font-medium">Subtítulo</span>
+                                <input type="text" class="input input-bordered w-full" x-model="section.subtitle">
+                            </label>
+                            <label class="label cursor-pointer justify-start gap-3 mb-3">
+                                <input type="checkbox" class="checkbox checkbox-sm" x-model="section.show_vehicle_banner">
+                                <span class="label-text">Mostrar faixa do veículo nesta página</span>
+                            </label>
+                            <label class="label cursor-pointer justify-start gap-3 mb-3">
+                                <input type="checkbox" class="checkbox checkbox-sm" x-model="section.include_signature_block">
+                                <span class="label-text">Incluir bloco de assinatura nesta página</span>
+                            </label>
+
+                            <div class="space-y-3">
+                                <template x-for="(topic, topicIndex) in section.topics" :key="topic.id">
+                                    <div class="rounded-box border border-base-300 bg-base-100 p-3">
+                                        <div class="flex items-center justify-between gap-2 mb-2">
+                                            <span class="text-sm font-semibold" x-text="'Tópico ' + (topicIndex + 1)"></span>
+                                            <div class="flex gap-1">
+                                                <button type="button" class="btn btn-xs btn-ghost" @click="moveTopic(section, topicIndex, -1)" :disabled="topicIndex === 0">↑</button>
+                                                <button type="button" class="btn btn-xs btn-ghost" @click="moveTopic(section, topicIndex, 1)" :disabled="topicIndex === section.topics.length - 1">↓</button>
+                                                <button type="button" class="btn btn-xs btn-error btn-outline" @click="removeTopic(section, topicIndex)">Remover</button>
+                                            </div>
+                                        </div>
+                                        <label class="form-control w-full mb-2">
+                                            <span class="label-text">Título do tópico</span>
+                                            <input type="text" class="input input-bordered w-full" x-model="topic.title">
+                                        </label>
+                                        <label class="label cursor-pointer justify-start gap-3 mb-2">
+                                            <input type="checkbox" class="checkbox checkbox-sm" :checked="topic.bullets.length > 0" @change="toggleBullets(topic, $event.target.checked)">
+                                            <span class="label-text">Mostrar como lista com marcadores</span>
+                                        </label>
+                                        <template x-if="topic.bullets.length === 0">
+                                            <label class="form-control w-full">
+                                                <span class="label-text">Texto</span>
+                                                <textarea class="textarea textarea-bordered w-full" rows="3" x-model="topic.paragraphs[0]"></textarea>
+                                            </label>
+                                        </template>
+                                        <template x-if="topic.bullets.length > 0">
+                                            <div class="space-y-2">
+                                                <template x-for="(bullet, bulletIndex) in topic.bullets" :key="bulletIndex">
+                                                    <div class="flex gap-2">
+                                                        <input type="text" class="input input-bordered w-full" x-model="topic.bullets[bulletIndex]">
+                                                        <button type="button" class="btn btn-xs btn-ghost" @click="removeBullet(topic, bulletIndex)">×</button>
+                                                    </div>
+                                                </template>
+                                                <button type="button" class="btn btn-xs btn-outline" @click="addBullet(topic)">Adicionar item</button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <button type="button" class="btn btn-sm btn-outline mt-3" @click="addTopic(section)">Adicionar tópico</button>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex flex-wrap gap-3 pt-2">
+                    <button type="submit" class="btn btn-primary">Salvar termo</button>
+                    <a href="{% url 'terms:term_template_list' %}" class="btn btn-ghost">Cancelar</a>
+                </div>
+            </form>
+            {% if object %}
+            <form method="post" action="{% url 'terms:term_template_duplicate' object.pk %}" class="mt-3">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline">Duplicar termo</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl xl:sticky xl:top-4 h-fit">
+        <div class="card-body">
+            <h3 class="font-bold text-lg mb-2">Pré-visualização</h3>
+            <p class="text-sm text-base-content/70 mb-4">A logo exibida é a cadastrada nas configurações da oficina.</p>
+            {% if object %}
+            <iframe
+                src="{% url 'terms:term_template_preview' object.pk %}"
+                class="w-full min-h-[70vh] border border-base-300 rounded-box bg-white"
+                title="Pré-visualização do termo"
+            ></iframe>
+            {% else %}
+            <div class="alert alert-info">Salve o termo para visualizar a prévia completa.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function termContentEditor() {
+    const hiddenInput = () => document.getElementById('id_content_json');
+    const makeId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+    return {
+        sections: [],
+        init() {
+            const raw = hiddenInput()?.value || '{"sections":[]}';
+            try {
+                const parsed = JSON.parse(raw);
+                this.sections = Array.isArray(parsed.sections) ? parsed.sections : [];
+            } catch (_error) {
+                this.sections = [];
+            }
+            if (!this.sections.length) {
+                this.addSection();
+            }
+            this.$watch('sections', () => this.syncHiddenInput(), { deep: true });
+            this.syncHiddenInput();
+        },
+        syncHiddenInput() {
+            if (!hiddenInput()) return;
+            this.renumberTopics();
+            hiddenInput().value = JSON.stringify({ sections: this.sections });
+        },
+        renumberTopics() {
+            let counter = 1;
+            this.sections.forEach((section) => {
+                (section.topics || []).forEach((topic) => {
+                    topic.number = String(counter).padStart(2, '0');
+                    counter += 1;
+                });
+            });
+        },
+        addSection() {
+            this.sections.push({
+                id: makeId('sec'),
+                title: '',
+                subtitle: '',
+                show_vehicle_banner: this.sections.length === 0,
+                include_signature_block: false,
+                topics: [this.newTopic()],
+            });
+        },
+        removeSection(index) {
+            this.sections.splice(index, 1);
+        },
+        moveSection(index, direction) {
+            const target = index + direction;
+            if (target < 0 || target >= this.sections.length) return;
+            const [item] = this.sections.splice(index, 1);
+            this.sections.splice(target, 0, item);
+        },
+        newTopic() {
+            return {
+                id: makeId('topic'),
+                number: '01',
+                title: '',
+                paragraphs: [''],
+                bullets: [],
+            };
+        },
+        addTopic(section) {
+            section.topics.push(this.newTopic());
+        },
+        removeTopic(section, index) {
+            section.topics.splice(index, 1);
+            if (!section.topics.length) {
+                section.topics.push(this.newTopic());
+            }
+        },
+        moveTopic(section, index, direction) {
+            const target = index + direction;
+            if (target < 0 || target >= section.topics.length) return;
+            const [item] = section.topics.splice(index, 1);
+            section.topics.splice(target, 0, item);
+        },
+        toggleBullets(topic, enabled) {
+            if (enabled) {
+                const firstParagraph = (topic.paragraphs && topic.paragraphs[0]) ? topic.paragraphs[0] : '';
+                topic.bullets = firstParagraph ? [firstParagraph] : [''];
+                topic.paragraphs = [];
+            } else {
+                const firstBullet = (topic.bullets && topic.bullets[0]) ? topic.bullets[0] : '';
+                topic.paragraphs = [firstBullet];
+                topic.bullets = [];
+            }
+        },
+        addBullet(topic) {
+            topic.bullets.push('');
+        },
+        removeBullet(topic, index) {
+            topic.bullets.splice(index, 1);
+            if (!topic.bullets.length) {
+                topic.bullets.push('');
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

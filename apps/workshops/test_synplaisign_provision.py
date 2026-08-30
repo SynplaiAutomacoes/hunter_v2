@@ -366,3 +366,34 @@ class EnsureWorkshopWebhookTests(SimpleTestCase):
         create_mock.assert_called_once()
         self.assertEqual(workshop.synplaisign_webhook_id, "wh-full")
         self.assertEqual(decrypt_secret(workshop.synplaisign_webhook_secret), "whsec_full")
+
+    @patch("apps.workshops.services.synplaisign.gateway.create_webhook")
+    @patch("apps.workshops.services.synplaisign.gateway.delete_webhook")
+    @patch("apps.workshops.services.synplaisign.gateway.list_webhooks")
+    def test_resyncs_local_secret_from_remote_when_mismatch(
+        self,
+        list_mock: Mock,
+        delete_mock: Mock,
+        create_mock: Mock,
+    ) -> None:
+        from apps.workshops.services.synplaisign import _ensure_workshop_webhook
+
+        list_mock.return_value = [
+            {
+                "id": "wh-keep",
+                "url": "https://app/hook",
+                "events": ["ENVELOPE_COMPLETED", "DOCUMENT_SIGNED", "DOCUMENT_DECLINED"],
+                "secret": "whsec_remote",
+            },
+        ]
+        workshop = Mock()
+        workshop.pk = 11
+        workshop.synplaisign_webhook_id = "wh-keep"
+        workshop.synplaisign_webhook_secret = encrypt_secret("whsec_stale")
+
+        _ensure_workshop_webhook(workshop=workshop, api_key="sk_live", webhook_url="https://app/hook")
+
+        create_mock.assert_not_called()
+        delete_mock.assert_not_called()
+        self.assertEqual(decrypt_secret(workshop.synplaisign_webhook_secret), "whsec_remote")
+        workshop.save.assert_called()

@@ -128,6 +128,29 @@ def _delete_remote_webhooks(*, api_key: str, webhooks: list[dict[str, Any]]) -> 
             )
 
 
+def _extract_webhook_secret(webhook: dict[str, Any]) -> str:
+    return str(webhook.get("secret") or "").strip()
+
+
+def _persist_workshop_webhook_credentials(
+    *,
+    workshop: Workshop,
+    webhook_id: str,
+    secret: str,
+) -> None:
+    update_fields: list[str] = []
+    if webhook_id and workshop.synplaisign_webhook_id != webhook_id:
+        workshop.synplaisign_webhook_id = webhook_id
+        update_fields.append("synplaisign_webhook_id")
+    if secret:
+        encrypted = encrypt_secret(secret)
+        if workshop.synplaisign_webhook_secret != encrypted:
+            workshop.synplaisign_webhook_secret = encrypted
+            update_fields.append("synplaisign_webhook_secret")
+    if update_fields:
+        workshop.save(update_fields=update_fields)
+
+
 def _ensure_workshop_webhook(*, workshop: Workshop, api_key: str, webhook_url: str) -> None:
     expected_events = list(EXPECTED_WEBHOOK_EVENTS)
     local_secret = decrypt_secret(getattr(workshop, "synplaisign_webhook_secret", "") or "")
@@ -141,21 +164,39 @@ def _ensure_workshop_webhook(*, workshop: Workshop, api_key: str, webhook_url: s
             matching = webhook
             break
 
-    if matching is not None and local_secret:
+    if matching is not None:
         matching_id = str(matching.get("id") or "").strip()
         duplicates = [webhook for webhook in same_url if str(webhook.get("id") or "").strip() != matching_id]
         if duplicates:
             _delete_remote_webhooks(api_key=api_key, webhooks=duplicates)
-        update_fields: list[str] = []
-        if matching_id and workshop.synplaisign_webhook_id != matching_id:
-            workshop.synplaisign_webhook_id = matching_id
-            update_fields.append("synplaisign_webhook_id")
-        if update_fields:
-            workshop.save(update_fields=update_fields)
-        # Existing remote webhook matches and local secret is present — never rotate secret.
-        return
 
-    if matching is not None and not local_secret:
+        remote_secret = _extract_webhook_secret(matching)
+        if remote_secret and remote_secret != local_secret:
+            logger.warning(
+                "synplaisign_webhook_secret_resynced",
+                extra={
+                    "workshop_id": workshop.pk,
+                    "webhook_id": matching_id,
+                    "url": webhook_url,
+                    "had_local_secret": bool(local_secret),
+                },
+            )
+            _persist_workshop_webhook_credentials(workshop=workshop, webhook_id=matching_id, secret=remote_secret)
+            return
+
+        if local_secret:
+            update_fields: list[str] = []
+            if matching_id and workshop.synplaisign_webhook_id != matching_id:
+                workshop.synplaisign_webhook_id = matching_id
+                update_fields.append("synplaisign_webhook_id")
+            if update_fields:
+                workshop.save(update_fields=update_fields)
+            return
+
+        if remote_secret:
+            _persist_workshop_webhook_credentials(workshop=workshop, webhook_id=matching_id, secret=remote_secret)
+            return
+
         logger.warning(
             "synplaisign_webhook_secret_missing",
             extra={"workshop_id": workshop.pk, "webhook_id": matching.get("id"), "url": webhook_url},
@@ -167,16 +208,8 @@ def _ensure_workshop_webhook(*, workshop: Workshop, api_key: str, webhook_url: s
 
     created = gateway.create_webhook(api_key=api_key, url=webhook_url, events=expected_events)
     webhook_id = str(created.get("id") or "").strip()
-    secret = str(created.get("secret") or "").strip()
-    update_fields = []
-    if webhook_id:
-        workshop.synplaisign_webhook_id = webhook_id
-        update_fields.append("synplaisign_webhook_id")
-    if secret:
-        workshop.synplaisign_webhook_secret = encrypt_secret(secret)
-        update_fields.append("synplaisign_webhook_secret")
-    if update_fields:
-        workshop.save(update_fields=update_fields)
+    secret = _extract_webhook_secret(created)
+    _persist_workshop_webhook_credentials(workshop=workshop, webhook_id=webhook_id, secret=secret)
 
 
 _SYNPLAISIGN_CREDENTIAL_FIELDS: tuple[str, ...] = (

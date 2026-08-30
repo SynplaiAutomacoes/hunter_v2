@@ -22,6 +22,8 @@ from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderCourtesyReasonType, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus, WorkOrderWarrantyPlan
+from apps.terms.models import TermTemplateType, WorkshopTermTemplate
+from apps.terms.selectors import get_default_term_template
 from apps.workshops.models.review_plans import ReviewPlan
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 
@@ -786,6 +788,12 @@ class WorkOrderCustomerApprovalForm(CoreForm):
     last_oil_change_km = forms.IntegerField(label="KM da última troca de óleo", required=False, min_value=0, widget=NumberInput())
     review_plan = forms.ModelChoiceField(label="Plano de revisão", queryset=ReviewPlan.objects.none(), required=False, widget=SearchableSelectInput())
     warranty_origin = forms.ModelChoiceField(label="OS de venda que originou a garantia", queryset=WorkOrder.objects.none(), required=False, widget=SearchableSelectInput())
+    warranty_term_template = forms.ModelChoiceField(
+        label="Termo de garantia",
+        queryset=WorkshopTermTemplate.objects.none(),
+        required=False,
+        widget=SearchableSelectInput(),
+    )
     unsigned_delivery_reason = forms.CharField(
         label="Justificativa da entrega sem assinatura",
         required=False,
@@ -825,6 +833,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             "courtesy_reason_type",
             "courtesy_reason_description",
             "warranty_origin",
+            "warranty_term_template",
         }
     )
 
@@ -853,6 +862,26 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         review_plan_field = cast(forms.ModelChoiceField, self.fields["review_plan"])
         workshop = getattr(self.workorder, "workshop", None)
         review_plan_field.queryset = ReviewPlan.objects.filter(workshop=workshop, is_active=True).order_by("name") if workshop else ReviewPlan.objects.none()
+        warranty_term_field = cast(forms.ModelChoiceField, self.fields["warranty_term_template"])
+        warranty_term_field.queryset = (
+            WorkshopTermTemplate.objects.filter(
+                workshop=workshop,
+                template_type=TermTemplateType.WARRANTY,
+                is_active=True,
+            ).order_by("-is_default", "name")
+            if workshop
+            else WorkshopTermTemplate.objects.none()
+        )
+        if self.workorder and not self.is_bound:
+            from apps.terms.models import WorkOrderTermSigning
+
+            existing_signing = WorkOrderTermSigning.objects.filter(workorder=self.workorder).select_related("term_template").first()
+            if existing_signing is not None:
+                self.fields["warranty_term_template"].initial = existing_signing.term_template_id
+            else:
+                default_template = get_default_term_template(workshop=workshop, template_type=TermTemplateType.WARRANTY) if workshop else None
+                if default_template is not None:
+                    self.fields["warranty_term_template"].initial = default_template.pk
 
         if self.workorder and self.workorder.km_final is not None and not self.is_bound:
             self.fields["km_final"].initial = self.workorder.km_final
@@ -954,6 +983,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                 Div(
                     Field("km_final", wrapper_class="mb-0"),
                     Field("warranty_plan", wrapper_class="mt-4 mb-0"),
+                    Field("warranty_term_template", wrapper_class="mt-4 mb-0"),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 css_class="grid grid-cols-12 gap-4",

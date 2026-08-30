@@ -276,6 +276,14 @@
                     <span>As informacoes da empresa devem estar alinhadas com o cadastro fiscal oficial.</span>
                 </div>
 
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-200/40 p-4">
+                    <div>
+                        <p class="font-semibold text-base-content">Termos para assinatura digital</p>
+                        <p class="text-sm text-base-content/70">Cadastre termos de recebimento e garantia usados no orçamento e na entrega da O.S.</p>
+                    </div>
+                    <a href="{% url 'terms:term_template_list' %}" class="btn btn-outline btn-sm">Gerenciar termos</a>
+                </div>
+
                 {% if company_form.non_field_errors %}
                     <div class="alert alert-error mb-4">
                         {% for error in company_form.non_field_errors %}
