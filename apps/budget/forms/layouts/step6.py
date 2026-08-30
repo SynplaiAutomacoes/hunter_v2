@@ -259,7 +259,7 @@ def configure_budget_step6_form(form):
                             </div>
                             """),
                 ),
-                css_class="col-span-12 lg:col-span-7",
+                css_class="col-span-12 lg:col-span-8",
             ),
             # Div(css_class="hidden lg:block lg:col-span-0"),
             # ===== COLUNA DIREITA =====
@@ -360,7 +360,7 @@ def configure_budget_step6_form(form):
                             """),
                     css_class="p-4 bg-base-200/50 rounded-lg",
                 ),
-                css_class="col-span-12 lg:col-span-5 sticky top-4",
+                css_class="col-span-12 lg:col-span-4 sticky top-4",
             ),
             css_class="grid grid-cols-1 lg:grid-cols-12 gap-8",
         ),

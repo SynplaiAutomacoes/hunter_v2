@@ -86,12 +86,13 @@ class WorkOrderDetailNavigationTests(SimpleTestCase):
 class WorkOrderCollaboratorsAutosaveTemplateTests(SimpleTestCase):
     def test_collaborators_autosave_without_submit_button(self) -> None:
         collaborators = (TEMPLATES_DIR / "collaborators_section.html").read_text(encoding="utf-8")
+        step_content = (TEMPLATES_DIR / "workorder_step_content.html").read_text(encoding="utf-8")
 
         self.assertIn('id="workorder-collaborators-form"', collaborators)
         self.assertIn('data-collaborators-autosave="1"', collaborators)
-        self.assertIn("submit, collaborator-list-changed", collaborators)
-        self.assertIn('name="next"', collaborators)
-        self.assertIn("requestSubmit", collaborators)
+        self.assertIn("collaborator-list-changed", collaborators)
+        self.assertIn("navigateWorkorderCollaborators", collaborators)
+        self.assertIn('name="next"', step_content)
         self.assertNotIn("Salvar colaboradores", collaborators)
 
     def test_collaborator_field_dispatches_autosave_and_hides_selected(self) -> None:
