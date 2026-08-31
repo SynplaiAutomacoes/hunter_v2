@@ -618,6 +618,7 @@ class WorkOrder(TimeStampedModel):
         self.save(update_fields=["unsigned_delivery_reason"])
 
     def save_delivery_draft(self, *, cleaned_data: dict[str, Any], posted_fields: set[str]) -> None:
+        """Persist delivery fields without changing the work order status."""
         update_fields: list[str] = []
         sync_km = False
 
