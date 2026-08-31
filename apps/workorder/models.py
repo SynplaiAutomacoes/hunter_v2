@@ -614,6 +614,29 @@ class WorkOrder(TimeStampedModel):
         self.unsigned_delivery_reason = reason
         self.save(update_fields=["unsigned_delivery_reason"])
 
+    def save_delivery_draft(self, *, cleaned_data: dict[str, object], posted_fields: set[str]) -> None:
+        """Persist delivery fields without changing the work order status."""
+        field_names = {
+            "km_final",
+            "warranty_plan",
+            "last_oil_change_date",
+            "last_oil_change_km",
+            "review_plan",
+            "unsigned_delivery_reason",
+            "courtesy_reason_type",
+            "courtesy_reason_description",
+            "warranty_origin",
+            "previous_mechanic",
+        }
+        update_fields = []
+
+        for field_name in field_names & posted_fields:
+            setattr(self, field_name, cleaned_data.get(field_name))
+            update_fields.append(field_name)
+
+        if update_fields:
+            self.save(update_fields=update_fields)
+
     @property
     def warranty_days(self) -> int | None:
         if not self.warranty_plan:
