@@ -57,6 +57,11 @@
 
 
 @layer components {
+    .badge-reopened-after-delivery {
+        --badge-color: #9359e3;
+        --badge-fg: #fff;
+    }
+
     .input-theme {
         @apply w-full py-1.5 px-3 rounded-md;
         @apply bg-input-base text-base-content;
