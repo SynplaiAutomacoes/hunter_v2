@@ -66,7 +66,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus, WORKORDER_STATUS_BADGE_CLASSES
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -178,14 +178,6 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
 WORKORDER_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in WorkOrderStatus)
 WORKORDER_BUDGET_TYPE_CHOICES = tuple((budget_type.value, str(budget_type.label)) for budget_type in BudgetType)
 WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "budget_type", "data_inicial", "data_final")
-WORKORDER_STATUS_BADGE_CLASSES = {
-    WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
-    WorkOrderStatus.WAITING_COLLABORATOR: "badge-info min-w-sm",
-    WorkOrderStatus.WAITING_DELIVERY: "badge-warning min-w-sm",
-    WorkOrderStatus.APPROVED: "badge-success min-w-sm",
-    WorkOrderStatus.REJECTED: "badge-error min-w-sm",
-    WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
-}
 WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico Filtradas"
 KIT_COMPATIBILITY_BADGE_CLASSES = {
     "compatible": "badge-success",
@@ -201,7 +193,6 @@ KIT_COMPATIBILITY_SORT_ORDER = {
     "no_applications": 3,
     "incompatible": 4,
 }
-WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico Filtradas"
 
 
 def _parse_report_date_param(raw_value: str | None) -> date | None:

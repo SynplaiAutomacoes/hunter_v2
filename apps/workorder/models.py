@@ -65,6 +65,15 @@ WORKORDER_OPEN_STATUSES = frozenset(
     }
 )
 
+WORKORDER_STATUS_BADGE_CLASSES = {
+    WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
+    WorkOrderStatus.WAITING_COLLABORATOR: "badge-info min-w-sm",
+    WorkOrderStatus.WAITING_DELIVERY: "badge-warning min-w-sm",
+    WorkOrderStatus.APPROVED: "badge-success min-w-sm",
+    WorkOrderStatus.REJECTED: "badge-error min-w-sm",
+    WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
+}
+
 # Status que entram nas agregações de receita do dashboard e DRE.
 WORKORDER_REVENUE_STATUSES = frozenset(WORKORDER_OPEN_STATUSES | {WorkOrderStatus.APPROVED})
 
@@ -214,14 +223,8 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def workorder_status_badge(self):
-        status_color = {
-            WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
-            WorkOrderStatus.APPROVED: "badge-success min-w-sm",
-            WorkOrderStatus.REJECTED: "badge-error min-w-sm",
-            WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
-        }
-
-        return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
+        badge_class = WORKORDER_STATUS_BADGE_CLASSES.get(self.status, "badge-ghost min-w-sm")
+        return {"text": WorkOrderStatus(self.status).label, "class": badge_class}
 
     @property
     def type_badge(self):
@@ -614,6 +617,66 @@ class WorkOrder(TimeStampedModel):
         self.unsigned_delivery_reason = reason
         self.save(update_fields=["unsigned_delivery_reason"])
 
+    def save_delivery_draft(self, *, cleaned_data: dict[str, Any], posted_fields: set[str]) -> None:
+        update_fields: list[str] = []
+        sync_km = False
+
+        if "km_final" in posted_fields:
+            km_final = cleaned_data.get("km_final")
+            self.km_final = int(km_final) if km_final is not None else None
+            update_fields.append("km_final")
+            sync_km = self.km_final is not None
+
+        if "unsigned_delivery_reason" in posted_fields:
+            self.unsigned_delivery_reason = str(cleaned_data.get("unsigned_delivery_reason") or "")
+            update_fields.append("unsigned_delivery_reason")
+
+        if "warranty_plan" in posted_fields:
+            self.warranty_plan = cleaned_data.get("warranty_plan") or None
+            update_fields.append("warranty_plan")
+
+        if "last_oil_change_date" in posted_fields:
+            self.last_oil_change_date = cleaned_data.get("last_oil_change_date")
+            update_fields.append("last_oil_change_date")
+
+        if "last_oil_change_km" in posted_fields:
+            self.last_oil_change_km = cleaned_data.get("last_oil_change_km")
+            update_fields.append("last_oil_change_km")
+
+        if "review_plan" in posted_fields:
+            self.review_plan = cleaned_data.get("review_plan")
+            update_fields.append("review_plan")
+
+        if "previous_mechanic" in posted_fields:
+            self.previous_mechanic = cleaned_data.get("previous_mechanic")
+            update_fields.append("previous_mechanic")
+
+        if "courtesy_reason_type" in posted_fields:
+            self.courtesy_reason_type = cleaned_data.get("courtesy_reason_type") or None
+            update_fields.append("courtesy_reason_type")
+
+        if "courtesy_reason_description" in posted_fields:
+            self.courtesy_reason_description = str(cleaned_data.get("courtesy_reason_description") or "")
+            update_fields.append("courtesy_reason_description")
+
+        if "warranty_origin" in posted_fields:
+            self.warranty_origin = cleaned_data.get("warranty_origin")
+            update_fields.append("warranty_origin")
+
+        if update_fields:
+            self.save(update_fields=update_fields)
+            if sync_km:
+                self._sync_vehicle_km_from_exit()
+
+        if "warranty_term_template" in posted_fields:
+            from apps.terms.selectors import update_workorder_term_template
+
+            term_template = cleaned_data.get("warranty_term_template")
+            update_workorder_term_template(
+                workorder=self,
+                term_template_id=getattr(term_template, "pk", None),
+            )
+
     @property
     def warranty_days(self) -> int | None:
         if not self.warranty_plan:
@@ -658,6 +721,11 @@ class WorkOrder(TimeStampedModel):
         last_oil_change_km: int | None = None,
         review_plan: "ReviewPlan | None" = None,
         warranty_plan: str | None = None,
+        previous_mechanic_id: int | None = None,
+        courtesy_reason_type: str | None = None,
+        courtesy_reason_description: str = "",
+        update_courtesy_fields: bool = False,
+        warranty_origin_id: int | None = None,
     ) -> None:
         self.km_final = km_final
         self.unsigned_delivery_reason = unsigned_delivery_reason
@@ -665,6 +733,16 @@ class WorkOrder(TimeStampedModel):
         if warranty_plan is not None:
             self.warranty_plan = warranty_plan
             update_fields.append("warranty_plan")
+        if update_courtesy_fields:
+            self.previous_mechanic_id = previous_mechanic_id
+            update_fields.append("previous_mechanic_id")
+            self.courtesy_reason_type = courtesy_reason_type or None
+            update_fields.append("courtesy_reason_type")
+            self.courtesy_reason_description = courtesy_reason_description
+            update_fields.append("courtesy_reason_description")
+            if self.budget_type == "warranty":
+                self.warranty_origin_id = warranty_origin_id
+                update_fields.append("warranty_origin")
         if last_oil_change_date is not None:
             self.last_oil_change_date = last_oil_change_date
             update_fields.append("last_oil_change_date")
@@ -1086,11 +1164,6 @@ class WorkOrder(TimeStampedModel):
             self.discount_type = self.budget.discount_type
             self.budget_type = self.budget.budget_type
             self.save(update_fields=["discount_value", "discount_percentage", "discount_type", "budget_type"])
-
-            collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
-            if not collaborator_ids and self.budget.collaborator_id:
-                collaborator_ids = [self.budget.collaborator_id]
-            self.collaborators.set(collaborator_ids)
 
             self.invalidate_pricing_snapshot_cache()
             self.refresh_stored_amounts()

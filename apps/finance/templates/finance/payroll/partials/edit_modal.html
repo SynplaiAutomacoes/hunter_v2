@@ -99,7 +99,10 @@
 
                 <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4">
                     <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">history</span>Histórico de comissões</h3>
-                    
+
+                    {% if commission_history.is_global_layout %}
+                        {% include "finance/payroll/partials/commission_history_global.html" %}
+                    {% else %}
                     {% if warranty_wos %}
                     <div class="alert alert-error shadow-sm bg-opacity-20 border-error">
                         <div class="flex flex-col gap-1 text-error">
@@ -177,6 +180,7 @@
                             </table>
                         </div>
                     </div>
+                    {% endif %}
                     {% endif %}
                 </section>
 
@@ -312,13 +316,15 @@
                                 <p class="rounded-xl border border-dashed border-base-300 bg-base-200/40 px-4 py-6 text-center text-sm text-base-content/60">Nenhum benefício nesta competência. Use Lançar benefício para um valor só deste mês.</p>
                             {% endif %}
                         {% else %}
-                            {% if tab.is_commission_tab and warranty_wos %}
+                            {% if tab.is_commission_tab %}
+                            {% if warranty_wos or commission_history.labor_failure_rows or commission_history.parts_failure_rows %}
                             <div class="alert alert-error shadow-sm bg-opacity-20 border-error mb-4">
                                 <div class="flex flex-col gap-1 text-error">
                                     <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
                                     <span class="text-sm text-gray-900">Este colaborador gerou prejuízo de {{ prejuizo_total }} nas comissões devido a garantias.</span>
                                 </div>
                             </div>
+                            {% endif %}
                             {% endif %}
                             <div class="flex items-center justify-between gap-3">
                                 <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>

@@ -248,6 +248,27 @@ class WorkOrderWarrantyPlanFormTests(TestCase):
         self.assertEqual(workorder.courtesy_reason_type, WorkOrderCourtesyReasonType.PART_DEFECT)
         self.assertEqual(workorder.courtesy_reason_description, "Peça com defeito de fábrica.")
 
+    def test_courtesy_reason_type_is_required_for_warranty_delivery(self) -> None:
+        workshop = _create_workshop(suffix=17)
+        workorder = _create_workorder(workshop=workshop, suffix=17)
+        workorder.budget_type = "warranty"
+        workorder.save(update_fields=["budget_type"])
+
+        form = WorkOrderCustomerApprovalForm(
+            data={
+                "km_initial": "0",
+                "km_final": "12000",
+                "warranty_plan": WorkOrderWarrantyPlan.DAYS_90,
+                "courtesy_reason_type": "",
+                "courtesy_reason_description": "",
+            },
+            workorder=workorder,
+            require_unsigned_delivery_reason=False,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("courtesy_reason_type", form.errors)
+
 
 class WorkOrderWarrantyHistoryEntryTests(TestCase):
     def test_history_entry_includes_delivery_and_warranty(self) -> None:

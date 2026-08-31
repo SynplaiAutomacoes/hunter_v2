@@ -892,6 +892,8 @@ class WorkOrderCustomerApprovalForm(CoreForm):
 
         self.is_courtesy_or_warranty = bool(self.workorder and self.workorder.budget_type in ("courtesy", "warranty"))
         if self.is_courtesy_or_warranty:
+            self.fields["courtesy_reason_type"].required = True
+            self.fields["courtesy_reason_type"].error_messages["required"] = "Selecione o motivo da cortesia/garantia para concluir a entrega."
             if self.workorder and self.workorder.courtesy_reason_type and not self.is_bound:
                 self.fields["courtesy_reason_type"].initial = self.workorder.courtesy_reason_type
             if self.workorder and self.workorder.courtesy_reason_description and not self.is_bound:
@@ -1066,6 +1068,12 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         if self.require_unsigned_delivery_reason and self.workorder and self.workorder.signature_request_status != WorkOrderSignatureStatus.APPROVED and not reason:
             raise ValidationError("Informe a justificativa para entregar o veículo sem a assinatura da O.S.")
         return reason
+
+    def clean_courtesy_reason_type(self) -> str:
+        reason_type = str(self.cleaned_data.get("courtesy_reason_type") or "").strip()
+        if getattr(self, "is_courtesy_or_warranty", False) and not reason_type:
+            raise ValidationError("Selecione o motivo da cortesia/garantia para concluir a entrega.")
+        return reason_type
 
 
 class WorkOrderReopenForm(CoreForm):

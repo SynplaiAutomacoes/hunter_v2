@@ -956,30 +956,11 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
         benefit_tab = next((tab for tab in component_tabs if tab["is_benefit_tab"]), None)
         default_benefit_movement_id = benefit_tab["default_movement_id"] if benefit_tab is not None else None
 
-        from apps.workorder.models import WorkOrder
-        from apps.collaborators.models import CollaboratorCommissionEntry
-        
-        warranty_wos_qs = WorkOrder.objects.filter(
-            workshop=payroll.workshop,
-            budget_type="warranty",
-            warranty_origin__isnull=False,
-            criado_em__year=payroll.reference_year,
-            criado_em__month=payroll.reference_month
-        ).select_related("warranty_origin")
-        
-        prejuizo_total = Decimal("0.00")
-        warranty_wos = []
-        for w_wo in warranty_wos_qs:
-            entries = list(CollaboratorCommissionEntry.objects.filter(
-                collaborator=payroll.collaborator,
-                workorder=w_wo.warranty_origin
-            ).select_related("workorder"))
-            loss = sum((e.commission_amount.amount for e in entries if e.commission_amount), start=Decimal("0.00"))
-            if loss > 0:
-                prejuizo_total += loss
-                warranty_wos.append({"workorder": w_wo, "entries": entries})
-                
-        prejuizo_money = Money(-prejuizo_total, "BRL")
+        from apps.finance.services.payroll_commission_history import build_payroll_commission_history
+
+        commission_history = build_payroll_commission_history(payroll=payroll)
+        warranty_wos = commission_history.warranty_wos
+        prejuizo_money = commission_history.prejuizo_total
 
         return render(
             request,
@@ -992,6 +973,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 "fallback_tab": fallback_tab,
                 "continue_without_create": True,
                 "default_benefit_movement_id": default_benefit_movement_id,
+                "commission_history": commission_history,
                 "warranty_wos": warranty_wos,
                 "prejuizo_total": prejuizo_money,
                 "workshop_default_work_days": get_workshop_work_days(
