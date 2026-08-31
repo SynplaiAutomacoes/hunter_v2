@@ -40,6 +40,12 @@
                         <td>{{ payment.total_paid }}</td>
 
                         <td class="text-center">
+                            {% if payment.has_paid_financial_movements %}
+                            <button type="button" class="btn btn-ghost btn-xs text-error"
+                                onclick="document.getElementById('payment-paid-lock-modal')?.showModal()">
+                                <span class="material-icons text-sm">delete</span>
+                            </button>
+                            {% else %}
                             <button type="button" class="btn btn-ghost btn-xs text-error"
                                 hx-delete="{% url 'workorder:delete_payment' payment.pk %}"
                                 hx-target="#payment-section"
@@ -49,6 +55,7 @@
                                 hx-on::before-swap="if (event.detail.xhr && event.detail.xhr.status >= 400) event.detail.shouldSwap = false">
                                 <span class="material-icons text-sm">delete</span>
                             </button>
+                            {% endif %}
                         </td>
                     </tr>
                 {% empty %}

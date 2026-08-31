@@ -1218,6 +1218,12 @@ class WorkOrderPaymentMethod(TimeStampedModel):
     def total_paid(self) -> Money:
         return money_from_decimal(self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount))
 
+    @property
+    def has_paid_financial_movements(self) -> bool:
+        from apps.finance.services.workorder_financial_movements import workorder_payment_has_paid_movements
+
+        return workorder_payment_has_paid_movements(payment=self)
+
     def __str__(self):
         return f"Plano de Pagamento #{self.id} - {self.payment_method}"
 

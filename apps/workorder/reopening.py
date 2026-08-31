@@ -3,7 +3,6 @@ from __future__ import annotations
 from django.db import transaction
 
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
-from apps.finance.models.financial_movement import FinancialMovement
 from apps.stock.services.workorder_stock import return_workorder_stock_to_inventory
 from apps.workorder.models import WORKORDER_REOPENABLE_STATUSES, WorkOrder, WorkOrderHistory
 
@@ -30,14 +29,6 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
             user=user,
             reason="Estoque devolvido por reabertura da O.S.",
         )
-
-        FinancialMovement.objects.select_for_update().filter(
-            workorder=locked_workorder,
-            movement_kind__in=[
-                FinancialMovement.MovementKind.WORKORDER_PARENT,
-                FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
-            ],
-        ).delete()
 
         WorkOrderHistory.objects.create(
             workorder=locked_workorder,
