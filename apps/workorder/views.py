@@ -66,7 +66,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus, WORKORDER_STATUS_BADGE_CLASSES
+from apps.workorder.models import WORKORDER_OPEN_STATUSES, WORKORDER_STATUS_BADGE_CLASSES, WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -177,7 +177,7 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
 
 WORKORDER_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in WorkOrderStatus)
 WORKORDER_BUDGET_TYPE_CHOICES = tuple((budget_type.value, str(budget_type.label)) for budget_type in BudgetType)
-WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "budget_type", "data_inicial", "data_final")
+WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "reopened", "budget_type", "data_inicial", "data_final")
 WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico Filtradas"
 KIT_COMPATIBILITY_BADGE_CLASSES = {
     "compatible": "badge-success",
@@ -309,6 +309,9 @@ class WorkOrderStatusReportDataMixin:
     def _get_selected_status_values(self) -> list[str]:
         return [str(status) for status in self._get_selected_status_choices()]
 
+    def _is_reopened_filter_selected(self) -> bool:
+        return str(self.request.GET.get("reopened") or "").strip() == "1"
+
     def _get_selected_budget_type_values(self) -> list[str]:
         selected: list[str] = []
         seen_values: set[str] = set()
@@ -409,6 +412,13 @@ class WorkOrderStatusReportDataMixin:
             filter_configs=WORKORDER_LIST_FILTERS,
         )
 
+        if self._is_reopened_filter_selected():
+            queryset = queryset.filter(
+                status__in=WORKORDER_OPEN_STATUSES,
+                delivered_at__isnull=False,
+                reopen_reason__gt="",
+            )
+
         return queryset.order_by("-budget__pk", "-criado_em")
 
     def _get_list_pricing_context(self):
@@ -438,6 +448,9 @@ class WorkOrderStatusReportDataMixin:
         selected_status_labels = [str(status_choice.label) for status_choice in self._get_selected_status_choices()]
         if selected_status_labels:
             filter_labels.append(f"Status: {', '.join(selected_status_labels)}")
+
+        if self._is_reopened_filter_selected():
+            filter_labels.append("O.S. reabertas")
 
         selected_budget_type_values = self._get_selected_budget_type_values()
         if selected_budget_type_values:
@@ -519,6 +532,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
         ]
         context["status_choices"] = WORKORDER_STATUS_CHOICES
         context["selected_status_values"] = self._get_selected_status_values()
+        context["selected_reopened"] = self._is_reopened_filter_selected()
         context["budget_type_choices"] = WORKORDER_BUDGET_TYPE_CHOICES
         context["selected_budget_type_values"] = self._get_selected_budget_type_values()
         context["selection_report"] = self._get_selection_report()

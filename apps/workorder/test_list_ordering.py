@@ -4,6 +4,7 @@ from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
+from django.utils import timezone
 
 from apps.accounts.models import Account
 from apps.budget.models import Budget, BudgetStatus
@@ -61,3 +62,30 @@ class WorkOrderListOrderingTests(TestCase):
         ordered_ids = list(view._get_filtered_workorder_queryset().values_list("pk", flat=True))
 
         self.assertEqual(ordered_ids, [third.pk, second.pk, first.pk])
+
+    def test_reopened_filter_returns_only_open_workorders_reopened_after_delivery(self) -> None:
+        reopened = self._create_workorder(number=10)
+        reopened.status = WorkOrderStatus.WAITING_DELIVERY
+        reopened.delivered_at = timezone.now()
+        reopened.reopen_reason = "Corrigir item da O.S."
+        reopened.save(update_fields=["status", "delivered_at", "reopen_reason"])
+
+        delivered_again = self._create_workorder(number=20)
+        delivered_again.status = WorkOrderStatus.APPROVED
+        delivered_again.delivered_at = timezone.now()
+        delivered_again.reopen_reason = "Corrigir item da O.S."
+        delivered_again.save(update_fields=["status", "delivered_at", "reopen_reason"])
+
+        open_without_delivery = self._create_workorder(number=30)
+        open_without_delivery.status = WorkOrderStatus.WAITING_DELIVERY
+        open_without_delivery.reopen_reason = "Corrigir item da O.S."
+        open_without_delivery.save(update_fields=["status", "reopen_reason"])
+
+        request = RequestFactory().get("/workorder/?reopened=1")
+        request.user = self.user
+        view = WorkOrderListView()
+        view.request = request
+        view.workshop = self.workshop
+        view.kwargs = {}
+
+        self.assertEqual(list(view._get_filtered_workorder_queryset()), [reopened])
