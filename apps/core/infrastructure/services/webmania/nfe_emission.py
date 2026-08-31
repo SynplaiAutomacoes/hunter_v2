@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 import re
 from typing import Any
@@ -433,7 +433,7 @@ def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) ->
     if quantity <= 0:
         raise NfeEmissionError("Quantidade invalida ao montar item da Nota Fiscal.")
 
-    return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
+    return (allocated_total / quantity).quantize(Decimal("0.0000000001"), rounding=ROUND_HALF_UP)
 
 
 def _build_payment_payload(*, workorder: WorkOrder | None, total_value: Decimal, discount_value: Decimal) -> dict[str, Any]:
@@ -486,7 +486,7 @@ def _build_standalone_nfe_products_payload(*, nfe_request: NfeRequest) -> tuple[
             "quantidade": _format_quantity(quantity),
             "unidade": _unit_for_api(str(line.unit or "")),
             "origem": int(line.origin or 0),
-            "subtotal": _format_decimal(unit_price, places=2),
+            "subtotal": _format_decimal(unit_price, places=10),
             "total": _format_decimal(line_total, places=2),
             "classe_imposto": tax_class_reference,
         }
@@ -594,7 +594,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
             "quantidade": _format_quantity(line.quantity),
             "unidade": line.unit,
             "origem": line.origin,
-            "subtotal": _format_decimal(unit_price, places=2),
+            "subtotal": _format_decimal(unit_price, places=10),
             "total": _format_decimal(allocated_total, places=2),
             "classe_imposto": tax_class_reference,
         }
