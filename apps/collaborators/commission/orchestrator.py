@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Iterable
 
 from django.db import transaction
 from django.utils import timezone
@@ -78,6 +77,10 @@ class WorkOrderCommissionOrchestrator:
                 CollaboratorCommissionEntry.objects.filter(workorder=locked, status=CollaboratorCommissionEntry.Status.FORECAST).delete()
                 return []
 
+            from apps.collaborators.commission.allocation import CommissionAllocationService
+
+            CommissionAllocationService.sync_for_workorder(workorder=locked)
+
             workshop = locked.workshop
             reference = reference_date or _resolve_commission_reference_date(locked)
 
@@ -144,9 +147,12 @@ class WorkOrderCommissionOrchestrator:
                         synced.append(entry)
 
                 # Para Pct Pool (participação) — truncar ao teto individual (cap) por segurança
+                sole_pct_collaborator_id = P_pct[0].collaborator_id if len(P_pct) == 1 else None
                 for rule in P_pct:
                     alloc = allocations_by_scope.get(scope, {}).get(rule.collaborator_id)
                     dist_pct = Decimal(str(alloc.distribution_percentage or 0)) if alloc else ZERO
+                    if dist_pct <= ZERO and sole_pct_collaborator_id == rule.collaborator_id:
+                        dist_pct = Decimal("1")
                     raw_commission = pool_S * dist_pct
                     cap_commission = total_S * Decimal(str(rule.percentage or 0))
                     commission_amount = _quantize(min(raw_commission, cap_commission))
@@ -298,6 +304,19 @@ class WorkOrderCommissionOrchestrator:
         )
         existing = entry_qs.first()
         if existing is None:
+            paid_existing = (
+                CollaboratorCommissionEntry.objects.select_for_update()
+                .filter(
+                    collaborator=collaborator,
+                    workorder=workorder,
+                    status=CollaboratorCommissionEntry.Status.PAID,
+                )
+                .order_by("-commission_amount", "id")
+                .first()
+            )
+            if paid_existing is not None:
+                return paid_existing
+
             entry = CollaboratorCommissionEntry.objects.create(
                 workshop=workshop,
                 collaborator=collaborator,
