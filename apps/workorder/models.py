@@ -223,6 +223,9 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def workorder_status_badge(self):
+        if self.is_reopened_after_delivery:
+            return {"text": "Veículo entregue/O.S. aberta", "class": "badge-reopened-after-delivery min-w-sm"}
+
         badge_class = WORKORDER_STATUS_BADGE_CLASSES.get(self.status, "badge-ghost min-w-sm")
         return {"text": WorkOrderStatus(self.status).label, "class": badge_class}
 
@@ -450,6 +453,15 @@ class WorkOrder(TimeStampedModel):
     @property
     def is_status_locked(self) -> bool:
         return self.status in WORKORDER_REOPENABLE_STATUSES
+
+    @property
+    def is_reopened_after_delivery(self) -> bool:
+        """Indica uma O.S. entregue que foi reaberta e ainda não foi fechada novamente."""
+        return (
+            self.status in WORKORDER_OPEN_STATUSES
+            and self.delivered_at is not None
+            and bool(str(self.reopen_reason or "").strip())
+        )
 
     @property
     def signature_blockers_display(self) -> str:
