@@ -255,15 +255,14 @@ class Budget(TimeStampedModel):
         update_fields = kwargs.get("update_fields")
         metadata_only = self._is_metadata_only_update(update_fields)
         skip_stored_refresh = metadata_only or getattr(self, "_skip_stored_total_refresh", False)
+        is_new = self.pk is None
 
-        if not metadata_only:
+        if not metadata_only and not is_new:
             self.sync_discount_fields()
             if update_fields is not None:
                 update_fields_set = set(update_fields)
                 update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
                 kwargs["update_fields"] = list(update_fields_set)
-
-        is_new = self.pk is None
 
         old_status = None
         old_budget_type = None
