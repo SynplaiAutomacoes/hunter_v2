@@ -224,7 +224,7 @@ class WorkOrder(TimeStampedModel):
     @property
     def workorder_status_badge(self):
         if self.is_reopened_after_delivery:
-            return {"text": "Veículo entregue/O.S. aberta", "class": "badge-reopened-after-delivery min-w-sm"}
+            return {"text": "Veículo entregue/O.S. Reaberta", "class": "badge-reopened-after-delivery min-w-sm"}
 
         badge_class = WORKORDER_STATUS_BADGE_CLASSES.get(self.status, "badge-ghost min-w-sm")
         return {"text": WorkOrderStatus(self.status).label, "class": badge_class}

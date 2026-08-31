@@ -26,7 +26,7 @@ class WorkOrderStatusBadgeTests(SimpleTestCase):
             reopen_reason="Corrigir item da O.S.",
         )
 
-        self.assertEqual(workorder.workorder_status_badge["text"], "Veículo entregue/O.S. aberta")
+        self.assertEqual(workorder.workorder_status_badge["text"], "Veículo entregue/O.S. Reaberta")
         self.assertIn("badge-reopened-after-delivery", workorder.workorder_status_badge["class"])
 
     def test_open_workorder_without_previous_delivery_keeps_its_regular_badge(self) -> None:
