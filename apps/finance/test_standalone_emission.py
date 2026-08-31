@@ -283,6 +283,25 @@ class StandaloneNfePayloadTests(SimpleTestCase):
         self.assertEqual(discount, Decimal("0.00"))
         self.assertEqual(allocation.products_target, Decimal("100.00"))
 
+    def test_products_payload_preserves_total_for_multi_quantity_line(self) -> None:
+        line = SimpleNamespace(
+            description="Filtro de Oleo",
+            product_code="FLT-001",
+            ncm="84212300",
+            cest="",
+            unit="UN",
+            origin=0,
+            quantity=Decimal("3"),
+            unit_value=Decimal("26.6666666667"),
+            total_value=Decimal("80.00"),
+        )
+
+        products, total, _allocation, _discount = _build_nfe_products_payload(nfe_request=_standalone_nfe_request(lines=[line]))
+
+        self.assertEqual(products[0]["subtotal"], "26.6666666667")
+        recalculated_total = (Decimal(products[0]["subtotal"]) * line.quantity).quantize(Decimal("0.01"))
+        self.assertEqual(recalculated_total, total)
+
     def test_missing_recipient_raises(self) -> None:
         request = SimpleNamespace(workorder=None, recipient_snapshot={})
         with self.assertRaises(NfeEmissionError):
