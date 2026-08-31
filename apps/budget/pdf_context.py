@@ -153,6 +153,49 @@ def _merge_selected_pdf_rows(*, produtos: list[dict], servicos: list[dict]) -> t
     return _merge_selected_product_rows(produtos), _merge_selected_service_rows(servicos)
 
 
+def _pdf_row_shipping(row: dict) -> Money:
+    shipping = row.get("shipping")
+    return shipping if shipping is not None else zero_money()
+
+
+def _normalize_pdf_product_row_costs(row: dict) -> None:
+    shipping = _pdf_row_shipping(row)
+    unit_cost = row.get("product_cost_price") or zero_money()
+    if row.get("is_customer_supplied"):
+        row["product_cost_price"] = zero_money()
+        row["profit_value"] = zero_money()
+        return
+
+    total_cost = unit_cost + shipping
+    row["product_cost_price"] = total_cost
+    benefit_type = str(row.get("item_benefit_type") or "normal")
+    sale = row.get("total_price") or zero_money()
+    if benefit_type not in ("normal", ""):
+        row["profit_value"] = -total_cost
+    else:
+        row["profit_value"] = sale - total_cost
+
+
+def _normalize_pdf_service_row_costs(row: dict) -> None:
+    shipping = _pdf_row_shipping(row)
+    mechanic_cost = row.get("service_mechanic_cost_price") or zero_money()
+    total_cost = mechanic_cost + shipping
+    row["service_mechanic_cost_price"] = total_cost
+    benefit_type = str(row.get("item_benefit_type") or "normal")
+    sale = row.get("total_price") or zero_money()
+    if benefit_type not in ("normal", ""):
+        row["profit_value"] = -total_cost
+    else:
+        row["profit_value"] = sale - total_cost
+
+
+def _apply_pdf_gestor_cost_rules(*, produtos: list[dict], servicos: list[dict]) -> None:
+    for row in produtos:
+        _normalize_pdf_product_row_costs(row)
+    for row in servicos:
+        _normalize_pdf_service_row_costs(row)
+
+
 def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
     ZERO = zero_money()
     return [
@@ -310,6 +353,7 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
             "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
             "item_benefit_type": kit_item.item_benefit_type,
             "shipping": service_shipping,
+            "is_third_party": False,
         }
         if servico["item_benefit_type"] != "normal":
             servico["profit_value"] = -servico["service_mechanic_cost_price"]
@@ -355,6 +399,7 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
                 "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
                 "item_benefit_type": kit_item.item_benefit_type,
                 "shipping": service_shipping,
+                "is_third_party": True,
             }
         )
 
@@ -495,6 +540,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         produtos = _build_snapshot_product_rows(snapshot=snapshot)
         servicos = _build_snapshot_service_rows(snapshot=snapshot)
         kits = []
+
+    _apply_pdf_gestor_cost_rules(produtos=produtos, servicos=servicos)
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     expected_delivery_at = resolve_expected_delivery_at(budget=budget)

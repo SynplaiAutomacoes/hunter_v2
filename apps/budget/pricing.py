@@ -453,6 +453,9 @@ def build_pricing_snapshot(
     is_local_product_item: Callable[[Any], bool] | None = None,
     is_local_service_item: Callable[[Any], bool] | None = None,
     include_benefit_items: bool = False,
+    slider_floor_products_cost: Money | None = None,
+    slider_floor_labor_cost: Money | None = None,
+    slider_floor_third_party_cost: Money | None = None,
 ) -> PricingSnapshot:
     local_product_check = is_local_product_item or (lambda _item: False)
     local_service_check = is_local_service_item or (lambda _item: False)
@@ -883,12 +886,24 @@ def build_pricing_snapshot(
     total_products_by_slider = total_products_value
     total_labor_by_slider = total_labor_selling_value
     total_third_party_shipping = sum((line.shipping for line in third_party_service_lines), zero_money())
+    total_labor_shipping = sum((line.shipping for line in labor_service_lines), zero_money())
     total_third_party_by_slider = total_third_party_services_selling
-    product_floor = _slider_floor(selling=total_products_value, cost=total_costs_products_value + total_products_shipping)
-    labor_floor = _slider_floor(selling=total_labor_selling_value, cost=effective_labor_cost_value)
+    default_product_floor_cost = total_costs_products_value + total_products_shipping
+    default_labor_floor_cost = effective_labor_cost_value + total_labor_shipping
+    if has_explicit_labor_cost and hunter_labor_cost_value.amount <= 0:
+        default_labor_floor_cost = sum(
+            (line.original_cost_total + line.shipping for line in labor_service_lines),
+            zero_money(),
+        )
+    default_third_party_floor_cost = total_third_party_services_cost + total_third_party_shipping
+    resolved_product_floor_cost = slider_floor_products_cost or default_product_floor_cost
+    resolved_labor_floor_cost = slider_floor_labor_cost or default_labor_floor_cost
+    resolved_third_party_floor_cost = slider_floor_third_party_cost or default_third_party_floor_cost
+    product_floor = _slider_floor(selling=total_products_value, cost=resolved_product_floor_cost)
+    labor_floor = _slider_floor(selling=total_labor_selling_value, cost=resolved_labor_floor_cost)
     third_party_floor = _slider_floor(
         selling=total_third_party_services_selling,
-        cost=total_third_party_services_cost + total_third_party_shipping,
+        cost=resolved_third_party_floor_cost,
     )
 
     if slider < 0:

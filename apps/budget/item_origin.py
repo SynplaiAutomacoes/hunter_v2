@@ -261,7 +261,7 @@ def build_kit_component_service_item_from_exploded(*, kit_item: Any, row: dict[s
         is_local=False,
         description=row.get("description") or "",
         item_benefit_type=row.get("item_benefit_type") or kit_item.item_benefit_type,
-        service=SimpleNamespace(id=service_id, is_third_party=False),
+        service=SimpleNamespace(id=service_id, is_third_party=bool(row.get("is_third_party", False))),
         service_id=service_id,
         quantity=quantity,
         service_cost_price=unit_cost,

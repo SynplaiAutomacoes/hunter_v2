@@ -33,6 +33,30 @@ class FreightCostPricingTests(SimpleTestCase):
             Money(0, "BRL"),
         )
 
+    def test_summary_shipping_includes_benefit_item_freight(self) -> None:
+        benefit_item = SimpleNamespace(
+            is_benefit_item=True,
+            summary_shipping_total=Money("12.00", "BRL"),
+        )
+        budget = SimpleNamespace(_iter_items=lambda: [benefit_item])
+
+        self.assertEqual(
+            Budget._benefit_items_total_shipping_value(budget),
+            Money("12.00", "BRL"),
+        )
+
+        sale_budget = SimpleNamespace(
+            is_fixed_budget=False,
+            total_shipping=Money("30.00", "BRL"),
+            _iter_items=lambda: [benefit_item],
+        )
+        sale_budget._benefit_items_total_shipping_value = Budget._benefit_items_total_shipping_value.__get__(sale_budget, Budget)
+
+        self.assertEqual(
+            Budget.selected_items_total_shipping_value.fget(sale_budget),
+            Money("42.00", "BRL"),
+        )
+
     def test_product_and_service_freight_reduce_margin_without_changing_sale_total(self):
         product = SimpleNamespace(id=1, code="P1", application="", location="", name="Peça")
         service = SimpleNamespace(id=2, name="Serviço", is_third_party=True)
@@ -95,6 +119,64 @@ class FreightCostPricingTests(SimpleTestCase):
         self.assertEqual(snapshot.total_labor_cost_value, Money(Decimal("42.96"), "BRL"))
         self.assertEqual(snapshot.service_lines[0].cost_total, Money(Decimal("42.96"), "BRL"))
         self.assertEqual(snapshot.service_lines[0].profit_value, Money(Decimal("37.04"), "BRL"))
+
+    def test_labor_slider_floor_includes_freight(self) -> None:
+        service = SimpleNamespace(id=2, name="Serviço", is_third_party=False)
+        item = SimpleNamespace(
+            id=2,
+            product_id=None,
+            service_id=2,
+            kit_id=None,
+            product=None,
+            service=service,
+            description="Serviço",
+            quantity=1,
+            service_selling_price=Money(100, "BRL"),
+            service_cost_price=Money(0, "BRL"),
+            service_shipping=Money(20, "BRL"),
+            item_benefit_type="normal",
+            duration=timedelta(hours=1),
+        )
+
+        snapshot = build_pricing_snapshot(
+            items=[item],
+            slider=-100,
+            discount_value=Money(0, "BRL"),
+            discount_percentage=Decimal("0"),
+            labor_hourly_cost_value=Money(Decimal("42.96"), "BRL"),
+        )
+
+        self.assertEqual(snapshot.total_labor_by_slider, Money(Decimal("62.96"), "BRL"))
+
+    def test_slider_floor_overrides_include_benefit_costs(self) -> None:
+        product = SimpleNamespace(id=1, code="P1", application="", location="", name="Peça")
+        service = SimpleNamespace(id=2, name="Serviço", is_third_party=False)
+        items = [
+            SimpleNamespace(
+                id=1, product_id=1, service_id=None, kit_id=None, product=product, service=None,
+                description="Peça", quantity=1, product_selling_price=Money(100, "BRL"),
+                product_cost_price=Money(50, "BRL"), shipping=Money(10, "BRL"), item_benefit_type="normal",
+            ),
+            SimpleNamespace(
+                id=2, product_id=None, service_id=2, kit_id=None, product=None, service=service,
+                description="Serviço", quantity=1, service_selling_price=Money(80, "BRL"),
+                service_cost_price=Money(20, "BRL"), service_shipping=Money(5, "BRL"),
+                item_benefit_type="normal", duration=timedelta(hours=1),
+            ),
+        ]
+
+        snapshot = build_pricing_snapshot(
+            items=items,
+            slider=100,
+            discount_value=Money(0, "BRL"),
+            discount_percentage=Decimal("0"),
+            labor_cost_value=Money(Decimal("20.00"), "BRL"),
+            slider_floor_products_cost=Money(Decimal("80.00"), "BRL"),
+            slider_floor_labor_cost=Money(Decimal("30.00"), "BRL"),
+        )
+
+        self.assertEqual(snapshot.total_products_by_slider, Money(Decimal("80.00"), "BRL"))
+        self.assertEqual(snapshot.total_labor_by_slider, Money(Decimal("100.00"), "BRL"))
 
     def test_reported_budget_totals_match_step_5(self):
         direct_product = SimpleNamespace(id=1, code="P1", application="", location="", name="Lâmpada")

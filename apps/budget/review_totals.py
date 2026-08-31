@@ -5,7 +5,12 @@ from typing import Any
 
 from djmoney.money import Money
 
-from apps.budget.item_origin import build_kit_component_product_item_from_exploded, build_kit_component_service_item_from_exploded
+from apps.budget.item_origin import (
+    build_kit_component_product_item,
+    build_kit_component_product_item_from_exploded,
+    build_kit_component_service_item,
+    build_kit_component_service_item_from_exploded,
+)
 from apps.budget.pdf_context import _explode_kit_product_rows, _explode_kit_service_rows
 from apps.budget.pricing import kit_component_winning_item_ids, zero_money
 from apps.budget.review_display import build_budget_review_display
@@ -19,21 +24,65 @@ class BudgetTableTotals:
     profit: Money
 
 
+@dataclass(frozen=True, slots=True)
+class Step4PricingBreakdown:
+    products_unit_cost: Money
+    products_freight: Money
+    labor_cost: Money
+    labor_freight: Money
+    third_party_cost: Money
+    third_party_freight: Money
+
+    @property
+    def products_total_cost(self) -> Money:
+        return self.products_unit_cost + self.products_freight
+
+    @property
+    def labor_total_cost(self) -> Money:
+        return self.labor_cost + self.labor_freight
+
+    @property
+    def third_party_total_cost(self) -> Money:
+        return self.third_party_cost + self.third_party_freight
+
+    @property
+    def services_freight(self) -> Money:
+        return self.labor_freight + self.third_party_freight
+
+
 Step6TableTotals = BudgetTableTotals
 
 
+def _product_row_sale_amount(*, item: Any) -> Money:
+    if bool(getattr(item, "is_customer_supplied", False)):
+        return zero_money()
+    if _is_benefit_item(item=item):
+        return zero_money()
+    return _money(getattr(item, "display_total_price", None) or getattr(item, "total_price", None))
+
+
+def _service_row_sale_amount(*, item: Any) -> Money:
+    if _is_benefit_item(item=item):
+        return zero_money()
+    return _money(getattr(item, "display_total_price", None) or getattr(item, "total_price", None))
+
+
 def _step4_product_row_totals(*, item: Any) -> BudgetTableTotals:
-    cost = _product_row_cost(item=item)
-    sale = _money(getattr(item, "display_total_price", None) or getattr(item, "total_price", None))
-    profit = _product_row_profit(item=item, sale=sale, cost=cost)
-    return BudgetTableTotals(cost=cost, sale=sale, profit=profit)
+    unit_cost = _product_row_unit_cost(item=item)
+    freight = _product_row_freight(item=item)
+    total_cost = unit_cost + freight
+    sale = _product_row_sale_amount(item=item)
+    profit = _product_row_profit(item=item, sale=sale, total_cost=total_cost)
+    return BudgetTableTotals(cost=total_cost, sale=sale, profit=profit)
 
 
 def _step4_service_row_totals(*, budget: Any, item: Any, mechanic_cost: Money | None = None) -> BudgetTableTotals:
-    cost = _service_row_cost(budget=budget, item=item, mechanic_cost=mechanic_cost)
-    sale = _money(getattr(item, "display_total_price", None) or getattr(item, "total_price", None))
-    profit = _service_row_profit(item=item, sale=sale, cost=cost)
-    return BudgetTableTotals(cost=cost, sale=sale, profit=profit)
+    unit_cost = _service_row_unit_cost(budget=budget, item=item, mechanic_cost=mechanic_cost)
+    freight = _service_row_freight(item=item)
+    total_cost = unit_cost + freight
+    sale = _service_row_sale_amount(item=item)
+    profit = _service_row_profit(item=item, sale=sale, total_cost=total_cost)
+    return BudgetTableTotals(cost=total_cost, sale=sale, profit=profit)
 
 
 def _accumulate_totals(*, target: BudgetTableTotals, row: BudgetTableTotals) -> BudgetTableTotals:
@@ -41,6 +90,61 @@ def _accumulate_totals(*, target: BudgetTableTotals, row: BudgetTableTotals) -> 
         cost=target.cost + row.cost,
         sale=target.sale + row.sale,
         profit=target.profit + row.profit,
+    )
+
+
+def _accumulate_breakdown(*, target: Step4PricingBreakdown, row: Step4PricingBreakdown) -> Step4PricingBreakdown:
+    return Step4PricingBreakdown(
+        products_unit_cost=target.products_unit_cost + row.products_unit_cost,
+        products_freight=target.products_freight + row.products_freight,
+        labor_cost=target.labor_cost + row.labor_cost,
+        labor_freight=target.labor_freight + row.labor_freight,
+        third_party_cost=target.third_party_cost + row.third_party_cost,
+        third_party_freight=target.third_party_freight + row.third_party_freight,
+    )
+
+
+def _empty_breakdown() -> Step4PricingBreakdown:
+    return Step4PricingBreakdown(
+        products_unit_cost=zero_money(),
+        products_freight=zero_money(),
+        labor_cost=zero_money(),
+        labor_freight=zero_money(),
+        third_party_cost=zero_money(),
+        third_party_freight=zero_money(),
+    )
+
+
+def _breakdown_from_product_row(*, item: Any) -> Step4PricingBreakdown:
+    return Step4PricingBreakdown(
+        products_unit_cost=_product_row_unit_cost(item=item),
+        products_freight=_product_row_freight(item=item),
+        labor_cost=zero_money(),
+        labor_freight=zero_money(),
+        third_party_cost=zero_money(),
+        third_party_freight=zero_money(),
+    )
+
+
+def _breakdown_from_service_row(*, budget: Any, item: Any, mechanic_cost: Money | None = None) -> Step4PricingBreakdown:
+    unit_cost = _service_row_unit_cost(budget=budget, item=item, mechanic_cost=mechanic_cost)
+    freight = _service_row_freight(item=item)
+    if _service_item_is_third_party(item=item):
+        return Step4PricingBreakdown(
+            products_unit_cost=zero_money(),
+            products_freight=zero_money(),
+            labor_cost=zero_money(),
+            labor_freight=zero_money(),
+            third_party_cost=unit_cost,
+            third_party_freight=freight,
+        )
+    return Step4PricingBreakdown(
+        products_unit_cost=zero_money(),
+        products_freight=zero_money(),
+        labor_cost=unit_cost,
+        labor_freight=freight,
+        third_party_cost=zero_money(),
+        third_party_freight=zero_money(),
     )
 
 
@@ -91,11 +195,78 @@ def build_step4_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
     return {"products": products, "services": services}
 
 
+def build_step4_pricing_breakdown(*, budget: Any) -> Step4PricingBreakdown:
+    from apps.budget.forms.shared import _budget_item_type
+
+    breakdown = _empty_breakdown()
+    items = list(budget.items.all())
+    winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(items)
+
+    for item in items:
+        item_type = _budget_item_type(item)
+        if item_type == "product":
+            breakdown = _accumulate_breakdown(target=breakdown, row=_breakdown_from_product_row(item=item))
+            continue
+
+        if item_type == "service":
+            mechanic_cost = _service_mechanic_cost_for_breakdown(budget=budget, item=item)
+            breakdown = _accumulate_breakdown(
+                target=breakdown,
+                row=_breakdown_from_service_row(budget=budget, item=item, mechanic_cost=mechanic_cost),
+            )
+            continue
+
+        if item_type != "kit":
+            continue
+
+        for override in item._iter_frozen_kit_product_overrides():
+            product_id = getattr(override, "product_id", None)
+            if product_id is not None and winning_kit_product_item_ids.get(product_id) not in {None, item.pk}:
+                continue
+            component = build_kit_component_product_item(kit_item=item, override=override)
+            if component is None:
+                continue
+            breakdown = _accumulate_breakdown(target=breakdown, row=_breakdown_from_product_row(item=component))
+
+        for override in item._iter_frozen_kit_service_overrides():
+            service_id = getattr(override, "service_id", None)
+            if service_id is not None and winning_kit_service_item_ids.get(service_id) not in {None, item.pk}:
+                continue
+            component = build_kit_component_service_item(kit_item=item, override=override)
+            if component is None:
+                continue
+            mechanic_cost = _service_mechanic_cost_for_breakdown(budget=budget, item=component)
+            breakdown = _accumulate_breakdown(
+                target=breakdown,
+                row=_breakdown_from_service_row(budget=budget, item=component, mechanic_cost=mechanic_cost),
+            )
+
+    return breakdown
+
+
+def _service_mechanic_cost_for_breakdown(*, budget: Any, item: Any) -> Money | None:
+    if _service_item_is_third_party(item=item):
+        quantity = int(getattr(item, "quantity", 0) or 0)
+        fallback = _money(getattr(item, "service_cost_price", None))
+        return fallback * quantity if quantity else fallback
+    return calculate_mechanic_service_cost(
+        budget=budget,
+        duration=getattr(item, "duration", None),
+        quantity=int(getattr(item, "quantity", 0) or 0),
+        fallback_cost=_money(getattr(item, "service_cost_price", None)),
+    )
+
+
 def _money(value: Money | None) -> Money:
     return value if value is not None else zero_money()
 
 
-def _product_row_cost(*, item: Any) -> Money:
+def _service_item_is_third_party(*, item: Any) -> bool:
+    service = getattr(item, "service", None)
+    return bool(getattr(service, "is_third_party", False))
+
+
+def _product_row_unit_cost(*, item: Any) -> Money:
     if bool(getattr(item, "is_customer_supplied", False)):
         return zero_money()
     quantity = int(getattr(item, "quantity", 0) or 0)
@@ -103,25 +274,35 @@ def _product_row_cost(*, item: Any) -> Money:
     return unit_cost * quantity if quantity else unit_cost
 
 
+def _product_row_freight(*, item: Any) -> Money:
+    if bool(getattr(item, "is_customer_supplied", False)):
+        return zero_money()
+    return _money(getattr(item, "shipping", None))
+
+
 def _product_row_sale(*, line: Any, budget: Any) -> Money:
     if bool(getattr(line.item, "is_customer_supplied", False)):
+        return zero_money()
+    if _is_benefit_item(item=line.item):
         return zero_money()
     if bool(getattr(budget, "is_warranty_budget", False)):
         return _money(line.warranty_total_price)
     return _money(line.total_price)
 
 
-def _product_row_profit(*, item: Any, sale: Money, cost: Money) -> Money:
+def _is_benefit_item(*, item: Any) -> bool:
+    return str(getattr(item, "item_benefit_type", "normal") or "normal") not in ("normal", "")
+
+
+def _product_row_profit(*, item: Any, sale: Money, total_cost: Money) -> Money:
     if bool(getattr(item, "is_customer_supplied", False)):
         return zero_money()
-    benefit = str(getattr(item, "item_benefit_type", "normal") or "normal")
-    if benefit != "normal":
-        return -cost
-    shipping = _money(getattr(item, "shipping", None))
-    return sale - shipping - cost
+    if _is_benefit_item(item=item):
+        return -total_cost
+    return sale - total_cost
 
 
-def _service_row_cost(*, budget: Any, item: Any, mechanic_cost: Money | None = None) -> Money:
+def _service_row_unit_cost(*, budget: Any, item: Any, mechanic_cost: Money | None = None) -> Money:
     if mechanic_cost is not None:
         return mechanic_cost
     quantity = int(getattr(item, "quantity", 0) or 0)
@@ -135,18 +316,22 @@ def _service_row_cost(*, budget: Any, item: Any, mechanic_cost: Money | None = N
     )
 
 
+def _service_row_freight(*, item: Any) -> Money:
+    return _money(getattr(item, "service_shipping", None))
+
+
 def _service_row_sale(*, line: Any, budget: Any) -> Money:
+    if _is_benefit_item(item=line.item):
+        return zero_money()
     if bool(getattr(budget, "is_warranty_budget", False)):
         return _money(line.warranty_total_price)
     return _money(line.total_price)
 
 
-def _service_row_profit(*, item: Any, sale: Money, cost: Money) -> Money:
-    benefit = str(getattr(item, "item_benefit_type", "normal") or "normal")
-    if benefit != "normal":
-        return -cost
-    shipping = _money(getattr(item, "service_shipping", None))
-    return sale - shipping - cost
+def _service_row_profit(*, item: Any, sale: Money, total_cost: Money) -> Money:
+    if _is_benefit_item(item=item):
+        return -total_cost
+    return sale - total_cost
 
 
 def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
@@ -158,24 +343,28 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
 
     for line in review_display.direct_products:
         item = line.item
-        row_cost = _product_row_cost(item=item)
+        unit_cost = _product_row_unit_cost(item=item)
+        freight = _product_row_freight(item=item)
+        total_cost = unit_cost + freight
         row_sale = _product_row_sale(line=line, budget=budget)
         products = _accumulate_totals(
             target=products,
             row=BudgetTableTotals(
-                cost=row_cost,
+                cost=total_cost,
                 sale=row_sale,
-                profit=_product_row_profit(item=item, sale=row_sale, cost=row_cost),
+                profit=_product_row_profit(item=item, sale=row_sale, total_cost=total_cost),
             ),
         )
 
     for line in review_display.direct_services:
         item = line.item
-        row_cost = _service_row_cost(budget=budget, item=item)
+        unit_cost = _service_row_unit_cost(budget=budget, item=item)
+        freight = _service_row_freight(item=item)
+        total_cost = unit_cost + freight
         row_sale = _service_row_sale(line=line, budget=budget)
-        service_cost += row_cost
+        service_cost += total_cost
         service_sale += row_sale
-        service_profit += _service_row_profit(item=item, sale=row_sale, cost=row_cost)
+        service_profit += _service_row_profit(item=item, sale=row_sale, total_cost=total_cost)
 
     winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
     for line in review_display.kits:
@@ -184,14 +373,16 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
             if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
-            row_cost = _money(exploded.get("product_cost_price"))
-            row_sale = _money(exploded.get("total_price"))
+            unit_cost = _money(exploded.get("product_cost_price"))
+            freight = _product_row_freight(item=component)
+            total_cost = unit_cost + freight
+            row_sale = _product_row_sale_amount(item=component)
             products = _accumulate_totals(
                 target=products,
                 row=BudgetTableTotals(
-                    cost=row_cost,
+                    cost=total_cost,
                     sale=row_sale,
-                    profit=_product_row_profit(item=component, sale=row_sale, cost=row_cost),
+                    profit=_product_row_profit(item=component, sale=row_sale, total_cost=total_cost),
                 ),
             )
 
@@ -199,11 +390,13 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
             if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
-            row_cost = _money(exploded.get("service_mechanic_cost_price"))
-            row_sale = _money(exploded.get("total_price"))
-            service_cost += row_cost
+            unit_cost = _money(exploded.get("service_mechanic_cost_price"))
+            freight = _service_row_freight(item=component)
+            total_cost = unit_cost + freight
+            row_sale = _service_row_sale_amount(item=component)
+            service_cost += total_cost
             service_sale += row_sale
-            service_profit += _service_row_profit(item=component, sale=row_sale, cost=row_cost)
+            service_profit += _service_row_profit(item=component, sale=row_sale, total_cost=total_cost)
 
     return {
         "products": products,

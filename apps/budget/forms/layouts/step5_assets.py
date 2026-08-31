@@ -427,7 +427,8 @@ def build_step5_assets_html(*, metodo_precificacao: str, mark_step5_calculation_
                                 const freightPeca = parseFloat(vendaPecaEl.dataset.freteVal || 0);
                                 const floorPeca = Math.min(originPeca, Math.max(costPeca + freightPeca, 0));
                                 const costMO = parseFloat(vendaMOEl.dataset.costVal) || 0;
-                                const floorMO = Math.min(originMO, Math.max(costMO, 0));
+                                const freightMO = parseFloat(vendaMOEl.dataset.freteVal || 0);
+                                const floorMO = Math.min(originMO, Math.max(costMO + freightMO, 0));
                         
                                 const format = (v) =>
                                     "R$ " + v.toLocaleString("pt-BR", {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}

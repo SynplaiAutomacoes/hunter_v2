@@ -4,7 +4,7 @@ from apps.budget.forms.steps.common import *
 from apps.budget.models import BudgetItem
 from dataclasses import dataclass
 from datetime import timedelta
-from django.db.models import F, Sum
+from decimal import Decimal
 
 
 @dataclass
@@ -12,6 +12,7 @@ class Step5PricingContext:
     custo_pecas: Money
     custo_frete_pecas: Money
     custo_frete_servicos: Money
+    custo_frete_mao_obra: Money
     custo_servico_terceiros: Money
     custo_hora_mecanico: Money
     custo_total_mao_obra: Money
@@ -45,23 +46,13 @@ def build_step5_context(budget) -> Step5PricingContext:
         dados = budget.calculate_pricing_methods()
 
     zerado = Money(0, "BRL")
+    breakdown = budget.step4_pricing_breakdown if budget.pk else None
 
-    custo_pecas = budget.total_costs_products_value
-    custo_frete_pecas = budget.total_products_shipping
-    custo_frete_servicos = budget.total_services_shipping
-    custo_servico_terceiros = budget.total_third_party_services_cost
-
-    benefit_tp_agg = (
-        BudgetItem.objects.filter(
-            budget=budget,
-            item_benefit_type__in=("warranty", "courtesy"),
-            service__is_third_party=True,
-        ).aggregate(
-            total=Sum(F("service_cost_price") * F("quantity"))
-        )["total"]
-    )
-    if benefit_tp_agg:
-        custo_servico_terceiros += Money(benefit_tp_agg, "BRL")
+    custo_pecas = breakdown.products_unit_cost if breakdown else zerado
+    custo_frete_pecas = breakdown.products_freight if breakdown else zerado
+    custo_frete_mao_obra = breakdown.labor_freight if breakdown else zerado
+    custo_frete_servicos = breakdown.services_freight if breakdown else zerado
+    custo_servico_terceiros = breakdown.third_party_cost if breakdown else zerado
 
     custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
@@ -84,8 +75,7 @@ def build_step5_context(budget) -> Step5PricingContext:
         ts = int(total_td.total_seconds())
         duracao_total = f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
 
-    duracao_em_horas = Decimal(total_td.total_seconds()) / Decimal(3600)
-    custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
+    custo_total_mao_obra = breakdown.labor_cost if breakdown else zerado
 
     venda_servico_terceiros = budget.display_total_third_party_by_slider
     venda_pecas = budget.display_total_products_by_slider
@@ -123,6 +113,7 @@ def build_step5_context(budget) -> Step5PricingContext:
         custo_pecas=custo_pecas,
         custo_frete_pecas=custo_frete_pecas,
         custo_frete_servicos=custo_frete_servicos,
+        custo_frete_mao_obra=custo_frete_mao_obra,
         custo_servico_terceiros=custo_servico_terceiros,
         custo_hora_mecanico=custo_hora_mecanico,
         custo_total_mao_obra=custo_total_mao_obra,

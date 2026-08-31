@@ -18,6 +18,7 @@ from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
+from apps.budget.review_totals import Step4PricingBreakdown, build_step4_pricing_breakdown
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -526,25 +527,20 @@ class Budget(TimeStampedModel):
     @property
     def get_mlo(self):
         pricing_context = self.get_frozen_pricing_context()
-        salario_mecanicos = pricing_context.productive_salary_total
         horas_uteis_mes = pricing_context.working_hours_per_month
 
         if not horas_uteis_mes or horas_uteis_mes == 0:
             pricing_context = self._get_live_pricing_fallback_context()
-            salario_mecanicos = pricing_context.productive_salary_total
             horas_uteis_mes = pricing_context.working_hours_per_month
             if not horas_uteis_mes or horas_uteis_mes == 0:
                 return Decimal("1.00")
 
-        duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
-
-        # Custos
-        custo_pecas = self.total_costs_products_value
-        custo_servico_terceiro = self.total_third_party_services_cost
-        custo_frete_servico = self.total_services_shipping
-        custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
-        custo_total_mao_obra = duracao_total * custo_hora_mecanico
-        custo_frete_pecas = self.total_products_shipping
+        breakdown = self.step4_pricing_breakdown
+        custo_pecas = breakdown.products_unit_cost
+        custo_servico_terceiro = breakdown.third_party_cost
+        custo_frete_servico = breakdown.services_freight
+        custo_total_mao_obra = breakdown.labor_cost
+        custo_frete_pecas = breakdown.products_freight
 
         # Venda
         venda_servico_terceiro = self.total_third_party_services_selling
@@ -570,13 +566,13 @@ class Budget(TimeStampedModel):
         if not horas_uteis_mes or horas_uteis_mes == 0:
             return fallback_data
 
-        # Custos
-        custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
-        custo_servico_terceiro = self.total_third_party_services_cost
-        custo_frete_servicos = self.total_services_shipping
+        breakdown = self.step4_pricing_breakdown
+        custo_pecas = breakdown.products_unit_cost
+        custo_frete_pecas = breakdown.products_freight
+        custo_servico_terceiro = breakdown.third_party_cost
+        custo_frete_servicos = breakdown.services_freight
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
-        custo_total_mao_obra = duracao_total * custo_hora_mecanico
+        custo_total_mao_obra = breakdown.labor_cost
 
         # Valores de Venda
         venda_pecas = self.total_products_value
@@ -647,12 +643,13 @@ class Budget(TimeStampedModel):
         return data_hun
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
-        custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
-        custo_servico_terceiro = self.total_third_party_services_cost
-        custo_frete_servicos = self.total_services_shipping
+        breakdown = self.step4_pricing_breakdown
+        custo_pecas = breakdown.products_unit_cost
+        custo_frete_pecas = breakdown.products_freight
+        custo_servico_terceiro = breakdown.third_party_cost
+        custo_frete_servicos = breakdown.services_freight
         custo_hora_mecanico = Money(0, "BRL")
-        custo_total_mao_obra = Money(0, "BRL")
+        custo_total_mao_obra = breakdown.labor_cost
 
         venda_pecas = self.total_products_value
         venda_servico_terceiro = self.total_third_party_services_selling
@@ -799,6 +796,8 @@ class Budget(TimeStampedModel):
         if cached_snapshot is None:
             items = list(self._iter_items())
             setattr(self, "_pricing_items_list_cache", items)
+            breakdown = self.step4_pricing_breakdown
+            setattr(self, "_building_pricing_snapshot", True)
             try:
                 cached_snapshot = build_pricing_snapshot(
                     items=items,
@@ -808,8 +807,13 @@ class Budget(TimeStampedModel):
                     labor_hourly_cost_value=self.mechanic_hour_cost_value,
                     is_local_product_item=self._is_local_product_item,
                     is_local_service_item=self._is_local_service_item,
+                    slider_floor_products_cost=breakdown.products_total_cost,
+                    slider_floor_labor_cost=breakdown.labor_total_cost,
+                    slider_floor_third_party_cost=breakdown.third_party_total_cost,
                 )
             finally:
+                if hasattr(self, "_building_pricing_snapshot"):
+                    delattr(self, "_building_pricing_snapshot")
                 if hasattr(self, "_pricing_items_list_cache"):
                     delattr(self, "_pricing_items_list_cache")
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
@@ -818,10 +822,20 @@ class Budget(TimeStampedModel):
     def invalidate_pricing_snapshot_cache(self) -> None:
         if hasattr(self, "_pricing_snapshot_cache"):
             delattr(self, "_pricing_snapshot_cache")
+        if hasattr(self, "_step4_pricing_breakdown_cache"):
+            delattr(self, "_step4_pricing_breakdown_cache")
         if hasattr(self, "_product_issue_summary_cache"):
             delattr(self, "_product_issue_summary_cache")
         if hasattr(self, "_pricing_items_list_cache"):
             delattr(self, "_pricing_items_list_cache")
+
+    @property
+    def step4_pricing_breakdown(self) -> Step4PricingBreakdown:
+        cached_breakdown = getattr(self, "_step4_pricing_breakdown_cache", None)
+        if cached_breakdown is None:
+            cached_breakdown = build_step4_pricing_breakdown(budget=self)
+            setattr(self, "_step4_pricing_breakdown_cache", cached_breakdown)
+        return cached_breakdown
 
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
@@ -1015,11 +1029,18 @@ class Budget(TimeStampedModel):
         # The pricing snapshot already excludes freight from the sale total.
         return self.total_services_value
 
+    def _benefit_items_total_shipping_value(self) -> Money:
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            if item.is_benefit_item:
+                total += item.summary_shipping_total
+        return total
+
     @property
     def selected_items_total_shipping_value(self) -> Money:
         if self.is_fixed_budget:
             return self._raw_selected_items_total_shipping_value()
-        return self.total_shipping
+        return self.total_shipping + self._benefit_items_total_shipping_value()
 
     @property
     def selected_items_total_base_value(self) -> Money:

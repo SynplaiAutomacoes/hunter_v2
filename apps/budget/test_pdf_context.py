@@ -11,6 +11,7 @@ from djmoney.money import Money
 from apps.budget.models import Budget
 from apps.core.templatetags.format_tags import money_br
 from apps.budget.pdf_context import (
+    _apply_pdf_gestor_cost_rules,
     _merge_selected_product_rows,
     _merge_selected_service_rows,
     build_budget_pdf_context,
@@ -205,6 +206,47 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["quantity"], 1)
         self.assertEqual(merged[0]["duration_display"], "01h 00m")
+
+
+class PdfGestorCostRulesTests(SimpleTestCase):
+    def test_product_cost_includes_freight_and_warranty_profit_ignores_sale(self) -> None:
+        produtos = [
+            {
+                "id": 1,
+                "description": "Filtro",
+                "quantity": 1,
+                "is_customer_supplied": False,
+                "shipping": _money("8.00"),
+                "total_price": _money("120.00"),
+                "product_cost_price": _money("30.00"),
+                "profit_value": _money("0.00"),
+                "item_benefit_type": "warranty",
+            }
+        ]
+
+        _apply_pdf_gestor_cost_rules(produtos=produtos, servicos=[])
+
+        self.assertEqual(produtos[0]["product_cost_price"], _money("38.00"))
+        self.assertEqual(produtos[0]["profit_value"], _money("-38.00"))
+
+    def test_service_cost_includes_freight_for_normal_items(self) -> None:
+        servicos = [
+            {
+                "id": 2,
+                "description": "Alinhamento",
+                "quantity": 1,
+                "shipping": _money("5.00"),
+                "total_price": _money("105.00"),
+                "service_mechanic_cost_price": _money("40.00"),
+                "profit_value": _money("0.00"),
+                "item_benefit_type": "normal",
+            }
+        ]
+
+        _apply_pdf_gestor_cost_rules(produtos=[], servicos=servicos)
+
+        self.assertEqual(servicos[0]["service_mechanic_cost_price"], _money("45.00"))
+        self.assertEqual(servicos[0]["profit_value"], _money("60.00"))
 
 
 class ExpectedDeliveryDatePdfContextTests(SimpleTestCase):

@@ -27,6 +27,7 @@ def configure_budget_step5_form(form):
     custo_pecas = ctx.custo_pecas
     custo_frete_pecas = ctx.custo_frete_pecas
     custo_frete_servicos = ctx.custo_frete_servicos
+    custo_frete_mao_obra = ctx.custo_frete_mao_obra
     custo_servico_terceiros = ctx.custo_servico_terceiros
     custo_hora_mecanico = ctx.custo_hora_mecanico
     custo_total_mao_obra = ctx.custo_total_mao_obra
@@ -130,7 +131,8 @@ def configure_budget_step5_form(form):
                                                 <span id="display-venda-mo"
                                                       class="font-bold text-success whitespace-nowrap"
                                                       data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}"
-                                                      data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
+                                                      data-cost-val="{custo_total_mao_obra.amount}"
+                                                      data-frete-val="{custo_frete_mao_obra.amount}">
                                                     {venda_mao_obra}
                                                 </span>
                                             </div>
