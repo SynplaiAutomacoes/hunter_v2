@@ -69,6 +69,27 @@
     </div>
 </dialog>
 
+<dialog id="payment-paid-lock-modal" class="modal">
+    <div class="modal-box max-w-md border border-warning/40 bg-base-100 shadow-2xl">
+        <div class="flex items-start gap-3">
+            <span class="material-icons text-3xl text-warning">warning</span>
+            <div>
+                <h3 class="text-lg font-bold text-base-content">Forma de pagamento já paga</h3>
+                <p class="mt-2 text-sm text-base-content/80">
+                    Esta forma de pagamento possui lançamento marcado como pago na movimentação financeira
+                    (recebimento ou taxa de maquininha). Para excluir, altere o status Pago para Não na movimentação financeira.
+                </p>
+            </div>
+        </div>
+        <div class="modal-action">
+            <form method="dialog">
+                <button class="btn btn-primary" data-allow-locked="1">Entendi</button>
+            </form>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button data-allow-locked="1">close</button></form>
+</dialog>
+
 <script>
     window.addEventListener('update-pdf-modal-state', (e) => {
         const modal = document.getElementById('pdfModal');
@@ -125,6 +146,14 @@
                     evt.detail.issueRequest(true);
                 }
             });
+        });
+    }
+
+    if (!window.__hunterPaymentPaidLockModalBound) {
+        window.__hunterPaymentPaidLockModalBound = true;
+        document.body.addEventListener('showPaymentPaidLockModal', function() {
+            const modal = document.getElementById('payment-paid-lock-modal');
+            if (modal) modal.showModal();
         });
     }
 

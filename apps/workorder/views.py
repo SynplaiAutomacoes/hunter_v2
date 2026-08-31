@@ -46,7 +46,7 @@ from apps.core.domain.contracts.signature import SignatureServiceError
 from apps.core.text_normalization import sentence_case
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
+from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement, workorder_payment_has_paid_movements
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock, workorder_can_finalize_after_signature
 from apps.workorder import util as workorder_util
@@ -92,6 +92,7 @@ from apps.workorder.util import (
     _get_workorder_from_signature_token,
     _is_workorder_edit_locked,
     LOCKED_WORKORDER_EDIT_MESSAGE,
+    PAID_PAYMENT_DELETE_MESSAGE,
     workorder_stepper_context,
     _check_concurrent_edit_lock,
     _build_concurrent_lock_response,
@@ -568,6 +569,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
             .prefetch_related(
                 "collaborators",
                 "payments",
+                "payments__financial_movements",
                 "attachments",
                 workorder_items_with_kit_prefetch(with_kit_tree=True),
             )
@@ -1355,6 +1357,11 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
+        if workorder_payment_has_paid_movements(payment=payment):
+            response = JsonResponse({"ok": False, "error": PAID_PAYMENT_DELETE_MESSAGE}, status=409)
+            response["HX-Trigger"] = json.dumps({"showPaymentPaidLockModal": True})
+            return response
 
         payment.delete()
         sync_workorder_financial_movement(workorder=workorder)
