@@ -293,7 +293,7 @@
                     {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}disabled{% endif %}
                     {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif not can_finalize_delivery %}title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo."{% elif workorder.km_final is None %}title="É necessário inserir o Km Final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
                 >
-                    Entregar veículo
+                    {% if workorder.is_reopened_after_delivery %}Veículo entregue/Fechar O.S.{% else %}Entregar veículo{% endif %}
                 </button>
             </span>
 
