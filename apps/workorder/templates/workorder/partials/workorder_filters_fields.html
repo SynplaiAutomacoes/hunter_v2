@@ -57,6 +57,13 @@
         </div>
     </fieldset>
 
+    <div class="sm:col-span-2">
+        <label class="flex cursor-pointer select-none items-center gap-3 rounded-box border border-base-300 bg-base-100 p-3 hover:bg-base-200/70">
+            <input type="checkbox" name="reopened" value="1" class="checkbox checkbox-sm" {% if selected_reopened %}checked{% endif %} />
+            <span class="text-sm text-base-content">O.S. reabertas</span>
+        </label>
+    </div>
+
     <fieldset class="sm:col-span-2">
         <legend class="label-text font-medium">Tipo</legend>
         <div class="mt-2 grid gap-2 rounded-box border border-base-300 bg-base-100 p-3 sm:grid-cols-3">
