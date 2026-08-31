@@ -22,6 +22,16 @@ def _money(value: Decimal) -> Money:
     return Money(_quantize(value), "BRL")
 
 
+def _month_start(value: date) -> date:
+    return date(value.year, value.month, 1)
+
+
+def _global_rule_applies_to_reference(*, rule_criado_em, commission_reference: date) -> bool:
+    """Global commission applies from the rule creation month onward (by competence)."""
+    rule_month = _month_start(timezone.localtime(rule_criado_em).date()) if rule_criado_em is not None else _month_start(commission_reference)
+    return _month_start(commission_reference) >= rule_month
+
+
 def _resolve_commission_reference_date(workorder: WorkOrder) -> date:
     latest_due = None
     try:
@@ -106,17 +116,18 @@ class WorkOrderCommissionOrchestrator:
                 P_fix = [r for r in rules_in_wo if r.modality == CollaboratorCommissionRule.Modality.FIXED and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
                 P_pct = [r for r in rules_in_wo if r.modality == CollaboratorCommissionRule.Modality.PERCENTAGE and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
 
-                # G: global, workshop-wide, is_active, collaborator.is_active, criado_em <= workorder.criado_em
-                G = list(
-                    CollaboratorCommissionRule.objects.filter(
+                # G: global, workshop-wide, is_active, collaborator.is_active, competência >= mês da regra
+                G = [
+                    rule
+                    for rule in CollaboratorCommissionRule.objects.filter(
                         scope=scope,
                         is_active=True,
                         apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
                         collaborator__workshop=workshop,
                         collaborator__is_active=True,
-                        criado_em__lte=locked.criado_em,
                     ).select_related("collaborator")
-                )
+                    if _global_rule_applies_to_reference(rule_criado_em=rule.criado_em, commission_reference=reference)
+                ]
 
                 max_pct_S = Decimal("0")
                 for r in P_pct:
@@ -215,24 +226,19 @@ class WorkOrderCommissionOrchestrator:
         # Workorders que podem gerar comissão para este colaborador (participação ou global)
         # Participação: WO onde collaborator ∈ workorder.collaborators
         participation_ids = set(WorkOrder.objects.filter(workshop=collaborator.workshop, collaborators=collaborator).values_list("id", flat=True))
-        # Global: todas as WOs de venda aprovadas criadas após a regra global do colaborador
-        # Se não tem regra global, não precisa adicionar
+        # Global: todas as O.S. de venda aprovadas da oficina; elegibilidade por competência fica no gerador.
         has_global = CollaboratorCommissionRule.objects.filter(
             collaborator=collaborator, apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL, is_active=True
         ).exists()
         workorder_ids = set(participation_ids)
         if has_global:
-            # Buscar todas as regras globais com criado_em
-            global_rules = list(CollaboratorCommissionRule.objects.filter(collaborator=collaborator, apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL, is_active=True))
-            for rule in global_rules:
-                workorder_ids |= set(
-                    WorkOrder.objects.filter(
-                        workshop=collaborator.workshop,
-                        budget_type="sale",
-                        status=WorkOrderStatus.APPROVED,
-                        criado_em__gte=rule.criado_em,
-                    ).values_list("id", flat=True)
-                )
+            workorder_ids |= set(
+                WorkOrder.objects.filter(
+                    workshop=collaborator.workshop,
+                    budget_type="sale",
+                    status=WorkOrderStatus.APPROVED,
+                ).values_list("id", flat=True)
+            )
 
         workorders = list(
             WorkOrder.objects.filter(pk__in=workorder_ids)

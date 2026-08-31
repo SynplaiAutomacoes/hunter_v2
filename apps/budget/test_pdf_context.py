@@ -209,7 +209,7 @@ class MergeSelectedPdfRowsTests(SimpleTestCase):
 
 
 class PdfGestorCostRulesTests(SimpleTestCase):
-    def test_product_cost_includes_freight_and_warranty_profit_ignores_sale(self) -> None:
+    def test_product_cost_excludes_freight_and_warranty_profit_includes_freight(self) -> None:
         produtos = [
             {
                 "id": 1,
@@ -226,10 +226,10 @@ class PdfGestorCostRulesTests(SimpleTestCase):
 
         _apply_pdf_gestor_cost_rules(produtos=produtos, servicos=[])
 
-        self.assertEqual(produtos[0]["product_cost_price"], _money("38.00"))
+        self.assertEqual(produtos[0]["product_cost_price"], _money("30.00"))
         self.assertEqual(produtos[0]["profit_value"], _money("-38.00"))
 
-    def test_service_cost_includes_freight_for_normal_items(self) -> None:
+    def test_service_cost_excludes_freight_for_normal_items(self) -> None:
         servicos = [
             {
                 "id": 2,
@@ -245,7 +245,7 @@ class PdfGestorCostRulesTests(SimpleTestCase):
 
         _apply_pdf_gestor_cost_rules(produtos=[], servicos=servicos)
 
-        self.assertEqual(servicos[0]["service_mechanic_cost_price"], _money("45.00"))
+        self.assertEqual(servicos[0]["service_mechanic_cost_price"], _money("40.00"))
         self.assertEqual(servicos[0]["profit_value"], _money("60.00"))
 
 
