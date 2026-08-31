@@ -343,9 +343,13 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         self._reconciled_workorder_payment_movements = {movement.workorder_payment.pk: movement for movement in reconciled_workorder_payment_movements if movement.workorder_payment is not None}
 
+        processed_workorder_ids: set[int] = set()
         for movement in movements:
             workorder = getattr(movement, "workorder", None)
             if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+                if workorder.pk in processed_workorder_ids:
+                    continue
+                processed_workorder_ids.add(workorder.pk)
                 payments = list(workorder.payments.all())
                 rows.extend(
                     self._build_workorder_payment_row(movement=movement, payment=payment)
