@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 from djmoney.money import Money
 
 from apps.collaborators.commission.allocation import CommissionAllocationService
+from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
 from apps.collaborators.forms import CollaboratorCommissionScopeForm
-from apps.collaborators.models import CollaboratorCommissionRule, WorkOrderCommissionAllocation
-from apps.collaborators.services import _build_pool_scope_context, workorder_commission_context
+from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorCommissionRule, WorkOrderCommissionAllocation
+from apps.collaborators.services import _build_pool_scope_context, sync_workorder_collaborator_payrolls, workorder_commission_context
 from apps.collaborators.test_commissions import create_collaborator, create_workorder, create_workshop
-from apps.workorder.models import WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderStatus
 
 
 def create_participation_rule(
@@ -426,3 +429,115 @@ class CommissionPoolScopeSumTests(TestCase):
 
         self.assertEqual(product_pool["sum_base_pct"], Decimal("0.600000"))
         self.assertEqual(service_pool["sum_base_pct"], Decimal("0.400000"))
+
+
+class GlobalCommissionFlowTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = create_workshop(suffix=96)
+        self.collaborator = create_collaborator(workshop=self.workshop, suffix=96)
+        self.workorder = create_workorder(workshop=self.workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            description="Serviço global",
+            quantity=2,
+            service_selling_price=Money(1000, "BRL"),
+            service_cost_price=Money(400, "BRL"),
+            service_shipping=Money(100, "BRL"),
+        )
+        CollaboratorCommissionRule.objects.create(
+            collaborator=self.collaborator,
+            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            modality=CollaboratorCommissionRule.Modality.PERCENTAGE,
+            apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+            percentage=Decimal("0.060000"),
+            is_active=True,
+        )
+
+    def test_global_rule_applies_without_workorder_participation_and_uses_gross_base(self) -> None:
+        self.workshop.service_commission_base = self.workshop.CommissionBase.GROSS
+        self.workshop.save(update_fields=["service_commission_base"])
+
+        WorkOrderCommissionOrchestrator().generate_commissions_for_workorder(workorder=self.workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(
+            workorder=self.workorder,
+            collaborator=self.collaborator,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
+        )
+        self.assertEqual(entry.base_amount, Money(2200, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(132, "BRL"))
+
+    def test_global_forecast_recalculates_when_workshop_base_changes_to_profit(self) -> None:
+        self.workshop.service_commission_base = self.workshop.CommissionBase.GROSS
+        self.workshop.save(update_fields=["service_commission_base"])
+        orchestrator = WorkOrderCommissionOrchestrator()
+        orchestrator.generate_commissions_for_workorder(workorder=self.workorder)
+
+        self.workshop.service_commission_base = self.workshop.CommissionBase.PROFIT
+        self.workshop.save(update_fields=["service_commission_base"])
+        orchestrator.generate_commissions_for_workorder(workorder=self.workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(
+            workorder=self.workorder,
+            collaborator=self.collaborator,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
+        )
+        self.assertEqual(entry.base_amount, Money(1200, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(72, "BRL"))
+
+    def test_product_global_rule_uses_selected_profit_base(self) -> None:
+        item = self.workorder.items.get()
+        item.product_selling_price = Money(500, "BRL")
+        item.product_cost_price = Money(200, "BRL")
+        item.shipping = Money(50, "BRL")
+        item.save(update_fields=["product_selling_price", "product_cost_price", "shipping"])
+        self.workshop.product_commission_base = self.workshop.CommissionBase.PROFIT
+        self.workshop.save(update_fields=["product_commission_base"])
+        CollaboratorCommissionRule.objects.create(
+            collaborator=self.collaborator,
+            scope=CollaboratorCommissionRule.Scope.PRODUCT,
+            modality=CollaboratorCommissionRule.Modality.PERCENTAGE,
+            apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+            percentage=Decimal("0.040000"),
+            is_active=True,
+        )
+
+        WorkOrderCommissionOrchestrator().generate_commissions_for_workorder(workorder=self.workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(
+            workorder=self.workorder,
+            collaborator=self.collaborator,
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.PRODUCT_GLOBAL,
+        )
+        self.assertEqual(entry.base_amount, Money(600, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(24, "BRL"))
+
+    def test_global_collaborator_is_visible_in_workorder_preview_without_link(self) -> None:
+        pool = _build_pool_scope_context(workorder=self.workorder, scope=CollaboratorCommissionRule.Scope.SERVICE)
+
+        self.assertTrue(pool["has_commission_recipients"])
+        self.assertEqual(len(pool["rows"]), 1)
+        self.assertEqual(pool["rows"][0]["collaborator_id"], self.collaborator.pk)
+        self.assertTrue(pool["rows"][0]["is_global"])
+
+    def test_workorder_sync_adds_unlinked_global_commission_to_payroll(self) -> None:
+        WorkOrder.objects.filter(pk=self.workorder.pk).update(
+            criado_em=timezone.make_aware(datetime(2026, 8, 2, 10, 0, 0)),
+        )
+        self.workorder.refresh_from_db()
+
+        with patch("apps.collaborators.services.timezone.localdate", return_value=date(2026, 9, 1)):
+            payrolls = sync_workorder_collaborator_payrolls(
+                workorder=self.workorder,
+                reference_date=date(2026, 8, 1),
+            )
+
+        payroll = next(payroll for payroll in payrolls if payroll.collaborator_id == self.collaborator.pk)
+        self.assertEqual(payroll.commission_amount, Money(132, "BRL"))
+        self.assertTrue(
+            payroll.commission_entries.filter(
+                workorder=self.workorder,
+                commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
+            ).exists()
+        )
