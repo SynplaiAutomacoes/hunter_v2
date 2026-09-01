@@ -1,6 +1,6 @@
 {% load l10n %}
 
-{% if commission_history.labor_failure_rows or commission_history.parts_failure_rows %}
+{% if commission_history.labor_failure_total.amount > 0 or commission_history.parts_failure_total.amount > 0 %}
 <div class="alert alert-error shadow-sm bg-opacity-20 border-error">
     <div class="flex flex-col gap-1 text-error">
         <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
@@ -26,7 +26,9 @@
                     <th>O.S.</th>
                     <th>Competência</th>
                     <th>Base</th>
+                    <th>%</th>
                     <th>Valor</th>
+                    <th>Motivo</th>
                     <th>Status</th>
                 </tr>
             </thead>
@@ -37,8 +39,13 @@
                             <a href="{% url 'workorder:workorder_detail' pk=row.workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.workorder.get_id }}</a>
                         </td>
                         <td>{{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</td>
-                        <td>{{ row.base_amount }}</td>
+                        <td>
+                            {{ row.base_amount }}
+                            <span class="block text-xs font-medium text-info">Base: {{ row.base_type_display }}</span>
+                        </td>
+                        <td>{{ row.percentage_display }}</td>
                         <td class="font-semibold">{{ row.commission_amount }}</td>
+                        <td>—</td>
                         <td>
                             {% with first_entry=row.entries.0 %}
                                 {% if first_entry.status == "PAID" %}Pago{% else %}Não Pago{% endif %}
@@ -46,15 +53,15 @@
                         </td>
                     </tr>
                 {% empty %}
-                    <tr><td colspan="5" class="py-6 text-center text-base-content/60">Nenhuma comissão de venda vinculada.</td></tr>
+                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma comissão de venda vinculada.</td></tr>
                 {% endfor %}
             </tbody>
             {% if commission_history.sale_rows %}
             <tfoot class="bg-base-200/40">
                 <tr>
-                    <td colspan="3" class="text-right font-semibold">Total</td>
+                    <td colspan="4" class="text-right font-semibold">Total</td>
                     <td class="font-bold">{{ commission_history.sale_total }}</td>
-                    <td></td>
+                    <td colspan="2"></td>
                 </tr>
             </tfoot>
             {% endif %}
@@ -62,16 +69,18 @@
     </div>
 </div>
 
-{% if commission_history.has_global_service %}
 <div class="mt-6 space-y-2">
-    <h4 class="text-sm font-semibold text-error">Prejuízo — Falha de Mão de Obra</h4>
+    <h4 class="text-sm font-semibold text-error">Garantias/Cortesias — Falha de Mão de Obra</h4>
     <div class="overflow-x-auto rounded-xl border border-base-300">
         <table class="table table-sm">
             <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                 <tr>
-                    <th>O.S. Garantia/Cortesia</th>
-                    <th>O.S. Original</th>
+                    <th>O.S.</th>
+                    <th>Competência</th>
+                    <th>Base</th>
+                    <th>%</th>
                     <th>Valor</th>
+                    <th>Motivo</th>
                     <th>Status</th>
                 </tr>
             </thead>
@@ -80,45 +89,51 @@
                     <tr>
                         <td>
                             <a href="{% url 'workorder:workorder_detail' pk=row.benefit_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.benefit_workorder.get_id }}</a>
+                            {% if row.origin_workorder %}
+                                <span class="block text-xs text-base-content/55">Origem: <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary hover:underline">#{{ row.origin_workorder.get_id }}</a></span>
+                            {% endif %}
                         </td>
+                        <td>{{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</td>
                         <td>
-                            <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.origin_workorder.get_id }}</a>
+                            {{ row.base_amount }}
+                            <span class="block text-xs font-medium text-info">Base: {{ row.base_type_display }}</span>
                         </td>
+                        <td>{{ row.percentage_display }}</td>
                         <td class="font-semibold text-error">-{{ row.loss_amount }}</td>
+                        <td class="max-w-xs whitespace-pre-wrap break-words">{{ row.reason_display }}</td>
                         <td>
-                            {% with first_entry=row.entries.0 %}
-                                {% if first_entry.status == "PAID" %}Pago{% else %}Não Pago{% endif %}
-                            {% endwith %}
+                            {% if row.status == "PAID" %}Pago{% else %}Não Pago{% endif %}
                         </td>
                     </tr>
                 {% empty %}
-                    <tr><td colspan="4" class="py-6 text-center text-base-content/60">Nenhum prejuízo por falha de mão de obra nesta competência.</td></tr>
+                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma O.S. de garantia/cortesia por falha de mão de obra nesta competência.</td></tr>
                 {% endfor %}
             </tbody>
             {% if commission_history.labor_failure_rows %}
             <tfoot class="bg-base-200/40">
                 <tr>
-                    <td colspan="2" class="text-right font-semibold">Total</td>
+                    <td colspan="4" class="text-right font-semibold">Total</td>
                     <td class="font-bold text-error">-{{ commission_history.labor_failure_total }}</td>
-                    <td></td>
+                    <td colspan="2"></td>
                 </tr>
             </tfoot>
             {% endif %}
         </table>
     </div>
 </div>
-{% endif %}
 
-{% if commission_history.has_global_product %}
 <div class="mt-6 space-y-2">
-    <h4 class="text-sm font-semibold text-error">Prejuízo — Falha de Peças</h4>
+    <h4 class="text-sm font-semibold text-error">Garantias/Cortesias — Falha de Peças</h4>
     <div class="overflow-x-auto rounded-xl border border-base-300">
         <table class="table table-sm">
             <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                 <tr>
-                    <th>O.S. Garantia/Cortesia</th>
-                    <th>O.S. Original</th>
+                    <th>O.S.</th>
+                    <th>Competência</th>
+                    <th>Base</th>
+                    <th>%</th>
                     <th>Valor</th>
+                    <th>Motivo</th>
                     <th>Status</th>
                 </tr>
             </thead>
@@ -127,34 +142,38 @@
                     <tr>
                         <td>
                             <a href="{% url 'workorder:workorder_detail' pk=row.benefit_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.benefit_workorder.get_id }}</a>
+                            {% if row.origin_workorder %}
+                                <span class="block text-xs text-base-content/55">Origem: <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary hover:underline">#{{ row.origin_workorder.get_id }}</a></span>
+                            {% endif %}
                         </td>
+                        <td>{{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</td>
                         <td>
-                            <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.origin_workorder.get_id }}</a>
+                            {{ row.base_amount }}
+                            <span class="block text-xs font-medium text-info">Base: {{ row.base_type_display }}</span>
                         </td>
+                        <td>{{ row.percentage_display }}</td>
                         <td class="font-semibold text-error">-{{ row.loss_amount }}</td>
+                        <td class="max-w-xs whitespace-pre-wrap break-words">{{ row.reason_display }}</td>
                         <td>
-                            {% with first_entry=row.entries.0 %}
-                                {% if first_entry.status == "PAID" %}Pago{% else %}Não Pago{% endif %}
-                            {% endwith %}
+                            {% if row.status == "PAID" %}Pago{% else %}Não Pago{% endif %}
                         </td>
                     </tr>
                 {% empty %}
-                    <tr><td colspan="4" class="py-6 text-center text-base-content/60">Nenhum prejuízo por falha de peças nesta competência.</td></tr>
+                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma O.S. de garantia/cortesia por falha de peças nesta competência.</td></tr>
                 {% endfor %}
             </tbody>
             {% if commission_history.parts_failure_rows %}
             <tfoot class="bg-base-200/40">
                 <tr>
-                    <td colspan="2" class="text-right font-semibold">Total</td>
+                    <td colspan="4" class="text-right font-semibold">Total</td>
                     <td class="font-bold text-error">-{{ commission_history.parts_failure_total }}</td>
-                    <td></td>
+                    <td colspan="2"></td>
                 </tr>
             </tfoot>
             {% endif %}
         </table>
     </div>
 </div>
-{% endif %}
 
 {% if commission_history.manual_entries %}
 <div class="mt-6 space-y-2">

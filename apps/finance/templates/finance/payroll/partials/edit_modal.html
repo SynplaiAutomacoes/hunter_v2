@@ -165,7 +165,15 @@
                                     {% for item in warranty_wos %}
                                         {% for entry in item.entries %}
                                             <tr>
-                                                <td>{{ entry.workorder_display }} (Garantia: #{{ item.workorder.get_id }})</td>
+                                                <td>
+                                                    {% if entry.workorder_id %}
+                                                        <a href="{% url 'workorder:workorder_detail' pk=entry.workorder_id %}" target="_blank" class="hover:text-primary transition-colors hover:underline">{{ entry.workorder_display }}</a>
+                                                    {% else %}
+                                                        {{ entry.workorder_display }}
+                                                    {% endif %}
+                                                    (Garantia:
+                                                    <a href="{% url 'workorder:workorder_detail' pk=item.workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ item.workorder.get_id }}</a>)
+                                                </td>
                                                 <td>{{ entry.reference_month|stringformat:'02d' }}/{{ entry.reference_year|unlocalize }}</td>
                                                 <td>{% if entry.is_manual %}—{% else %}{{ entry.base_amount }}{% endif %}</td>
                                                 <td>{{ entry.percentage_display }}</td>
