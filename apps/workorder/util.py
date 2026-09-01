@@ -54,6 +54,10 @@ from apps.workshops.util.workshops import has_workshop_perm
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 LOCKED_WORKORDER_EDIT_MESSAGE = "Reabra a O.S. antes de editar qualquer campo."
+PAID_PAYMENT_DELETE_MESSAGE = (
+    "Esta forma de pagamento possui lançamento marcado como pago na movimentação financeira. "
+    "Para excluir, altere o status Pago para Não na movimentação financeira."
+)
 WORKORDER_DETAIL_STEP_COUNT = 4
 WORKORDER_PAYMENTS_STEP = 3
 WORKORDER_DELIVERY_STEP = 4
