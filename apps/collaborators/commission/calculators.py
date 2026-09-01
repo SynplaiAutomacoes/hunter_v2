@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from decimal import ROUND_HALF_UP, Decimal
 
+from apps.budget.discount import split_budget_discount
 from apps.workorder.models import WorkOrder, WorkOrderItemBenefitType
 
 ZERO = Decimal("0.00")
@@ -19,6 +20,15 @@ def _money_amount(value) -> Decimal:
 def _item_amount(item, attribute: str) -> Decimal:
     """Valor do campo no item multiplicado pela quantidade."""
     return _money_amount(getattr(item, attribute)) * Decimal(item.quantity or 0)
+
+
+def _apply_scope_discount(*, workorder: WorkOrder, scope: str, base: Decimal) -> Decimal:
+    """Deduz da base somente a parcela de desconto destinada ao escopo."""
+
+    discount_split = split_budget_discount(budget=workorder)
+    discount = discount_split.services if scope == "service" else discount_split.products
+    discounted_base = base - Decimal(str(discount.amount or ZERO))
+    return _quantize(max(discounted_base, ZERO))
 
 
 def _iter_base_items(workorder: WorkOrder):
@@ -49,7 +59,7 @@ class ServiceGrossSaleCalculator(CommissionBaseCalculator):
             # Bruto Serviço = Σ (service_selling_price*qty + service_shipping*qty)
             total += _item_amount(item, "service_selling_price")
             total += _item_amount(item, "service_shipping")
-        return _quantize(total)
+        return _apply_scope_discount(workorder=workorder, scope=self.scope, base=total)
 
 
 class ServiceProfitabilityCalculator(CommissionBaseCalculator):
@@ -65,7 +75,7 @@ class ServiceProfitabilityCalculator(CommissionBaseCalculator):
             if profit_per_unit < ZERO:
                 profit_per_unit = ZERO
             total += profit_per_unit * Decimal(item.quantity or 0)
-        return _quantize(total)
+        return _apply_scope_discount(workorder=workorder, scope=self.scope, base=total)
 
 
 class ProductGrossSaleCalculator(CommissionBaseCalculator):
@@ -79,7 +89,7 @@ class ProductGrossSaleCalculator(CommissionBaseCalculator):
                 continue
             total += _item_amount(item, "product_selling_price")
             total += _item_amount(item, "shipping")
-        return _quantize(total)
+        return _apply_scope_discount(workorder=workorder, scope=self.scope, base=total)
 
 
 class ProductProfitabilityCalculator(CommissionBaseCalculator):
@@ -97,7 +107,7 @@ class ProductProfitabilityCalculator(CommissionBaseCalculator):
             if profit_per_unit < ZERO:
                 profit_per_unit = ZERO
             total += profit_per_unit * Decimal(item.quantity or 0)
-        return _quantize(total)
+        return _apply_scope_discount(workorder=workorder, scope=self.scope, base=total)
 
 
 _CALCULATOR_REGISTRY: dict[tuple[str, str], type[CommissionBaseCalculator]] = {

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -9,12 +9,16 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.collaborators.commission.allocation import CommissionAllocationService
+from apps.collaborators.commission.calculators import calculate_total_for_scope
 from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
 from apps.collaborators.forms import CollaboratorCommissionScopeForm
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorCommissionRule, WorkOrderCommissionAllocation
 from apps.collaborators.services import _build_pool_scope_context, sync_workorder_collaborator_payrolls, workorder_commission_context
 from apps.collaborators.test_commissions import create_collaborator, create_workorder, create_workshop
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderStatus
+from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.products import Product
+from apps.catalog.models.services import Service
+from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderItem, WorkOrderStatus
 
 
 def create_participation_rule(
@@ -429,6 +433,149 @@ class CommissionPoolScopeSumTests(TestCase):
 
         self.assertEqual(product_pool["sum_base_pct"], Decimal("0.600000"))
         self.assertEqual(service_pool["sum_base_pct"], Decimal("0.400000"))
+
+
+class CommissionDiscountBaseTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = create_workshop(suffix=97)
+        self.workorder = create_workorder(
+            workshop=self.workshop,
+            budget_type="sale",
+            status=WorkOrderStatus.APPROVED,
+        )
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo comissão")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            group=group,
+            code="COM-DESC-1",
+            name="Produto comissão",
+            unit=Product.Unit.UND,
+            cost_price=Money(40, "BRL"),
+            selling_price=Money(100, "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço comissão",
+            duration=timedelta(hours=1),
+            suggested_cost=Money(20, "BRL"),
+            selling_price=Money(50, "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            product=product,
+            quantity=1,
+        )
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            service=service,
+            service_selling_price=Money(50, "BRL"),
+            service_cost_price=Money(20, "BRL"),
+            quantity=1,
+        )
+
+    def _apply_discount(self, *, value: str, discount_type: str) -> None:
+        self.workorder.apply_discount(
+            value=Money(value, "BRL"),
+            percentage=Decimal("0"),
+            discount_type=discount_type,
+        )
+
+    def test_product_discount_reduces_only_product_gross_and_profit_bases(self) -> None:
+        self._apply_discount(value="30.00", discount_type=WorkOrderDiscountType.PRODUCTS)
+
+        self.workshop.product_commission_base = self.workshop.CommissionBase.GROSS
+        self.workshop.service_commission_base = self.workshop.CommissionBase.GROSS
+        self.workshop.save(update_fields=["product_commission_base", "service_commission_base"])
+        self.assertEqual(
+            calculate_total_for_scope(workorder=self.workorder, workshop=self.workshop, scope="product"),
+            Decimal("70.00"),
+        )
+        self.assertEqual(
+            calculate_total_for_scope(workorder=self.workorder, workshop=self.workshop, scope="service"),
+            Decimal("50.00"),
+        )
+
+        self.workshop.product_commission_base = self.workshop.CommissionBase.PROFIT
+        self.workshop.save(update_fields=["product_commission_base"])
+        self.assertEqual(
+            calculate_total_for_scope(workorder=self.workorder, workshop=self.workshop, scope="product"),
+            Decimal("30.00"),
+        )
+
+    def test_service_discount_reduces_only_service_gross_and_profit_bases(self) -> None:
+        self._apply_discount(value="20.00", discount_type=WorkOrderDiscountType.SERVICES)
+
+        self.workshop.product_commission_base = self.workshop.CommissionBase.GROSS
+        self.workshop.service_commission_base = self.workshop.CommissionBase.GROSS
+        self.workshop.save(update_fields=["product_commission_base", "service_commission_base"])
+        self.assertEqual(
+            calculate_total_for_scope(workorder=self.workorder, workshop=self.workshop, scope="product"),
+            Decimal("100.00"),
+        )
+        self.assertEqual(
+            calculate_total_for_scope(workorder=self.workorder, workshop=self.workshop, scope="service"),
+            Decimal("30.00"),
+        )
+
+        self.workshop.service_commission_base = self.workshop.CommissionBase.PROFIT
+        self.workshop.save(update_fields=["service_commission_base"])
+        self.assertEqual(
+            calculate_total_for_scope(workorder=self.workorder, workshop=self.workshop, scope="service"),
+            Decimal("10.00"),
+        )
+
+    def test_both_discount_is_distributed_proportionally_between_scopes(self) -> None:
+        self._apply_discount(value="30.00", discount_type=WorkOrderDiscountType.BOTH)
+
+        self.workshop.product_commission_base = self.workshop.CommissionBase.PROFIT
+        self.workshop.service_commission_base = self.workshop.CommissionBase.PROFIT
+        self.workshop.save(update_fields=["product_commission_base", "service_commission_base"])
+
+        self.assertEqual(
+            calculate_total_for_scope(workorder=self.workorder, workshop=self.workshop, scope="product"),
+            Decimal("40.00"),
+        )
+        self.assertEqual(
+            calculate_total_for_scope(workorder=self.workorder, workshop=self.workshop, scope="service"),
+            Decimal("20.00"),
+        )
+
+    def test_discounted_global_commission_matches_workorder_820_scenario(self) -> None:
+        product_item = self.workorder.items.get(product__isnull=False)
+        product_item.product_selling_price = Money("883.57", "BRL")
+        product_item.product_cost_price = Money("327.79", "BRL")
+        product_item.save(update_fields=["product_selling_price", "product_cost_price"])
+        service_item = self.workorder.items.get(service__isnull=False)
+        service_item.service_selling_price = Money("640.47", "BRL")
+        service_item.service_cost_price = Money("368.58", "BRL")
+        service_item.save(update_fields=["service_selling_price", "service_cost_price"])
+        self._apply_discount(value="84.04", discount_type=WorkOrderDiscountType.PRODUCTS)
+        self.workshop.product_commission_base = self.workshop.CommissionBase.PROFIT
+        self.workshop.service_commission_base = self.workshop.CommissionBase.GROSS
+        self.workshop.save(update_fields=["product_commission_base", "service_commission_base"])
+        collaborator = create_collaborator(workshop=self.workshop, suffix=97)
+        for scope in (CollaboratorCommissionRule.Scope.PRODUCT, CollaboratorCommissionRule.Scope.SERVICE):
+            CollaboratorCommissionRule.objects.create(
+                collaborator=collaborator,
+                scope=scope,
+                modality=CollaboratorCommissionRule.Modality.PERCENTAGE,
+                apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+                percentage=Decimal("0.060000"),
+                is_active=True,
+            )
+
+        WorkOrderCommissionOrchestrator().generate_commissions_for_workorder(workorder=self.workorder)
+
+        entries = CollaboratorCommissionEntry.objects.filter(
+            collaborator=collaborator,
+            workorder=self.workorder,
+        )
+        total_base = sum((entry.base_amount.amount for entry in entries), start=Decimal("0.00"))
+        total_commission = sum((entry.commission_amount.amount for entry in entries), start=Decimal("0.00"))
+        self.assertEqual(total_base, Decimal("1112.21"))
+        self.assertEqual(total_commission, Decimal("66.73"))
 
 
 class GlobalCommissionFlowTests(TestCase):
