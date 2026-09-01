@@ -27,6 +27,7 @@ from apps.collaborators.services import (
     get_reference_work_days,
     get_workshop_work_days,
     mark_payroll_as_paid,
+    refresh_unpaid_payroll_commissions_for_references,
     sync_collaborator_payroll_range,
     sync_current_month_salary_costs,
 )
@@ -319,12 +320,18 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             return self.forms_valid(form, benefit_formset, service_form, product_form)
         return self.forms_invalid(form, benefit_formset, service_form, product_form)
 
-    def _save_commission_scope_forms(self, collaborator: WorkshopCollaborator, service_form, product_form):
+    def _save_commission_scope_forms(self, collaborator: WorkshopCollaborator, service_form, product_form) -> bool:
+        global_rule_changed = False
         # Se não recebe comissão, desativar todas as regras existentes
         receives = bool(collaborator.receives_commission)
         if not receives:
+            global_rule_changed = CollaboratorCommissionRule.objects.filter(
+                collaborator=collaborator,
+                is_active=True,
+                apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+            ).exists()
             CollaboratorCommissionRule.objects.filter(collaborator=collaborator, is_active=True).update(is_active=False)
-            return
+            return global_rule_changed
         for scope, scope_form in (
             (CollaboratorCommissionRule.Scope.SERVICE, service_form),
             (CollaboratorCommissionRule.Scope.PRODUCT, product_form),
@@ -335,10 +342,23 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             cleaned = getattr(scope_form, "cleaned_data", {}) or {}
             is_active = bool(cleaned.get("is_active"))
             instance = scope_form.instance
+            persisted_instance = (
+                CollaboratorCommissionRule.objects.filter(pk=instance.pk)
+                .only("is_active", "apply_scope")
+                .first()
+                if instance and instance.pk
+                else None
+            )
+            was_global = bool(
+                persisted_instance
+                and persisted_instance.is_active
+                and persisted_instance.apply_scope == CollaboratorCommissionRule.ApplyScope.GLOBAL
+            )
             # Caso inativo e sem registro prévio, não criar
             if not is_active and (instance is None or instance.pk is None):
                 continue
             if not is_active and instance and instance.pk:
+                global_rule_changed = global_rule_changed or was_global
                 instance.is_active = False
                 instance.save(update_fields=["is_active"])
                 continue
@@ -351,9 +371,13 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                     rule.modality = cleaned["modality"]
                 rule.is_active = True
                 rule.save()
+                is_global = rule.apply_scope == CollaboratorCommissionRule.ApplyScope.GLOBAL
+                if (was_global or is_global) and scope_form.has_changed():
+                    global_rule_changed = True
                 # Se havia regra antiga do mesmo escopo inativa, garantir única ativa (constraint)
                 # Desativar outras do mesmo escopo (caso tenha duplicata histórica)
                 CollaboratorCommissionRule.objects.filter(collaborator=collaborator, scope=scope).exclude(pk=rule.pk).update(is_active=False)
+        return global_rule_changed
 
     def forms_valid(self, form, benefit_formset: BaseInlineFormSet, service_form=None, product_form=None):
         previous_termination_date = WorkshopCollaborator.objects.filter(pk=self.object.pk).values_list("termination_date", flat=True).first()
@@ -384,7 +408,15 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                     if product_form and not product_form.is_valid():
                         if not collaborator.receives_commission:
                             product_form = None
-                self._save_commission_scope_forms(collaborator, service_form, product_form)
+                global_rule_changed = self._save_commission_scope_forms(collaborator, service_form, product_form)
+                if global_rule_changed:
+                    from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+
+                    affected_references = WorkOrderCommissionOrchestrator().sync_global_commissions_after_rule_change(collaborator)
+                    refresh_unpaid_payroll_commissions_for_references(
+                        collaborator=collaborator,
+                        references=affected_references,
+                    )
 
             raw_work_days = str(self.request.POST.get("work_days") or "").strip()
             if raw_work_days == "":
@@ -716,7 +748,7 @@ class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, Vi
             pk=payroll_id,
             collaborator=collaborator,
         )
-        return render(
+        response = render(
             request,
             "collaborators/payroll_receipt.html",
             {
@@ -724,6 +756,8 @@ class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, Vi
                 "payroll": payroll,
             },
         )
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class CollaboratorBenefitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
