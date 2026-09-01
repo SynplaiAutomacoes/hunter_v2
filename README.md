@@ -256,3 +256,4 @@ Atualize este README e os arquivos em `docs/` sempre que houver mudanca relevant
 - fluxo do orcamento ou da OS
 - regras de estoque, financeiro ou fiscal
 - estrategia de deploy e build
+
