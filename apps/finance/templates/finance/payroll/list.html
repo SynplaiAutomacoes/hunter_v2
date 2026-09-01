@@ -312,7 +312,7 @@
                                                         <span class="material-icons text-sm">edit</span>
                                                         Editar
                                                     </button>
-                                                    <button type="button" class="btn btn-primary btn-xs" title="Abrir resumo da folha" aria-label="Abrir resumo da folha" {% if row.receipt_url %}onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))"{% else %}disabled{% endif %}>
+                                                    <button type="button" class="btn btn-primary btn-xs" title="Abrir resumo da folha" aria-label="Abrir resumo da folha" {% if row.receipt_url %}onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}?summary_reload=' + Date.now(), downloadUrl: '{{ row.receipt_url }}?download=1' } }))"{% else %}disabled{% endif %}>
                                                         Resumo
                                                     </button>
                                                 </div>
@@ -421,7 +421,25 @@
 
         <div id="payroll-edit-modal-container"></div>
 
-        <dialog id="pdfModal" class="modal" x-data="{ url: '', downloadUrl: '', title: 'Resumo do pagamento' }" @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Resumo do pagamento'; $el.showModal()">
+        <dialog
+            id="pdfModal"
+            class="modal"
+            x-data="{
+                url: '',
+                downloadUrl: '',
+                title: 'Resumo do pagamento',
+                openSummary(detail) {
+                    const sourceUrl = detail.url || '';
+                    const separator = sourceUrl.includes('?') ? '&amp;' : '?';
+
+                    this.url = sourceUrl ? `${sourceUrl}${separator}_summary_reload=${Date.now()}` : '';
+                    this.downloadUrl = detail.downloadUrl || '';
+                    this.title = detail.title || 'Resumo do pagamento';
+                },
+            }"
+            @open-pdf-modal.window="openSummary($event.detail); $el.showModal()"
+            @close="url = ''"
+        >
             <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
                 <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
                     <h3 class="flex items-center gap-2 text-xl font-bold"><span class="material-icons">description</span><span x-text="title"></span></h3>

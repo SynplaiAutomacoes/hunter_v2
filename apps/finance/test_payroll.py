@@ -1819,6 +1819,7 @@ class PayrollManualLaunchTests(TestCase):
         response = view.get(request, pk=collaborator.pk, payroll_id=payroll.pk)
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Cache-Control"], "no-store")
         content = response.content.decode()
         self.assertIn("Valor consolidado das comissões da competência.", content)
         self.assertNotIn("Comissão manual", content)
