@@ -200,7 +200,7 @@
                         <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Comissões</p><p class="mt-1 font-bold">{{ payroll.commission_amount }}</p></div>
                         <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Total</p><p class="mt-1 font-black text-success">{{ payroll.total_amount }}</p></div>
                     </div>
-                    <button type="button" class="btn btn-secondary" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}', downloadUrl: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}?download=1' } }))"><span class="material-icons text-sm">picture_as_pdf</span>Imprimir PDF</button>
+                    <button type="button" class="btn btn-secondary" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}?summary_reload=' + Date.now(), downloadUrl: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}?download=1' } }))"><span class="material-icons text-sm">picture_as_pdf</span>Imprimir PDF</button>
                 </section>
 
                 {% for tab in component_tabs %}
