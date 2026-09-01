@@ -42,6 +42,23 @@ def _get_reversed_financial_movement_ids() -> list[int]:
     return list(FinancialMovement.objects.filter(reversal_of__isnull=False).values_list("reversal_of_id", flat=True))
 
 
+def workorder_payment_has_paid_movements(*, payment: WorkOrderPaymentMethod) -> bool:
+    reversed_movement_ids = _get_reversed_financial_movement_ids()
+    return (
+        FinancialMovement.objects.filter(
+            workorder_payment=payment,
+            movement_kind__in=[
+                FinancialMovement.MovementKind.WORKORDER_PARENT,
+                FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+            ],
+            is_paid=True,
+            reversal_of__isnull=True,
+        )
+        .exclude(pk__in=reversed_movement_ids)
+        .exists()
+    )
+
+
 def _get_workorder_source(*, workorder: WorkOrder) -> Source:
     source, _ = Source.objects.get_or_create(
         workshop=workorder.workshop,

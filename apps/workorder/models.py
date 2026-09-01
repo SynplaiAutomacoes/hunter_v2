@@ -753,7 +753,7 @@ class WorkOrder(TimeStampedModel):
             update_fields.append("courtesy_reason_type")
             self.courtesy_reason_description = courtesy_reason_description
             update_fields.append("courtesy_reason_description")
-            if self.budget_type == "warranty":
+            if self.budget_type in ("warranty", "courtesy"):
                 self.warranty_origin_id = warranty_origin_id
                 update_fields.append("warranty_origin")
         if last_oil_change_date is not None:
@@ -1217,6 +1217,12 @@ class WorkOrderPaymentMethod(TimeStampedModel):
     @property
     def total_paid(self) -> Money:
         return money_from_decimal(self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount))
+
+    @property
+    def has_paid_financial_movements(self) -> bool:
+        from apps.finance.services.workorder_financial_movements import workorder_payment_has_paid_movements
+
+        return workorder_payment_has_paid_movements(payment=self)
 
     def __str__(self):
         return f"Plano de Pagamento #{self.id} - {self.payment_method}"
