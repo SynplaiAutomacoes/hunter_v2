@@ -711,7 +711,7 @@
                             <button
                                 type="button"
                                 class="btn btn-primary btn-xs"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' form.instance.pk payroll.pk %}' } }))"
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' form.instance.pk payroll.pk %}?summary_reload=' + Date.now() } }))"
                             >
                                 Resumo
                             </button>
