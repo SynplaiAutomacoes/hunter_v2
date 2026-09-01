@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -20,16 +21,6 @@ def _quantize(value: Decimal) -> Decimal:
 
 def _money(value: Decimal) -> Money:
     return Money(_quantize(value), "BRL")
-
-
-def _month_start(value: date) -> date:
-    return date(value.year, value.month, 1)
-
-
-def _global_rule_applies_to_reference(*, rule_criado_em, commission_reference: date) -> bool:
-    """Global commission applies from the rule creation month onward (by competence)."""
-    rule_month = _month_start(timezone.localtime(rule_criado_em).date()) if rule_criado_em is not None else _month_start(commission_reference)
-    return _month_start(commission_reference) >= rule_month
 
 
 def _resolve_commission_reference_date(workorder: WorkOrder) -> date:
@@ -116,18 +107,19 @@ class WorkOrderCommissionOrchestrator:
                 P_fix = [r for r in rules_in_wo if r.modality == CollaboratorCommissionRule.Modality.FIXED and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
                 P_pct = [r for r in rules_in_wo if r.modality == CollaboratorCommissionRule.Modality.PERCENTAGE and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
 
-                # G: global, workshop-wide, is_active, collaborator.is_active, competência >= mês da regra
-                G = [
-                    rule
-                    for rule in CollaboratorCommissionRule.objects.filter(
+                # G: global, workshop-wide, is_active, collaborator.is_active.
+                # A regra global vigente deve alcançar todas as O.S. de venda da oficina;
+                # ``criado_em`` não representa a vigência porque a mesma regra pode ter
+                # sido alterada de participação para global.
+                G = list(
+                    CollaboratorCommissionRule.objects.filter(
                         scope=scope,
                         is_active=True,
                         apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
                         collaborator__workshop=workshop,
                         collaborator__is_active=True,
                     ).select_related("collaborator")
-                    if _global_rule_applies_to_reference(rule_criado_em=rule.criado_em, commission_reference=reference)
-                ]
+                )
 
                 max_pct_S = Decimal("0")
                 for r in P_pct:
@@ -226,7 +218,8 @@ class WorkOrderCommissionOrchestrator:
         # Workorders que podem gerar comissão para este colaborador (participação ou global)
         # Participação: WO onde collaborator ∈ workorder.collaborators
         participation_ids = set(WorkOrder.objects.filter(workshop=collaborator.workshop, collaborators=collaborator).values_list("id", flat=True))
-        # Global: todas as O.S. de venda aprovadas da oficina; elegibilidade por competência fica no gerador.
+        # Global: todas as WOs de venda aprovadas da oficina.
+        # Se não tem regra global, não precisa adicionar
         has_global = CollaboratorCommissionRule.objects.filter(
             collaborator=collaborator, apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL, is_active=True
         ).exists()
@@ -280,6 +273,48 @@ class WorkOrderCommissionOrchestrator:
             stale = stale.exclude(workorder_id__in=protected_ids)
         stale.delete()
         return synced_entries
+
+    def sync_global_commissions_after_rule_change(self, collaborator: WorkshopCollaborator) -> set[tuple[int, int]]:
+        """Reprocessa O.S. afetadas por criação, edição ou remoção de regra global.
+
+        Retorna as competências que precisam ter folhas não pagas atualizadas. O
+        conjunto inclui referências anteriores à mudança para que previsões removidas
+        também sejam refletidas na folha.
+        """
+
+        global_origins = (
+            CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
+            CollaboratorCommissionEntry.CommissionOrigin.PRODUCT_GLOBAL,
+        )
+        previous_entries = list(
+            CollaboratorCommissionEntry.objects.filter(
+                collaborator=collaborator,
+                commission_origin__in=global_origins,
+            ).only("reference_year", "reference_month", "workorder_id")
+        )
+        affected_references = {(entry.reference_year, entry.reference_month) for entry in previous_entries}
+        previous_workorder_ids = {entry.workorder_id for entry in previous_entries if entry.workorder_id is not None}
+
+        workorders = (
+            WorkOrder.objects.filter(workshop=collaborator.workshop)
+            .filter(
+                Q(pk__in=previous_workorder_ids)
+                | Q(status=WorkOrderStatus.APPROVED, budget_type="sale")
+            )
+            .select_related("workshop", "budget")
+            .prefetch_related("payments", "collaborators")
+            .order_by("id")
+            .distinct()
+        )
+        for workorder in workorders:
+            self.generate_commissions_for_workorder(workorder=workorder)
+
+        current_entries = CollaboratorCommissionEntry.objects.filter(
+            collaborator=collaborator,
+            commission_origin__in=global_origins,
+        ).only("reference_year", "reference_month")
+        affected_references.update((entry.reference_year, entry.reference_month) for entry in current_entries)
+        return affected_references
 
     def _upsert_entry(
         self,
