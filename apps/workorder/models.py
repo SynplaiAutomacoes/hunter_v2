@@ -753,7 +753,7 @@ class WorkOrder(TimeStampedModel):
             update_fields.append("courtesy_reason_type")
             self.courtesy_reason_description = courtesy_reason_description
             update_fields.append("courtesy_reason_description")
-            if self.budget_type == "warranty":
+            if self.budget_type in ("warranty", "courtesy"):
                 self.warranty_origin_id = warranty_origin_id
                 update_fields.append("warranty_origin")
         if last_oil_change_date is not None:
