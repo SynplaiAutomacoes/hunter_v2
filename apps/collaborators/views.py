@@ -716,7 +716,7 @@ class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, Vi
             pk=payroll_id,
             collaborator=collaborator,
         )
-        return render(
+        response = render(
             request,
             "collaborators/payroll_receipt.html",
             {
@@ -724,6 +724,8 @@ class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, Vi
                 "payroll": payroll,
             },
         )
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class CollaboratorBenefitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
