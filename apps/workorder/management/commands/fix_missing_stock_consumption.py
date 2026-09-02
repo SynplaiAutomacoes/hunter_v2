@@ -144,6 +144,7 @@ class Command(BaseCommand):
                     workorder=locked_workorder,
                     type=StockMovement.MovementType.EXIT,
                     quantity=required_quantity,
+                    reason="Fechamento de O.S.",
                     status=StockMovement.MovementStatus.APPROVED,
                     transcation_by=None,
                 )

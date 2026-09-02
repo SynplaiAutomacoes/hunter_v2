@@ -131,6 +131,7 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
             TableColumn("Documento", attr="workorder_reference", search_by=("workorder__budget__number", "workorder__budget_id")),
             TableColumn(StockMovement.status.field.verbose_name, attr="stockmovement_status_badge", search_by="status", format="status_badge"),
             TableColumn(StockMovement.type.field.verbose_name, attr="stockmovement_type_badge", search_by="type", format="status_badge"),
+            TableColumn("Motivo", attr="reason_display", searchable=False),
             TableColumn(StockMovement.stock_product.field.verbose_name, attr="get_product_reference", search_by=("stock_product__product__code", "stock_product__product__name", "stock_product__product__brand")),
             TableColumn(StockMovement.quantity.field.verbose_name, attr=StockMovement.quantity.field.name),
             TableColumn("Localização", attr="location", search_by="stock_product__product__location"),

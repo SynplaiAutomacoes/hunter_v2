@@ -123,9 +123,25 @@ class StockMovement(TimeStampedModel):
 
     @property
     def display_date(self):
-        if self.type == self.MovementType.EXIT and self.workorder_id and self.workorder.delivered_at:
-            return self.workorder.delivered_at
         return self.criado_em
+
+    @property
+    def reason_display(self) -> str:
+        """Human-readable origin of the stock change, including legacy records."""
+        if self.is_stock_adjustment:
+            return f"Ajuste de Estoque: {self.reason}" if self.reason else "Ajuste de Estoque"
+        if self.reason:
+            return self.reason
+        if self.source_import_item_id:
+            return "Importação de NF"
+        if self.workorder_id:
+            if self.type == self.MovementType.EXIT:
+                return "Fechamento de O.S."
+            if self.reversal_of_id:
+                return "Reabertura de O.S."
+        if self.stock_transfer_id:
+            return "Transferência de Estoque"
+        return "—"
 
     @property
     def workorder_reference(self):

@@ -20,6 +20,7 @@ class ProductMovementTemplateTests(SimpleTestCase):
             workorder_id=None,
             workorder=None,
             is_stock_adjustment=True,
+            reason_display="Ajuste de Estoque: Inventário físico",
             historical_supplier=None,
             stock_product=SimpleNamespace(last_nf_display="127037"),
         )
@@ -27,6 +28,7 @@ class ProductMovementTemplateTests(SimpleTestCase):
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
         self.assertEqual(html.count("AJUSTE ESTOQUE"), 2)
+        self.assertIn("Ajuste de Estoque: Inventário físico", html)
         self.assertIn("bg-warning/10", html)
         self.assertNotIn("127037", html)
 
@@ -36,7 +38,7 @@ class ProductMovementTemplateTests(SimpleTestCase):
             type="SAIDA",
             transcation_by=None,
             quantity=1,
-            reason="",
+            reason_display="Fechamento de O.S.",
             supplier=None,
             historical_supplier=None,
             workorder=None,
@@ -52,7 +54,8 @@ class ProductMovementTemplateTests(SimpleTestCase):
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
         self.assertIn("Sistema", html)
-        self.assertNotIn("Motivo", html)
+        self.assertIn("Motivo", html)
+        self.assertIn("Fechamento de O.S.", html)
         self.assertIn("Fornecedor", html)
         self.assertIn("Cliente/Veículo", html)
         self.assertIn("—", html)
@@ -63,7 +66,7 @@ class ProductMovementTemplateTests(SimpleTestCase):
             type="ENTRADA",
             transcation_by=None,
             quantity=2,
-            reason="Inventário físico",
+            reason_display="Importação de NF 127037",
             supplier=None,
             historical_supplier=SimpleNamespace(name="Fornecedor Teste"),
             workorder=None,
@@ -78,6 +81,6 @@ class ProductMovementTemplateTests(SimpleTestCase):
 
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
-        self.assertNotIn("Inventário físico", html)
+        self.assertIn("Importação de NF 127037", html)
         self.assertIn("Fornecedor", html)
         self.assertIn("Fornecedor Teste", html)
