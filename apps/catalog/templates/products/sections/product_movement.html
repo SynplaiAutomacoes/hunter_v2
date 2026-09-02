@@ -61,7 +61,7 @@
               {% endif %}
             </td>
             <td class="font-bold">{{ m.quantity }}</td>
-            <td>{% if m.is_stock_adjustment %}—{% else %}{{ m.stock_product.last_nf_display|default:"—" }}{% endif %}</td>
+            <td>{{ m.entry_note_display|default:"—" }}</td>
             <td>
               <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
                 {{ m.get_status_display }}

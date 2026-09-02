@@ -195,6 +195,7 @@ class PurchaseFiscalFoundationTests(TestCase):
 
         self.assertEqual(movement.source_import_item.stock_import.fiscal_document.access_key, ACCESS_KEY)
         self.assertEqual(movement.source_import_item.sequence, 1)
+        self.assertEqual(movement.entry_note_display, self.stock_import.nf_number_display)
 
     def test_stock_import_completion_links_created_entry_to_fiscal_item(self) -> None:
         payment_method = PaymentMethod.objects.create(

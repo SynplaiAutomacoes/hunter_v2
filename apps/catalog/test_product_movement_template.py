@@ -21,6 +21,7 @@ class ProductMovementTemplateTests(SimpleTestCase):
             workorder=None,
             is_stock_adjustment=True,
             reason_display="Ajuste de Estoque: Inventário físico",
+            entry_note_display="",
             historical_supplier=None,
             stock_product=SimpleNamespace(last_nf_display="127037"),
         )
@@ -48,6 +49,7 @@ class ProductMovementTemplateTests(SimpleTestCase):
             display_date=timezone.make_aware(datetime(2026, 7, 9, 0, 42)),
             workorder_reference=None,
             is_stock_adjustment=False,
+            entry_note_display="",
             stock_product=SimpleNamespace(last_nf_display=None),
         )
 
@@ -76,11 +78,13 @@ class ProductMovementTemplateTests(SimpleTestCase):
             display_date=timezone.make_aware(datetime(2026, 7, 9, 0, 42)),
             workorder_reference=None,
             is_stock_adjustment=False,
+            entry_note_display="127037",
             stock_product=SimpleNamespace(last_nf_display=None),
         )
 
         html = render_to_string("products/sections/product_movement.html", {"movements": [movement]})
 
         self.assertIn("Importação de NF 127037", html)
+        self.assertIn("127037", html)
         self.assertIn("Fornecedor", html)
         self.assertIn("Fornecedor Teste", html)

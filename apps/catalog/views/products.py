@@ -198,6 +198,8 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "workorder__budget__customer",
                 "workorder__budget__vehicle",
                 "transcation_by",
+                "source_import_item__stock_import",
+                "fiscal_document",
             )
             .order_by("-criado_em")
         )
@@ -289,13 +291,13 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             stock_product=stock_obj,
             type=StockMovement.MovementType.ENTRY,
             supplier__isnull=False,
-        ).select_related("supplier").order_by("-criado_em")
+        ).select_related("supplier", "source_import_item__stock_import", "fiscal_document").order_by("-criado_em")
 
         supplier_ids: set[int] = set()
         last_entry_by_supplier: dict[int, StockMovement] = {}
         for movement in entry_movements:
             supplier_id = movement.supplier_id
-            if supplier_id not in last_entry_by_supplier:
+            if supplier_id not in last_entry_by_supplier and movement.entry_note_display:
                 last_entry_by_supplier[supplier_id] = movement
             supplier_ids.add(supplier_id)
 
@@ -319,7 +321,12 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                     "last_total_value": last_entry.total_value if last_entry is not None else None,
                     "last_purchase_date": last_entry.display_date if last_entry is not None else None,
                     "last_purchase_quantity": last_entry.quantity if last_entry is not None else None,
-                    "last_purchase_nf": stock_obj.last_nf,
+                    "last_purchase_nf": last_entry.entry_note_display if last_entry is not None else "",
+                    "last_purchase_import_id": (
+                        last_entry.source_import_item.stock_import_id
+                        if last_entry is not None and last_entry.source_import_item_id
+                        else None
+                    ),
                 }
             )
 

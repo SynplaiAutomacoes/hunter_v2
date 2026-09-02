@@ -144,6 +144,16 @@ class StockMovement(TimeStampedModel):
         return "—"
 
     @property
+    def entry_note_display(self) -> str:
+        """NF that originated this movement, never the product's latest NF."""
+        if self.source_import_item_id:
+            stock_import = self.source_import_item.stock_import
+            return stock_import.nf_number_display or ""
+        if self.fiscal_document_id:
+            return self.fiscal_document.number or ""
+        return ""
+
+    @property
     def workorder_reference(self):
         if self.workorder_id:
             budget = getattr(self.workorder, "budget", None)
