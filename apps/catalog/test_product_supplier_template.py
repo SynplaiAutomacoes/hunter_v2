@@ -26,9 +26,26 @@ class ProductSupplierTemplateTests(SimpleTestCase):
             last_total_value=None,
             last_purchase_nf="123456",
             last_purchase_import_id=42,
+            purchase_history=[
+                {
+                    "date": timezone.make_aware(datetime(2026, 9, 2, 10, 30)),
+                    "nf": "123456",
+                    "quantity": 2,
+                    "import_id": 42,
+                },
+                {
+                    "date": timezone.make_aware(datetime(2026, 9, 1, 9, 50)),
+                    "nf": "123455",
+                    "quantity": 8,
+                    "import_id": 41,
+                },
+            ],
         )
 
         html = render_to_string("products/sections/product_supplier.html", {"product_suppliers": [item]})
 
         self.assertIn('href="/stock/stock_update/42"', html)
         self.assertIn("123456", html)
+        self.assertIn("Histórico de compras e NFs (2)", html)
+        self.assertIn('href="/stock/stock_update/41"', html)
+        self.assertIn("123455", html)

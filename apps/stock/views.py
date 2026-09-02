@@ -971,7 +971,8 @@ class StockImportXmlDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return redirect("stock:stock_list")
 
         response = HttpResponse(stored.content, content_type=stored.content_type)
-        response["Content-Disposition"] = f'attachment; filename="{stored.filename}"'
+        disposition = "inline" if request.GET.get("inline") == "1" else "attachment"
+        response["Content-Disposition"] = f'{disposition}; filename="{stored.filename}"'
         return response
 
 

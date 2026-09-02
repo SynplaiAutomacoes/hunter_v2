@@ -295,10 +295,13 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
         supplier_ids: set[int] = set()
         last_entry_by_supplier: dict[int, StockMovement] = {}
+        purchase_history_by_supplier: dict[int, list[StockMovement]] = {}
         for movement in entry_movements:
             supplier_id = movement.supplier_id
-            if supplier_id not in last_entry_by_supplier and movement.entry_note_display:
-                last_entry_by_supplier[supplier_id] = movement
+            if movement.entry_note_display:
+                purchase_history_by_supplier.setdefault(supplier_id, []).append(movement)
+                if supplier_id not in last_entry_by_supplier:
+                    last_entry_by_supplier[supplier_id] = movement
             supplier_ids.add(supplier_id)
 
         if current_supplier is not None:
@@ -309,6 +312,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         product_suppliers: list[dict] = []
         for supplier in sorted(suppliers_by_id.values(), key=lambda item: item.name):
             last_entry = last_entry_by_supplier.get(supplier.id)
+            purchase_history = purchase_history_by_supplier.get(supplier.id, [])
             unit_cost = stock_obj.unit_cost
             if last_entry is not None and last_entry.quantity:
                 unit_cost = last_entry.total_value / last_entry.quantity
@@ -327,6 +331,19 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                         if last_entry is not None and last_entry.source_import_item_id
                         else None
                     ),
+                    "purchase_history": [
+                        {
+                            "date": movement.display_date,
+                            "quantity": movement.quantity,
+                            "nf": movement.entry_note_display,
+                            "import_id": (
+                                movement.source_import_item.stock_import_id
+                                if movement.source_import_item_id
+                                else None
+                            ),
+                        }
+                        for movement in purchase_history
+                    ],
                 }
             )
 
