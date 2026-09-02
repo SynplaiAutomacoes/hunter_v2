@@ -83,10 +83,14 @@
             const rest = d.slice(2);
 
             if (d.length <= 2) return `(${dd}`;
-            if (rest.length <= 5) return `(${dd}) ${rest}`;
+            // Brazilian landlines have eight digits after the area code, while
+            // mobile numbers have nine. Keep the mask aligned with the number
+            // length so WhatsApp-enabled landlines can be entered correctly.
+            const firstPartLength = d.length === 11 ? 5 : 4;
+            if (rest.length <= firstPartLength) return `(${dd}) ${rest}`;
 
-            const first = rest.slice(0, 5);
-            const last = rest.slice(5, 9);
+            const first = rest.slice(0, firstPartLength);
+            const last = rest.slice(firstPartLength, firstPartLength + 4);
             return `(${dd}) ${first}-${last}`;
         },
         formatFromE164BR(v) {
