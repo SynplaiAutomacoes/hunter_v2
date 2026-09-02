@@ -21,7 +21,7 @@ from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, budget_kit_overrides_prefetch, workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.finance.services.dre import COMP_COGS, COMP_COS, COMP_GROSS_REVENUE, build_dre_calculation
-from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WORKORDER_OPEN_STATUSES, WORKORDER_REVENUE_STATUSES
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -1107,8 +1107,9 @@ class DashboardQueryService:
         aggregates = (
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
-                status=WorkOrderStatus.DRAFT,
+                status__in=WORKORDER_OPEN_STATUSES,
                 budget__isnull=False,
+                budget_type=BudgetType.SALE,
             )
             .annotate(pending_amount=pending_expr)
             .aggregate(
@@ -1185,21 +1186,21 @@ class DashboardQueryService:
 _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     "a_receber_em_execucao": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type": BudgetType.SALE},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_mes_atual": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type": BudgetType.SALE},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_meses_anteriores": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type": BudgetType.SALE},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": True,
