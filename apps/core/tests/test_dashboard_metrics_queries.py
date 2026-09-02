@@ -160,6 +160,39 @@ class DashboardMetricsQueryTests(TestCase):
         self.assertEqual(total_label, "R$ 425,00")
         self.assertIn(budget.pk, [item.budget_id for item in items])
 
+    def test_pending_receivable_includes_open_workorders_and_remaining_balance(self) -> None:
+        customer = Customer.objects.get(workshop=self.workshop)
+        vehicle = Vehicle.objects.get(workshop=self.workshop)
+        budget = self._create_budget(self.workshop, customer, vehicle, date(2026, 7, 18), BudgetStatus.APPROVED, BudgetType.SALE)
+        workorder = WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            status=WorkOrderStatus.WAITING_COLLABORATOR,
+            budget_type=BudgetType.SALE,
+        )
+        WorkOrder.objects.filter(pk=workorder.pk).update(
+            stored_total_amount=Money("1000.00", "BRL"),
+            stored_paid_amount=Money("200.00", "BRL"),
+        )
+
+        metrics = DashboardQueryService._get_pending_receivable_metrics(
+            workshop_id=self.workshop.pk,
+            selected_month=workorder.criado_em.month,
+            selected_year=workorder.criado_em.year,
+        )
+        items, is_budget_report, total_label = get_financial_indicator_data(
+            workshop=self.workshop,
+            indicator="a_receber_em_execucao",
+            month=workorder.criado_em.month,
+            year=workorder.criado_em.year,
+        )
+
+        self.assertEqual(metrics.total_general, Decimal("800.00"))
+        self.assertEqual(metrics.monthly, Decimal("800.00"))
+        self.assertFalse(is_budget_report)
+        self.assertEqual(total_label, "R$ 800,00")
+        self.assertIn(workorder.pk, [item.pk for item in items])
+
     def test_revenue_queries_return_zero_for_empty_workshop(self) -> None:
         total_sold = DashboardQueryService._calculate_total_sold(
             workshop_id=self.empty_workshop.pk,

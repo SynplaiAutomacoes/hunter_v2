@@ -16,14 +16,14 @@
             </div>
             {% if indicator == 'carros_mes' %}
                 <div class="rounded-[1.25rem] border border-primary/20 bg-primary/10 px-4 py-3">
-                    <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/70">Valor previsto nos pagamentos</p>
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/70">Valor pago esse mês</p>
                     <p class="mt-1 text-2xl font-black tabular-nums text-primary">{{ valor_pago_esse_mes|money_br }}</p>
                     <p class="mt-2 text-xs text-base-content/50">Total dos pagamentos com vencimento neste mês</p>
                 </div>
                 <div class="rounded-[1.25rem] border border-warning/20 bg-warning/10 px-4 py-3">
-                    <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-warning/70">Diferença para o total entregue</p>
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-warning/70">Sinal pago mês anterior</p>
                     <p class="mt-1 text-2xl font-black tabular-nums text-warning">{{ sinal_pago_mes_anterior|money_br }}</p>
-                    <p class="mt-2 text-xs text-base-content/50">Total entregue menos o valor previsto nos pagamentos.</p>
+                    <p class="mt-2 text-xs text-base-content/50">Valor dos pagamentos realizados em meses anteriores</p>
                 </div>
             {% elif indicator == 'garantia_cortesia_mes' %}
                 <div class="rounded-[1.25rem] border border-error/20 bg-error/10 px-4 py-3">
