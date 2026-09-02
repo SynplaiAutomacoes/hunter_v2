@@ -80,11 +80,19 @@ class ReopenDeliveryTests(TestCase):
         self.workorder.refresh_from_db()
         self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
         self.assertEqual(_count_unreversed_exits(workorder=self.workorder), 1)
+        self.assertEqual(
+            StockMovement.objects.filter(workorder=self.workorder, type=StockMovement.MovementType.EXIT).latest("pk").reason,
+            "Fechamento de O.S.",
+        )
 
         reopen_workorder(workorder=self.workorder, user=self.user, reason="Corrigir item da O.S.")
         self.workorder.refresh_from_db()
         self.assertEqual(self.workorder.status, WorkOrderStatus.WAITING_DELIVERY)
         self.assertFalse(has_unreversed_exit_movements(workorder=self.workorder))
+        self.assertEqual(
+            StockMovement.objects.filter(workorder=self.workorder, type=StockMovement.MovementType.ENTRY).latest("pk").reason,
+            "Reabertura de O.S.",
+        )
 
         approve_workorder_with_stock(workorder=self.workorder, user=self.user)
         self.workorder.refresh_from_db()

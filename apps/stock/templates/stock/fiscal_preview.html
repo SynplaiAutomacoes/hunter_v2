@@ -1,0 +1,64 @@
+{% extends 'crud/page.html' %}
+{% load l10n %}
+
+{% block crud_content %}
+<div class="max-w-6xl mx-auto space-y-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+            <p class="text-sm uppercase tracking-wide opacity-60">NF-e de entrada</p>
+            <h1 class="text-3xl font-bold">Nota Fiscal nº {{ document.number }}</h1>
+            <p class="opacity-70">Consulta da importação de estoque — somente leitura.</p>
+        </div>
+        <div class="flex gap-3">
+            <a href="{% url 'stock:stock_update' stock_import.pk %}?step=6" class="btn btn-outline">Voltar para importação</a>
+            {% if stock_import.xml_file_key %}
+            <a href="{% url 'stock:xml_download' stock_import.pk %}" class="btn btn-primary">
+                <span class="material-icons">download</span> Baixar XML original
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow">
+        <div class="card-body grid grid-cols-1 md:grid-cols-2 gap-8">
+            <section>
+                <h2 class="font-bold text-lg mb-3">Emitente</h2>
+                <p class="font-semibold">{{ issuer.name }}</p>
+                <p class="text-sm opacity-70">CNPJ/CPF: {{ issuer.document }}</p>
+            </section>
+            <section>
+                <h2 class="font-bold text-lg mb-3">Destinatário</h2>
+                <p class="font-semibold">{{ recipient.name }}</p>
+                <p class="text-sm opacity-70">CNPJ/CPF: {{ recipient.document }}</p>
+            </section>
+            <section class="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border-t pt-5">
+                <div><p class="text-xs uppercase opacity-60">Série</p><p class="font-semibold">{{ document.series }}</p></div>
+                <div><p class="text-xs uppercase opacity-60">Emissão</p><p class="font-semibold">{{ document.issued_at }}</p></div>
+                <div><p class="text-xs uppercase opacity-60">Protocolo</p><p class="font-semibold">{{ document.protocol_number }}</p></div>
+                <div><p class="text-xs uppercase opacity-60">Chave de acesso</p><p class="font-mono text-xs break-all">{{ document.access_key }}</p></div>
+            </section>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow">
+        <div class="card-body p-0">
+            <div class="p-6 flex items-center justify-between gap-4">
+                <h2 class="text-xl font-bold">Itens da Nota</h2>
+                <span class="font-bold">Total dos produtos: R$ {{ total_value|floatformat:2 }}</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="table table-zebra w-full">
+                    <thead><tr><th>#</th><th>Código</th><th>Descrição</th><th>NCM</th><th>CFOP</th><th class="text-right">Qtd.</th><th>Un.</th><th class="text-right">Vlr. unit.</th><th class="text-right">Total</th></tr></thead>
+                    <tbody>
+                    {% for item in items %}
+                        <tr><td>{{ item.sequence }}</td><td>{{ item.code }}</td><td>{{ item.description }}</td><td>{{ item.ncm }}</td><td>{{ item.cfop }}</td><td class="text-right">{{ item.quantity|floatformat:4 }}</td><td>{{ item.unit }}</td><td class="text-right">R$ {{ item.unit_value|floatformat:2 }}</td><td class="text-right font-semibold">R$ {{ item.total_value|floatformat:2 }}</td></tr>
+                    {% empty %}
+                        <tr><td colspan="9" class="text-center py-8 opacity-70">Não há itens disponíveis para esta importação.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
