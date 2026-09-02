@@ -1,22 +1,22 @@
 {% load l10n %}
 
-{% if commission_history.warranty_loss_total.amount > 0 %}
+{% if commission_history.warranty_loss_total.amount > 0 or prejuizo_total.amount < 0 %}
 <div class="alert alert-error shadow-sm bg-opacity-20 border-error">
     <div class="flex flex-col gap-1 text-error">
         <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
         <span class="text-sm text-gray-900">
-            Este colaborador gerou prejuízo de <strong>-{{ commission_history.warranty_loss_total }}</strong> nas comissões devido a garantias/cortesias com falha atribuída.
+            Este colaborador gerou prejuízo de <strong>{% if commission_history.warranty_loss_total.amount > 0 %}-{{ commission_history.warranty_loss_total }}{% else %}{{ prejuizo_total }}{% endif %}</strong> nas comissões devido a garantias.
         </span>
     </div>
 </div>
 {% endif %}
 
-{# TABELA 1: COMISSÕES - O.S. DE VENDA #}
+{# TABELA 1: COMISSÕES #}
 <div class="space-y-3">
     <div class="flex items-center justify-between">
         <h4 class="text-sm font-semibold text-base-content flex items-center gap-2">
             <span class="material-icons text-sm text-primary">point_of_sale</span>
-            Comissões — O.S. de Venda
+            Comissões
         </h4>
         <span class="text-xs text-base-content/60">Competência: {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</span>
     </div>
@@ -38,76 +38,91 @@
     <div class="overflow-x-auto rounded-xl border border-base-300">
         <table class="table table-sm">
             <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                <tr>
-                    <th>O.S.</th>
-                    <th>Competência</th>
-                    <th>Base</th>
-                    <th>%</th>
-                    <th>Valor</th>
-                    <th>Motivo / Observação</th>
-                    <th>Status</th>
-                </tr>
+                <tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Motivo / Observação</th><th>Status</th><th></th></tr>
             </thead>
             <tbody>
-                {% for row in commission_history.sale_rows %}
-                    {% if row.is_preview %}
-                        <tr class="hover:bg-base-200/40 transition-colors">
-                            <td class="font-medium">
-                                <a href="{% url 'workorder:workorder_detail' pk=row.workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.workorder.get_id }}</a>
-                            </td>
-                            <td>
-                                <span class="text-base-content/80">{{ row.competence_display }}</span>
-                            </td>
-                            <td>{{ row.base_amount }}</td>
-                            <td>{{ row.percentage_display }}</td>
-                            <td>
-                                <span class="font-semibold text-base-content/80">{{ row.commission_amount }}</span>
-                                <span class="block text-[10px] text-base-content/50">(Previsto)</span>
-                            </td>
-                            <td class="max-w-xs text-xs text-base-content/70 whitespace-pre-wrap break-words">{{ row.preview_note }}</td>
-                            <td>
-                                <div class="flex items-center gap-1.5">
-                                    <span class="badge badge-ghost badge-sm text-warning font-medium">Previsão</span>
-                                    <span class="tooltip tooltip-left before:max-w-xs before:whitespace-normal before:text-xs before:leading-snug before:font-normal before:shadow-lg z-30 cursor-help" data-tip="{{ row.preview_note }}" title="{{ row.preview_note }}">
-                                        <span class="material-icons text-base text-warning hover:text-warning-focus transition-colors">info</span>
-                                    </span>
-                                </div>
-                            </td>
-                        </tr>
-                    {% else %}
-                        <tr class="hover:bg-base-200/40 transition-colors">
-                            <td class="font-medium">
-                                <a href="{% url 'workorder:workorder_detail' pk=row.workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.workorder.get_id }}</a>
-                            </td>
-                            <td>{{ row.competence_display }}</td>
-                            <td>{{ row.base_amount }}</td>
-                            <td>{{ row.percentage_display }}</td>
-                            <td class="font-semibold">{{ row.commission_amount }}</td>
-                            <td>—</td>
-                            <td>
-                                {% if row.status_display == "Pago" %}
-                                    <span class="badge badge-success badge-sm font-medium">Pago</span>
-                                {% else %}
-                                    <span class="badge badge-ghost badge-sm font-medium text-base-content/70">Não Pago</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                    {% endif %}
+                {% for commission in payroll.commission_entries.all %}
+                    <tr class="hover:bg-base-200/40 transition-colors">
+                        <td class="font-medium">
+                            {% if commission.workorder_id %}
+                                <a href="{% url 'workorder:workorder_detail' pk=commission.workorder_id %}" target="_blank" class="hover:text-primary transition-colors hover:underline">{{ commission.workorder_display }}</a>
+                            {% else %}
+                                {{ commission.workorder_display }}
+                            {% endif %}
+                        </td>
+                        <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year|unlocalize }}</td>
+                        <td>{% if commission.is_manual %}—{% else %}{{ commission.base_amount }}{% endif %}</td>
+                        <td>{{ commission.percentage_display }}</td>
+                        <td class="font-semibold">{{ commission.commission_amount }}</td>
+                        <td class="max-w-xs whitespace-pre-wrap break-words text-xs text-base-content/70">{{ commission.notes|default:"—" }}</td>
+                        <td>
+                            {% if commission.status == "PAID" %}
+                                <span class="badge badge-success badge-sm font-medium">Pago</span>
+                            {% else %}
+                                <span class="badge badge-ghost badge-sm font-medium text-base-content/70">Não Pago</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-right">
+                            {% if commission.is_manual and not payroll_is_paid %}
+                                <button
+                                    type="button"
+                                    class="btn btn-ghost btn-xs btn-square text-error hover:bg-error/10"
+                                    title="Excluir comissão manual"
+                                    aria-label="Excluir comissão manual"
+                                    hx-post="{% url 'finance:payroll_delete_manual_commission' payroll.pk commission.pk %}"
+                                    hx-target="closest .modal"
+                                    hx-swap="outerHTML"
+                                    hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                                >
+                                    <span class="material-icons pointer-events-none text-sm">delete</span>
+                                </button>
+                            {% endif %}
+                        </td>
+                    </tr>
                 {% empty %}
-                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma comissão de venda vinculada.</td></tr>
+                    {% if not commission_history.preview_sale_rows %}
+                        <tr><td colspan="8" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>
+                    {% endif %}
+                {% endfor %}
+
+                {% for row in commission_history.preview_sale_rows %}
+                    <tr class="hover:bg-base-200/40 transition-colors">
+                        <td class="font-medium">
+                            <a href="{% url 'workorder:workorder_detail' pk=row.workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.workorder.get_id }}</a>
+                        </td>
+                        <td>
+                            <span class="text-base-content/80">{{ row.competence_display }}</span>
+                        </td>
+                        <td>{{ row.base_amount }}</td>
+                        <td>{{ row.percentage_display }}</td>
+                        <td>
+                            <span class="font-semibold text-base-content/80">{{ row.commission_amount }}</span>
+                            <span class="block text-[10px] text-base-content/50">(Previsto)</span>
+                        </td>
+                        <td class="max-w-xs text-xs text-base-content/70 whitespace-pre-wrap break-words">{{ row.preview_note }}</td>
+                        <td>
+                            <div class="flex items-center gap-1.5">
+                                <span class="badge badge-ghost badge-sm text-warning font-medium">Previsão</span>
+                                <span class="tooltip tooltip-left before:max-w-xs before:whitespace-normal before:text-xs before:leading-snug before:font-normal before:shadow-lg z-30 cursor-help" data-tip="{{ row.preview_note }}" title="{{ row.preview_note }}">
+                                    <span class="material-icons text-base text-warning hover:text-warning-focus transition-colors">info</span>
+                                </span>
+                            </div>
+                        </td>
+                        <td></td>
+                    </tr>
                 {% endfor %}
             </tbody>
-            {% if commission_history.sale_rows %}
+            {% if commission_history.legacy_total.amount or commission_history.legacy_workorder_count %}
             <tfoot class="bg-base-200/40">
                 <tr>
                     <td colspan="4" class="text-right font-semibold">
-                        Total da competência ({{ commission_history.sale_count }} O.S.)
+                        Total da competência ({{ commission_history.legacy_workorder_count }} O.S.)
                         {% if commission_history.has_preview_sales %}
                             <span class="block text-[11px] font-normal text-base-content/60">+ {{ commission_history.preview_sale_count }} O.S. prevista(s) fora da competência</span>
                         {% endif %}
                     </td>
-                    <td class="font-bold text-success">{{ commission_history.sale_total }}</td>
-                    <td colspan="2"></td>
+                    <td class="font-bold text-success">{{ commission_history.legacy_total }}</td>
+                    <td colspan="3"></td>
                 </tr>
             </tfoot>
             {% endif %}
@@ -214,56 +229,6 @@
     </div>
 </div>
 
-{# TABELA 3 (OPCIONAL): COMISSÕES MANUAIS #}
-{% if commission_history.manual_entries %}
-<div class="mt-8 space-y-3">
-    <h4 class="text-sm font-semibold text-base-content flex items-center gap-2">
-        <span class="material-icons text-sm text-secondary">edit_note</span>
-        Comissões Manuais
-    </h4>
-    <div class="overflow-x-auto rounded-xl border border-base-300">
-        <table class="table table-sm">
-            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                <tr><th>O.S.</th><th>Competência</th><th>Valor</th><th>Motivo</th><th>Status</th><th></th></tr>
-            </thead>
-            <tbody>
-                {% for commission in commission_history.manual_entries %}
-                    <tr class="hover:bg-base-200/40 transition-colors">
-                        <td>{{ commission.workorder_display }}</td>
-                        <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year|unlocalize }}</td>
-                        <td class="font-semibold">{{ commission.commission_amount }}</td>
-                        <td class="max-w-xs whitespace-pre-wrap break-words text-xs text-base-content/70">{{ commission.notes|default:"—" }}</td>
-                        <td>
-                            {% if commission.status == "PAID" %}
-                                <span class="badge badge-success badge-sm font-medium">Pago</span>
-                            {% else %}
-                                <span class="badge badge-ghost badge-sm font-medium text-base-content/70">Não Pago</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-right">
-                            {% if not payroll_is_paid %}
-                                <button
-                                    type="button"
-                                    class="btn btn-ghost btn-xs btn-square text-error hover:bg-error/10"
-                                    title="Excluir comissão manual"
-                                    aria-label="Excluir comissão manual"
-                                    hx-post="{% url 'finance:payroll_delete_manual_commission' payroll.pk commission.pk %}"
-                                    hx-target="closest .modal"
-                                    hx-swap="outerHTML"
-                                    hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-                                >
-                                    <span class="material-icons pointer-events-none text-sm">delete</span>
-                                </button>
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
-
 {# RESUMO FINAL DA FOLHA #}
 <div class="mt-8 rounded-xl border border-base-300 bg-base-200/40 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
     <div class="space-y-0.5">
@@ -271,7 +236,7 @@
             Valor total da folha (comissões líquidas):
         </p>
         <p class="text-xs text-base-content/60">
-            Total de comissões ({{ commission_history.sale_total }})
+            Total de comissões ({{ commission_history.legacy_total }})
             {% if commission_history.warranty_loss_total.amount > 0 %} - Prejuízo por garantias ({{ commission_history.warranty_loss_total }}){% endif %}
         </p>
     </div>

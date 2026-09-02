@@ -956,12 +956,6 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
         benefit_tab = next((tab for tab in component_tabs if tab["is_benefit_tab"]), None)
         default_benefit_movement_id = benefit_tab["default_movement_id"] if benefit_tab is not None else None
 
-        from apps.finance.services.payroll_commission_history import build_payroll_commission_history
-
-        commission_history = build_payroll_commission_history(payroll=payroll)
-        warranty_wos = commission_history.warranty_wos
-        prejuizo_money = commission_history.prejuizo_total
-
         return render(
             request,
             "finance/payroll/partials/edit_modal.html",
@@ -973,9 +967,6 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 "fallback_tab": fallback_tab,
                 "continue_without_create": True,
                 "default_benefit_movement_id": default_benefit_movement_id,
-                "commission_history": commission_history,
-                "warranty_wos": warranty_wos,
-                "prejuizo_total": prejuizo_money,
                 "workshop_default_work_days": get_workshop_work_days(
                     workshop=payroll.workshop,
                     reference_date=date(payroll.reference_year, payroll.reference_month, 1),
@@ -990,6 +981,18 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 ),
             },
         )
+
+    def _build_commission_history_context(self, *, payroll: CollaboratorPayroll) -> dict[str, Any]:
+        from apps.finance.services.payroll_commission_history import build_payroll_commission_history
+
+        commission_history = build_payroll_commission_history(payroll=payroll)
+        return {
+            "payroll": payroll,
+            "commission_history": commission_history,
+            "warranty_wos": commission_history.warranty_wos,
+            "prejuizo_total": commission_history.prejuizo_total,
+            "payroll_is_paid": payroll.status == CollaboratorPayroll.Status.PAID,
+        }
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         payroll = self._get_existing_payroll()
@@ -1571,3 +1574,23 @@ class PayrollBulkConciliateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.warning(request, "Algumas folhas não puderam ser conciliadas: " + "; ".join(skipped[:3]) + ("..." if len(skipped) > 3 else ""))
 
         return HttpResponseRedirect(reverse("finance:payroll_list"))
+
+
+class PayrollCommissionHistoryPartialView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
+    workshop_permission_codename = "view_financialmovement"
+    template_name = "finance/payroll/partials/commission_history_content.html"
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        payroll: CollaboratorPayroll = get_object_or_404(
+            CollaboratorPayroll.objects.select_related("collaborator", "workshop").prefetch_related(
+                "commission_entries__workorder__budget",
+            ),
+            pk=self.kwargs["pk"],
+            workshop=self.workshop,
+        )
+        modal_view = PayrollEditModalView()
+        modal_view.request = request
+        modal_view.workshop = self.workshop
+        return render(request, self.template_name, modal_view._build_commission_history_context(payroll=payroll))
