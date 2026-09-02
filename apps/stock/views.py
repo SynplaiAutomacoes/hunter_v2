@@ -3,7 +3,7 @@ import re
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
@@ -974,6 +974,77 @@ class StockImportXmlDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         disposition = "inline" if request.GET.get("inline") == "1" else "attachment"
         response["Content-Disposition"] = f'{disposition}; filename="{stored.filename}"'
         return response
+
+
+class StockImportFiscalPreviewView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+    """Read-only, human-friendly view of an imported purchase NF-e."""
+
+    model = StockImport
+    template_name = "stock/fiscal_preview.html"
+    workshop_permission_codename = "view_stockimport"
+
+    @staticmethod
+    def _issued_at_display(value: object) -> str:
+        if hasattr(value, "strftime"):
+            return value.strftime("%d/%m/%Y %H:%M")
+        raw_value = str(value or "").strip()
+        if not raw_value:
+            return "—"
+        try:
+            return datetime.fromisoformat(raw_value.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            return raw_value
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        stock_import = get_object_or_404(StockImport, pk=self.kwargs["pk"], workshop=self.workshop)
+        snapshot = stock_import.fiscal_snapshot if isinstance(stock_import.fiscal_snapshot, dict) else {}
+        document = snapshot.get("document") if isinstance(snapshot.get("document"), dict) else {}
+        issuer = snapshot.get("issuer") if isinstance(snapshot.get("issuer"), dict) else {}
+        recipient = snapshot.get("recipient") if isinstance(snapshot.get("recipient"), dict) else {}
+        snapshot_products = snapshot.get("products") if isinstance(snapshot.get("products"), list) else []
+
+        items = []
+        total_value = Decimal("0")
+        for index, item in enumerate(snapshot_products or stock_import.items_data or [], start=1):
+            if not isinstance(item, dict):
+                continue
+            try:
+                quantity = Decimal(str(item.get("quantity") or item.get("qtd") or "0"))
+                unit_value = Decimal(str(item.get("unit_value") or item.get("valor") or "0"))
+                item_total = Decimal(str(item.get("total_value") or item.get("valor_total") or quantity * unit_value))
+            except (InvalidOperation, TypeError, ValueError):
+                quantity = unit_value = item_total = Decimal("0")
+            total_value += item_total
+            items.append(
+                {
+                    "sequence": item.get("sequence") or item.get("nitem") or index,
+                    "code": item.get("product_code") or item.get("ref") or "—",
+                    "description": item.get("description") or item.get("desc") or "—",
+                    "ncm": item.get("ncm") or "—",
+                    "cfop": item.get("cfop") or "—",
+                    "unit": item.get("unit") or item.get("unidade") or "—",
+                    "quantity": quantity,
+                    "unit_value": unit_value,
+                    "total_value": item_total,
+                }
+            )
+
+        context.update(
+            stock_import=stock_import,
+            document={
+                "number": document.get("number") or stock_import.nf_number_display,
+                "series": document.get("series") or "—",
+                "access_key": document.get("access_key") or stock_import.nf_key,
+                "issued_at": self._issued_at_display(document.get("issued_at") or stock_import.fiscal_issued_at),
+                "protocol_number": document.get("protocol_number") or "—",
+            },
+            issuer={"name": issuer.get("name") or stock_import.supplier_name or "Não informado", "document": issuer.get("document") or stock_import.supplier_cnpj or "—"},
+            recipient={"name": recipient.get("name") or self.workshop.name, "document": recipient.get("document") or self.workshop.cnpj or "—"},
+            items=items,
+            total_value=total_value,
+        )
+        return context
 
 
 class StockImportXmlArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
