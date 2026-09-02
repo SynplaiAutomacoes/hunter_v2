@@ -9,6 +9,7 @@ from djmoney.money import Money
 
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.movement_group import MovementGroup
 from apps.finance.views.cash_flow import CashFlowView, CashFlowReportExcelView, CashFlowReportModalView, _PAGE_SIZE
 from apps.workshops.models.workshops import Workshop
 
@@ -104,6 +105,48 @@ class CashFlowViewTests(TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["description"], "Movimento conta 1")
+
+    def test_listing_includes_legacy_group_children_without_consolidated_parent(self) -> None:
+        group = MovementGroup.objects.create(
+            workshop=self.workshop,
+            name="Agrupamento legado",
+            description="Sem lançamento consolidado",
+            due_date=date(2026, 5, 6),
+        )
+        movement = self._create_movement(description="Filho legado", due_date=date(2026, 5, 6))
+        movement.movement_group = group
+        movement.save(update_fields=["movement_group"])
+
+        rows = self._build_view(query={"data_inicial": "2026-05-06", "data_final": "2026-05-06"}).get_context_data()["financial_movement_report_rows"]
+
+        self.assertEqual([row["description"] for row in rows], ["Filho legado"])
+
+    def test_listing_hides_group_children_when_consolidated_parent_exists(self) -> None:
+        group = MovementGroup.objects.create(
+            workshop=self.workshop,
+            name="Agrupamento consolidado",
+            description="Com lançamento consolidado",
+            due_date=date(2026, 5, 6),
+        )
+        child = self._create_movement(description="Filho agrupado", due_date=date(2026, 5, 6), amount=100)
+        child.movement_group = group
+        child.save(update_fields=["movement_group"])
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            movement_group=group,
+            movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            description="Consolidado",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 5, 6),
+            is_paid=True,
+            is_reconciled=True,
+            bank_account=self.bank_account,
+        )
+
+        rows = self._build_view(query={"data_inicial": "2026-05-06", "data_final": "2026-05-06"}).get_context_data()["financial_movement_report_rows"]
+
+        self.assertEqual([row["description"] for row in rows], ["Consolidado"])
 
     def test_account_cards_include_all_accounts_and_each_bank(self) -> None:
         other_account = create_bank_account(workshop=self.workshop, suffix=2)

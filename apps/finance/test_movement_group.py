@@ -10,7 +10,7 @@ from apps.finance.forms.movement_group import GroupMovementStep3Form
 from apps.finance.models import FinancialMovement, MovementGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.movement_grouping import InstallmentScheduleError, parse_group_installment_schedule
-from apps.finance.services.reports import build_financial_overview_with_open_workorder_credits, open_credits
+from apps.finance.services.reports import build_financial_overview, build_financial_overview_with_open_workorder_credits, open_credits
 from apps.finance.views.movement_group import GroupMovementWizardView
 from apps.sources.models import Source
 from apps.suppliers.models import Supplier
@@ -206,6 +206,37 @@ class GroupedMovementsOverviewTests(TestCase):
         )
 
         self.assertEqual(open_credits(overview), Money(3, "BRL"))
+
+    def test_grouped_children_without_consolidated_parent_remain_in_overview(self) -> None:
+        workshop = Workshop.objects.create(
+            name="Oficina Agrupamento Legado",
+            cnpj="22.222.222/0001-22",
+            phone="+5511966666666",
+            address="Rua dos Legados, 100",
+        )
+        due_date = date(2026, 5, 6)
+        group = MovementGroup.objects.create(workshop=workshop, name="Legado", due_date=due_date)
+        for amount in (Money(300, "BRL"), Money(180, "BRL")):
+            FinancialMovement.objects.create(
+                workshop=workshop,
+                movement_group=group,
+                direction=FinancialMovement.MovementDirection.DEBIT,
+                amount=amount,
+                due_date=due_date,
+                is_paid=True,
+                is_reconciled=True,
+            )
+
+        overview = build_financial_overview(
+            workshop=workshop,
+            start_date=due_date,
+            end_date=due_date,
+            paid_status="paid",
+            reconciliation_status="reconciled",
+        )
+
+        self.assertEqual(overview.paid_debits, Money(480, "BRL"))
+        self.assertEqual(overview.confirmed_result, Money(-480, "BRL"))
 
 
 class LegacySourceGroupingTests(TestCase):
