@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.test import TestCase
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus
+from apps.catalog.models.kits import Kit, KitService
+from apps.catalog.models.services import Service
 from apps.collaborators.models import WorkshopCollaborator
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
@@ -62,3 +64,25 @@ class WorkOrderCollaboratorIndependenceTests(TestCase):
         workorder.sync_from_budget()
 
         self.assertEqual(workorder.collaborators.count(), 0)
+
+    def test_sync_from_budget_preserves_kit_component_exclusion(self) -> None:
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Serviço mantido no valor do kit",
+            duration=timedelta(minutes=10),
+            suggested_cost=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+        )
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit com serviço excluído")
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=timedelta(minutes=10))
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=date(2026, 8, 1))
+        budget_item = BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit)
+        budget_override = budget_item.kit_overrides.get(service=service)
+        budget_override.excluded_from_composition = True
+        budget_override.save(update_fields=["excluded_from_composition"])
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        workorder_override = workorder.items.get(kit=kit).kit_overrides.get(service=service)
+        self.assertTrue(workorder_override.excluded_from_composition)
