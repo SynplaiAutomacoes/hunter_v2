@@ -271,7 +271,7 @@
     .term-signature-grid {
       display: grid;
       grid-template-columns: 1fr 10.5rem;
-      grid-template-rows: auto auto auto;
+      grid-template-rows: auto auto auto auto;
       column-gap: 24px;
       row-gap: 0;
       align-items: stretch;
@@ -298,6 +298,35 @@
       color: #6b7280;
       margin-top: 8px;
       text-align: center;
+    }
+
+    .term-signature-customer-info {
+      grid-column: 1;
+      margin-top: 6px;
+      text-align: center;
+    }
+
+    .term-signature-customer-row {
+      font-size: 10px;
+      line-height: 1.4;
+      color: var(--term-body);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .term-signature-customer-label {
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      font-size: 9.5px;
+      letter-spacing: 0.04em;
+      margin-right: 4px;
+    }
+
+    .term-signature-customer-value {
+      font-weight: 600;
+      color: var(--term-heading);
+      text-transform: uppercase;
     }
 
     .term-signature-line,
@@ -417,6 +446,16 @@
             <div class="term-date-line" aria-hidden="true"></div>
             <div class="term-signature-label">Assinatura do cliente</div>
             <div class="term-date-label">Data</div>
+            <div class="term-signature-customer-info">
+              <div class="term-signature-customer-row">
+                <span class="term-signature-customer-label">Nome completo:</span>
+                <span class="term-signature-customer-value">{{ customer_name|default:customer.name|default:"" }}</span>
+              </div>
+              <div class="term-signature-customer-row">
+                <span class="term-signature-customer-label">CPF/CNPJ:</span>
+                <span class="term-signature-customer-value">{{ customer_cpf_cnpj|default:"" }}</span>
+              </div>
+            </div>
           </div>
         </footer>
         {% endif %}
