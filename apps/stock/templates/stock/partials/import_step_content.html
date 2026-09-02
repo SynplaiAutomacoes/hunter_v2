@@ -27,9 +27,17 @@
             <div></div>
         {% endif %}
 
-        <button type="submit" form="import-form" class="btn btn-primary">
-            {% if current_step == steps_config|length %} Finalizar Importação {% else %} Próxima Etapa {% endif %}
-        </button>
+        <div class="flex items-center gap-3">
+            {% if current_step == steps_config|length and object.pk and object.xml_file_key %}
+            <a href="{% url 'stock:xml_download' object.pk %}?inline=1" target="_blank" rel="noopener" class="btn btn-outline">
+                <span class="material-icons">description</span>
+                Analisar NF de Entrada
+            </a>
+            {% endif %}
+            <button type="submit" form="import-form" class="btn btn-primary">
+                {% if current_step == steps_config|length %} Finalizar Importação {% else %} Próxima Etapa {% endif %}
+            </button>
+        </div>
     </div>
 
     <div id="form-container">

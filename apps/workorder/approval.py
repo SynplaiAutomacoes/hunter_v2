@@ -208,6 +208,7 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
                     workorder=locked_workorder,
                     type=StockMovement.MovementType.EXIT,
                     quantity=required_quantity,
+                    reason="Fechamento de O.S.",
                     status=StockMovement.MovementStatus.APPROVED,
                     transcation_by=user,
                 )

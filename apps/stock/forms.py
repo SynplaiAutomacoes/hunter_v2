@@ -962,6 +962,7 @@ class ImportStepSummaryForm(CoreModelForm):
                 transcation_by=self.request.user,
                 source_import_item=fiscal_item,
                 quantity=quantity,
+                reason=f"Importação de NF {resolved_nf_number}",
                 status=StockMovement.MovementStatus.APPROVED,
             )
 
@@ -2673,6 +2674,7 @@ class TransferSummaryForm(CoreModelForm):
                 stock_product=source_entry,
                 type=StockMovement.MovementType.EXIT,
                 quantity=quantity,
+                reason=(f"Transferência de Estoque: {instance.reason}" if is_transfer and instance.reason else "Transferência de Estoque") if is_transfer else f"Ajuste de Estoque: {instance.reason}",
                 status=StockMovement.MovementStatus.APPROVED,
                 transcation_by=self.request.user if self.request is not None else None,
             )
@@ -2684,6 +2686,7 @@ class TransferSummaryForm(CoreModelForm):
                     stock_product=destination_entry,
                     type=StockMovement.MovementType.ENTRY,
                     quantity=quantity,
+                    reason=(f"Transferência de Estoque: {instance.reason}" if instance.reason else "Transferência de Estoque"),
                     status=StockMovement.MovementStatus.APPROVED,
                     transcation_by=self.request.user if self.request is not None else None,
                 )
