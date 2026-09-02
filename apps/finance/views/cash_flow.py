@@ -25,7 +25,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
-from apps.finance.services.reports import FinancialOverview, build_financial_overview
+from apps.finance.services.reports import FinancialOverview, build_financial_overview, filter_grouped_movements_for_reporting
 from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -172,8 +172,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
     def _get_financial_movements_queryset(self):
         queryset = (
-            FinancialMovement.objects.filter(workshop=self.workshop)
-            .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
+            filter_grouped_movements_for_reporting(FinancialMovement.objects.filter(workshop=self.workshop))
             .select_related(
                 "source",
                 "budget_plan",

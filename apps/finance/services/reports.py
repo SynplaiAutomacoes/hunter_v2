@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Iterable
 
 from djmoney.money import Money
-from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum, Value
+from django.db.models import DecimalField, Exists, ExpressionWrapper, F, OuterRef, Q, Sum, Value
 from django.db.models.functions import Coalesce
 
 from apps.core.infrastructure.search import build_text_search_query
@@ -46,6 +46,20 @@ def _sum_payment_totals(queryset) -> Decimal:
             total=Coalesce(Sum("payment_total"), Value(_ZERO_DECIMAL), output_field=_DECIMAL_OUT)
         )["total"]
         or _ZERO_DECIMAL
+    )
+
+
+def filter_grouped_movements_for_reporting(queryset):
+    consolidated_group_parent = FinancialMovement.objects.filter(
+        movement_group_id=OuterRef("movement_group_id"),
+        movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
+    )
+    return queryset.annotate(
+        has_consolidated_group_parent=Exists(consolidated_group_parent)
+    ).filter(
+        Q(movement_group__isnull=True)
+        | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
+        | Q(has_consolidated_group_parent=False)
     )
 
 
@@ -136,8 +150,8 @@ def build_financial_overview(
             queryset = queryset.filter(search_query)
         return queryset
 
-    movements = _apply_common_filters(FinancialMovement.objects.filter(workshop=workshop)).filter(
-        Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
+    movements = filter_grouped_movements_for_reporting(
+        _apply_common_filters(FinancialMovement.objects.filter(workshop=workshop))
     )
     non_parent = movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
 
@@ -382,9 +396,9 @@ def build_financial_overview_with_open_workorder_credits(
         "reconciliation_status": reconciliation_status,
     }
 
-    movements = _apply_report_common_filters(
-        FinancialMovement.objects.filter(workshop=workshop), **common_kwargs
-    ).filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
+    movements = filter_grouped_movements_for_reporting(
+        _apply_report_common_filters(FinancialMovement.objects.filter(workshop=workshop), **common_kwargs)
+    )
     non_parent = movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
 
     credit_qs = non_parent.filter(direction=FinancialMovement.MovementDirection.CREDIT)
