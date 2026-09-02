@@ -71,6 +71,7 @@ def _recalculate_discounted_global_commissions(apps, schema_editor) -> None:
         )
 
 
+
 class Migration(migrations.Migration):
     dependencies = [
         ("collaborators", "0021_regenerate_august_2026_commissions"),
