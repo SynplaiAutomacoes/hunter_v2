@@ -5,8 +5,8 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("collaborators", "0024_merge_discounted_and_august_global_commissions"),
         ("collaborators", "0025_recalculate_discounted_global_commissions"),
-        ("collaborators", "0023_regenerate_august_2026_global_commissions_v2"),
     ]
 
     operations = []

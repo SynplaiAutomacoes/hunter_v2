@@ -25,7 +25,7 @@ from apps.workshops.models.workshops import Workshop
 def create_workshop(*, suffix: int) -> Workshop:
     return Workshop.objects.create(
         name=f"Oficina Comissão {suffix}",
-        cnpj=f"51.222.333/0001-{suffix:02d}",
+        cnpj=f"51.222.333/0001-{(suffix % 100):02d}",
         phone="+5511999999999",
         address="Rua Comissão, 123",
     )
@@ -35,7 +35,7 @@ def create_collaborator(*, workshop: Workshop, suffix: int) -> WorkshopCollabora
     return WorkshopCollaborator.objects.create(
         workshop=workshop,
         name=f"Colaborador {suffix}",
-        cpf=f"1234567890{suffix}",
+        cpf=f"{suffix:011d}"[-11:],
         birth_date=date(1990, 1, 1),
         salary=Money(2000, "BRL"),
         admission_date=date(2025, 1, 1),
