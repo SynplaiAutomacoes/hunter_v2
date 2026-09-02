@@ -1162,6 +1162,7 @@ class WorkOrder(TimeStampedModel):
                             service_cost_price=override.service_cost_price,
                             service_selling_price=override.service_selling_price,
                             duration=override.duration,
+                            excluded_from_composition=override.excluded_from_composition,
                         )
                     )
 
