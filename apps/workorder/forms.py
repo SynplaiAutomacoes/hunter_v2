@@ -787,7 +787,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
     last_oil_change_date = forms.DateField(label="Data da última troca de óleo", required=False, widget=CalendarDateInput())
     last_oil_change_km = forms.IntegerField(label="KM da última troca de óleo", required=False, min_value=0, widget=NumberInput())
     review_plan = forms.ModelChoiceField(label="Plano de revisão", queryset=ReviewPlan.objects.none(), required=False, widget=SearchableSelectInput())
-    warranty_origin = forms.ModelChoiceField(label="O.S. de venda original", queryset=WorkOrder.objects.none(), required=False, widget=SearchableSelectInput())
+    warranty_origin = forms.ModelChoiceField(label="O.S. de venda de origem", queryset=WorkOrder.objects.none(), required=False, widget=SearchableSelectInput())
     warranty_term_template = forms.ModelChoiceField(
         label="Termo de garantia",
         queryset=WorkshopTermTemplate.objects.none(),
@@ -1028,7 +1028,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                         css_class="mt-4 grid grid-cols-12 gap-4 rounded-box border border-info/25 bg-info/10 p-4 text-base-content [&_label]:text-base-content [&_.label-text]:text-base-content",
                     )
                 ]
-                if self.workorder and self.workorder.budget_type == "warranty"
+                if self.workorder and self.workorder.budget_type in ("warranty", "courtesy")
                 else []
             ),
             *(
