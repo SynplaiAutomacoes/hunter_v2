@@ -376,8 +376,47 @@ def _filter_entries_by_origins(
     *,
     entries: list[CollaboratorCommissionEntry],
     allowed_origins: frozenset[str],
+    include_legacy_entries: bool = False,
 ) -> list[CollaboratorCommissionEntry]:
-    return [entry for entry in entries if entry.commission_origin in allowed_origins]
+    return [
+        entry
+        for entry in entries
+        if entry.commission_origin in allowed_origins
+        or (include_legacy_entries and not entry.commission_origin)
+    ]
+
+
+def _build_global_fallback_loss(
+    *,
+    workorder: WorkOrder,
+    payroll: CollaboratorPayroll,
+    allowed_origins: frozenset[str],
+) -> tuple[Money, Decimal, str, Money]:
+    scope_origins = (
+        (CollaboratorCommissionRule.Scope.SERVICE, SERVICE_COMMISSION_ORIGINS),
+        (CollaboratorCommissionRule.Scope.PRODUCT, PRODUCT_COMMISSION_ORIGINS),
+    )
+    components: list[tuple[Money, Decimal, str, Money]] = []
+    for scope, origins in scope_origins:
+        if not allowed_origins.intersection(origins):
+            continue
+        percentage = _get_global_percentage(collaborator_id=payroll.collaborator_id, scope=scope)
+        if percentage is None:
+            continue
+        base_amount = Money(
+            calculate_total_for_scope(workorder=workorder, workshop=payroll.workshop, scope=scope),
+            "BRL",
+        )
+        loss_amount = _money(base_amount.amount * percentage)
+        base_type = _base_type_label(resolve_base_type_for_scope(workshop=payroll.workshop, scope=scope))
+        components.append((base_amount, percentage, base_type, loss_amount))
+
+    if not components:
+        return Money(0, "BRL"), Decimal("0"), "—", Money(0, "BRL")
+
+    representative = max(components, key=lambda component: Decimal(str(component[0].amount or 0)))
+    total_loss = _money(sum((component[3].amount for component in components), start=Decimal("0")))
+    return representative[0], representative[1], representative[2], total_loss
 
 
 def _fetch_origin_entries_by_workorder(
@@ -415,11 +454,16 @@ def _build_loss_row(
     payroll: CollaboratorPayroll,
     allowed_origins: frozenset[str],
     scope: str,
+    include_legacy_entries: bool,
     base_type_cache: dict[tuple[int, str], str],
 ) -> PayrollCommissionLossRow:
     origin_workorder = benefit_workorder.warranty_origin
     origin_entries = origin_entries_by_workorder.get(origin_workorder.pk, []) if origin_workorder is not None else []
-    scoped_entries = _filter_entries_by_origins(entries=origin_entries, allowed_origins=allowed_origins)
+    scoped_entries = _filter_entries_by_origins(
+        entries=origin_entries,
+        allowed_origins=allowed_origins,
+        include_legacy_entries=include_legacy_entries,
+    )
     loss_amount = _sum_commission_amount(scoped_entries)
     if scoped_entries:
         base_amount = max(
@@ -428,15 +472,22 @@ def _build_loss_row(
         )
         percentage = max((Decimal(str(entry.percentage or 0)) for entry in scoped_entries), default=Decimal("0"))
     elif origin_workorder is not None:
-        base_amount = Money(
-            calculate_total_for_scope(
-                workorder=origin_workorder,
-                workshop=payroll.workshop,
-                scope=scope,
-            ),
-            "BRL",
+        base_amount, percentage, fallback_base_type_display, loss_amount = _build_global_fallback_loss(
+            workorder=origin_workorder,
+            payroll=payroll,
+            allowed_origins=allowed_origins,
         )
-        percentage = Decimal("0")
+        if not loss_amount.amount:
+            base_amount = Money(
+                calculate_total_for_scope(
+                    workorder=origin_workorder,
+                    workshop=payroll.workshop,
+                    scope=scope,
+                ),
+                "BRL",
+            )
+            percentage = Decimal("0")
+            fallback_base_type_display = "—"
     else:
         base_amount = Money(0, "BRL")
         percentage = Decimal("0")
@@ -445,11 +496,15 @@ def _build_loss_row(
         origin_workorder=origin_workorder,
         entries=scoped_entries,
         base_amount=base_amount,
-        base_type_display=_build_base_type_display(
-            entries=scoped_entries,
-            workshop=payroll.workshop,
-            fallback_scopes=(scope,),
-            base_type_cache=base_type_cache,
+        base_type_display=(
+            fallback_base_type_display
+            if not scoped_entries and loss_amount.amount
+            else _build_base_type_display(
+                entries=scoped_entries,
+                workshop=payroll.workshop,
+                fallback_scopes=(scope,),
+                base_type_cache=base_type_cache,
+            )
         ),
         percentage=percentage,
         loss_amount=loss_amount,
@@ -472,6 +527,7 @@ def _build_loss_rows(
     reason_types: frozenset[str],
     allowed_origins: frozenset[str],
     scope: str,
+    has_global_scope: bool,
     base_type_cache: dict[tuple[int, str], str],
     benefit_workorders: list[WorkOrder] | None = None,
 ) -> tuple[list[PayrollCommissionLossRow], Money]:
@@ -487,6 +543,17 @@ def _build_loss_rows(
         reason_type = getattr(benefit_workorder, "courtesy_reason_type", None)
         if reason_type not in reason_types:
             continue
+        origin_workorder = benefit_workorder.warranty_origin
+        origin_entries = origin_entries_by_workorder.get(origin_workorder.pk, []) if origin_workorder is not None else []
+        scoped_entries = _filter_entries_by_origins(
+            entries=origin_entries,
+            allowed_origins=allowed_origins,
+            include_legacy_entries=not has_global_scope,
+        )
+        # Perfis por participação só devem visualizar garantias/cortesias de
+        # O.S. de origem nas quais receberam comissão no escopo da falha.
+        if not has_global_scope and not scoped_entries:
+            continue
         rows.append(
             _build_loss_row(
                 benefit_workorder=benefit_workorder,
@@ -494,12 +561,13 @@ def _build_loss_rows(
                 payroll=payroll,
                 allowed_origins=allowed_origins,
                 scope=scope,
+                include_legacy_entries=not has_global_scope,
                 base_type_cache=base_type_cache,
             )
         )
 
     rows.sort(key=lambda row: getattr(row.benefit_workorder, "pk", 0) or 0)
-    total = _sum_commission_amount([entry for row in rows for entry in row.entries])
+    total = _money(sum((row.loss_amount.amount for row in rows), start=Decimal("0")))
     return rows, total
 
 
@@ -522,6 +590,7 @@ def _build_unclassified_benefit_rows(
                 payroll=payroll,
                 allowed_origins=SERVICE_COMMISSION_ORIGINS | PRODUCT_COMMISSION_ORIGINS,
                 scope=CollaboratorCommissionRule.Scope.SERVICE,
+                include_legacy_entries=True,
                 base_type_cache=base_type_cache,
             )
         )
@@ -623,11 +692,17 @@ def _build_unified_warranty_rows(
                     base_type_display = _build_base_type_display(entries=loss_entries, workshop=payroll.workshop, base_type_cache=base_type_cache)
                     percentage_display = _build_percentage_display(loss_entries)
                 else:
-                    scope_to_calc = CollaboratorCommissionRule.Scope.SERVICE if applies_service else CollaboratorCommissionRule.Scope.PRODUCT
-                    calculated_base = calculate_total_for_scope(workorder=origin_workorder, workshop=payroll.workshop, scope=scope_to_calc)
-                    base_amount = Money(calculated_base, "BRL")
-                    base_type_display = _base_type_label(resolve_base_type_for_scope(workshop=payroll.workshop, scope=scope_to_calc))
-                    percentage_display = "0,00%"
+                    fallback_origins = frozenset()
+                    if applies_service:
+                        fallback_origins = fallback_origins | SERVICE_COMMISSION_ORIGINS
+                    if applies_product:
+                        fallback_origins = fallback_origins | PRODUCT_COMMISSION_ORIGINS
+                    base_amount, percentage, base_type_display, loss_money = _build_global_fallback_loss(
+                        workorder=origin_workorder,
+                        payroll=payroll,
+                        allowed_origins=fallback_origins,
+                    )
+                    percentage_display = f"{str((percentage * Decimal('100')).quantize(Decimal('0.01'))).replace('.', ',')}%"
 
                 if loss_money.amount > 0:
                     is_loss = True
@@ -688,11 +763,11 @@ def _build_unified_warranty_rows(
     return rows, Money(total_loss, "BRL"), loss_count
 
 
-def _get_global_service_percentage(*, collaborator_id: int) -> Decimal | None:
+def _get_global_percentage(*, collaborator_id: int, scope: str) -> Decimal | None:
     rule = (
         CollaboratorCommissionRule.objects.filter(
             collaborator_id=collaborator_id,
-            scope=CollaboratorCommissionRule.Scope.SERVICE,
+            scope=scope,
             apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
             modality=CollaboratorCommissionRule.Modality.PERCENTAGE,
             is_active=True,
@@ -705,6 +780,11 @@ def _get_global_service_percentage(*, collaborator_id: int) -> Decimal | None:
     return Decimal(str(rule.percentage or 0))
 
 
+def _get_global_service_percentage(*, collaborator_id: int) -> Decimal | None:
+    return _get_global_percentage(
+        collaborator_id=collaborator_id,
+        scope=CollaboratorCommissionRule.Scope.SERVICE,
+    )
 def _collaborator_sale_workorders_queryset(*, payroll: CollaboratorPayroll, has_global_service: bool):
     queryset = WorkOrder.objects.filter(
         workshop=payroll.workshop,
@@ -874,6 +954,7 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
         reason_types=LABOR_ONLY_REASON_TYPES,
         allowed_origins=SERVICE_COMMISSION_ORIGINS,
         scope=CollaboratorCommissionRule.Scope.SERVICE,
+        has_global_scope=has_global_service,
         base_type_cache=base_type_cache,
         benefit_workorders=benefit_workorders,
     )
@@ -882,6 +963,7 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
         reason_types=PARTS_ONLY_REASON_TYPES,
         allowed_origins=PRODUCT_COMMISSION_ORIGINS,
         scope=CollaboratorCommissionRule.Scope.PRODUCT,
+        has_global_scope=has_global_product,
         base_type_cache=base_type_cache,
         benefit_workorders=benefit_workorders,
     )
@@ -890,6 +972,7 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
         reason_types=BOTH_REASON_TYPES,
         allowed_origins=SERVICE_COMMISSION_ORIGINS | PRODUCT_COMMISSION_ORIGINS,
         scope=CollaboratorCommissionRule.Scope.SERVICE,
+        has_global_scope=has_global_service or has_global_product,
         base_type_cache=base_type_cache,
         benefit_workorders=benefit_workorders,
     )
