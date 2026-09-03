@@ -65,7 +65,7 @@ class PayrollCommissionHistoryTests(TestCase):
             delivered_at=timezone.make_aware(datetime(2026, 8, day)),
         )
 
-    def test_non_global_collaborator_uses_legacy_layout(self) -> None:
+    def test_non_global_collaborator_uses_unified_layout(self) -> None:
         sale_workorder = create_workorder(workshop=self.workshop, budget_type="sale")
         CollaboratorCommissionEntry.objects.create(
             workshop=self.workshop,
@@ -78,12 +78,16 @@ class PayrollCommissionHistoryTests(TestCase):
             base_amount=Money(1000, "BRL"),
             commission_amount=Money(60, "BRL"),
             commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_PCT_POOL,
+            notes="Comissão serviço",
         )
 
         history = build_payroll_commission_history(payroll=self.payroll)
 
-        self.assertFalse(history.is_global_layout)
-        self.assertEqual(len(history.sale_rows), 0)
+        self.assertTrue(history.is_global_layout)
+        self.assertEqual(len(history.sale_rows), 1)
+        self.assertEqual(history.sale_rows[0].commission_amount, Money(60, "BRL"))
+        self.assertEqual(history.sale_rows[0].preview_note, "Comissão serviço")
+        self.assertEqual(history.sale_total, Money(60, "BRL"))
 
     def test_global_layout_groups_sale_workorders(self) -> None:
         create_global_rule(collaborator=self.collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
@@ -241,11 +245,11 @@ class PayrollCommissionHistoryTests(TestCase):
 
         history = build_payroll_commission_history(payroll=self.payroll)
 
-        self.assertEqual(len(history.labor_failure_rows), 1)
-        self.assertEqual(len(history.parts_failure_rows), 1)
-        self.assertEqual(history.labor_failure_total, Money(50, "BRL"))
-        self.assertEqual(history.parts_failure_total, Money(40, "BRL"))
-        self.assertEqual(history.labor_failure_rows[0].reason_display, "Ambos: Retrabalho completo.")
+        self.assertEqual(len(history.both_failure_rows), 1)
+        self.assertEqual(history.both_failure_total, Money(90, "BRL"))
+        self.assertEqual(len(history.labor_failure_rows), 0)
+        self.assertEqual(len(history.parts_failure_rows), 0)
+        self.assertEqual(history.both_failure_rows[0].reason_display, "Ambos: Retrabalho completo.")
         self.assertEqual(len(history.warranty_rows), 1)
         self.assertEqual(history.warranty_rows[0].loss_amount, Money(90, "BRL"))
 
@@ -343,7 +347,7 @@ class PayrollCommissionHistoryTests(TestCase):
         self.assertEqual(history.sale_count, 1)
         self.assertEqual(history.sale_total, Money(100, "BRL"))
 
-    def test_legacy_layout_exposes_total_and_workorder_count(self) -> None:
+    def test_build_payroll_commission_history_populates_legacy_totals(self) -> None:
         sale_workorder = create_workorder(workshop=self.workshop, budget_type="sale")
         CollaboratorCommissionEntry.objects.create(
             workshop=self.workshop,
@@ -360,9 +364,9 @@ class PayrollCommissionHistoryTests(TestCase):
 
         history = build_payroll_commission_history(payroll=self.payroll)
 
-        self.assertFalse(history.is_global_layout)
-        self.assertEqual(history.legacy_workorder_count, 1)
-        self.assertEqual(history.legacy_total, Money(60, "BRL"))
+        self.assertTrue(history.is_global_layout)
+        self.assertEqual(len(history.sale_rows), 1)
+        self.assertEqual(history.sale_total, Money(60, "BRL"))
 
     def test_preview_sale_rows_include_delivered_workorders_outside_competence_marked_yellow(self) -> None:
         from apps.finance.models.payment_method import PaymentMethod
@@ -398,3 +402,35 @@ class PayrollCommissionHistoryTests(TestCase):
         self.assertTrue(history.sale_rows[0].is_yellow)
         self.assertIn("09/2026", history.sale_rows[0].competence_display)
         self.assertEqual(history.preview_sale_total, Money(50, "BRL"))
+
+    def test_both_failure_table_uses_both_reason_type(self) -> None:
+        create_global_rule(collaborator=self.collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
+        sale_workorder = create_workorder(workshop=self.workshop, budget_type="sale")
+        CollaboratorCommissionEntry.objects.create(
+            workshop=self.workshop,
+            collaborator=self.collaborator,
+            payroll=self.payroll,
+            workorder=sale_workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.050000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(50, "BRL"),
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
+        )
+
+        both_workorder = create_workorder(workshop=self.workshop, budget_type="courtesy", status=WorkOrderStatus.DRAFT)
+        both_workorder.warranty_origin = sale_workorder
+        both_workorder.courtesy_reason_type = WorkOrderCourtesyReasonType.BOTH
+        both_workorder.courtesy_reason_description = "Falha dupla"
+        both_workorder.save(update_fields=["warranty_origin", "courtesy_reason_type", "courtesy_reason_description"])
+        self._set_august_delivery(both_workorder, day=10)
+
+        history = build_payroll_commission_history(payroll=self.payroll)
+
+        self.assertEqual(len(history.both_failure_rows), 1)
+        self.assertEqual(history.both_failure_total, Money(50, "BRL"))
+        self.assertEqual(len(history.labor_failure_rows), 0)
+        self.assertEqual(len(history.parts_failure_rows), 0)
+        self.assertEqual(history.both_failure_rows[0].reason_display, "Ambos: Falha dupla")
+

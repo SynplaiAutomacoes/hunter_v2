@@ -1,11 +1,11 @@
 {% load l10n %}
 
 {% if commission_history.warranty_loss_total.amount > 0 %}
-<div class="alert alert-error shadow-sm bg-opacity-20 border-error">
+<div class="alert alert-error shadow-sm bg-opacity-20 border-error mb-2">
     <div class="flex flex-col gap-1 text-error">
         <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
         <span class="text-sm text-gray-900">
-            Este colaborador gerou prejuízo de <strong>-{{ commission_history.warranty_loss_total }}</strong> nas comissões devido a garantias/cortesias com falha atribuída.
+            Este colaborador gerou prejuízo de <strong>-{{ commission_history.warranty_loss_total }}</strong> nas comissões devido a garantias/cortesias com falha de mão de obra, serviço/peça ou ambas.
         </span>
     </div>
 </div>
@@ -16,7 +16,7 @@
     <div class="flex items-center justify-between">
         <h4 class="text-sm font-semibold text-base-content flex items-center gap-2">
             <span class="material-icons text-sm text-primary">point_of_sale</span>
-            Comissões — O.S. de Venda
+            Comissões de Venda
         </h4>
         <span class="text-xs text-base-content/60">Competência: {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</span>
     </div>
@@ -83,7 +83,7 @@
                             <td>{{ row.base_amount }}</td>
                             <td>{{ row.percentage_display }}</td>
                             <td class="font-semibold">{{ row.commission_amount }}</td>
-                            <td>—</td>
+                            <td class="max-w-xs text-xs text-base-content/70 whitespace-pre-wrap break-words">{{ row.preview_note|default:"—" }}</td>
                             <td>
                                 {% if row.status_display == "Pago" %}
                                     <span class="badge badge-success badge-sm font-medium">Pago</span>
@@ -100,14 +100,13 @@
             {% if commission_history.sale_rows %}
             <tfoot class="bg-base-200/40">
                 <tr>
-                    <td colspan="4" class="text-right font-semibold">
+                    <td colspan="6" class="text-right font-semibold">
                         Total da competência ({{ commission_history.sale_count }} O.S.)
                         {% if commission_history.has_preview_sales %}
                             <span class="block text-[11px] font-normal text-base-content/60">+ {{ commission_history.preview_sale_count }} O.S. prevista(s) fora da competência</span>
                         {% endif %}
                     </td>
-                    <td class="font-bold text-success">{{ commission_history.sale_total }}</td>
-                    <td colspan="2"></td>
+                    <td class="text-right font-bold text-success">{{ commission_history.sale_total }}</td>
                 </tr>
             </tfoot>
             {% endif %}
@@ -115,32 +114,15 @@
     </div>
 </div>
 
-{# TABELA 2: GARANTIAS E CORTESIAS #}
+{# TABELA 2: GARANTIAS E CORTESIAS - FALHA DE MÃO DE OBRA #}
 <div class="mt-8 space-y-3">
     <div class="flex items-center justify-between">
         <h4 class="text-sm font-semibold text-base-content flex items-center gap-2">
-            <span class="material-icons text-sm text-error">assignment_late</span>
-            Garantias e Cortesias
+            <span class="material-icons text-sm text-error">build_circle</span>
+            Garantias e Cortesias — Falha de Mão de Obra
         </h4>
-        <span class="text-xs text-base-content/60">Entregues no mês: {{ commission_history.warranty_count }} O.S.</span>
+        <span class="text-xs text-base-content/60">Entregues no mês: {{ commission_history.labor_failure_count }} O.S.</span>
     </div>
-
-    {% if commission_history.has_yellow_warranties %}
-    <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-base-content">
-        <div class="flex items-start gap-2">
-            <span class="material-icons text-warning text-base mt-0.5 shrink-0">help_outline</span>
-            <div>
-                <p class="font-semibold mb-1">Por que algumas garantias/cortesias não geraram desconto?</p>
-                <ul class="list-disc list-inside space-y-0.5 text-base-content/80">
-                    <li>Sem O.S. de origem vinculada</li>
-                    <li>Defeito de peças (para comissões exclusivas de serviço)</li>
-                    <li>Colaborador não participou da O.S. original</li>
-                </ul>
-                <p class="mt-1.5 text-base-content/60">Passe o mouse sobre o ícone amarelo na coluna Status para ver o motivo individual.</p>
-            </div>
-        </div>
-    </div>
-    {% endif %}
 
     <div class="overflow-x-auto rounded-xl border border-base-300">
         <table class="table table-sm">
@@ -156,65 +138,178 @@
                 </tr>
             </thead>
             <tbody>
-                {% for row in commission_history.warranty_rows %}
-                    {% if row.is_loss %}
-                        <tr class="hover:bg-base-200/40 transition-colors">
-                            <td class="font-medium">
-                                <a href="{% url 'workorder:workorder_detail' pk=row.benefit_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.benefit_workorder.get_id }}</a>
-                                <span class="badge badge-outline badge-xs block mt-0.5 w-fit">{{ row.type_display }}</span>
-                            </td>
-                            <td>
-                                {% if row.origin_workorder %}
-                                    <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary hover:underline font-medium">#{{ row.origin_workorder.get_id }}</a>
-                                {% else %}
-                                    <span class="text-base-content/40">—</span>
-                                {% endif %}
-                            </td>
-                            <td class="max-w-xs whitespace-pre-wrap break-words text-xs">{{ row.reason_display }}</td>
-                            <td>{{ row.base_amount }}</td>
-                            <td>{{ row.percentage_display }}</td>
-                            <td class="font-bold text-error">-{{ row.loss_amount }}</td>
-                            <td>
+                {% for row in commission_history.labor_failure_rows %}
+                    <tr class="hover:bg-base-200/40 transition-colors">
+                        <td class="font-medium">
+                            <a href="{% url 'workorder:workorder_detail' pk=row.benefit_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.benefit_workorder.get_id }}</a>
+                            <span class="badge badge-outline badge-xs block mt-0.5 w-fit">{{ row.benefit_workorder.get_budget_type_display }}</span>
+                        </td>
+                        <td>
+                            {% if row.origin_workorder %}
+                                <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary hover:underline font-medium">#{{ row.origin_workorder.get_id }}</a>
+                            {% else %}
+                                <span class="text-base-content/40">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="max-w-xs whitespace-pre-wrap break-words text-xs">{{ row.reason_display }}</td>
+                        <td>{{ row.base_amount }}</td>
+                        <td>{{ row.percentage_display }}</td>
+                        <td class="font-bold text-error">{% if row.loss_amount.amount > 0 %}-{{ row.loss_amount }}{% else %}R$ 0,00{% endif %}</td>
+                        <td>
+                            {% if row.loss_amount.amount > 0 %}
                                 <span class="badge badge-error badge-sm font-medium">Prejuízo deduzido</span>
-                            </td>
-                        </tr>
-                    {% else %}
-                        <tr class="hover:bg-base-200/40 transition-colors">
-                            <td class="font-medium">
-                                <a href="{% url 'workorder:workorder_detail' pk=row.benefit_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.benefit_workorder.get_id }}</a>
-                                <span class="badge badge-ghost badge-xs block mt-0.5 w-fit text-base-content/70">{{ row.type_display }}</span>
-                            </td>
-                            <td>
-                                {% if row.origin_workorder %}
-                                    <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary hover:underline font-medium">#{{ row.origin_workorder.get_id }}</a>
-                                {% else %}
-                                    <span class="text-base-content/40">—</span>
-                                {% endif %}
-                            </td>
-                            <td class="max-w-xs whitespace-pre-wrap break-words text-xs text-base-content/80">{{ row.reason_display }}</td>
-                            <td><span class="text-base-content/60">{{ row.base_amount }}</span></td>
-                            <td><span class="text-base-content/60">{{ row.percentage_display }}</span></td>
-                            <td><span class="font-medium text-base-content/50">R$ 0,00</span></td>
-                            <td>
-                                <div class="flex items-center gap-1.5">
-                                    <span class="badge badge-ghost badge-sm text-base-content/70">Sem desconto</span>
-                                    <span class="tooltip tooltip-left before:max-w-xs before:whitespace-normal before:text-xs before:leading-snug before:font-normal before:shadow-lg z-30 cursor-help" data-tip="{{ row.yellow_reason }}" title="{{ row.yellow_reason }}">
-                                        <span class="material-icons text-base text-warning hover:text-warning-focus transition-colors">info</span>
-                                    </span>
-                                </div>
-                            </td>
-                        </tr>
-                    {% endif %}
+                            {% else %}
+                                <span class="badge badge-ghost badge-sm text-base-content/70">Sem desconto</span>
+                            {% endif %}
+                        </td>
+                    </tr>
                 {% empty %}
-                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma O.S. de garantia/cortesia entregue nesta competência.</td></tr>
+                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma garantia/cortesia por falha de mão de obra entregue nesta competência.</td></tr>
                 {% endfor %}
             </tbody>
-
+            {% if commission_history.labor_failure_rows %}
+            <tfoot class="bg-base-200/40">
+                <tr>
+                    <td colspan="6" class="text-right font-semibold">Total de Prejuízo (Falha de Mão de Obra):</td>
+                    <td class="text-right font-bold text-error">{% if commission_history.labor_failure_total.amount > 0 %}-{{ commission_history.labor_failure_total }}{% else %}R$ 0,00{% endif %}</td>
+                </tr>
+            </tfoot>
+            {% endif %}
         </table>
     </div>
 </div>
 
-{# TABELA 3 (OPCIONAL): COMISSÕES MANUAIS #}
+{# TABELA 3: GARANTIAS E CORTESIAS - FALHA DE PEÇAS #}
+<div class="mt-8 space-y-3">
+    <div class="flex items-center justify-between">
+        <h4 class="text-sm font-semibold text-base-content flex items-center gap-2">
+            <span class="material-icons text-sm text-error">settings</span>
+            Garantias e Cortesias — Falha de Peças
+        </h4>
+        <span class="text-xs text-base-content/60">Entregues no mês: {{ commission_history.parts_failure_count }} O.S.</span>
+    </div>
+
+    <div class="overflow-x-auto rounded-xl border border-base-300">
+        <table class="table table-sm">
+            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                <tr>
+                    <th>O.S.</th>
+                    <th>Origem</th>
+                    <th>Tipo / Motivo</th>
+                    <th>Base</th>
+                    <th>%</th>
+                    <th>Prejuízo</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in commission_history.parts_failure_rows %}
+                    <tr class="hover:bg-base-200/40 transition-colors">
+                        <td class="font-medium">
+                            <a href="{% url 'workorder:workorder_detail' pk=row.benefit_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.benefit_workorder.get_id }}</a>
+                            <span class="badge badge-outline badge-xs block mt-0.5 w-fit">{{ row.benefit_workorder.get_budget_type_display }}</span>
+                        </td>
+                        <td>
+                            {% if row.origin_workorder %}
+                                <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary hover:underline font-medium">#{{ row.origin_workorder.get_id }}</a>
+                            {% else %}
+                                <span class="text-base-content/40">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="max-w-xs whitespace-pre-wrap break-words text-xs">{{ row.reason_display }}</td>
+                        <td>{{ row.base_amount }}</td>
+                        <td>{{ row.percentage_display }}</td>
+                        <td class="font-bold text-error">{% if row.loss_amount.amount > 0 %}-{{ row.loss_amount }}{% else %}R$ 0,00{% endif %}</td>
+                        <td>
+                            {% if row.loss_amount.amount > 0 %}
+                                <span class="badge badge-error badge-sm font-medium">Prejuízo deduzido</span>
+                            {% else %}
+                                <span class="badge badge-ghost badge-sm text-base-content/70">Sem desconto</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma garantia/cortesia por falha de peças entregue nesta competência.</td></tr>
+                {% endfor %}
+            </tbody>
+            {% if commission_history.parts_failure_rows %}
+            <tfoot class="bg-base-200/40">
+                <tr>
+                    <td colspan="6" class="text-right font-semibold">Total de Prejuízo (Falha de Peças):</td>
+                    <td class="text-right font-bold text-error">{% if commission_history.parts_failure_total.amount > 0 %}-{{ commission_history.parts_failure_total }}{% else %}R$ 0,00{% endif %}</td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</div>
+
+{# TABELA 4: GARANTIAS E CORTESIAS - AMBOS #}
+<div class="mt-8 space-y-3">
+    <div class="flex items-center justify-between">
+        <h4 class="text-sm font-semibold text-base-content flex items-center gap-2">
+            <span class="material-icons text-sm text-error">error</span>
+            Garantias e Cortesias — Falha de Mão de Obra e Peças
+        </h4>
+        <span class="text-xs text-base-content/60">Entregues no mês: {{ commission_history.both_failure_count }} O.S.</span>
+    </div>
+
+    <div class="overflow-x-auto rounded-xl border border-base-300">
+        <table class="table table-sm">
+            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                <tr>
+                    <th>O.S.</th>
+                    <th>Origem</th>
+                    <th>Tipo / Motivo</th>
+                    <th>Base</th>
+                    <th>%</th>
+                    <th>Prejuízo</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in commission_history.both_failure_rows %}
+                    <tr class="hover:bg-base-200/40 transition-colors">
+                        <td class="font-medium">
+                            <a href="{% url 'workorder:workorder_detail' pk=row.benefit_workorder.pk %}" target="_blank" class="hover:text-primary transition-colors hover:underline">#{{ row.benefit_workorder.get_id }}</a>
+                            <span class="badge badge-outline badge-xs block mt-0.5 w-fit">{{ row.benefit_workorder.get_budget_type_display }}</span>
+                        </td>
+                        <td>
+                            {% if row.origin_workorder %}
+                                <a href="{% url 'workorder:workorder_detail' pk=row.origin_workorder.pk %}" target="_blank" class="hover:text-primary hover:underline font-medium">#{{ row.origin_workorder.get_id }}</a>
+                            {% else %}
+                                <span class="text-base-content/40">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="max-w-xs whitespace-pre-wrap break-words text-xs">{{ row.reason_display }}</td>
+                        <td>{{ row.base_amount }}</td>
+                        <td>{{ row.percentage_display }}</td>
+                        <td class="font-bold text-error">{% if row.loss_amount.amount > 0 %}-{{ row.loss_amount }}{% else %}R$ 0,00{% endif %}</td>
+                        <td>
+                            {% if row.loss_amount.amount > 0 %}
+                                <span class="badge badge-error badge-sm font-medium">Prejuízo deduzido</span>
+                            {% else %}
+                                <span class="badge badge-ghost badge-sm text-base-content/70">Sem desconto</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="7" class="py-6 text-center text-base-content/60">Nenhuma garantia/cortesia por falha de mão de obra e peças entregue nesta competência.</td></tr>
+                {% endfor %}
+            </tbody>
+            {% if commission_history.both_failure_rows %}
+            <tfoot class="bg-base-200/40">
+                <tr>
+                    <td colspan="6" class="text-right font-semibold">Total de Prejuízo (Ambos):</td>
+                    <td class="text-right font-bold text-error">{% if commission_history.both_failure_total.amount > 0 %}-{{ commission_history.both_failure_total }}{% else %}R$ 0,00{% endif %}</td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</div>
+
+{# TABELA 5 (OPCIONAL): COMISSÕES MANUAIS #}
 {% if commission_history.manual_entries %}
 <div class="mt-8 space-y-3">
     <h4 class="text-sm font-semibold text-base-content flex items-center gap-2">
