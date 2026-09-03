@@ -159,6 +159,7 @@ class CommissionReportVisibilityTests(TestCase):
             percentage=Decimal("0.100000"),
             base_amount=Money(1000, "BRL"),
             commission_amount=Money(100, "BRL"),
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
             status=CollaboratorCommissionEntry.Status.FORECAST,
         )
         CollaboratorCommissionEntry.objects.create(
@@ -170,6 +171,7 @@ class CommissionReportVisibilityTests(TestCase):
             percentage=Decimal("0.050000"),
             base_amount=Money(1000, "BRL"),
             commission_amount=Money(50, "BRL"),
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
             status=CollaboratorCommissionEntry.Status.FORECAST,
         )
         CollaboratorCommissionEntry.objects.create(
@@ -181,6 +183,7 @@ class CommissionReportVisibilityTests(TestCase):
             percentage=Decimal("0.100000"),
             base_amount=Money(500, "BRL"),
             commission_amount=Money(50, "BRL"),
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
             status=CollaboratorCommissionEntry.Status.PAID,
             paid_at=timezone.localdate(),
         )
@@ -195,6 +198,45 @@ class CommissionReportVisibilityTests(TestCase):
         self.assertEqual(cards[0]["title"], "Total de serviços")
         self.assertEqual(cards[0]["value"], "R$ 1.500,00")
         self.assertEqual(cards[0]["support"], "somente serviços de O.S. de venda")
+
+    def test_summary_cards_ignore_product_base_when_service_exists_on_same_workorder(self) -> None:
+        workshop = create_workshop(suffix=100)
+        collaborator = create_collaborator(workshop=workshop, suffix=100)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+
+        CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.050000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(50, "BRL"),
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.SERVICE_GLOBAL,
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+        CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.030000"),
+            base_amount=Money(2500, "BRL"),
+            commission_amount=Money(75, "BRL"),
+            commission_origin=CollaboratorCommissionEntry.CommissionOrigin.PRODUCT_GLOBAL,
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+
+        request = RequestFactory().get(reverse("finance:commission_report"), {"mes": 8, "ano": 2026})
+        view = CommissionReportView()
+        view.request = request
+        view.workshop = workshop
+
+        cards = view._build_summary_cards(queryset=view._get_queryset())
+
+        self.assertEqual(cards[0]["value"], "R$ 1.000,00")
 
     def test_manual_commission_appears_in_report_and_pdf_with_notes(self) -> None:
         workshop = create_workshop(suffix=99)

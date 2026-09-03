@@ -1542,7 +1542,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     delivery_kwargs["previous_mechanic_id"] = workorder.previous_mechanic_id
                     delivery_kwargs["courtesy_reason_type"] = approval_form.cleaned_data.get("courtesy_reason_type")
                     delivery_kwargs["courtesy_reason_description"] = approval_form.cleaned_data.get("courtesy_reason_description") or ""
-                    if workorder.budget_type == "warranty":
+                    if workorder.budget_type in ("warranty", "courtesy"):
                         warranty_origin = approval_form.cleaned_data.get("warranty_origin")
                         delivery_kwargs["warranty_origin_id"] = warranty_origin.pk if warranty_origin else None
                     delivery_kwargs["update_courtesy_fields"] = True

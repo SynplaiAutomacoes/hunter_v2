@@ -92,7 +92,7 @@ def _regenerate_august_2026_commissions(apps, schema_editor) -> None:
 class Migration(migrations.Migration):
     dependencies = [
         ("collaborators", "0020_alter_collaboratorcommissionentry_commission_origin_and_more"),
-        ("workorder", "0047_workorder_courtesy_reason_fields"),
+        ("workorder", "0055_merge_warranty_origin_and_os_tip"),
     ]
 
     operations = [

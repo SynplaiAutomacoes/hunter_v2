@@ -213,14 +213,19 @@ def preview_workorder_collaborator_commissions(*, workorder: WorkOrder) -> list[
 def _pool_scope_has_commission_recipients(*, workorder: WorkOrder, scope: str) -> bool:
     from apps.collaborators.models import CollaboratorCommissionRule
 
-    collaborator_ids = workorder.collaborators.values_list("id", flat=True)
-    if not collaborator_ids:
-        return False
-    return CollaboratorCommissionRule.objects.filter(
-        collaborator_id__in=collaborator_ids,
-        scope=scope,
-        is_active=True,
-    ).exists()
+    collaborator_ids = list(workorder.collaborators.values_list("id", flat=True))
+    return (
+        CollaboratorCommissionRule.objects.filter(scope=scope, is_active=True)
+        .filter(
+            Q(collaborator_id__in=collaborator_ids)
+            | Q(
+                apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+                collaborator__workshop=workorder.workshop,
+                collaborator__is_active=True,
+            )
+        )
+        .exists()
+    )
 
 
 def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, object]:
@@ -236,12 +241,20 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
         total_S = ZERO
     total_S_money = Money(_quantize(total_S), "BRL")
 
-    # Regras por participação na WO
-    collab_ids_in_wo = list(workorder.collaborators.values_list("id", flat=True))
+    # Participantes vêm da O.S.; globais vêm de toda a oficina e não dependem do vínculo.
+    linked_collaborators = list(workorder.collaborators.all())
+    collab_ids_in_wo = [collaborator.pk for collaborator in linked_collaborators]
     rules = list(
-        CollaboratorCommissionRule.objects.filter(
-            collaborator_id__in=collab_ids_in_wo, scope=scope, is_active=True
-        ).select_related("collaborator")
+        CollaboratorCommissionRule.objects.filter(scope=scope, is_active=True)
+        .filter(
+            Q(collaborator_id__in=collab_ids_in_wo)
+            | Q(
+                apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+                collaborator__workshop=workshop,
+                collaborator__is_active=True,
+            )
+        )
+        .select_related("collaborator")
     )
     # Fix / Pct
     fixed_rules = [r for r in rules if r.modality == CollaboratorCommissionRule.Modality.FIXED and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
@@ -259,9 +272,14 @@ def _build_pool_scope_context(*, workorder: WorkOrder, scope: str) -> dict[str, 
         for a in WorkOrderCommissionAllocation.objects.filter(workorder=workorder, scope=scope).select_related("collaborator")
     }
 
+    display_collaborators = {collaborator.pk: collaborator for collaborator in linked_collaborators}
+    for rule in rules:
+        if rule.apply_scope == CollaboratorCommissionRule.ApplyScope.GLOBAL:
+            display_collaborators.setdefault(rule.collaborator_id, rule.collaborator)
+
     rows: list[dict[str, object]] = []
     sum_base = ZERO
-    for collaborator in workorder.collaborators.all():
+    for collaborator in display_collaborators.values():
         rule = next((r for r in rules if r.collaborator_id == collaborator.pk), None)
         if rule is None:
             # Sem regra — mostrar como 0% e sem alocação
@@ -1762,6 +1780,35 @@ def _refresh_payroll_commission_from_entries(*, payroll: CollaboratorPayroll) ->
     return recalculate_payroll_from_linked_movements(payroll=payroll)
 
 
+def refresh_unpaid_payroll_commissions_for_references(
+    *,
+    collaborator: WorkshopCollaborator,
+    references: Iterable[tuple[int, int]],
+) -> list[CollaboratorPayroll]:
+    """Atualiza apenas folhas abertas após um recálculo global de comissões."""
+
+    normalized_references = {(int(year), int(month)) for year, month in references}
+    if not normalized_references:
+        return []
+
+    reference_filter = Q()
+    for year, month in normalized_references:
+        reference_filter |= Q(reference_year=year, reference_month=month)
+
+    refreshed: list[CollaboratorPayroll] = []
+    payrolls = (
+        CollaboratorPayroll.objects.filter(collaborator=collaborator)
+        .filter(reference_filter)
+        .select_related("financial_movement")
+        .prefetch_related("financial_movements")
+    )
+    for payroll in payrolls:
+        if _is_paid_payroll(payroll=payroll):
+            continue
+        refreshed.append(_refresh_payroll_commission_from_entries(payroll=payroll))
+    return refreshed
+
+
 @transaction.atomic
 def add_manual_payroll_benefit(
     *,
@@ -2417,9 +2464,31 @@ def sync_collaborator_payrolls_batch(*, collaborators: list[WorkshopCollaborator
 
 
 def sync_workorder_collaborator_payrolls(*, workorder: WorkOrder, reference_date: date | None = None) -> list[CollaboratorPayroll]:
+    from apps.collaborators.models import CollaboratorCommissionRule
+
+    collaborator_ids = set(workorder.collaborators.values_list("id", flat=True))
+    global_collab_ids = set(
+        CollaboratorCommissionRule.objects.filter(
+            collaborator__workshop=workorder.workshop,
+            collaborator__is_active=True,
+            is_active=True,
+            apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+        ).values_list("collaborator_id", flat=True)
+    )
+    if workorder.budget_type == "sale" and global_collab_ids:
+        missing_ids = global_collab_ids - collaborator_ids
+        if missing_ids:
+            workorder.collaborators.add(*missing_ids)
+            collaborator_ids.update(missing_ids)
+
+    collaborator_ids.update(global_collab_ids)
+    collaborator_ids.update(
+        CollaboratorCommissionEntry.objects.filter(workorder=workorder).values_list("collaborator_id", flat=True)
+    )
     if not _workorder_can_generate_commission(workorder=workorder):
         remove_pending_workorder_commissions(workorder=workorder)
     payrolls: list[CollaboratorPayroll] = []
-    for collaborator in workorder.collaborators.all():
+    collaborators = WorkshopCollaborator.objects.filter(pk__in=collaborator_ids).order_by("id")
+    for collaborator in collaborators:
         payrolls.append(sync_collaborator_payroll(collaborator=collaborator, reference_date=reference_date))
     return payrolls
