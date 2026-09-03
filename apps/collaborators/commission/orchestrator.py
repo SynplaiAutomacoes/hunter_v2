@@ -198,6 +198,10 @@ class WorkOrderCommissionOrchestrator:
                         reference=reference,
                         is_fixed=is_fixed,
                     )
+                    # Garante que colaborador global esteja formalmente vinculado como colaborador da O.S. de venda
+                    if locked.budget_type == "sale" and not locked.collaborators.filter(pk=rule.collaborator_id).exists():
+                        locked.collaborators.add(rule.collaborator)
+
                     if entry:
                         synced.append(entry)
 

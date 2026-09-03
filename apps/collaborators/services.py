@@ -2467,7 +2467,7 @@ def sync_workorder_collaborator_payrolls(*, workorder: WorkOrder, reference_date
     from apps.collaborators.models import CollaboratorCommissionRule
 
     collaborator_ids = set(workorder.collaborators.values_list("id", flat=True))
-    collaborator_ids.update(
+    global_collab_ids = set(
         CollaboratorCommissionRule.objects.filter(
             collaborator__workshop=workorder.workshop,
             collaborator__is_active=True,
@@ -2475,6 +2475,13 @@ def sync_workorder_collaborator_payrolls(*, workorder: WorkOrder, reference_date
             apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
         ).values_list("collaborator_id", flat=True)
     )
+    if workorder.budget_type == "sale" and global_collab_ids:
+        missing_ids = global_collab_ids - collaborator_ids
+        if missing_ids:
+            workorder.collaborators.add(*missing_ids)
+            collaborator_ids.update(missing_ids)
+
+    collaborator_ids.update(global_collab_ids)
     collaborator_ids.update(
         CollaboratorCommissionEntry.objects.filter(workorder=workorder).values_list("collaborator_id", flat=True)
     )

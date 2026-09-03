@@ -1,7 +1,7 @@
 {% load l10n %}
 
 {% if commission_history.warranty_loss_total.amount > 0 or prejuizo_total.amount < 0 %}
-<div class="alert alert-error shadow-sm bg-opacity-20 border-error">
+<div class="alert alert-error shadow-sm bg-opacity-20 border-error mb-2">
     <div class="flex flex-col gap-1 text-error">
         <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Atenção</span>
         <span class="text-sm text-gray-900">
@@ -115,14 +115,13 @@
             {% if commission_history.legacy_total.amount or commission_history.legacy_workorder_count %}
             <tfoot class="bg-base-200/40">
                 <tr>
-                    <td colspan="4" class="text-right font-semibold">
+                    <td colspan="7" class="text-right font-semibold">
                         Total da competência ({{ commission_history.legacy_workorder_count }} O.S.)
                         {% if commission_history.has_preview_sales %}
                             <span class="block text-[11px] font-normal text-base-content/60">+ {{ commission_history.preview_sale_count }} O.S. prevista(s) fora da competência</span>
                         {% endif %}
                     </td>
-                    <td class="font-bold text-success">{{ commission_history.legacy_total }}</td>
-                    <td colspan="3"></td>
+                    <td class="text-right font-bold text-success">{{ commission_history.legacy_total }}</td>
                 </tr>
             </tfoot>
             {% endif %}
