@@ -178,6 +178,39 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(len(context["financial_movement_report_rows"]), 1)
         self.assertIn("fornecedor especial", context["financial_movement_report_rows"][0]["description"])
 
+    def test_text_search_respects_explicit_date_filter(self) -> None:
+        workshop = create_workshop(suffix=13)
+        today = timezone.localdate()
+        start_date = today.replace(day=1)
+        old_date = start_date - timedelta(days=1)
+        create_movement(
+            workshop=workshop,
+            amount=Decimal("55.00"),
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            due_date=old_date,
+            description="Fatura fornecedor especial antiga",
+        )
+        create_movement(
+            workshop=workshop,
+            amount=Decimal("75.00"),
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            due_date=start_date,
+            description="Fatura fornecedor especial do período",
+        )
+
+        view = build_reports_view(
+            workshop=workshop,
+            query={
+                "search": "fornecedor especial",
+                "data_inicial": start_date.isoformat(),
+                "data_final": today.isoformat(),
+            },
+        )
+        context = view.get_context_data()
+
+        self.assertEqual(len(context["financial_movement_report_rows"]), 1)
+        self.assertIn("do período", context["financial_movement_report_rows"][0]["description"])
+
     def test_agent_filter_lists_collaborators_and_suppliers_from_movements(self) -> None:
         workshop = create_workshop(suffix=12)
         today = timezone.localdate()
