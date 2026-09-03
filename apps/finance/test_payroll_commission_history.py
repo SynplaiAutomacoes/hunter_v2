@@ -187,6 +187,40 @@ class PayrollCommissionHistoryTests(TestCase):
         self.assertTrue(history.warranty_rows[0].is_loss)
         self.assertEqual(history.warranty_rows[0].loss_amount, Money(50, "BRL"))
 
+    def test_participation_collaborator_only_sees_failures_from_origin_workorders_with_commission(self) -> None:
+        eligible_origin = create_workorder(workshop=self.workshop, budget_type="sale")
+        CollaboratorCommissionEntry.objects.create(
+            workshop=self.workshop,
+            collaborator=self.collaborator,
+            workorder=eligible_origin,
+            reference_year=2026,
+            reference_month=7,
+            percentage=Decimal("0.060000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(60, "BRL"),
+            # Comissões antigas não registravam o escopo em commission_origin.
+            commission_origin=None,
+        )
+        ineligible_origin = create_workorder(workshop=self.workshop, budget_type="sale")
+
+        eligible_warranty = create_workorder(workshop=self.workshop, budget_type="warranty", status=WorkOrderStatus.DRAFT)
+        eligible_warranty.warranty_origin = eligible_origin
+        eligible_warranty.courtesy_reason_type = WorkOrderCourtesyReasonType.LABOR_FAILURE
+        eligible_warranty.save(update_fields=["warranty_origin", "courtesy_reason_type"])
+        self._set_august_delivery(eligible_warranty, day=10)
+
+        ineligible_warranty = create_workorder(workshop=self.workshop, budget_type="warranty", status=WorkOrderStatus.DRAFT)
+        ineligible_warranty.warranty_origin = ineligible_origin
+        ineligible_warranty.courtesy_reason_type = WorkOrderCourtesyReasonType.LABOR_FAILURE
+        ineligible_warranty.save(update_fields=["warranty_origin", "courtesy_reason_type"])
+        self._set_august_delivery(ineligible_warranty, day=11)
+
+        history = build_payroll_commission_history(payroll=self.payroll)
+
+        self.assertEqual(len(history.labor_failure_rows), 1)
+        self.assertEqual(history.labor_failure_rows[0].benefit_workorder, eligible_warranty)
+        self.assertEqual(history.labor_failure_total, Money(60, "BRL"))
+
     def test_parts_failure_table_uses_product_scoped_loss(self) -> None:
         create_global_rule(collaborator=self.collaborator, scope=CollaboratorCommissionRule.Scope.PRODUCT)
         origin_workorder = create_workorder(workshop=self.workshop, budget_type="sale")
@@ -277,6 +311,10 @@ class PayrollCommissionHistoryTests(TestCase):
 
         self.assertEqual(history.labor_failure_rows[0].base_amount, Money(1200, "BRL"))
         self.assertEqual(history.labor_failure_rows[0].base_type_display, "Lucro")
+        self.assertEqual(history.labor_failure_rows[0].percentage_display, "5,00%")
+        self.assertEqual(history.labor_failure_rows[0].loss_amount, Money(60, "BRL"))
+        self.assertEqual(history.labor_failure_total, Money(60, "BRL"))
+        self.assertEqual(history.warranty_loss_total, Money(60, "BRL"))
 
     def test_delivered_courtesy_without_origin_is_marked_yellow(self) -> None:
         create_global_rule(collaborator=self.collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
