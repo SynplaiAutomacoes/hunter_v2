@@ -738,7 +738,7 @@ def _build_unified_warranty_rows(
                 yellow_reason = "Colaborador não participou da O.S. de origem"
 
         if is_loss:
-            status_display = "Prejuízo deduzido"
+            status_display = "Prejuízo a ser deduzido"
             total_loss += loss_money.amount
             loss_count += 1
         else:
