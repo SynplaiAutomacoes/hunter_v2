@@ -268,8 +268,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return filter_params
 
     @staticmethod
-    def _should_apply_date_filters(*, search: str) -> bool:
-        return not str(search or "").strip()
+    def _should_apply_date_filters(*, search: str, start_date: date | None, end_date: date | None) -> bool:
+        """Preserva o período informado pelo usuário ao combinar filtros e busca.
+
+        A busca sem período continua abrangendo todo o histórico, evitando que o
+        filtro padrão do dia restrinja uma pesquisa textual isolada.
+        """
+        return not str(search or "").strip() or start_date is not None or end_date is not None
 
     def _apply_paid_status_filter(self, queryset, paid_status: str):
         if not paid_status:
@@ -315,7 +320,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payment_method_id = filter_params["payment_method_id"]
         reconciliation_status = filter_params["reconciliation_status"]
         search = self._get_search_value()
-        apply_date_filters = self._should_apply_date_filters(search=search)
+        apply_date_filters = self._should_apply_date_filters(search=search, start_date=start_date, end_date=end_date)
 
         if apply_date_filters:
             if start_date is not None:
@@ -383,7 +388,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         paid_status = filter_params["paid_status"]
         reconciliation_status = filter_params["reconciliation_status"]
         search = self._get_search_value()
-        apply_date_filters = self._should_apply_date_filters(search=search)
+        apply_date_filters = self._should_apply_date_filters(search=search, start_date=start_date, end_date=end_date)
 
         for payment in payments:
             payment_amount = self._resolve_money_amount(payment.total_paid)
