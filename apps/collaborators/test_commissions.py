@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
 
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -917,3 +917,23 @@ class CommissionAndPayrollCommandTests(TestCase):
         self.assertIn("1 folha(s) reconciliada(s) como paga(s).", stdout.getvalue())
         movement.refresh_from_db()
         self.assertTrue(movement.is_paid)
+
+
+class GlobalCommissionReferenceMonthTests(SimpleTestCase):
+    def test_global_rule_applies_from_creation_month_by_competence(self) -> None:
+        from apps.collaborators.commission.orchestrator import _global_rule_applies_to_reference
+
+        rule_created = timezone.make_aware(datetime(2026, 8, 30, 16, 17, 32))
+
+        self.assertTrue(
+            _global_rule_applies_to_reference(
+                rule_criado_em=rule_created,
+                commission_reference=date(2026, 8, 1),
+            )
+        )
+        self.assertFalse(
+            _global_rule_applies_to_reference(
+                rule_criado_em=rule_created,
+                commission_reference=date(2026, 7, 1),
+            )
+        )

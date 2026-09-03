@@ -166,27 +166,23 @@ def _normalize_pdf_product_row_costs(row: dict) -> None:
         row["profit_value"] = zero_money()
         return
 
-    total_cost = unit_cost + shipping
-    row["product_cost_price"] = total_cost
     benefit_type = str(row.get("item_benefit_type") or "normal")
-    sale = row.get("total_price") or zero_money()
+    sale_total = row.get("total_price") or zero_money()
     if benefit_type not in ("normal", ""):
-        row["profit_value"] = -total_cost
+        row["profit_value"] = -(unit_cost + shipping)
     else:
-        row["profit_value"] = sale - total_cost
+        row["profit_value"] = sale_total - unit_cost - shipping
 
 
 def _normalize_pdf_service_row_costs(row: dict) -> None:
     shipping = _pdf_row_shipping(row)
     mechanic_cost = row.get("service_mechanic_cost_price") or zero_money()
-    total_cost = mechanic_cost + shipping
-    row["service_mechanic_cost_price"] = total_cost
     benefit_type = str(row.get("item_benefit_type") or "normal")
-    sale = row.get("total_price") or zero_money()
+    sale_total = row.get("total_price") or zero_money()
     if benefit_type not in ("normal", ""):
-        row["profit_value"] = -total_cost
+        row["profit_value"] = -(mechanic_cost + shipping)
     else:
-        row["profit_value"] = sale - total_cost
+        row["profit_value"] = sale_total - mechanic_cost - shipping
 
 
 def _apply_pdf_gestor_cost_rules(*, produtos: list[dict], servicos: list[dict]) -> None:
@@ -503,17 +499,18 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         for line in review_display.direct_services:
             service_mechanic_cost_price = line.warranty_total_price
             item_service_shipping = getattr(line.item, "service_shipping", Money(0, "BRL"))
+            service_sale_total = line.total_price + item_service_shipping
             servico = {
                 "id": line.item.service_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
-                "unit_price": money_div(line.total_price - item_service_shipping, line.item.quantity) if line.item.quantity > 0 else zero_money(),
-                "display_unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
-                "shipping": getattr(line.item, "service_shipping", Money(0, "BRL")),
-                "total_price": line.total_price,
+                "unit_price": line.unit_price,
+                "display_unit_price": money_div(service_sale_total, line.item.quantity) if line.item.quantity > 0 else zero_money(),
+                "shipping": item_service_shipping,
+                "total_price": service_sale_total,
                 "service_cost_price": line.warranty_total_price,
                 "service_mechanic_cost_price": service_mechanic_cost_price,
-                "profit_value": line.total_price - item_service_shipping - service_mechanic_cost_price,
+                "profit_value": line.total_price - service_mechanic_cost_price - item_service_shipping,
                 "duration_display": line.duration_display,
                 "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
                 "item_benefit_type": line.item.item_benefit_type,
