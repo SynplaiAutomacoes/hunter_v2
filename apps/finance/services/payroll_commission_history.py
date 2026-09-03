@@ -34,19 +34,9 @@ PRODUCT_COMMISSION_ORIGINS = frozenset(
     }
 )
 
-LABOR_FAILURE_REASON_TYPES = frozenset(
-    {
-        WorkOrderCourtesyReasonType.LABOR_FAILURE,
-        WorkOrderCourtesyReasonType.BOTH,
-    }
-)
-
-PARTS_FAILURE_REASON_TYPES = frozenset(
-    {
-        WorkOrderCourtesyReasonType.PART_DEFECT,
-        WorkOrderCourtesyReasonType.BOTH,
-    }
-)
+LABOR_ONLY_REASON_TYPES = frozenset({WorkOrderCourtesyReasonType.LABOR_FAILURE})
+PARTS_ONLY_REASON_TYPES = frozenset({WorkOrderCourtesyReasonType.PART_DEFECT})
+BOTH_REASON_TYPES = frozenset({WorkOrderCourtesyReasonType.BOTH})
 
 
 @dataclass
@@ -160,6 +150,9 @@ class PayrollCommissionHistoryContext:
     parts_failure_rows: list[PayrollCommissionLossRow] = field(default_factory=list)
     parts_failure_total: Money = field(default_factory=lambda: Money(0, "BRL"))
     parts_failure_count: int = 0
+    both_failure_rows: list[PayrollCommissionLossRow] = field(default_factory=list)
+    both_failure_total: Money = field(default_factory=lambda: Money(0, "BRL"))
+    both_failure_count: int = 0
     unclassified_benefit_rows: list[PayrollCommissionLossRow] = field(default_factory=list)
     unclassified_benefit_count: int = 0
     benefit_delivered_rows: list[PayrollCommissionBenefitDeliveredRow] = field(default_factory=list)
@@ -353,6 +346,8 @@ def _build_sale_rows(
         commission_amount = _sum_commission_amount(workorder_entries)
         first_entry = workorder_entries[0]
         status_display = "Pago" if first_entry.status == CollaboratorCommissionEntry.Status.PAID else "Não Pago"
+        notes_list = [entry.notes.strip() for entry in workorder_entries if entry.notes and entry.notes.strip()]
+        notes_display = " | ".join(notes_list) if notes_list else "—"
         rows.append(
             PayrollCommissionSaleRow(
                 workorder=workorder,
@@ -368,7 +363,7 @@ def _build_sale_rows(
                 commission_amount=commission_amount,
                 status_display=status_display,
                 is_preview=False,
-                preview_note="—",
+                preview_note=notes_display,
             )
         )
 
@@ -603,15 +598,15 @@ def _build_unified_warranty_rows(
         if origin_workorder is None:
             yellow_reason = "Sem O.S. de origem vinculada (não é possível apurar a base retroativa)"
         elif is_global:
-            applies_service = bool(has_global_service and (reason_type in LABOR_FAILURE_REASON_TYPES or reason_type == WorkOrderCourtesyReasonType.BOTH))
-            applies_product = bool(has_global_product and (reason_type in PARTS_FAILURE_REASON_TYPES or reason_type == WorkOrderCourtesyReasonType.BOTH))
+            applies_service = bool(has_global_service and (reason_type in LABOR_ONLY_REASON_TYPES or reason_type in BOTH_REASON_TYPES))
+            applies_product = bool(has_global_product and (reason_type in PARTS_ONLY_REASON_TYPES or reason_type in BOTH_REASON_TYPES))
 
             if not reason_type:
                 yellow_reason = "Motivo da garantia/cortesia não informado"
             elif not applies_service and not applies_product:
-                if reason_type in PARTS_FAILURE_REASON_TYPES and not has_global_product:
+                if reason_type in PARTS_ONLY_REASON_TYPES and not has_global_product:
                     yellow_reason = "Defeito de peça não gera prejuízo para comissão de serviços"
-                elif reason_type in LABOR_FAILURE_REASON_TYPES and not has_global_service:
+                elif reason_type in LABOR_ONLY_REASON_TYPES and not has_global_service:
                     yellow_reason = "Falha de mão de obra não gera prejuízo para comissão de produtos"
                 else:
                     yellow_reason = "Tipo de falha incompatível com o escopo de comissão do colaborador"
@@ -641,9 +636,9 @@ def _build_unified_warranty_rows(
         else:
             # Legacy / Participation collaborator
             if origin_entries:
-                if reason_type in LABOR_FAILURE_REASON_TYPES:
+                if reason_type in LABOR_ONLY_REASON_TYPES:
                     scoped = service_entries
-                elif reason_type in PARTS_FAILURE_REASON_TYPES:
+                elif reason_type in PARTS_ONLY_REASON_TYPES:
                     scoped = product_entries
                 else:
                     scoped = origin_entries
@@ -827,7 +822,6 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
         collaborator_id=collaborator_id,
         scope=CollaboratorCommissionRule.Scope.PRODUCT,
     ) or _payroll_has_global_scope_entry(payroll=payroll, scope=CollaboratorCommissionRule.Scope.PRODUCT)
-    is_global_layout = has_global_service or has_global_product
 
     all_entries = list(
         payroll.commission_entries.select_related("workorder")
@@ -860,35 +854,6 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
     )
     has_yellow_warranties = any(row.is_yellow for row in unified_warranty_rows)
 
-    if not is_global_layout:
-        warranty_wos, prejuizo_total = _build_legacy_warranty_context(payroll=payroll)
-        legacy_total, legacy_workorder_count = _build_legacy_totals(entries=all_entries)
-        preview_sale_rows, preview_sale_total = _build_preview_sale_rows(
-            payroll=payroll,
-            competence_workorder_ids={entry.workorder_id for entry in workorder_entries if entry.workorder_id},
-            has_global_service=False,
-        )
-        return PayrollCommissionHistoryContext(
-            is_global_layout=False,
-            manual_entries=manual_entries,
-            manual_total=manual_total,
-            legacy_total=legacy_total,
-            legacy_workorder_count=legacy_workorder_count,
-            net_total=legacy_total,
-            preview_sale_rows=preview_sale_rows,
-            preview_sale_total=preview_sale_total,
-            preview_sale_count=len(preview_sale_rows),
-            has_preview_sales=bool(preview_sale_rows),
-            warranty_rows=unified_warranty_rows,
-            warranty_count=len(unified_warranty_rows),
-            warranty_loss_count=warranty_loss_count,
-            warranty_loss_total=warranty_loss_total,
-            has_yellow_warranties=has_yellow_warranties,
-            benefit_delivered_rows=benefit_delivered_rows,
-            benefit_delivered_count=len(benefit_delivered_rows),
-            warranty_wos=warranty_wos,
-            prejuizo_total=prejuizo_total,
-        )
 
     sale_rows_in_competence, sale_total = _build_sale_rows(
         entries=workorder_entries,
@@ -906,7 +871,7 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
 
     labor_failure_rows, labor_failure_total = _build_loss_rows(
         payroll=payroll,
-        reason_types=LABOR_FAILURE_REASON_TYPES,
+        reason_types=LABOR_ONLY_REASON_TYPES,
         allowed_origins=SERVICE_COMMISSION_ORIGINS,
         scope=CollaboratorCommissionRule.Scope.SERVICE,
         base_type_cache=base_type_cache,
@@ -914,9 +879,17 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
     )
     parts_failure_rows, parts_failure_total = _build_loss_rows(
         payroll=payroll,
-        reason_types=PARTS_FAILURE_REASON_TYPES,
+        reason_types=PARTS_ONLY_REASON_TYPES,
         allowed_origins=PRODUCT_COMMISSION_ORIGINS,
         scope=CollaboratorCommissionRule.Scope.PRODUCT,
+        base_type_cache=base_type_cache,
+        benefit_workorders=benefit_workorders,
+    )
+    both_failure_rows, both_failure_total = _build_loss_rows(
+        payroll=payroll,
+        reason_types=BOTH_REASON_TYPES,
+        allowed_origins=SERVICE_COMMISSION_ORIGINS | PRODUCT_COMMISSION_ORIGINS,
+        scope=CollaboratorCommissionRule.Scope.SERVICE,
         base_type_cache=base_type_cache,
         benefit_workorders=benefit_workorders,
     )
@@ -952,6 +925,9 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
         parts_failure_rows=parts_failure_rows,
         parts_failure_total=parts_failure_total,
         parts_failure_count=len(parts_failure_rows),
+        both_failure_rows=both_failure_rows,
+        both_failure_total=both_failure_total,
+        both_failure_count=len(both_failure_rows),
         unclassified_benefit_rows=unclassified_benefit_rows,
         unclassified_benefit_count=len(unclassified_benefit_rows),
         benefit_delivered_rows=benefit_delivered_rows,
