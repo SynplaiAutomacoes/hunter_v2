@@ -400,15 +400,23 @@ def _build_global_fallback_loss(
     for scope, origins in scope_origins:
         if not allowed_origins.intersection(origins):
             continue
+        commission_scope = scope
         percentage = _get_global_percentage(collaborator_id=payroll.collaborator_id, scope=scope)
+        if percentage is None:
+            commission_scope = (
+                CollaboratorCommissionRule.Scope.PRODUCT
+                if scope == CollaboratorCommissionRule.Scope.SERVICE
+                else CollaboratorCommissionRule.Scope.SERVICE
+            )
+            percentage = _get_global_percentage(collaborator_id=payroll.collaborator_id, scope=commission_scope)
         if percentage is None:
             continue
         base_amount = Money(
-            calculate_total_for_scope(workorder=workorder, workshop=payroll.workshop, scope=scope),
+            calculate_total_for_scope(workorder=workorder, workshop=payroll.workshop, scope=commission_scope),
             "BRL",
         )
         loss_amount = _money(base_amount.amount * percentage)
-        base_type = _base_type_label(resolve_base_type_for_scope(workshop=payroll.workshop, scope=scope))
+        base_type = _base_type_label(resolve_base_type_for_scope(workshop=payroll.workshop, scope=commission_scope))
         components.append((base_amount, percentage, base_type, loss_amount))
 
     if not components:
@@ -667,18 +675,14 @@ def _build_unified_warranty_rows(
         if origin_workorder is None:
             yellow_reason = "Sem O.S. de origem vinculada (não é possível apurar a base retroativa)"
         elif is_global:
-            applies_service = bool(has_global_service and (reason_type in LABOR_ONLY_REASON_TYPES or reason_type in BOTH_REASON_TYPES))
-            applies_product = bool(has_global_product and (reason_type in PARTS_ONLY_REASON_TYPES or reason_type in BOTH_REASON_TYPES))
+            has_any_global_rule = has_global_service or has_global_product
+            applies_service = bool(has_any_global_rule and (reason_type in LABOR_ONLY_REASON_TYPES or reason_type in BOTH_REASON_TYPES))
+            applies_product = bool(has_any_global_rule and (reason_type in PARTS_ONLY_REASON_TYPES or reason_type in BOTH_REASON_TYPES))
 
             if not reason_type:
                 yellow_reason = "Motivo da garantia/cortesia não informado"
             elif not applies_service and not applies_product:
-                if reason_type in PARTS_ONLY_REASON_TYPES and not has_global_product:
-                    yellow_reason = "Defeito de peça não gera prejuízo para comissão de serviços"
-                elif reason_type in LABOR_ONLY_REASON_TYPES and not has_global_service:
-                    yellow_reason = "Falha de mão de obra não gera prejuízo para comissão de produtos"
-                else:
-                    yellow_reason = "Tipo de falha incompatível com o escopo de comissão do colaborador"
+                yellow_reason = "Colaborador não possui comissão global ativa"
             else:
                 if applies_service and service_entries:
                     loss_entries.extend(service_entries)
@@ -954,7 +958,7 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
         reason_types=LABOR_ONLY_REASON_TYPES,
         allowed_origins=SERVICE_COMMISSION_ORIGINS,
         scope=CollaboratorCommissionRule.Scope.SERVICE,
-        has_global_scope=has_global_service,
+        has_global_scope=has_global_service or has_global_product,
         base_type_cache=base_type_cache,
         benefit_workorders=benefit_workorders,
     )
@@ -963,7 +967,7 @@ def build_payroll_commission_history(*, payroll: CollaboratorPayroll) -> Payroll
         reason_types=PARTS_ONLY_REASON_TYPES,
         allowed_origins=PRODUCT_COMMISSION_ORIGINS,
         scope=CollaboratorCommissionRule.Scope.PRODUCT,
-        has_global_scope=has_global_product,
+        has_global_scope=has_global_service or has_global_product,
         base_type_cache=base_type_cache,
         benefit_workorders=benefit_workorders,
     )

@@ -332,9 +332,25 @@ class PayrollCommissionHistoryTests(TestCase):
         self.assertIn("Sem O.S. de origem vinculada", row.yellow_reason)
         self.assertEqual(row.loss_amount, Money(0, "BRL"))
 
-    def test_global_layout_marks_part_failure_yellow_when_collaborator_only_has_service_rule(self) -> None:
+    def test_global_service_rule_applies_to_part_failure(self) -> None:
         create_global_rule(collaborator=self.collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
         origin_workorder = create_workorder(workshop=self.workshop, budget_type="sale")
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=origin_workorder,
+            description="Serviço",
+            quantity=1,
+            service_selling_price=Money(800, "BRL"),
+            service_cost_price=Money(400, "BRL"),
+        )
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=origin_workorder,
+            description="Peça",
+            quantity=1,
+            product_selling_price=Money(1000, "BRL"),
+            product_cost_price=Money(500, "BRL"),
+        )
         courtesy = create_workorder(workshop=self.workshop, budget_type="courtesy", status=WorkOrderStatus.DRAFT)
         courtesy.warranty_origin = origin_workorder
         courtesy.courtesy_reason_type = WorkOrderCourtesyReasonType.PART_DEFECT
@@ -345,10 +361,11 @@ class PayrollCommissionHistoryTests(TestCase):
 
         self.assertEqual(len(history.warranty_rows), 1)
         row = history.warranty_rows[0]
-        self.assertFalse(row.is_loss)
-        self.assertTrue(row.is_yellow)
-        self.assertIn("Defeito de peça não gera prejuízo para comissão de serviços", row.yellow_reason)
-        self.assertEqual(row.loss_amount, Money(0, "BRL"))
+        self.assertTrue(row.is_loss)
+        self.assertEqual(row.base_amount, Money(800, "BRL"))
+        self.assertEqual(row.percentage_display, "5,00%")
+        self.assertEqual(row.loss_amount, Money(40, "BRL"))
+        self.assertEqual(history.parts_failure_rows[0].loss_amount, Money(40, "BRL"))
 
     def test_unclassified_benefit_workorder_appears_without_reason_type_as_yellow(self) -> None:
         create_global_rule(collaborator=self.collaborator, scope=CollaboratorCommissionRule.Scope.SERVICE)
