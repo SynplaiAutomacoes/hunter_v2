@@ -7,6 +7,7 @@ from datetime import date
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.forms import BaseInlineFormSet
 from django.http import HttpResponse, HttpResponseRedirect
@@ -39,6 +40,7 @@ from apps.core.utils import clean_id
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import can_view_payroll_details, has_workshop_perm
 
 AuthUser = get_user_model()
 User = get_user_model()
@@ -718,11 +720,32 @@ class WorkshopCollaboratorPendingMovementDeleteView(LoginRequiredMixin, Workshop
 
 class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkshopCollaborator
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
     workshop_permission_codename = "change_financialmovement"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        self.workshop = self._resolve_workshop(request, kwargs)
+        can_mark = (
+            can_view_payroll_details(user=request.user, workshop=self.workshop, request=request)
+            or has_workshop_perm(
+                user=request.user,
+                workshop=self.workshop,
+                app_label="finance",
+                model="financialmovement",
+                codename="change_financialmovement",
+                request=request,
+            )
+        )
+        if not can_mark:
+            raise PermissionDenied
+        return View.dispatch(self, request, *args, **kwargs)
 
     def post(self, request, pk, payroll_id):
         collaborator = get_object_or_404(WorkshopCollaborator, pk=pk, workshop=self.workshop)
-        payroll = get_object_or_404(CollaboratorPayroll.objects.select_related("financial_movement"), pk=payroll_id, collaborator=collaborator)
+        payroll: CollaboratorPayroll = get_object_or_404(CollaboratorPayroll.objects.select_related("financial_movement"), pk=payroll_id, collaborator=collaborator)
 
         if payroll.financial_movement is not None:
             mark_payroll_as_paid(payroll=payroll)
@@ -739,21 +762,74 @@ class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, V
 @method_decorator(xframe_options_exempt, name="dispatch")
 class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkshopCollaborator
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
     workshop_permission_codename = "view_financialmovement"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        self.workshop = self._resolve_workshop(request, kwargs)
+        can_view = (
+            can_view_payroll_details(user=request.user, workshop=self.workshop, request=request)
+            or has_workshop_perm(
+                user=request.user,
+                workshop=self.workshop,
+                app_label="finance",
+                model="financialmovement",
+                codename="view_financialmovement",
+                request=request,
+            )
+            or has_workshop_perm(
+                user=request.user,
+                workshop=self.workshop,
+                app_label="collaborators",
+                model="workshopcollaborator",
+                codename="view_workshopcollaborator",
+                request=request,
+            )
+        )
+        if not can_view:
+            raise PermissionDenied
+        return View.dispatch(self, request, *args, **kwargs)
 
     def get(self, request, pk, payroll_id):
         collaborator = get_object_or_404(WorkshopCollaborator, pk=pk, workshop=self.workshop)
-        payroll = get_object_or_404(
+        payroll: CollaboratorPayroll = get_object_or_404(
             CollaboratorPayroll.objects.select_related("financial_movement", "collaborator", "workshop").prefetch_related("items"),
             pk=payroll_id,
             collaborator=collaborator,
         )
+        movements = payroll.get_financial_movements()
+        movements_by_component: dict[str, FinancialMovement] = {}
+        benefit_global_obs = ""
+        for m in movements:
+            comp = str(m.payroll_component or "")
+            if comp and comp not in movements_by_component:
+                movements_by_component[comp] = m
+            if comp == "BENEFIT" and m.financial_observation and not benefit_global_obs:
+                benefit_global_obs = m.financial_observation.strip()
+
+        for item in payroll.items.all():
+            comp_key = str(item.item_type)
+            if comp_key == "BENEFIT":
+                item.movement_observation = benefit_global_obs or (item.description or "")
+            elif comp_key in movements_by_component:
+                mov_obs = str(movements_by_component[comp_key].financial_observation or "").strip()
+                item.movement_observation = mov_obs or (item.description or "")
+            else:
+                item.movement_observation = item.description or ""
+
+        commission_mov = movements_by_component.get("COMMISSION")
+        commission_obs = (str(commission_mov.financial_observation or "").strip() if commission_mov else "") or "Valor consolidado das comissões da competência."
+
         response = render(
             request,
             "collaborators/payroll_receipt.html",
             {
                 "collaborator": collaborator,
                 "payroll": payroll,
+                "commission_details": commission_obs,
             },
         )
         response["Cache-Control"] = "no-store"

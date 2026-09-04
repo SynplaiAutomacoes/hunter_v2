@@ -1966,24 +1966,36 @@ def _sync_payroll_items_from_movements(*, payroll: CollaboratorPayroll, movement
     """Keep payroll items aligned with remaining linked movements after a component delete."""
     payroll.items.all().delete()
 
+    salary_movement = next((m for m in movements if m.payroll_component == FinancialMovement.PayrollComponent.SALARY), None)
+    salary_obs = str(salary_movement.financial_observation or "").strip() if salary_movement else ""
     salary_amount = Decimal(str(payroll.salary_amount.amount or ZERO))
     if salary_amount > ZERO:
         CollaboratorPayrollItem.objects.create(
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.SALARY,
             title="Salário",
+            description=salary_obs,
             amount=payroll.salary_amount,
         )
 
+    transport_movement = next((m for m in movements if m.payroll_component == FinancialMovement.PayrollComponent.TRANSPORT), None)
+    transport_obs = (str(transport_movement.financial_observation or "").strip() if transport_movement else "") or f"{int(payroll.work_days or 0)} dias uteis x {payroll.collaborator.transport_allowance_daily}"
     transport_amount = Decimal(str(payroll.transport_allowance_amount.amount or ZERO))
     if transport_amount > ZERO:
         CollaboratorPayrollItem.objects.create(
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.TRANSPORT,
             title="Vale Transporte",
-            description=f"{int(payroll.work_days or 0)} dias uteis x {payroll.collaborator.transport_allowance_daily}",
+            description=transport_obs,
             amount=payroll.transport_allowance_amount,
         )
+
+    benefit_obs = ""
+    for m in movements:
+        if m.payroll_component == FinancialMovement.PayrollComponent.BENEFIT and m.financial_observation:
+            benefit_obs = str(m.financial_observation).strip()
+            if benefit_obs:
+                break
 
     for movement in movements:
         if movement.payroll_component != FinancialMovement.PayrollComponent.BENEFIT:
@@ -1996,9 +2008,12 @@ def _sync_payroll_items_from_movements(*, payroll: CollaboratorPayroll, movement
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.BENEFIT,
             title=benefit_name,
-            description=movement.financial_observation or "",
+            description=benefit_obs or str(movement.financial_observation or "").strip(),
             amount=movement.amount,
         )
+
+    commission_movement = next((m for m in movements if m.payroll_component == FinancialMovement.PayrollComponent.COMMISSION), None)
+    commission_obs = str(commission_movement.financial_observation or "").strip() if commission_movement else ""
 
     commission_entries = list(payroll.commission_entries.select_related("workorder", "workorder__budget").all())
     if Decimal(str(payroll.commission_amount.amount or ZERO)) > ZERO and commission_entries:
@@ -2008,6 +2023,7 @@ def _sync_payroll_items_from_movements(*, payroll: CollaboratorPayroll, movement
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.COMMISSION,
             title="Comissão",
+            description=commission_obs,
             amount=payroll.commission_amount,
         )
 
