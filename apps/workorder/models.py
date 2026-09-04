@@ -1278,7 +1278,7 @@ class WorkOrderItem(TimeStampedModel):
     service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, blank=True)
     kit = models.ForeignKey(Kit, on_delete=models.SET_NULL, null=True, blank=True)
 
-    description = models.CharField(verbose_name="Descrição", max_length=100, default="")
+    description = models.TextField(verbose_name="Descrição", default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
     is_local = models.BooleanField(verbose_name="Item Local", default=False)
     local_item_type = models.CharField(
