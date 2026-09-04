@@ -1990,13 +1990,6 @@ def _sync_payroll_items_from_movements(*, payroll: CollaboratorPayroll, movement
             amount=payroll.transport_allowance_amount,
         )
 
-    benefit_obs = ""
-    for m in movements:
-        if m.payroll_component == FinancialMovement.PayrollComponent.BENEFIT and m.financial_observation:
-            benefit_obs = str(m.financial_observation).strip()
-            if benefit_obs:
-                break
-
     for movement in movements:
         if movement.payroll_component != FinancialMovement.PayrollComponent.BENEFIT:
             continue
@@ -2008,7 +2001,7 @@ def _sync_payroll_items_from_movements(*, payroll: CollaboratorPayroll, movement
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.BENEFIT,
             title=benefit_name,
-            description=benefit_obs or str(movement.financial_observation or "").strip(),
+            description=str(movement.financial_observation or "").strip(),
             amount=movement.amount,
         )
 

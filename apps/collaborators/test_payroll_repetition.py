@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
@@ -12,8 +13,9 @@ from djmoney.money import Money
 
 from apps.accounts.models import Account
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm
-from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
 from apps.collaborators.services import (
+    _sync_payroll_items_from_movements,
     delete_collaborator_benefit_and_sync_payrolls,
     delete_payroll_linked_financial_movement,
     delete_selected_pending_collaborator_movements,
@@ -22,7 +24,11 @@ from apps.collaborators.services import (
     sync_repeated_collaborator_payrolls,
 )
 from apps.collaborators.test_commissions import create_financial_group_path
-from apps.collaborators.views import WorkshopCollaboratorPendingMovementDeleteView, WorkshopCollaboratorUpdateView
+from apps.collaborators.views import (
+    CollaboratorPayrollReceiptView,
+    WorkshopCollaboratorPendingMovementDeleteView,
+    WorkshopCollaboratorUpdateView,
+)
 from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -596,3 +602,79 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], f"/collaborators/{collaborator.pk}/edit/?tab=cadastro")
         self.assertFalse(CollaboratorPayroll.objects.filter(pk=payroll.pk).exists())
+
+    def test_benefit_items_retain_individual_observations(self) -> None:
+        account = create_account(suffix=9)
+        workshop = create_workshop(account=account, suffix=9)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678909",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY,
+        )
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 6, 1))
+
+        benefit_group = create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 15],
+            names=["Despesas", "Beneficios", "VR"],
+        )
+        benefit1 = CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Vale Refeição",
+            description="VR mensal",
+            monthly_amount=Money("500.00", "BRL"),
+            budget_plan=benefit_group,
+            is_active=True,
+        )
+        benefit2 = CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Plano de Saúde",
+            description="PS mensal",
+            monthly_amount=Money("200.00", "BRL"),
+            budget_plan=benefit_group,
+            is_active=True,
+        )
+
+        mov1 = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
+            payroll_benefit=benefit1,
+            amount=Money("500.00", "BRL"),
+            gross_amount=Money("500.00", "BRL"),
+            financial_observation="Observação do VR",
+            budget_plan=benefit_group,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+        )
+        mov2 = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
+            payroll_benefit=benefit2,
+            amount=Money("200.00", "BRL"),
+            gross_amount=Money("200.00", "BRL"),
+            financial_observation="Observação do Plano de Saúde",
+            budget_plan=benefit_group,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+        )
+
+        _sync_payroll_items_from_movements(payroll=payroll, movements=[mov1, mov2])
+
+        items = list(payroll.items.filter(item_type=CollaboratorPayrollItem.ItemType.BENEFIT).order_by("id"))
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0].description, "Observação do VR")
+        self.assertEqual(items[1].description, "Observação do Plano de Saúde")
+
+        request = self.factory.get(reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": collaborator.pk, "payroll_id": payroll.pk}))
+        request.user = AnonymousUser()
+        view = CollaboratorPayrollReceiptView()
+        view.request = request
+        view.workshop = workshop
+        response = view.get(request, pk=collaborator.pk, payroll_id=payroll.pk)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Observação do VR", content)
+        self.assertIn("Observação do Plano de Saúde", content)

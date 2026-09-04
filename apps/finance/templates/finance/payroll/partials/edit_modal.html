@@ -239,25 +239,12 @@
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.budget_plan|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.bank_account|as_crispy_field }}</div>
                                                     <div class="col-span-12 lg:col-span-4">{{ item.form.nf_number|as_crispy_field }}</div>
+                                                    <div class="col-span-12">{{ item.form.financial_observation|as_crispy_field }}</div>
                                                 </div>
                                             </div>
                                         </div>
                                     {% endfor %}
                                 </div>
-                                {% if tab.movements %}
-                                <div class="mt-4 rounded-xl border border-base-300 bg-base-100 p-4">
-                                    <label class="label pt-0" for="id_tab_BENEFIT_financial_observation">
-                                        <span class="label-text text-xs font-semibold uppercase tracking-[0.16em] text-base-content/70">Observação dos benefícios</span>
-                                    </label>
-                                    <textarea
-                                        id="id_tab_BENEFIT_financial_observation"
-                                        name="tab_BENEFIT_financial_observation"
-                                        class="textarea textarea-bordered w-full text-sm"
-                                        rows="2"
-                                        placeholder="Observação exibida no resumo e no PDF para os benefícios..."
-                                    >{{ tab.global_observation|default:"" }}</textarea>
-                                </div>
-                                {% endif %}
                             {% else %}
                                 <p class="rounded-xl border border-dashed border-base-300 bg-base-200/40 px-4 py-6 text-center text-sm text-base-content/60">Nenhum benefício nesta competência. Use Lançar benefício para um valor só deste mês.</p>
                             {% endif %}

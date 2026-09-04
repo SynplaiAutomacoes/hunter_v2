@@ -802,18 +802,22 @@ class CollaboratorPayrollReceiptView(LoginRequiredMixin, WorkshopScopedMixin, Vi
         )
         movements = payroll.get_financial_movements()
         movements_by_component: dict[str, FinancialMovement] = {}
-        benefit_global_obs = ""
+        benefit_movements_queue: dict[str, list[FinancialMovement]] = {}
         for m in movements:
             comp = str(m.payroll_component or "")
             if comp and comp not in movements_by_component:
                 movements_by_component[comp] = m
-            if comp == "BENEFIT" and m.financial_observation and not benefit_global_obs:
-                benefit_global_obs = m.financial_observation.strip()
+            if comp == "BENEFIT":
+                b_name = str(getattr(m.payroll_benefit, "name", "") or "").strip() or (m.description or "Benefício")
+                benefit_movements_queue.setdefault(b_name, []).append(m)
 
         for item in payroll.items.all():
             comp_key = str(item.item_type)
             if comp_key == "BENEFIT":
-                item.movement_observation = benefit_global_obs or (item.description or "")
+                matching_list = benefit_movements_queue.get(item.title)
+                mov = matching_list.pop(0) if matching_list else None
+                mov_obs = str(mov.financial_observation or "").strip() if mov else ""
+                item.movement_observation = mov_obs or (item.description or "")
             elif comp_key in movements_by_component:
                 mov_obs = str(movements_by_component[comp_key].financial_observation or "").strip()
                 item.movement_observation = mov_obs or (item.description or "")
