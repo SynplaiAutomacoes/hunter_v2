@@ -148,6 +148,39 @@ class TermTemplateRenderTests(SimpleTestCase):
         )
         self.assertEqual(html.count("sign-box"), 1)
 
+    def test_template_renders_without_customer_or_vehicle_for_template_preview(self) -> None:
+        html = render_to_string(
+            "terms/pdf/term_document.html",
+            {
+                "document_title": "TERMO MODELO",
+                "subtitle": "Subtítulo",
+                "intro_text": "Texto inicial",
+                "acknowledgment_text": "Declaro que li",
+                "sections": [{"title": "P1", "topics": [], "include_signature_block": True}],
+                "colors": {
+                    "primary": "#000000",
+                    "accent": "#E30613",
+                    "text": "#111827",
+                    "muted": "#6B7280",
+                    "on_primary": "#FFFFFF",
+                    "on_accent": "#FFFFFF",
+                },
+                "workshop_logo_data_uri": "",
+                "workshop_name": "Oficina",
+                "customer": None,
+                "customer_name": "",
+                "customer_cpf_cnpj": "",
+                "vehicle": None,
+                "vehicle_display": "",
+                "vehicle_plate_display": "",
+                "warranty_plan_display": "",
+                "generated_at": self._generated_at(),
+            },
+        )
+        self.assertIn("TERMO MODELO", html)
+        self.assertEqual(html.count("sign-box"), 1)
+
+
 
 class TermColorContrastTests(SimpleTestCase):
     def test_validate_term_colors_accepts_defaults(self) -> None:
