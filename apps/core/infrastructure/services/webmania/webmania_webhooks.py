@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
-from apps.finance.models.finance import FiscalDocumentEvent, FiscalDocumentEventStatus, NfeItem, NfseBatch, NfseItem, WebmaniaWebhookEvent
+from apps.finance.models.finance import (
+    FiscalDocumentEvent,
+    FiscalDocumentEventStatus,
+    NfeItem,
+    NfeRequest,
+    NfseBatch,
+    NfseItem,
+    NfseRequest,
+    WebmaniaWebhookEvent,
+)
 from apps.core.infrastructure.services.webmania.emission import apply_nfse_batch_payload, apply_nfse_item_payload
 from apps.finance.services.mappers import extract_items_from_batch
 from apps.core.infrastructure.services.webmania.nfe_emission import apply_nfe_item_payload
@@ -32,11 +42,26 @@ def store_webhook_event(*, payload: dict[str, Any]) -> WebmaniaWebhookEvent:
         if duplicate is not None:
             return duplicate
 
-    return WebmaniaWebhookEvent.objects.create(
-        model=model,
-        event_uuid=event_uuid,
-        payload=payload,
-    )
+    try:
+        return WebmaniaWebhookEvent.objects.create(
+            model=model,
+            event_uuid=event_uuid,
+            payload=payload,
+        )
+    except IntegrityError as exc:
+        if "fingerprint" in str(exc).lower():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO finance_webmaniawebhookevent (criado_em, atualizado_em, model, event_uuid, payload, processed_at, processing_error, fingerprint)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    [timezone.now(), timezone.now(), model, event_uuid, json.dumps(payload), None, "", ""],
+                )
+                event_id = cursor.fetchone()[0]
+                return WebmaniaWebhookEvent.objects.get(pk=event_id)
+        raise
 
 
 def _mark_event_processed(event: WebmaniaWebhookEvent) -> None:
@@ -151,6 +176,23 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
 
     if model == "nfse":
         nfse_item = NfseItem.objects.filter(uuid=event_uuid).select_related("request").order_by("-id").first()
+        if nfse_item is None:
+            request_id = payload.get("ID") or payload.get("id")
+            if request_id and str(request_id).isdigit():
+                nfse_request = NfseRequest.objects.filter(pk=int(request_id)).select_related("workorder", "workshop").first()
+                if nfse_request is not None:
+                    nfse_item, _ = NfseItem.objects.get_or_create(
+                        uuid=event_uuid,
+                        defaults={
+                            "workshop": nfse_request.workshop,
+                            "workorder": nfse_request.workorder,
+                            "request": nfse_request,
+                        },
+                    )
+                    if nfse_item.request is None:
+                        nfse_item.request = nfse_request
+                        nfse_item.save(update_fields=["request"])
+
         if nfse_item is None:
             _mark_event_deferred(event, error=f"Nota Fiscal de Serviço {event_uuid} ainda nao foi sincronizada localmente.")
             return False

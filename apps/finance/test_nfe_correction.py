@@ -408,6 +408,41 @@ class NfeCorrectionOperationalTests(TestCase):
         webhook.refresh_from_db()
         self.assertIsNotNone(webhook.processed_at)
 
+    def test_nfse_webhook_store_event_persists_without_fingerprint_error(self) -> None:
+        from apps.core.infrastructure.services.webmania.webmania_webhooks import store_webhook_event
+
+        remote_uuid = str(uuid4())
+        payload = {
+            "ID": "150",
+            "xml": "https://api.webmania.com.br/xmlnfse/example.xml",
+            "modelo": "nfse",
+            "uuid": remote_uuid,
+            "status": "aprovado",
+        }
+        event = store_webhook_event(payload=payload)
+        self.assertIsNotNone(event.pk)
+        self.assertEqual(event.model, "nfse")
+        self.assertEqual(event.event_uuid, remote_uuid)
+        self.assertEqual(event.payload["ID"], "150")
+
+    def test_nfse_webhook_store_event_fingerprint_integrity_error_fallback(self) -> None:
+        from django.db import IntegrityError
+        from apps.core.infrastructure.services.webmania.webmania_webhooks import store_webhook_event
+
+        remote_uuid = str(uuid4())
+        payload = {"modelo": "nfse", "uuid": remote_uuid, "status": "aprovado"}
+
+        # Simulate IntegrityError caused by legacy NOT NULL fingerprint column
+        with patch("apps.finance.models.finance.WebmaniaWebhookEvent.objects.create", side_effect=IntegrityError('null value in column "fingerprint" violates not-null constraint')):
+            with patch("django.db.connection.cursor") as cursor_mock:
+                cursor_mock.return_value.__enter__.return_value.fetchone.return_value = [99999]
+                with patch("apps.finance.models.finance.WebmaniaWebhookEvent.objects.get") as get_mock:
+                    sentinel = object()
+                    get_mock.return_value = sentinel
+                    result = store_webhook_event(payload=payload)
+                    self.assertIs(result, sentinel)
+                    cursor_mock.return_value.__enter__.return_value.execute.assert_called_once()
+
     def test_management_reconciliation_uses_existing_cce_uuid_without_post(self) -> None:
         event = self._emit_timeout()
         event.remote_uuid = str(uuid4())
