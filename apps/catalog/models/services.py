@@ -13,7 +13,7 @@ class Service(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="services",
     )
-    name = models.CharField(verbose_name="Serviço", max_length=255)
+    name = models.TextField(verbose_name="Serviço")
     description = models.TextField(verbose_name="Descrição", blank=True)
 
     duration = models.DurationField(verbose_name="Duração")
