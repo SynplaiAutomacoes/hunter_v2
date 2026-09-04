@@ -88,6 +88,50 @@
             </div>
         {% else %}
             <div class="space-y-4 p-4 sm:p-5">
+                {% if daily_sales_groups %}
+                    {% for group in daily_sales_groups %}
+                        <details class="group overflow-hidden rounded-[1.5rem] border border-base-300/80 bg-base-100 shadow-sm transition-all open:shadow-md" {% if is_pdf or daily_sales_groups|length == 1 %}open{% endif %}>
+                            <summary class="list-none cursor-pointer p-5 sm:p-6">
+                                <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_220px] xl:items-center">
+                                    <div class="min-w-0">
+                                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">Vendas do dia</p>
+                                        <p class="mt-2 text-lg font-semibold text-base-content">{{ group.sales_date|date:"d/m/Y" }}</p>
+                                        <p class="mt-2 text-sm text-base-content/65">{{ group.items|length }} O.S. registrada(s) neste dia</p>
+                                    </div>
+                                    <div class="rounded-[1.25rem] border border-success/20 bg-success/10 p-4 text-left xl:text-right">
+                                        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-success/70">Total do dia</p>
+                                        <p class="mt-2 whitespace-nowrap text-2xl font-black tabular-nums text-success">{{ group.total|money_br }}</p>
+                                        <p class="mt-2 text-xs text-base-content/50 group-open:hidden">Clique para ver as O.S. do dia</p>
+                                    </div>
+                                </div>
+                            </summary>
+                            <div class="border-t border-base-300/70 bg-base-200/20 p-4 sm:p-5">
+                                <div class="overflow-x-auto rounded-[1.25rem] border border-base-300/80 bg-base-100">
+                                    <table class="table table-sm w-full">
+                                        <thead>
+                                            <tr class="text-[11px] uppercase tracking-[0.14em] text-base-content/55">
+                                                <th class="w-28">O.S.</th><th class="min-w-[220px]">Cliente</th><th class="min-w-[220px]">Veículo</th><th class="w-44 text-right">{{ value_column_label }}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for item in group.items %}
+                                                <tr class="hover cursor-pointer" onclick="window.open('{% url 'workorder:workorder_detail' pk=item.pk %}', '_blank')">
+                                                    <td class="font-semibold"><a href="{% url 'workorder:workorder_detail' pk=item.pk %}" target="_blank" class="hover:text-primary transition-colors">#{{ item.get_id }}</a></td>
+                                                    <td class="font-medium">{{ item.budget.customer|default:"-" }}</td>
+                                                    <td>{{ item.budget.vehicle|default:"-" }}</td>
+                                                    <td class="text-right font-bold tabular-nums text-success">{{ item.dashboard_report_amount|money_br }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                        <tfoot><tr class="bg-base-200/60"><td colspan="3" class="text-right text-sm font-semibold">Total consolidado do dia:</td><td class="text-right text-base font-black tabular-nums text-success">{{ group.total|money_br }}</td></tr></tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </details>
+                    {% empty %}
+                        <div class="px-5 py-12 text-center text-base-content/60">Nenhum registro encontrado para os filtros selecionados.</div>
+                    {% endfor %}
+                {% else %}
                 {% for group in workorder_groups %}
                     <details class="group overflow-hidden rounded-[1.5rem] border border-base-300/80 bg-base-100 shadow-sm transition-all open:shadow-md" {% if is_pdf or workorder_groups|length == 1 %}open{% endif %}>
                         <summary class="list-none cursor-pointer p-5 sm:p-6">
@@ -186,6 +230,7 @@
                 {% empty %}
                     <div class="px-5 py-12 text-center text-base-content/60">Nenhum registro encontrado para os filtros selecionados.</div>
                 {% endfor %}
+                {% endif %}
             </div>
         {% endif %}
     </section>
