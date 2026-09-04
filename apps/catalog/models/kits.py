@@ -27,7 +27,7 @@ class Kit(TimeStampedModel):
         related_name="kits",
     )
 
-    name = models.CharField(verbose_name="Kit", max_length=255)
+    name = models.TextField(verbose_name="Kit")
     description = models.TextField(verbose_name="Descrição", blank=True)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
