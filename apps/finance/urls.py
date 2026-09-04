@@ -73,6 +73,7 @@ from apps.finance.views import (
 )
 
 from apps.finance.views.cash_flow import CashFlowView, CashFlowReportExcelView, CashFlowReportModalView, CashFlowReportPdfView
+from apps.finance.views.financial_transfer import FinancialTransferCreateView, FinancialTransferReverseView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
 from apps.finance.views.emission import EmissionCheckWorkorderView
 from apps.finance.views.financial_movement import (
@@ -200,6 +201,8 @@ urlpatterns = [
     path("webmania/webhook/", WebhookView.as_view(), name="webhook"),
     # Fluxo de Contas
     path("fluxo-de-contas/", CashFlowView.as_view(), name="cash_flow"),
+    path("fluxo-de-contas/transferir/", FinancialTransferCreateView.as_view(), name="financial_transfer_create"),
+    path("fluxo-de-contas/transferir/<int:pk>/estornar/", FinancialTransferReverseView.as_view(), name="financial_transfer_reverse"),
     path("fluxo-de-contas/relatorio/", CashFlowReportModalView.as_view(), name="cash_flow_report_modal"),
     path("fluxo-de-contas/relatorio/pdf/", CashFlowReportPdfView.as_view(), name="cash_flow_report_pdf"),
     path("fluxo-de-contas/relatorio/excel/", CashFlowReportExcelView.as_view(), name="cash_flow_report_excel"),
