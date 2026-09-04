@@ -541,6 +541,23 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
         form.save()
+        if tab == self.TAB_COMISSAO:
+            from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+            from apps.collaborators.models import CollaboratorCommissionRule, WorkshopCollaborator
+            from apps.collaborators.services import refresh_unpaid_payroll_commissions_for_references
+
+            global_collaborators = WorkshopCollaborator.objects.filter(
+                workshop=self.object,
+                commission_rules__is_active=True,
+                commission_rules__apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+            ).distinct()
+            orchestrator = WorkOrderCommissionOrchestrator()
+            for collaborator in global_collaborators:
+                affected_references = orchestrator.sync_global_commissions_after_rule_change(collaborator)
+                refresh_unpaid_payroll_commissions_for_references(
+                    collaborator=collaborator,
+                    references=affected_references,
+                )
         messages.success(self.request, success_message)
         logger.info(
             "workshop_update_tab_save_succeeded workshop_id=%s tab=%s user_id=%s",

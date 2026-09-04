@@ -59,6 +59,8 @@ class AdjustStockQuantityServiceTests(TestCase):
         self.assertEqual(movement.quantity, 5)
         self.assertEqual(movement.status, StockMovement.MovementStatus.APPROVED)
         self.assertEqual(movement.reason, "Inventário físico")
+        self.assertEqual(movement.reason_display, "Ajuste de Estoque: Inventário físico")
+        self.assertEqual(movement.display_date, movement.criado_em)
         self.assertTrue(movement.is_stock_adjustment)
         self.assertEqual(movement.transcation_by_id, self.user.pk)
         self.assertIsNone(movement.supplier_id)
@@ -75,6 +77,7 @@ class AdjustStockQuantityServiceTests(TestCase):
         self.assertEqual(movement.type, StockMovement.MovementType.EXIT)
         self.assertEqual(movement.quantity, 3)
         self.assertEqual(movement.reason, "Correção de lançamento")
+        self.assertEqual(movement.reason_display, "Ajuste de Estoque: Correção de lançamento")
 
     def test_rejects_same_quantity(self) -> None:
         with self.assertRaises(ValidationError):

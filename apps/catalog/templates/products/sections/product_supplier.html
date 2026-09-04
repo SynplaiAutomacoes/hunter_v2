@@ -46,7 +46,15 @@
         <div>
           <p class="text-xs uppercase opacity-60">Última Compra</p>
           <p class="font-medium">
-            {% if item.last_purchase_date %}{{ item.last_purchase_date|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+            {% if item.last_purchase_date %}
+              {% if item.last_purchase_import_id %}
+                <a href="{% url 'stock:stock_update' item.last_purchase_import_id %}" class="link link-primary hover:underline" title="Abrir importação da NF">
+                  {{ item.last_purchase_date|date:"d/m/Y H:i" }}
+                </a>
+              {% else %}
+                {{ item.last_purchase_date|date:"d/m/Y H:i" }}
+              {% endif %}
+            {% else %}—{% endif %}
           </p>
         </div>
         <div>
@@ -69,8 +77,52 @@
 
       <div class="mt-3">
         <p class="text-xs uppercase opacity-60">Última NF</p>
-        <p class="font-medium">{{ item.last_purchase_nf|default:"—" }}</p>
+        <p class="font-medium">
+          {% if item.last_purchase_nf %}
+            {% if item.last_purchase_import_id %}
+              <a href="{% url 'stock:stock_update' item.last_purchase_import_id %}" class="link link-primary hover:underline" title="Abrir importação da NF">
+                {{ item.last_purchase_nf }}
+              </a>
+            {% else %}
+              {{ item.last_purchase_nf }}
+            {% endif %}
+          {% else %}—{% endif %}
+        </p>
       </div>
+
+      {% if item.purchase_history|length > 1 %}
+      <details class="mt-4 rounded-box border border-base-300">
+        <summary class="cursor-pointer px-4 py-3 font-medium text-sm">
+          Histórico de compras e NFs ({{ item.purchase_history|length }})
+        </summary>
+        <div class="overflow-x-auto border-t border-base-300">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>NF</th>
+                <th>Quantidade</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for purchase in item.purchase_history %}
+              <tr>
+                <td>{{ purchase.date|date:"d/m/Y H:i" }}</td>
+                <td>
+                  {% if purchase.import_id %}
+                  <a href="{% url 'stock:stock_update' purchase.import_id %}" class="link link-primary hover:underline" title="Abrir importação da NF">{{ purchase.nf }}</a>
+                  {% else %}
+                  {{ purchase.nf }}
+                  {% endif %}
+                </td>
+                <td>{{ purchase.quantity }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endif %}
     </div>
     {% empty %}
     <p class="text-center italic opacity-50 py-8">Nenhum fornecedor vinculado a esta peça.</p>

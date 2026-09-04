@@ -193,6 +193,46 @@ class WorkOrderWarrantyPlanFormTests(TestCase):
         self.assertFalse(form.fields["courtesy_reason_type"].disabled)
         self.assertFalse(form.fields["previous_mechanic"].disabled)
 
+    def test_courtesy_workorder_can_select_sale_workorder_of_same_vehicle_as_origin(self) -> None:
+        workshop = _create_workshop(suffix=18)
+        origin_workorder = _create_workorder(workshop=workshop, suffix=18)
+        origin_workorder.status = WorkOrderStatus.APPROVED
+        origin_workorder.save(update_fields=["status"])
+        courtesy_workorder = WorkOrder.objects.create(
+            workshop=workshop,
+            budget=origin_workorder.budget,
+            budget_type="courtesy",
+        )
+
+        form = WorkOrderCustomerApprovalForm(
+            workorder=courtesy_workorder,
+            require_unsigned_delivery_reason=False,
+        )
+
+        self.assertFalse(form.fields["warranty_origin"].disabled)
+        self.assertEqual(form.fields["warranty_origin"].label, "O.S. de venda de origem")
+        self.assertQuerySetEqual(form.fields["warranty_origin"].queryset, [origin_workorder])
+
+    def test_complete_delivery_persists_origin_for_courtesy_workorder(self) -> None:
+        workshop = _create_workshop(suffix=19)
+        origin_workorder = _create_workorder(workshop=workshop, suffix=19)
+        courtesy_workorder = WorkOrder.objects.create(
+            workshop=workshop,
+            budget=origin_workorder.budget,
+            budget_type="courtesy",
+        )
+
+        courtesy_workorder.complete_delivery(
+            km_final=12_000,
+            warranty_plan=WorkOrderWarrantyPlan.DAYS_90,
+            courtesy_reason_type=WorkOrderCourtesyReasonType.PART_DEFECT,
+            update_courtesy_fields=True,
+            warranty_origin_id=origin_workorder.pk,
+        )
+        courtesy_workorder.refresh_from_db()
+
+        self.assertEqual(courtesy_workorder.warranty_origin_id, origin_workorder.pk)
+
     def test_courtesy_reason_fields_disabled_for_sale_workorder(self) -> None:
         workshop = _create_workshop(suffix=14)
         workorder = _create_workorder(workshop=workshop, suffix=14)
@@ -247,6 +287,25 @@ class WorkOrderWarrantyPlanFormTests(TestCase):
         self.assertEqual(workorder.previous_mechanic_id, mechanic.pk)
         self.assertEqual(workorder.courtesy_reason_type, WorkOrderCourtesyReasonType.PART_DEFECT)
         self.assertEqual(workorder.courtesy_reason_description, "Peça com defeito de fábrica.")
+
+    def test_complete_delivery_persists_sale_origin_for_courtesy(self) -> None:
+        workshop = _create_workshop(suffix=19)
+        workorder = _create_workorder(workshop=workshop, suffix=19)
+        origin_workorder = _create_workorder(workshop=workshop, suffix=29)
+        workorder.budget.budget_type = "courtesy"
+        workorder.budget.save(update_fields=["budget_type"])
+        workorder.budget_type = "courtesy"
+        workorder.save(update_fields=["budget_type"])
+
+        workorder.complete_delivery(
+            km_final=12_000,
+            courtesy_reason_type=WorkOrderCourtesyReasonType.PART_DEFECT,
+            update_courtesy_fields=True,
+            warranty_origin_id=origin_workorder.pk,
+        )
+        workorder.refresh_from_db()
+
+        self.assertEqual(workorder.warranty_origin_id, origin_workorder.pk)
 
     def test_courtesy_reason_type_is_required_for_warranty_delivery(self) -> None:
         workshop = _create_workshop(suffix=17)

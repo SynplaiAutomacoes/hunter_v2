@@ -12,6 +12,7 @@
             <th>Cliente/Veículo</th>
             <th>Fornecedor</th>
             <th>Tipo</th>
+            <th>Motivo</th>
             <th>Responsável</th>
             <th>Qtd.</th>
             <th>Nota de Entrada</th>
@@ -51,6 +52,7 @@
                 <span class="badge badge-error">Saída</span>
               {% endif %}
             </td>
+            <td>{{ m.reason_display }}</td>
             <td>
               {% if m.transcation_by %}
                 {{ m.transcation_by.get_full_name|default:m.transcation_by.username }}
@@ -59,7 +61,7 @@
               {% endif %}
             </td>
             <td class="font-bold">{{ m.quantity }}</td>
-            <td>{% if m.is_stock_adjustment %}—{% else %}{{ m.stock_product.last_nf_display|default:"—" }}{% endif %}</td>
+            <td>{{ m.entry_note_display|default:"—" }}</td>
             <td>
               <span class="{% if m.status == 'AGUARDANDO' %}text-warning{% elif m.status == 'APROVADO' %}text-success{% else %}text-error{% endif %}">
                 {{ m.get_status_display }}
@@ -68,7 +70,7 @@
           </tr>
           {% empty %}
           <tr>
-            <td colspan="9" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
+            <td colspan="10" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
           </tr>
           {% endfor %}
         </tbody>

@@ -17,6 +17,7 @@ from django.views.generic import TemplateView
 from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator
+from apps.finance.services.payroll_commission_history import SERVICE_COMMISSION_ORIGINS
 from apps.core.domain.contracts.documents import DocumentRenderRequest
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response, render_template_request_to_pdf
 from apps.core.infrastructure.search import build_text_search_query
@@ -191,7 +192,15 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
     @staticmethod
     def _sum_distinct_workorder_service_totals(*, queryset) -> Decimal:
         """Sum service-only commission bases once per work order (sale OS only)."""
-        per_workorder_totals = queryset.filter(workorder_id__isnull=False).order_by().values("workorder_id").annotate(service_total=Max("base_amount"))
+        per_workorder_totals = (
+            queryset.filter(
+                workorder_id__isnull=False,
+                commission_origin__in=SERVICE_COMMISSION_ORIGINS,
+            )
+            .order_by()
+            .values("workorder_id")
+            .annotate(service_total=Max("base_amount"))
+        )
         total = Decimal("0.00")
         for row in per_workorder_totals:
             service_total = row.get("service_total")

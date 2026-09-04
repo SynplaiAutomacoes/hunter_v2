@@ -27,7 +27,7 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
         return_workorder_stock_to_inventory(
             workorder=locked_workorder,
             user=user,
-            reason="Estoque devolvido por reabertura da O.S.",
+            reason="Reabertura de O.S.",
         )
 
         WorkOrderHistory.objects.create(

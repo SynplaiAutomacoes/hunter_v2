@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
 
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -25,7 +25,7 @@ from apps.workshops.models.workshops import Workshop
 def create_workshop(*, suffix: int) -> Workshop:
     return Workshop.objects.create(
         name=f"Oficina Comissão {suffix}",
-        cnpj=f"51.222.333/0001-{suffix:02d}",
+        cnpj=f"51.222.333/0001-{(suffix % 100):02d}",
         phone="+5511999999999",
         address="Rua Comissão, 123",
     )
@@ -35,7 +35,7 @@ def create_collaborator(*, workshop: Workshop, suffix: int) -> WorkshopCollabora
     return WorkshopCollaborator.objects.create(
         workshop=workshop,
         name=f"Colaborador {suffix}",
-        cpf=f"1234567890{suffix}",
+        cpf=f"{suffix:011d}"[-11:],
         birth_date=date(1990, 1, 1),
         salary=Money(2000, "BRL"),
         admission_date=date(2025, 1, 1),
@@ -917,3 +917,23 @@ class CommissionAndPayrollCommandTests(TestCase):
         self.assertIn("1 folha(s) reconciliada(s) como paga(s).", stdout.getvalue())
         movement.refresh_from_db()
         self.assertTrue(movement.is_paid)
+
+
+class GlobalCommissionReferenceMonthTests(SimpleTestCase):
+    def test_global_rule_applies_from_creation_month_by_competence(self) -> None:
+        from apps.collaborators.commission.orchestrator import _global_rule_applies_to_reference
+
+        rule_created = timezone.make_aware(datetime(2026, 8, 30, 16, 17, 32))
+
+        self.assertTrue(
+            _global_rule_applies_to_reference(
+                rule_criado_em=rule_created,
+                commission_reference=date(2026, 8, 1),
+            )
+        )
+        self.assertFalse(
+            _global_rule_applies_to_reference(
+                rule_criado_em=rule_created,
+                commission_reference=date(2026, 7, 1),
+            )
+        )
