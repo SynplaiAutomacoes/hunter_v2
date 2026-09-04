@@ -123,7 +123,7 @@
                         {% if item.item_type != "COMMISSION" %}
                         <tr class="border-t border-gray-200 align-top">
                             <td class="px-3 py-3 font-semibold">{{ item.title }}</td>
-                            <td class="px-3 py-3 text-gray-600">{{ item.description|default:"-" }}</td>
+                            <td class="px-3 py-3 text-gray-600">{{ item.movement_observation|default:item.description|default:"-" }}</td>
                             <td class="px-3 py-3 text-right font-semibold">{{ item.amount }}</td>
                         </tr>
                         {% endif %}
@@ -135,7 +135,7 @@
                     {% if payroll.commission_amount.amount > 0 %}
                         <tr class="border-t border-gray-200 align-top">
                             <td class="px-3 py-3 font-semibold">Comissões</td>
-                            <td class="px-3 py-3 text-gray-600">Valor consolidado das comissões da competência.</td>
+                            <td class="px-3 py-3 text-gray-600">{{ commission_details|default:"Valor consolidado das comissões da competência." }}</td>
                             <td class="px-3 py-3 text-right font-semibold">{{ payroll.commission_amount }}</td>
                         </tr>
                     {% endif %}

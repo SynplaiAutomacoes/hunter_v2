@@ -742,9 +742,11 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             expected = Decimal(str(amount.amount or 0)) > 0 if amount is not None else False
             movements = grouped_movements.get(component, [])
             benefits_total = payroll.benefits_amount if component == FinancialMovement.PayrollComponent.BENEFIT else None
+            global_obs = ""
             if component == FinancialMovement.PayrollComponent.BENEFIT and movements:
                 movement_total = sum((Decimal(str(movement.amount.amount or 0)) for movement in movements), start=Decimal("0.00"))
                 benefits_total = Money(movement_total, "BRL")
+                global_obs = next((str(m.financial_observation or "").strip() for m in movements if str(m.financial_observation or "").strip()), "")
             tabs.append(
                 {
                     "key": component,
@@ -758,6 +760,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                     "benefit_items": [],
                     "form": None,
                     "default_movement_id": None,
+                    "global_observation": global_obs,
                 }
             )
         return tabs
@@ -1143,12 +1146,25 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 },
             )
 
+        benefit_obs = request.POST.get("tab_BENEFIT_financial_observation")
+        benefit_obs_requested = "tab_BENEFIT_financial_observation" in request.POST
+        clean_benefit_obs = str(benefit_obs or "").strip()
+
         work_days_changed = False
-        if all_forms or work_days_requested:
+        if all_forms or work_days_requested or benefit_obs_requested:
             with transaction.atomic():
                 for _component_key, form in all_forms:
+                    if _component_key == FinancialMovement.PayrollComponent.BENEFIT and benefit_obs_requested:
+                        form.instance.financial_observation = clean_benefit_obs
                     form.save()
-                if all_forms:
+
+                if benefit_obs_requested:
+                    FinancialMovement.objects.filter(
+                        payroll=payroll,
+                        payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
+                    ).update(financial_observation=clean_benefit_obs)
+
+                if all_forms or benefit_obs_requested:
                     recalculate_payroll_from_linked_movements(payroll=payroll)
                 # Apply work days after form saves so payment-tab POST data does not overwrite VT.
                 # Submitting the current work_days value (always present in the form) must not
@@ -1188,7 +1204,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
 
             response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=self._get_requested_tab())
             toast_message = "Folha atualizada com sucesso."
-            if work_days_changed and not all_forms:
+            if work_days_changed and not all_forms and not benefit_obs_requested:
                 toast_message = "Dias úteis atualizados com sucesso."
             response["HX-Trigger"] = json.dumps(
                 {
