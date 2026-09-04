@@ -356,7 +356,11 @@ def _zero_brl() -> Money:
 
 def workorder_can_toggle_signed_pdf(workorder: WorkOrder) -> bool:
     status = str(getattr(workorder, "signature_request_status", "") or "")
-    return status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED} and bool(
+    # A document can be downloaded as signed only after the provider confirms
+    # completion through the webhook.  While it is merely SENT, the provider
+    # may still return the original PDF; exposing it as signed makes both
+    # modal variants appear identical.
+    return status == WorkOrderSignatureStatus.APPROVED and bool(
         getattr(workorder, "signature_external_id", None) or getattr(workorder, "signature_document_id", None)
     )
 
