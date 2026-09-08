@@ -59,6 +59,7 @@ from apps.workorder.documents.provider import (
 from apps.workorder.forms import (
     WorkOrderCustomerApprovalForm,
     WorkOrderCollaboratorForm,
+    WorkOrderDeliveryDateForm,
     WorkOrderItemEditForm,
     WorkOrderKitProductEditRowForm,
     WorkOrderKitServiceEditRowForm,
@@ -66,7 +67,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WORKORDER_OPEN_STATUSES, WORKORDER_STATUS_BADGE_CLASSES, WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WORKORDER_OPEN_STATUSES, WORKORDER_STATUS_BADGE_CLASSES, WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderHistory, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -936,6 +937,60 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "has_signature_blockers": workorder.has_signature_blockers,
                 "signature_blockers_display": workorder.signature_blockers_display,
             }
+        )
+
+
+class UpdateWorkOrderDeliveryDateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_delivery_date"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
+
+        if workorder.delivered_at is None:
+            return JsonResponse(
+                {"ok": False, "error": "A data de entrega só pode ser alterada após a entrega do veículo."},
+                status=409,
+            )
+
+        form = WorkOrderDeliveryDateForm(request.POST, workorder=workorder)
+        if not form.is_valid():
+            context = _build_customer_approvement_context(workorder, request=request)
+            context["delivery_date_form"] = form
+            return render(request, "workorder/partials/customer_approvement_section.html", context)
+
+        previous_delivered_at = workorder.delivered_at
+        delivered_at = form.cleaned_data["delivered_at"]
+        previous_delivery_minute = timezone.localtime(previous_delivered_at).replace(second=0, microsecond=0)
+        requested_delivery_minute = timezone.localtime(delivered_at).replace(second=0, microsecond=0)
+        if previous_delivery_minute != requested_delivery_minute:
+            with transaction.atomic():
+                locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
+                previous_delivered_at = locked_workorder.delivered_at
+                if previous_delivered_at is None:
+                    return JsonResponse(
+                        {"ok": False, "error": "A data de entrega só pode ser alterada após a entrega do veículo."},
+                        status=409,
+                    )
+                locked_workorder.delivered_at = delivered_at
+                locked_workorder.save(update_fields=["delivered_at"])
+                WorkOrderHistory.objects.create(
+                    workorder=locked_workorder,
+                    user=request.user,
+                    action=WorkOrderHistory.Action.DELIVERY_DATE_CHANGED,
+                    reason=(
+                        f"Data de entrega alterada de {timezone.localtime(previous_delivered_at):%d/%m/%Y %H:%M} "
+                        f"para {timezone.localtime(delivered_at):%d/%m/%Y %H:%M}."
+                    ),
+                )
+            workorder.refresh_from_db()
+
+        return render(
+            request,
+            "workorder/partials/customer_approvement_section.html",
+            _build_customer_approvement_context(workorder, request=request),
         )
 
 
