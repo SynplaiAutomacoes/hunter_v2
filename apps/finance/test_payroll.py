@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,7 +10,7 @@ from django.urls import reverse
 from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import add_manual_payroll_commission, delete_payroll_component_and_recalculate, sync_collaborator_commission_entries, sync_collaborator_payroll
+from apps.collaborators.services import add_manual_payroll_commission, delete_payroll_component_and_recalculate, mark_payroll_commissions_as_paid, sync_collaborator_commission_entries, sync_collaborator_payroll
 from apps.collaborators.test_commissions import create_financial_group_path, create_workorder
 from apps.collaborators.views import CollaboratorPayrollReceiptView
 from apps.core.presentation.navigation import get_navbar_menus
@@ -1950,3 +1951,182 @@ class PayrollManualLaunchTests(TestCase):
             ).exists()
             or CollaboratorBenefit.objects.filter(pk=cadastro_benefit.pk).exists()
         )
+
+
+class PayrollPaymentFlowTests(TestCase):
+    def test_payroll_list_view_pregenerates_active_collaborator_payrolls(self) -> None:
+        workshop = create_workshop(suffix=88)
+        collaborator = create_collaborator(workshop=workshop, suffix=88)
+        collaborator.salary = Money(2500, "BRL")
+        collaborator.admission_date = date(2026, 1, 1)
+        collaborator.save()
+
+        # Before visiting list view, no payroll exists for 09/2026
+        self.assertFalse(CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=2026, reference_month=9).exists())
+        self.assertFalse(FinancialMovement.objects.filter(collaborator=collaborator).exists())
+
+        view = PayrollListView()
+        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": "9", "ano": "2026"})
+        view.request.user = SimpleNamespace(is_authenticated=True)
+        view.workshop = workshop
+
+        context = view.get_context_data()
+        self.assertTrue(CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=2026, reference_month=9).exists())
+        movements = FinancialMovement.objects.filter(collaborator=collaborator)
+        self.assertTrue(movements.exists())
+        # Movements exist as projected expenses (is_paid=False)
+        self.assertTrue(all(not m.is_paid for m in movements))
+
+        row = next(r for r in context["payroll_rows"] if r["collaborator_name"] == collaborator.name)
+        self.assertFalse(row["is_pending_creation"])
+        self.assertTrue(row["can_select"])
+
+    def test_edit_modal_action_mark_full_payroll_paid(self) -> None:
+        workshop = create_workshop(suffix=89)
+        collaborator = create_collaborator(workshop=workshop, suffix=89)
+        collaborator.salary = Money(3000, "BRL")
+        collaborator.admission_date = date(2026, 1, 1)
+        collaborator.save()
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 9, 1), lock_reference=True)
+        self.assertEqual(payroll.status, CollaboratorPayroll.Status.FORECAST)
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {"action_mark_full_payroll_paid": "true"},
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+        self.assertEqual(response.status_code, 200)
+
+        payroll.refresh_from_db()
+        self.assertEqual(payroll.status, CollaboratorPayroll.Status.PAID)
+        movements = payroll.get_financial_movements()
+        self.assertTrue(len(movements) > 0)
+        self.assertTrue(all(m.is_paid for m in movements))
+
+    def test_edit_modal_apply_payment_to_all_cascades_payment(self) -> None:
+        workshop = create_workshop(suffix=90)
+        collaborator = create_collaborator(workshop=workshop, suffix=90)
+        collaborator.salary = Money(3000, "BRL")
+        collaborator.admission_date = date(2026, 1, 1)
+        collaborator.save()
+
+        budget_plan = FinancialGroup.objects.create(workshop=workshop, name="Transporte")
+        CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Ajuda Custo",
+            monthly_amount=Money(200, "BRL"),
+            budget_plan=budget_plan,
+            is_active=True,
+        )
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 9, 1), lock_reference=True)
+        movements = payroll.get_financial_movements()
+        self.assertEqual(len(movements), 2)  # Salary + Benefit
+        self.assertTrue(all(not m.is_paid for m in movements))
+        salary_movement = next(m for m in movements if m.payroll_component == FinancialMovement.PayrollComponent.SALARY)
+
+        request = RequestFactory().post(
+            reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
+            {
+                "tab": "SALARY",
+                "apply_payment_to_all": "true",
+                "comp_SALARY-due_date": "2026-09-05",
+                "comp_SALARY-gross_amount_0": "3000.00",
+                "comp_SALARY-gross_amount_1": "BRL",
+                "comp_SALARY-budget_plan": str(salary_movement.budget_plan_id),
+                "comp_SALARY-discount_mode": FinancialMovement.DiscountMode.NONE,
+                "comp_SALARY-discount_value_0": "0.00",
+                "comp_SALARY-discount_value_1": "BRL",
+                "comp_SALARY-is_paid": "True",
+                "comp_SALARY-is_partial_payment": "False",
+                "comp_SALARY-is_reconciled": "False",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+        self.assertEqual(response.status_code, 200)
+
+        payroll.refresh_from_db()
+        self.assertEqual(payroll.status, CollaboratorPayroll.Status.PAID)
+        refreshed_movements = payroll.get_financial_movements()
+        self.assertTrue(all(m.is_paid for m in refreshed_movements))
+
+    def test_mark_payroll_commissions_as_paid_updates_commission_financial_movement(self) -> None:
+        workshop = create_workshop(suffix=91)
+        collaborator = create_collaborator(workshop=workshop, suffix=91)
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 9, 1), lock_reference=True)
+
+        commission_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.COMMISSION,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Comissoes",
+            amount=Money(150, "BRL"),
+            due_date=date(2026, 9, 5),
+            is_paid=False,
+        )
+        CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            reference_year=2026,
+            reference_month=9,
+            commission_amount=Money(150, "BRL"),
+            percentage=Decimal("0.00"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+            origin=CollaboratorCommissionEntry.Origin.MANUAL,
+        )
+
+        mark_payroll_commissions_as_paid(payroll=payroll)
+
+        commission_movement.refresh_from_db()
+        self.assertTrue(commission_movement.is_paid)
+        entry = CollaboratorCommissionEntry.objects.get(collaborator=collaborator, reference_year=2026, reference_month=9)
+        self.assertEqual(entry.status, CollaboratorCommissionEntry.Status.PAID)
+
+    def test_collaborator_payroll_mark_paid_view_works_without_financial_movement_legacy_field(self) -> None:
+        from apps.collaborators.views import CollaboratorPayrollMarkPaidView
+
+        workshop = create_workshop(suffix=92)
+        collaborator = create_collaborator(workshop=workshop, suffix=92)
+        collaborator.salary = Money(2000, "BRL")
+        collaborator.admission_date = date(2026, 1, 1)
+        collaborator.save()
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 9, 1), lock_reference=True)
+        # Clear legacy 1-to-1 field to test robustness
+        CollaboratorPayroll.objects.filter(pk=payroll.pk).update(financial_movement=None)
+        payroll.refresh_from_db()
+        self.assertIsNone(payroll.financial_movement)
+
+        request = RequestFactory().post(
+            reverse("collaborators:collaborator_payroll_mark_paid", kwargs={"pk": collaborator.pk, "payroll_id": payroll.pk}),
+        )
+        request.user = SimpleNamespace(is_authenticated=True)
+        view = CollaboratorPayrollMarkPaidView()
+        view.request = request
+        view.workshop = workshop
+
+        response = view.post(request, pk=collaborator.pk, payroll_id=payroll.pk)
+        self.assertEqual(response.status_code, 302)
+
+        payroll.refresh_from_db()
+        self.assertEqual(payroll.status, CollaboratorPayroll.Status.PAID)
+        self.assertTrue(all(m.is_paid for m in payroll.get_financial_movements()))
+
