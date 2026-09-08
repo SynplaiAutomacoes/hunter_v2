@@ -957,9 +957,11 @@ class UpdateWorkOrderDeliveryDateView(LoginRequiredMixin, WorkshopScopedMixin, V
 
         form = WorkOrderDeliveryDateForm(request.POST, workorder=workorder)
         if not form.is_valid():
-            context = _build_customer_approvement_context(workorder, request=request)
-            context["delivery_date_form"] = form
-            return render(request, "workorder/partials/customer_approvement_section.html", context)
+            return render(
+                request,
+                "workorder/partials/delivery_date_form.html",
+                {"workorder": workorder, "delivery_date_form": form},
+            )
 
         previous_delivered_at = workorder.delivered_at
         delivered_at = form.cleaned_data["delivered_at"]
@@ -987,11 +989,17 @@ class UpdateWorkOrderDeliveryDateView(LoginRequiredMixin, WorkshopScopedMixin, V
                 )
             workorder.refresh_from_db()
 
-        return render(
+        response = render(
             request,
-            "workorder/partials/customer_approvement_section.html",
-            _build_customer_approvement_context(workorder, request=request),
+            "workorder/partials/delivery_date_update_response.html",
+            {
+                "workorder": workorder,
+                "delivery_date_form": WorkOrderDeliveryDateForm(workorder=workorder),
+                "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
+            },
         )
+        response["HX-Trigger"] = json.dumps({"showToast": {"message": "Data de entrega atualizada.", "type": "success"}})
+        return response
 
 
 class UpdateWorkOrderObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
