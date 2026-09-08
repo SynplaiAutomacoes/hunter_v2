@@ -35,6 +35,30 @@
 
     <div class="p-4 bg-base-200/50 rounded-lg">
         <h4 class="font-bold text-lg mb-2 border-b">Dados de entrega</h4>
+        <div class="mb-4">
+            {% if can_edit_delivery_date and workorder.delivered_at %}
+                <form
+                    method="post"
+                    hx-post="{% url 'workorder:update_delivery_date' workorder.pk %}"
+                    hx-target="#customer-approvement-section"
+                    hx-swap="innerHTML"
+                    class="flex flex-col gap-2 sm:flex-row sm:items-end"
+                    data-allow-locked="1"
+                >
+                    {% csrf_token %}
+                    <div class="form-control flex-1">
+                        <label class="label" for="id_delivered_at"><span class="label-text font-medium">Data e hora da entrega</span></label>
+                        {{ delivery_date_form.delivered_at }}
+                    </div>
+                    <button type="submit" class="btn btn-outline btn-sm sm:mb-1">Salvar data</button>
+                </form>
+            {% else %}
+                <div class="form-control">
+                    <label class="label" for="workorder-delivered-at-display"><span class="label-text font-medium">Data de saída</span></label>
+                    <input id="workorder-delivered-at-display" type="text" class="input-theme" value="{% if workorder.delivered_at %}{{ workorder.delivered_at|date:'d/m/Y H:i' }}{% else %}Será preenchida ao concluir a entrega.{% endif %}" readonly>
+                </div>
+            {% endif %}
+        </div>
         <form
             id="approval-km-form"
             method="post"
