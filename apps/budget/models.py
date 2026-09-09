@@ -717,7 +717,7 @@ class Budget(TimeStampedModel):
 
     @property
     def total_duration_display(self) -> str:
-        total_td = self.total_duration
+        total_td = self.operational_total_duration
         if not total_td:
             return "00h 00m"
 
@@ -873,6 +873,24 @@ class Budget(TimeStampedModel):
     @property
     def total_duration(self) -> timedelta:
         return self.pricing_snapshot.total_duration
+
+    @property
+    def operational_total_duration(self) -> timedelta:
+        """Duration of all work to be performed, including benefits.
+
+        ``total_duration`` deliberately represents only chargeable items for
+        pricing. The operational summary must also show warranty/courtesy work,
+        without letting it affect commercial pricing.
+        """
+        total = self.total_duration
+        for item in self._iter_items():
+            if getattr(item, "item_benefit_type", "normal") in ("normal", ""):
+                continue
+            duration = getattr(item, "duration", None)
+            quantity = int(getattr(item, "quantity", 0) or 0)
+            if duration and quantity > 0:
+                total += duration * quantity
+        return total
 
     @property
     def total_third_party_services_cost(self) -> Money:

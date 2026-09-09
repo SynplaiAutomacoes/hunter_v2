@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from django.test import SimpleTestCase
 from djmoney.money import Money
 
+from apps.budget.models import Budget
 from apps.budget.review_display import build_budget_review_display
 
 
@@ -50,3 +51,22 @@ class CourtesyKitReviewDisplayTests(SimpleTestCase):
 
         self.assertEqual(display.kits[0].allocated_labor_total, Money("1494.37", "BRL"))
         self.assertEqual(display.kits[0].allocated_labor_cost, Money("996.46", "BRL"))
+
+
+class OperationalDurationTests(SimpleTestCase):
+    def test_includes_courtesy_duration_without_changing_chargeable_duration(self) -> None:
+        budget = SimpleNamespace(
+            total_duration=timedelta(hours=1),
+            _iter_items=lambda: (
+                SimpleNamespace(item_benefit_type="normal", duration=timedelta(hours=2), quantity=1),
+                SimpleNamespace(item_benefit_type="courtesy", duration=timedelta(minutes=10), quantity=40),
+            ),
+        )
+
+        operational_duration = Budget.operational_total_duration.fget(budget)
+
+        self.assertEqual(operational_duration, timedelta(hours=7, minutes=40))
+        self.assertEqual(
+            Budget.total_duration_display.fget(SimpleNamespace(operational_total_duration=operational_duration)),
+            "07h 40m",
+        )
