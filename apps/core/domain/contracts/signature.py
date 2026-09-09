@@ -25,6 +25,7 @@ class SignatureSendRequest:
     api_key: str = ""
     whatsapp_instance: str = ""
     content_type: str = "application/pdf"
+    sender_name: str = ""
 
     @property
     def pdf_bytes(self) -> bytes:
