@@ -59,6 +59,7 @@ class _SelectedItemContribution:
     product_shipping: Money = field(default_factory=zero_money)
     product_cost_total: Money = field(default_factory=zero_money)
     labor_raw_total: Money = field(default_factory=zero_money)
+    labor_cost_total: Money = field(default_factory=zero_money)
     labor_duration: timedelta = field(default_factory=timedelta)
     labor_quantity: int = 0
     service_shipping: Money = field(default_factory=zero_money)
@@ -155,6 +156,10 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
             continue
 
         contribution.labor_raw_total += unit_price * total_quantity
+        # Keep the frozen internal cost separately from the commercial value.
+        # Courtesy/warranty kits still have no charge to the customer, but their
+        # PDF and cost summaries must report what the workshop actually spends.
+        contribution.labor_cost_total += unit_cost * total_quantity
         if getattr(override, "excluded_from_composition", False):
             continue
         contribution.labor_quantity += total_quantity
@@ -266,7 +271,7 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
             contribution.allocated_labor_cost = contribution.item.service_cost_price * quantity
             contribution.allocated_labor_total = contribution.item.service_selling_price * quantity
         elif contribution.is_kit:
-            contribution.allocated_labor_cost = contribution.labor_raw_total
+            contribution.allocated_labor_cost = contribution.labor_cost_total
             contribution.allocated_labor_total = contribution.labor_raw_total
         if contribution.third_party_raw_total.amount > 0:
             contribution.allocated_third_party_total = contribution.third_party_raw_total
