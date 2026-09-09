@@ -1,5 +1,6 @@
 {% extends 'crud/page.html' %}
 {% load crispy_forms_tags %}
+{% load l10n %}
 
 {% block crud_content %}
 <div class="space-y-6">
@@ -53,7 +54,7 @@
                                         <td class="text-right">
                                             <form method="post">
                                                 {% csrf_token %}
-                                                <input type="hidden" name="stock_import_id" value="{{ purchase.pk }}">
+                                                <input type="hidden" name="stock_import_id" value="{{ purchase.pk|unlocalize }}">
                                                 <button type="submit" class="btn btn-primary btn-sm">Selecionar</button>
                                             </form>
                                         </td>
