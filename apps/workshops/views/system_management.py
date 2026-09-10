@@ -96,7 +96,12 @@ class NotificationBroadcastView(SystemManagementMixin, FormView):
                 if m.workshop.name not in user_info_map[u_id]["workshops"]:
                     user_info_map[u_id]["workshops"].append(m.workshop.name)
 
+        workshops_map = {
+            str(w.id): w.name for w in Workshop.objects.filter(is_active=True).order_by("name")
+        }
+
         context.update({
+            "workshops_map_json": json.dumps(workshops_map),
             "workshop_members_json": json.dumps(workshop_members_map),
             "user_workshops_json": json.dumps(user_workshops_map),
             "user_info_json": json.dumps(user_info_map),

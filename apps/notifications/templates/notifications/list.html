@@ -5,16 +5,16 @@
 
 {% block crud_header_actions %}
     {% if unread_count > 0 %}
-        <button
-            type="button"
-            class="btn btn-outline btn-primary font-medium"
-            hx-post="{% url 'notifications:mark_all_read' %}"
-            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-            hx-swap="none"
-        >
-            <span class="material-icons">mark_email_read</span>
-            Marcar todas como lidas
-        </button>
+        <form method="post" action="{% url 'notifications:mark_all_read' %}" hx-post="{% url 'notifications:mark_all_read' %}" hx-swap="none" class="inline">
+            {% csrf_token %}
+            <button
+                type="submit"
+                class="btn btn-outline btn-primary font-medium"
+            >
+                <span class="material-icons">mark_email_read</span>
+                Marcar todas como lidas
+            </button>
+        </form>
     {% endif %}
 {% endblock %}
 
