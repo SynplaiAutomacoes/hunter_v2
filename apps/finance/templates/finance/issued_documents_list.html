@@ -333,6 +333,8 @@
                         formData.append('nfe_ids', requestId);
                     } else if (noteType === 'nfse') {
                         formData.append('nfse_ids', requestId);
+                    } else if (noteType === 'purchase_return') {
+                        formData.append('purchase_return_ids', requestId);
                     }
                 });
 
@@ -345,7 +347,7 @@
                 const documentGroup = button.dataset.documentGroup || 'xml';
                 const formData = buildSelectionFormData(documentGroup);
 
-                if (!downloadUrl || (!formData.has('nfe_ids') && !formData.has('nfse_ids'))) {
+                if (!downloadUrl || (!formData.has('nfe_ids') && !formData.has('nfse_ids') && !formData.has('purchase_return_ids'))) {
                     setState('error', 'Selecione ao menos uma nota com documento disponivel.');
                     modal.showModal();
                     return;

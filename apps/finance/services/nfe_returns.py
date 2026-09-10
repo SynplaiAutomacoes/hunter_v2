@@ -10,6 +10,7 @@ from uuid import UUID
 
 import requests
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest
@@ -383,11 +384,24 @@ def _return_requires_ibs_cbs(*, original_document: FiscalDocument) -> bool:
 
 def _extract_ibs_cbs_payload_from_product(product: dict[str, Any], *, sequence: int) -> dict[str, Any]:
     raw_ibs_cbs = product.get("ibs_cbs")
-    taxes = product.get("impostos")
+    taxes = product.get("impostos") or product.get("taxes")
     if raw_ibs_cbs in (None, "", {}) and isinstance(taxes, dict):
         raw_ibs_cbs = taxes.get("ibs_cbs")
+    if raw_ibs_cbs in (None, "", {}):
+        raw_ibs_cbs = product.get("IBSCBS")
+    if raw_ibs_cbs in (None, "", {}) and isinstance(taxes, dict):
+        raw_ibs_cbs = taxes.get("IBSCBS")
     if not isinstance(raw_ibs_cbs, dict):
         raise NfeReturnError(f"Item fiscal {sequence} nao possui snapshot IBS/CBS confiavel para devolucao ou estorno.")
+
+    # XML imports preserve the SEFAZ field names, while the emission payload
+    # uses the Webmania/internal convention. Only the classification fields
+    # are needed to reconstruct the validated IBS/CBS configuration.
+    if "CST" in raw_ibs_cbs or "cClassTrib" in raw_ibs_cbs:
+        raw_ibs_cbs = {
+            "situacao_tributaria": raw_ibs_cbs.get("CST"),
+            "classificacao_tributaria": raw_ibs_cbs.get("cClassTrib"),
+        }
 
     details = {key: value for key, value in raw_ibs_cbs.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular"}}
     try:
@@ -410,6 +424,12 @@ def _original_products_by_sequence(document: FiscalDocument) -> dict[int, dict[s
     ]
     if document.legacy_nfe_item_id:
         payload_sources.extend([document.legacy_nfe_item.raw_payload, document.legacy_nfe_item.log_payload])
+    try:
+        stock_import = document.purchase_stock_import
+    except ObjectDoesNotExist:
+        stock_import = None
+    if stock_import is not None and isinstance(stock_import.fiscal_snapshot, dict):
+        payload_sources.append(stock_import.fiscal_snapshot)
 
     products_by_sequence: dict[int, dict[str, Any]] = {}
     for payload in payload_sources:
@@ -418,8 +438,19 @@ def _original_products_by_sequence(document: FiscalDocument) -> dict[int, dict[s
                 sequence = _product_sequence(product, fallback_index=index)
             except NfeReturnError:
                 continue
-            products_by_sequence.setdefault(sequence, product)
+            existing = products_by_sequence.get(sequence)
+            if existing is None or _has_ibs_cbs_snapshot(product):
+                products_by_sequence[sequence] = product
     return products_by_sequence
+
+
+def _has_ibs_cbs_snapshot(product: dict[str, Any]) -> bool:
+    taxes = product.get("impostos") or product.get("taxes")
+    return bool(
+        product.get("ibs_cbs")
+        or product.get("IBSCBS")
+        or (isinstance(taxes, dict) and (taxes.get("ibs_cbs") or taxes.get("IBSCBS")))
+    )
 
 
 def _build_products_with_ibs_cbs(
@@ -1007,7 +1038,16 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
         except FiscalEmissionAttemptBlocked as exc:
             raise NfeReturnError(str(exc)) from exc
 
-    headers = _build_headers(workshop=locked_document.workshop)
+    try:
+        headers = _build_headers(workshop=locked_document.workshop)
+    except NfeReturnError as exc:
+        # No request was sent to Webmania when authentication/configuration
+        # fails, so this attempt must not remain indefinitely in processing.
+        mark_attempt_failed(attempt=attempt, error_message=str(exc))
+        locked_document.status = FiscalDocumentStatus.REPROVED
+        locked_document.response_payload = sanitize_fiscal_payload({"error": str(exc)})
+        locked_document.save(update_fields=["status", "response_payload", "atualizado_em"])
+        raise
     mark_attempt_sent(attempt=attempt)
 
     try:

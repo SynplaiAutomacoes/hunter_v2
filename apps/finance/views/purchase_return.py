@@ -254,10 +254,13 @@ class PurchaseReturnTransmitView(PurchaseReturnPermissionMixin, View):
             else:
                 messages.info(request, f"Transmissão registrada: {transmitted.get_status_display()}.")
         redirect_url = f"{reverse('finance:purchase_return_workflow', args=[pk])}?step=4"
-        response = HttpResponseRedirect(redirect_url)
         if getattr(request, "htmx", False):
+            # HTMX ignores redirect headers on 3xx responses. Returning a 200
+            # avoids swapping the full workflow page into the preview modal.
+            response = HttpResponse()
             response["HX-Redirect"] = redirect_url
-        return response
+            return response
+        return HttpResponseRedirect(redirect_url)
 
 
 def _steps() -> tuple[tuple[int, str], ...]:

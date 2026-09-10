@@ -554,6 +554,7 @@ def sync_purchase_return_status(*, request_instance: PurchaseReturnRequest) -> P
 
 
 def transmit_purchase_return(*, request_instance: PurchaseReturnRequest, http_request: Any | None = None) -> PurchaseReturnRequest:
+    draft_creation_error = ""
     with transaction.atomic():
         locked = (
             PurchaseReturnRequest.objects.select_for_update(of=("self",))
@@ -582,34 +583,50 @@ def transmit_purchase_return(*, request_instance: PurchaseReturnRequest, http_re
                     request=http_request,
                 )
             except NfeReturnError as exc:
-                raise PurchaseReturnError(str(exc)) from exc
-            locked.fiscal_document = document
-            locked.status = PurchaseReturnRequestStatus.PROCESSING
-            locked.save(update_fields=["fiscal_document", "status", "atualizado_em"])
-            link = document.links_from.get(related_document=locked.original_document)
-            link.metadata = sanitize_fiscal_payload(
-                {
-                    **(link.metadata or {}),
-                    "purchase_return_request_id": locked.pk,
-                    "source_stock_import_id": locked.source_stock_import_id,
-                    "items": [
-                        {
-                            "source_item_id": item.source_item_id,
-                            "kind": item.kind,
-                            "sequence": item.source_item.sequence if item.source_item_id else None,
-                            "quantity": str(item.quantity),
-                            "manual_snapshot": item.manual_snapshot,
-                            "tax_snapshot": item.source_item.tax_snapshot if item.source_item_id else {},
-                        }
-                        for item in locked.items.select_related("source_item").order_by("kind", "source_item__sequence", "pk")
-                    ],
-                }
-            )
-            link.save(update_fields=["metadata", "atualizado_em"])
+                draft_creation_error = str(exc)
+            else:
+                locked.fiscal_document = document
+                locked.status = PurchaseReturnRequestStatus.PROCESSING
+                locked.save(update_fields=["fiscal_document", "status", "atualizado_em"])
+                link = document.links_from.get(related_document=locked.original_document)
+                link.metadata = sanitize_fiscal_payload(
+                    {
+                        **(link.metadata or {}),
+                        "purchase_return_request_id": locked.pk,
+                        "source_stock_import_id": locked.source_stock_import_id,
+                        "items": [
+                            {
+                                "source_item_id": item.source_item_id,
+                                "kind": item.kind,
+                                "sequence": item.source_item.sequence if item.source_item_id else None,
+                                "quantity": str(item.quantity),
+                                "manual_snapshot": item.manual_snapshot,
+                                "tax_snapshot": item.source_item.tax_snapshot if item.source_item_id else {},
+                            }
+                            for item in locked.items.select_related("source_item").order_by("kind", "source_item__sequence", "pk")
+                        ],
+                    }
+                )
+                link.save(update_fields=["metadata", "atualizado_em"])
         else:
             document = locked.fiscal_document
             if document.emission_attempts.exists():
                 return sync_purchase_return_status(request_instance=locked)
+
+    if draft_creation_error:
+        # The local draft and its remote attempt were never created, so this
+        # reservation can be released for a new review/transmission.
+        PurchaseReturnRequest.objects.filter(
+            pk=locked.pk,
+            fiscal_document__isnull=True,
+            status=PurchaseReturnRequestStatus.READY,
+        ).update(
+            status=PurchaseReturnRequestStatus.DRAFT,
+            current_step=3,
+            ready_at=None,
+            atualizado_em=timezone.now(),
+        )
+        raise PurchaseReturnError(draft_creation_error)
 
     try:
         transmit_nfe_return_document(document=document)
