@@ -109,7 +109,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
             {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
             {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list"},
-            {"label": "Gerenciar Sistema", "view_name": "notifications:system_manage", "visible_if": _is_system_admin},
+            {"label": "Gerenciar Sistema", "view_name": "workshops:system_manage", "visible_if": _is_system_admin},
         ),
     },
 )

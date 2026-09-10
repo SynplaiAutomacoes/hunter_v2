@@ -59,14 +59,22 @@ class MessagesNotificationMiddleware(MiddlewareMixin):
                     if not msg_str:
                         continue
 
-                    title_prefix = msg.level_tag.capitalize() if getattr(msg, "level_tag", None) else "Aviso"
-                    title = f"Mensagem do Sistema: {title_prefix}"
+                    level_tag = getattr(msg, "level_tag", "") or ""
+                    if msg.level == messages.ERROR:
+                        tipo = "alert"
+                    elif msg.level == messages.WARNING:
+                        tipo = "warning"
+                    else:
+                        tipo = "info"
+
+                    title = "Mensagem do Sistema"
 
                     NotificationService.create_system_notification(
                         title=title,
                         message=msg_str,
                         workshop=workshop,
-                        metadata={"level": msg.level, "level_tag": getattr(msg, "level_tag", "")},
+                        tipo=tipo,
+                        metadata={"level": msg.level, "level_tag": level_tag},
                     )
                     msg._captured_as_notification = True
 

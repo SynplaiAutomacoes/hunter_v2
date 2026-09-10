@@ -20,6 +20,7 @@ class NotificationService:
         title: str,
         message: str,
         sender: User | None = None,
+        tipo: str = "info",
         targets: Sequence[tuple[Workshop, User]],
         metadata: dict | None = None,
     ) -> Notification:
@@ -32,6 +33,7 @@ class NotificationService:
                 title=title,
                 message=message,
                 sender=sender,
+                tipo=tipo,
                 metadata=metadata,
             )
 
@@ -63,6 +65,7 @@ class NotificationService:
         message: str,
         workshop: Workshop,
         sender: User | None = None,
+        tipo: str = "info",
         metadata: dict | None = None,
     ) -> Notification:
         """
@@ -82,6 +85,7 @@ class NotificationService:
             title=title,
             message=message,
             sender=sender,
+            tipo=tipo,
             targets=targets,
             metadata=metadata,
         )

@@ -7,9 +7,21 @@ from django.utils import timezone
 from apps.core.infrastructure import TimeStampedModel
 
 
+class NotificationType(models.TextChoices):
+    INFO = "info", "Informação"
+    WARNING = "warning", "Aviso"
+    ALERT = "alert", "Alerta"
+
+
 class Notification(TimeStampedModel):
     title = models.CharField(max_length=255, verbose_name="Título")
     message = models.TextField(verbose_name="Mensagem")
+    tipo = models.CharField(
+        max_length=20,
+        choices=NotificationType.choices,
+        default=NotificationType.INFO,
+        verbose_name="Tipo",
+    )
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

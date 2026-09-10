@@ -24,29 +24,6 @@
             hx-push-url="true"
         >Lidas</a>
     </div>
-
-    <form
-        method="get"
-        action="{% url 'notifications:list' %}"
-        hx-get="{% url 'notifications:list' %}"
-        hx-target="#notifications-table-wrapper"
-        hx-push-url="true"
-        class="join w-full sm:w-auto"
-    >
-        {% if status_filter %}
-            <input type="hidden" name="status" value="{{ status_filter }}">
-        {% endif %}
-        <input
-            type="text"
-            name="q"
-            value="{{ search_query }}"
-            placeholder="Buscar notificação..."
-            class="input input-bordered join-item input-sm w-full sm:w-64"
-        />
-        <button type="submit" class="btn btn-primary join-item btn-sm">
-            <span class="material-icons text-sm">search</span>
-        </button>
-    </form>
 </div>
 
 {% render_table recipients fields=columns table_id='notifications-table' actions=actions %}

@@ -92,6 +92,12 @@ class NotificationListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListVi
 
         columns = [
             TableColumn(
+                label="Tipo",
+                attr=lambda r: r.notification.get_tipo_display(),
+                sortable=False,
+                searchable=False,
+            ),
+            TableColumn(
                 label="Título",
                 attr="notification.title",
                 sortable=False,
