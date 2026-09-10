@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -17,7 +18,7 @@ from apps.catalog.models.products import Product
 from apps.finance.forms.purchase_return import PurchaseReturnFiscalForm, PurchaseReturnItemsForm
 from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
 from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest
-from apps.finance.services.nfe_returns import confirm_nfe_return_document_from_payload
+from apps.finance.services.nfe_returns import NfeReturnError, confirm_nfe_return_document_from_payload
 from apps.finance.services.purchase_returns import (
     PurchaseReturnError,
     available_purchase_return_quantities,
@@ -33,7 +34,7 @@ from apps.finance.services.purchase_returns import (
     sync_purchase_return_status,
     transmit_purchase_return,
 )
-from apps.finance.views.purchase_return import PurchaseReturnCreateView, PurchaseReturnWorkflowView
+from apps.finance.views.purchase_return import PurchaseReturnCreateView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
 from apps.stock.models import StockImport, StockImportFiscalItem, StockMovement, StockProduct
 from apps.workshops.models.workshops import Workshop
 from apps.workorder.models import WorkOrder, WorkOrderStatus
@@ -524,6 +525,36 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.motor_stock.refresh_from_db()
         self.assertEqual(self.motor_stock.current_quantity, Decimal("2.0000"))
 
+    def test_preview_reads_ibs_cbs_from_imported_xml_snapshot(self) -> None:
+        self.document.environment = "1"
+        self.document.save(update_fields=["environment", "atualizado_em"])
+        self.stock_import.fiscal_snapshot = {
+            "products": [
+                {
+                    "sequence": 1,
+                    "quantity": "2",
+                    "taxes": {"IBSCBS": {"CST": "000", "cClassTrib": "000001"}},
+                }
+            ]
+        }
+        self.stock_import.save(update_fields=["fiscal_snapshot", "atualizado_em"])
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        return_request.cfop = "5202"
+        return_request.save(update_fields=["cfop", "atualizado_em"])
+        return_request = finalize_purchase_return_request(request=return_request)
+        response = MagicMock()
+        response.headers = {"Content-Type": "application/pdf"}
+        response.content = b"%PDF-preview"
+        response.raise_for_status.return_value = None
+
+        with patch("apps.finance.services.nfe_returns._build_headers", return_value={}), patch("apps.finance.services.nfe_returns.requests.post", return_value=response) as post_mock:
+            preview_purchase_return(request_instance=return_request)
+
+        ibs_cbs = post_mock.call_args.kwargs["json"]["produtos"][0]["impostos"]["ibs_cbs"]
+        self.assertEqual(ibs_cbs["situacao_tributaria"], "000")
+        self.assertEqual(ibs_cbs["classificacao_tributaria"], "000001")
+
     def test_transmission_creates_one_derived_document_link_and_attempt_idempotently(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1.25")})
@@ -640,6 +671,45 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(return_request.stock_status, PurchaseReturnStockStatus.WAITING_AUTHORIZATION)
         self.assertEqual(StockMovement.objects.count(), 0)
         self.assertEqual(self.motor_stock.current_quantity, Decimal("2.0000"))
+        self.assertEqual(available_purchase_return_quantities(stock_import=self.stock_import)[1], Decimal("2.0000"))
+
+    def test_draft_creation_failure_releases_reservation_for_new_review(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        return_request.cfop = "5202"
+        return_request.save(update_fields=["cfop", "atualizado_em"])
+        return_request = finalize_purchase_return_request(request=return_request)
+
+        with patch("apps.finance.services.purchase_returns.create_nfe_return_draft", side_effect=NfeReturnError("Dados fiscais inválidos")):
+            with self.assertRaisesRegex(PurchaseReturnError, "Dados fiscais inválidos"):
+                transmit_purchase_return(request_instance=return_request)
+
+        return_request.refresh_from_db()
+        self.assertEqual(return_request.status, PurchaseReturnRequestStatus.DRAFT)
+        self.assertEqual(return_request.current_step, 3)
+        self.assertIsNone(return_request.ready_at)
+        self.assertIsNone(return_request.fiscal_document_id)
+        self.assertEqual(available_purchase_return_quantities(stock_import=self.stock_import)[1], Decimal("2.0000"))
+
+    def test_htmx_transmit_redirect_does_not_swap_workflow_into_preview_modal(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        request = self.factory.post(
+            reverse("finance:purchase_return_transmit", args=[return_request.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = self.user
+        request.htmx = True
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        view = PurchaseReturnTransmitView()
+        view.setup(request)
+        view.workshop = self.workshop
+
+        with patch("apps.finance.views.purchase_return.transmit_purchase_return", side_effect=PurchaseReturnError("Credenciais ausentes")):
+            response = view.post(request, pk=return_request.pk)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Redirect"], f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=4")
 
     def test_authorized_return_reports_stock_error_when_product_is_not_linked(self) -> None:
         self.motor.stock_product = None

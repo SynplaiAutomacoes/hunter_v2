@@ -18,7 +18,8 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import FiscalDocumentStatus, NfeItem, NfeRequest, NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.models.purchase_return import PurchaseReturnRequest
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
@@ -165,17 +166,19 @@ class IssuedDocumentsFilterMixin:
             ids.append(parsed)
         return ids
 
-    def _get_selected_request_ids(self) -> tuple[list[int], list[int]]:
+    def _get_selected_request_ids(self) -> tuple[list[int], list[int], list[int]]:
         source = self.request.POST if self.request.method == "POST" else self.request.GET
         return (
             self._parse_id_list(source.getlist("nfe_ids")),
             self._parse_id_list(source.getlist("nfse_ids")),
+            self._parse_id_list(source.getlist("purchase_return_ids")),
         )
 
-    def _get_selected_requests(self, *, nfe_ids: list[int], nfse_ids: list[int]) -> tuple[list[NfeRequest], list[NfseRequest]]:
+    def _get_selected_requests(self, *, nfe_ids: list[int], nfse_ids: list[int], purchase_return_ids: list[int]) -> tuple[list[NfeRequest], list[NfseRequest], list[PurchaseReturnRequest]]:
         nfe_requests = list(self._build_nfe_queryset(start_date=None, end_date=None).filter(pk__in=nfe_ids)) if nfe_ids else []
         nfse_requests = list(self._build_nfse_queryset(start_date=None, end_date=None).filter(pk__in=nfse_ids)) if nfse_ids else []
-        return nfe_requests, nfse_requests
+        purchase_returns = list(self._build_purchase_return_queryset(start_date=None, end_date=None).filter(pk__in=purchase_return_ids)) if purchase_return_ids else []
+        return nfe_requests, nfse_requests, purchase_returns
 
     def _item_has_document_group(self, *, note_type: str, item: object | None, document_group: str) -> bool:
         if item is None:
@@ -229,9 +232,21 @@ class IssuedDocumentsFilterMixin:
 
         return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
-    def _get_filtered_requests(self, *, state: dict[str, Any]) -> tuple[list[NfeRequest], list[NfseRequest]]:
+    def _build_purchase_return_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
+        qs = PurchaseReturnRequest.objects.filter(workshop=self.workshop, fiscal_document__isnull=False)
+        if start_date and end_date:
+            qs = qs.filter(fiscal_document__criado_em__date__range=(start_date, end_date))
+        if search_raw:
+            qs = qs.filter(
+                Q(fiscal_document__number__icontains=search_raw)
+                | Q(source_stock_import__supplier_name__icontains=search_raw)
+                | Q(source_stock_import__nf_number__icontains=search_raw)
+            )
+        return qs.select_related("fiscal_document", "source_stock_import").order_by("-fiscal_document__criado_em", "-pk")
+
+    def _get_filtered_requests(self, *, state: dict[str, Any]) -> tuple[list[NfeRequest], list[NfseRequest], list[PurchaseReturnRequest]]:
         if not state["is_valid"]:
-            return [], []
+            return [], [], []
 
         start_date = state["start_date"]
         end_date = state["end_date"]
@@ -239,7 +254,8 @@ class IssuedDocumentsFilterMixin:
 
         nfe_requests = list(self._build_nfe_queryset(start_date=start_date, end_date=end_date, search_raw=state["search_raw"])) if selected_note_type in {"all", "nfe"} else []
         nfse_requests = list(self._build_nfse_queryset(start_date=start_date, end_date=end_date, search_raw=state["search_raw"])) if selected_note_type in {"all", "nfse"} else []
-        return nfe_requests, nfse_requests
+        purchase_returns = [] if state["fiscal_operation"] or selected_note_type not in {"all", "nfe"} else list(self._build_purchase_return_queryset(start_date=start_date, end_date=end_date, search_raw=state["search_raw"]))
+        return nfe_requests, nfse_requests, purchase_returns
 
     @staticmethod
     def _get_latest_prefetched_item(request_obj: object) -> object | None:
@@ -348,13 +364,44 @@ class IssuedDocumentsFilterMixin:
             "action_label": "Abrir",
         }
 
-    def _build_rows(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], state: dict[str, Any]) -> list[dict[str, Any]]:
+    def _build_purchase_return_row(self, request_obj: PurchaseReturnRequest) -> dict[str, Any]:
+        document = request_obj.fiscal_document
+        assert document is not None
+        status_badges = {
+            FiscalDocumentStatus.APPROVED: {"class": "badge-success", "text": "Aprovada"},
+            FiscalDocumentStatus.REPROVED: {"class": "badge-error", "text": "Reprovada"},
+            FiscalDocumentStatus.DENIED: {"class": "badge-error", "text": "Denegada"},
+            FiscalDocumentStatus.CANCELED: {"class": "badge-warning", "text": "Cancelada"},
+            FiscalDocumentStatus.UNCERTAIN: {"class": "badge-warning", "text": "Aguardando reconciliação"},
+        }
+        return {
+            "note_type": "purchase_return",
+            "note_type_label": "Nota de Devolução",
+            "note_type_badge_class": "badge-soft badge-warning",
+            "request_id": request_obj.pk,
+            "selection_key": f"purchase_return:{request_obj.pk}",
+            "has_xml": bool(document.xml_url),
+            "has_pdf": bool(document.danfe_url),
+            "is_selectable": bool(document.xml_url or document.danfe_url),
+            "number": document.number or "-",
+            "reference": f"Série {document.series}" if document.series else "-",
+            "workorder_id": "Avulsa",
+            "customer_name": request_obj.source_stock_import.supplier_name or "Fornecedor não informado",
+            "created_at": document.criado_em,
+            "status_badge": status_badges.get(document.status, {"class": "badge-info", "text": document.get_status_display()}),
+            "available_documents": [label for url, label in ((document.xml_url, "XML"), (document.danfe_url, "DANFE")) if url],
+            "detail_url": reverse("finance:purchase_return_workflow", args=[request_obj.pk]) + "?step=4",
+            "action_label": "Abrir",
+        }
+
+    def _build_rows(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], purchase_returns: list[PurchaseReturnRequest], state: dict[str, Any]) -> list[dict[str, Any]]:
         rows = [self._build_nfe_row(request_obj, state=state) for request_obj in nfe_requests]
         rows.extend(self._build_nfse_row(request_obj, state=state) for request_obj in nfse_requests)
+        rows.extend(self._build_purchase_return_row(request_obj) for request_obj in purchase_returns)
         rows.sort(key=lambda row: (row["created_at"], row["request_id"]), reverse=True)
         return rows
 
-    def _collect_document_entries(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], document_group: str) -> list[dict[str, str]]:
+    def _collect_document_entries(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], purchase_returns: list[PurchaseReturnRequest], document_group: str) -> list[dict[str, str]]:
         entries: list[dict[str, str]] = []
 
         for request_obj in nfe_requests:
@@ -395,6 +442,14 @@ class IssuedDocumentsFilterMixin:
                         "url": document_url,
                     }
                 )
+
+        for request_obj in purchase_returns:
+            document = request_obj.fiscal_document
+            if document is None:
+                continue
+            document_url = document.xml_url if document_group == "xml" else document.danfe_url
+            if document_url:
+                entries.append({"archive_name": self._build_document_filename(identifier=document.access_key or document.number or request_obj.pk, extension="xml" if document_group == "xml" else "pdf"), "url": document_url})
 
         return self._ensure_unique_archive_names(entries)
 
@@ -447,8 +502,8 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         state = self._get_filter_state()
-        nfe_requests, nfse_requests = self._get_filtered_requests(state=state)
-        rows = self._build_rows(nfe_requests=nfe_requests, nfse_requests=nfse_requests, state=state)
+        nfe_requests, nfse_requests, purchase_returns = self._get_filtered_requests(state=state)
+        rows = self._build_rows(nfe_requests=nfe_requests, nfse_requests=nfse_requests, purchase_returns=purchase_returns, state=state)
         selected_fiscal_nfe = next(
             (
                 row
@@ -464,7 +519,7 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
                 "note_type_choices": self.NOTE_TYPE_CHOICES,
                 "issued_note_rows": rows,
                 "issued_notes_total": len(rows),
-                "issued_nfe_total": len(nfe_requests),
+                "issued_nfe_total": len(nfe_requests) + len(purchase_returns),
                 "issued_nfse_total": len(nfse_requests),
                 "download_xml_url": reverse("finance:issued_documents_download", kwargs={"document_group": "xml"}),
                 "download_pdfs_url": reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
@@ -488,12 +543,12 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
         if document_group not in {"xml", "pdfs"}:
             raise Http404("Grupo de documentos nao suportado")
 
-        nfe_ids, nfse_ids = self._get_selected_request_ids()
-        if not nfe_ids and not nfse_ids:
+        nfe_ids, nfse_ids, purchase_return_ids = self._get_selected_request_ids()
+        if not nfe_ids and not nfse_ids and not purchase_return_ids:
             return HttpResponse("Selecione ao menos uma nota para baixar.", status=400, content_type="text/plain; charset=utf-8")
 
-        nfe_requests, nfse_requests = self._get_selected_requests(nfe_ids=nfe_ids, nfse_ids=nfse_ids)
-        entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, document_group=document_group)
+        nfe_requests, nfse_requests, purchase_returns = self._get_selected_requests(nfe_ids=nfe_ids, nfse_ids=nfse_ids, purchase_return_ids=purchase_return_ids)
+        entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, purchase_returns=purchase_returns, document_group=document_group)
         if not entries:
             return HttpResponse("Nenhum documento disponivel para as notas selecionadas.", status=404, content_type="text/plain; charset=utf-8")
 

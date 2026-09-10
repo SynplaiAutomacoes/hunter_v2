@@ -183,6 +183,9 @@
                     {% endif %}
                     <div class="mt-6 flex flex-wrap justify-end gap-3 border-t border-base-200 pt-5">
                         <a href="{% url 'finance:emission_create' %}" class="btn btn-ghost">Concluir</a>
+                        {% if return_request.status == 'rejected' or return_request.status == 'communication_error' %}
+                            <a href="{% url 'finance:purchase_return_create' %}" class="btn btn-primary">Iniciar nova devolução</a>
+                        {% endif %}
                         {% if can_transmit %}
                             <button type="button" class="btn btn-primary gap-2" hx-get="{% url 'finance:purchase_return_preview' return_request.pk %}" hx-target="#modal-container" hx-swap="innerHTML"><span class="material-icons text-sm">preview</span>Ver prévia e transmitir</button>
                         {% endif %}
