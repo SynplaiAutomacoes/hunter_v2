@@ -96,6 +96,18 @@ class NotificationBroadcastView(SystemManagementMixin, FormView):
                 if m.workshop.name not in user_info_map[u_id]["workshops"]:
                     user_info_map[u_id]["workshops"].append(m.workshop.name)
 
+        # Garantir que todos os usuários ativos estejam no mapa de informações
+        for u in User.objects.filter(is_active=True):
+            u_id = str(u.id)
+            if u_id not in user_info_map:
+                user_info_map[u_id] = {
+                    "id": u_id,
+                    "name": u.get_full_name() or u.username,
+                    "username": u.username,
+                    "roles": [],
+                    "workshops": [],
+                }
+
         workshops_map = {
             str(w.id): w.name for w in Workshop.objects.filter(is_active=True).order_by("name")
         }

@@ -12,15 +12,18 @@
             selectedWorkshops: [],
             workshopMembersSelected: {},
             selectedUsers: [],
+            pendingWorkshopId: '',
+            pendingUserId: '',
             activeModalWorkshopId: null,
 
             init() {
                 // Carregar oficinas iniciais
                 const initialWorkshops = config.initialWorkshops || [];
-                this.selectedWorkshops = initialWorkshops.map(id => ({
+                const workshopsList = initialWorkshops.map(id => ({
                     id: String(id),
                     name: this.workshopsMap[id] || id
                 }));
+                this.selectedWorkshops = workshopsList;
 
                 // Inicializar membros selecionados para cada oficina
                 this.selectedWorkshops.forEach(w => {
@@ -30,10 +33,11 @@
 
                 // Carregar usuários específicos iniciais
                 const initialUsers = config.initialUsers || [];
-                this.selectedUsers = initialUsers.map(id => ({
+                const usersList = initialUsers.map(id => ({
                     id: String(id),
                     name: this.userInfoMap[id] ? (this.userInfoMap[id].name + ' (' + this.userInfoMap[id].username + ')') : id
                 }));
+                this.selectedUsers = usersList;
 
                 this.syncCoveredUsers();
             },
@@ -67,11 +71,31 @@
                 if (!id) return;
                 const strId = String(id);
                 if (!this.selectedWorkshops.some(w => w.id === strId)) {
-                    this.selectedWorkshops.push({ id: strId, name: this.workshopsMap[strId] || strId });
+                    const name = this.workshopsMap[strId] || strId;
+                    this.selectedWorkshops = [...this.selectedWorkshops, { id: strId, name: name }];
                     const members = this.workshopMembersData[strId] || [];
                     this.workshopMembersSelected[strId] = members.map(m => String(m.id));
                     this.syncCoveredUsers();
                 }
+            },
+
+            addPendingWorkshop() {
+                if (!this.pendingWorkshopId) return;
+                const targetId = this.pendingWorkshopId;
+                this.pendingWorkshopId = '';
+                this.addWorkshop(targetId);
+                // Despacha diretamente no elemento raiz do SearchableSelectInput filho
+                // (eventos só borbulham para cima; $dispatch do pai nunca alcança filhos)
+                this.$nextTick(() => {
+                    const wrap = this.$refs.workshopSelectWrap;
+                    const selectEl = wrap && wrap.firstElementChild;
+                    if (selectEl) {
+                        selectEl.dispatchEvent(new CustomEvent('searchable-set-value', {
+                            detail: { value: '', silent: true },
+                            bubbles: true,
+                        }));
+                    }
+                });
             },
 
             removeWorkshop(id) {
@@ -90,8 +114,26 @@
                 if (!this.selectedUsers.some(u => u.id === strId)) {
                     const info = this.userInfoMap[strId];
                     const displayName = info ? (info.name + ' (' + info.username + ')') : strId;
-                    this.selectedUsers.push({ id: strId, name: displayName });
+                    this.selectedUsers = [...this.selectedUsers, { id: strId, name: displayName }];
                 }
+            },
+
+            addPendingUser() {
+                if (!this.pendingUserId) return;
+                const targetId = this.pendingUserId;
+                this.pendingUserId = '';
+                this.addUser(targetId);
+                // Despacha diretamente no elemento raiz do SearchableSelectInput filho
+                this.$nextTick(() => {
+                    const wrap = this.$refs.userSelectWrap;
+                    const selectEl = wrap && wrap.firstElementChild;
+                    if (selectEl) {
+                        selectEl.dispatchEvent(new CustomEvent('searchable-set-value', {
+                            detail: { value: '', silent: true },
+                            bubbles: true,
+                        }));
+                    }
+                });
             },
 
             removeUser(id) {
@@ -297,11 +339,22 @@
                         <span class="badge badge-sm badge-ghost font-medium">Filtro por Oficina</span>
                     </div>
 
-                    <div @searchable-change="addWorkshop($event.detail.value); $dispatch('searchable-set-value', { value: '', silent: true })">
-                        {{ form.workshop_select }}
+                    <div class="flex items-center gap-2" @searchable-change="pendingWorkshopId = $event.detail ? String($event.detail.value || '') : ''">
+                        <div class="flex-1" x-ref="workshopSelectWrap">
+                            {{ form.workshop_select }}
+                        </div>
+                        <button
+                            type="button"
+                            class="btn btn-primary btn-sm gap-1 shrink-0"
+                            @click="addPendingWorkshop()"
+                            :disabled="!pendingWorkshopId"
+                        >
+                            <span class="material-icons text-sm">add</span>
+                            Adicionar
+                        </button>
                     </div>
                     <p class="text-xs text-base-content/70 mt-1">
-                        <span class="font-semibold text-info">Dica:</span> Adicionar uma oficina inclui por padrão todos os seus colaboradores. Clique em <span class="font-medium">"usuários"</span> para ajustar.
+                        <span class="font-semibold text-info">Dica:</span> Selecione uma oficina e clique em <strong>Adicionar</strong>. Todos os seus colaboradores serão incluídos. Clique em <span class="font-medium">"usuários"</span> na lista para personalizar.
                     </p>
 
                     <!-- Hidden Inputs para envio das oficinas -->
@@ -320,9 +373,9 @@
                             </span>
                         </div>
                         <template x-if="selectedWorkshops.length === 0">
-                            <span class="text-xs text-base-content/40 italic block p-2">Nenhuma oficina adicionada. Os membros não receberão transmissão por oficina.</span>
+                            <span class="text-xs text-base-content/40 italic block p-2">Nenhuma oficina adicionada à lista.</span>
                         </template>
-                        <div class="flex flex-col gap-2">
+                        <div class="flex flex-col gap-2" x-show="selectedWorkshops.length > 0">
                             <template x-for="w in selectedWorkshops" :key="w.id">
                                 <div class="flex items-center justify-between p-2 rounded-lg bg-base-100 border border-base-200 shadow-sm">
                                     <div class="flex items-center gap-2 min-w-0">
@@ -366,11 +419,22 @@
                         <span class="badge badge-sm badge-ghost font-medium">Filtro Individual</span>
                     </div>
 
-                    <div @searchable-change="addUser($event.detail.value); $dispatch('searchable-set-value', { value: '', silent: true })">
-                        {{ form.user_select }}
+                    <div class="flex items-center gap-2" @searchable-change="pendingUserId = $event.detail ? String($event.detail.value || '') : ''">
+                        <div class="flex-1" x-ref="userSelectWrap">
+                            {{ form.user_select }}
+                        </div>
+                        <button
+                            type="button"
+                            class="btn btn-secondary btn-sm gap-1 shrink-0"
+                            @click="addPendingUser()"
+                            :disabled="!pendingUserId"
+                        >
+                            <span class="material-icons text-sm">add</span>
+                            Adicionar
+                        </button>
                     </div>
                     <p class="text-xs text-base-content/70 mt-1">
-                        <span class="font-semibold text-info">Dica:</span> Escolha usuários com cargos/permissão (Administrativo, Gerente) fora das oficinas alvo já selecionadas.
+                        <span class="font-semibold text-info">Dica:</span> Pesquise um usuário individual, clique em <strong>Adicionar</strong> para incluí-lo na lista de transmissão.
                     </p>
 
                     <!-- Hidden Inputs para envio dos usuários específicos -->
@@ -386,7 +450,7 @@
                         <template x-if="selectedUsers.length === 0">
                             <span class="text-xs text-base-content/40 italic block p-2">Nenhum usuário individual adicionado.</span>
                         </template>
-                        <div class="flex flex-wrap gap-2">
+                        <div class="flex flex-wrap gap-2" x-show="selectedUsers.length > 0">
                             <template x-for="u in selectedUsers" :key="u.id">
                                 <div class="badge badge-secondary gap-1 py-3 px-3 text-xs font-medium shadow-sm">
                                     <span class="material-icons text-xs">person</span>
