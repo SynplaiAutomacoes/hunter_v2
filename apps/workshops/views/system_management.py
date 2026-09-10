@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 from django.conf import settings
@@ -113,10 +112,10 @@ class NotificationBroadcastView(SystemManagementMixin, FormView):
         }
 
         context.update({
-            "workshops_map_json": json.dumps(workshops_map),
-            "workshop_members_json": json.dumps(workshop_members_map),
-            "user_workshops_json": json.dumps(user_workshops_map),
-            "user_info_json": json.dumps(user_info_map),
+            "workshops_map": workshops_map,
+            "workshop_members": workshop_members_map,
+            "user_workshops": user_workshops_map,
+            "user_info": user_info_map,
         })
         return context
 

@@ -1,14 +1,27 @@
 {% extends 'crud/page.html' %}
 
 {% block crud_content %}
+{{ workshops_map|json_script:"broadcast-workshops-map" }}
+{{ workshop_members|json_script:"broadcast-workshop-members" }}
+{{ user_workshops|json_script:"broadcast-user-workshops" }}
+{{ user_info|json_script:"broadcast-user-info" }}
 <script>
     function broadcastNotificationForm(config) {
+        const readJson = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return {};
+            try {
+                return JSON.parse(el.textContent);
+            } catch (e) {
+                return {};
+            }
+        };
         return {
             tipo: config.tipo || 'info',
-            workshopsMap: config.workshopsMap || {},
-            workshopMembersData: config.workshopMembersData || {},
-            userWorkshopsMap: config.userWorkshopsMap || {},
-            userInfoMap: config.userInfoMap || {},
+            workshopsMap: {},
+            workshopMembersData: {},
+            userWorkshopsMap: {},
+            userInfoMap: {},
             selectedWorkshops: [],
             workshopMembersSelected: {},
             selectedUsers: [],
@@ -17,8 +30,14 @@
             activeModalWorkshopId: null,
 
             init() {
+                this.workshopsMap = readJson(config.workshopsDataId || 'broadcast-workshops-map');
+                this.workshopMembersData = readJson(config.workshopMembersDataId || 'broadcast-workshop-members');
+                this.userWorkshopsMap = readJson(config.userWorkshopsMapId || 'broadcast-user-workshops');
+                this.userInfoMap = readJson(config.userInfoMapId || 'broadcast-user-info');
+
                 // Carregar oficinas iniciais
                 const initialWorkshops = config.initialWorkshops || [];
+
                 const workshopsList = initialWorkshops.map(id => ({
                     id: String(id),
                     name: this.workshopsMap[id] || id
@@ -228,10 +247,10 @@
     class="card bg-base-100 shadow-xl w-full border border-base-200"
     x-data="broadcastNotificationForm({
         tipo: '{{ form.tipo.value|default:"info"|escapejs }}',
-        workshopsMap: {{ workshops_map_json|safe }},
-        workshopMembersData: {{ workshop_members_json|safe }},
-        userWorkshopsMap: {{ user_workshops_json|safe }},
-        userInfoMap: {{ user_info_json|safe }},
+        workshopsDataId: 'broadcast-workshops-map',
+        workshopMembersDataId: 'broadcast-workshop-members',
+        userWorkshopsMapId: 'broadcast-user-workshops',
+        userInfoMapId: 'broadcast-user-info',
         initialWorkshops: [
             {% if form.workshops.value %}
                 {% for w_id in form.workshops.value %}
