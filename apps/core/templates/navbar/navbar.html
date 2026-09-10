@@ -122,9 +122,22 @@
 
             <!-- Dropdown Notificações -->
             <div
-                class="dropdown dropdown-end"
+                class="relative"
                 x-data="{
+                    open: false,
+                    loaded: false,
                     unreadCount: {{ unread_count|default:0 }},
+                    toggle() {
+                        if (this.open) { this.open = false; return; }
+                        this.open = true;
+                        if (!this.loaded) {
+                            htmx.ajax('GET', '{% url 'notifications:dropdown' %}', {target: '#notification-dropdown-content', swap: 'innerHTML'});
+                            this.loaded = true;
+                        }
+                    },
+                    reload() {
+                        htmx.ajax('GET', '{% url 'notifications:dropdown' %}', {target: '#notification-dropdown-content', swap: 'innerHTML'});
+                    },
                     fetchCount() {
                         if (document.hidden) return;
                         fetch('{% url 'notifications:unread_count' %}')
@@ -137,18 +150,16 @@
                         document.addEventListener('visibilitychange', () => {
                             if (!document.hidden) this.fetchCount();
                         });
-                        document.body.addEventListener('notifications-updated', () => this.fetchCount());
+                        document.body.addEventListener('notifications-updated', () => { this.fetchCount(); if (this.open) this.reload(); });
                     }
                 }"
+                @click.outside="open = false"
             >
-                <div
-                    tabindex="0"
-                    role="button"
+                <button
+                    type="button"
                     class="btn btn-ghost btn-circle text-navbar-text relative"
                     aria-label="Notificações"
-                    hx-get="{% url 'notifications:dropdown' %}"
-                    hx-target="#notification-dropdown-content"
-                    hx-trigger="click"
+                    @click="toggle()"
                 >
                     <span class="material-icons text-2xl">notifications</span>
                     <span
@@ -157,11 +168,18 @@
                         class="badge badge-sm badge-error absolute -top-1 -right-1 font-bold text-white"
                         style="display: none;"
                     ></span>
-                </div>
+                </button>
                 <div
                     id="notification-dropdown-content"
-                    tabindex="0"
-                    class="dropdown-content menu bg-base-100 text-base-content rounded-box mt-3 w-80 p-0 shadow-lg z-50 overflow-hidden"
+                    x-show="open"
+                    x-transition:enter="transition ease-out duration-100"
+                    x-transition:enter-start="opacity-0 scale-95"
+                    x-transition:enter-end="opacity-100 scale-100"
+                    x-transition:leave="transition ease-in duration-75"
+                    x-transition:leave-start="opacity-100 scale-100"
+                    x-transition:leave-end="opacity-0 scale-95"
+                    class="absolute right-0 top-full mt-3 w-80 rounded-box bg-base-100 text-base-content p-0 shadow-lg z-50 overflow-hidden border border-base-200"
+                    style="display: none;"
                 >
                     <div class="p-4 text-center text-sm text-base-content/60">
                         <span class="loading loading-spinner loading-md"></span>

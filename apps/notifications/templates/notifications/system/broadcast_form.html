@@ -4,7 +4,7 @@
 <div class="mb-6 flex items-center justify-between">
     <div>
         <h1 class="text-3xl font-bold text-base-content">Transmitir Notificação do Sistema</h1>
-        <p class="text-base-content/70 mt-1">Envie notificações globais para workshops ou usuários específicos de todas as contas.</p>
+        <p class="text-base-content/70 mt-1">Envie notificações globais para oficinas ou usuários específicos de todas as contas.</p>
     </div>
     <a href="{% url 'notifications:system_manage' %}" class="btn btn-ghost btn-sm">
         <span class="material-icons text-sm">arrow_back</span>
@@ -12,7 +12,59 @@
     </a>
 </div>
 
-<div class="card bg-base-100 shadow-xl max-w-3xl border border-base-200">
+<div
+    class="card bg-base-100 shadow-xl w-full border border-base-200"
+    x-data="{
+        workshopsMap: {
+            {% for w in form.fields.workshops.queryset %}
+                '{{ w.id }}': '{{ w.name|escapejs }}',
+            {% endfor %}
+        },
+        usersMap: {
+            {% for u in form.fields.users.queryset %}
+                '{{ u.id }}': '{% if u.get_full_name %}{{ u.get_full_name|escapejs }} ({{ u.username|escapejs }}){% else %}{{ u.username|escapejs }}{% endif %}',
+            {% endfor %}
+        },
+        selectedWorkshops: [
+            {% if form.workshops.value %}
+                {% for w_id in form.workshops.value %}
+                    { id: '{{ w_id }}' },
+                {% endfor %}
+            {% endif %}
+        ],
+        selectedUsers: [
+            {% if form.users.value %}
+                {% for u_id in form.users.value %}
+                    { id: '{{ u_id }}' },
+                {% endfor %}
+            {% endif %}
+        ],
+        init() {
+            this.selectedWorkshops = this.selectedWorkshops.map(w => ({ id: String(w.id), name: this.workshopsMap[w.id] || w.id }));
+            this.selectedUsers = this.selectedUsers.map(u => ({ id: String(u.id), name: this.usersMap[u.id] || u.id }));
+        },
+        addWorkshop(id) {
+            if (!id) return;
+            const strId = String(id);
+            if (!this.selectedWorkshops.some(w => w.id === strId)) {
+                this.selectedWorkshops.push({ id: strId, name: this.workshopsMap[strId] || strId });
+            }
+        },
+        removeWorkshop(id) {
+            this.selectedWorkshops = this.selectedWorkshops.filter(w => w.id !== String(id));
+        },
+        addUser(id) {
+            if (!id) return;
+            const strId = String(id);
+            if (!this.selectedUsers.some(u => u.id === strId)) {
+                this.selectedUsers.push({ id: strId, name: this.usersMap[strId] || strId });
+            }
+        },
+        removeUser(id) {
+            this.selectedUsers = this.selectedUsers.filter(u => u.id !== String(id));
+        }
+    }"
+>
     <div class="card-body p-6 md:p-8">
         <form method="post" action="{% url 'notifications:broadcast' %}" class="space-y-6">
             {% csrf_token %}
@@ -29,38 +81,77 @@
             {% endif %}
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Select Oficinas -->
-                <div>
-                    <label class="label font-semibold text-base-content">
-                        <span class="label-text">{{ form.workshops.label }}</span>
+                <!-- Oficinas Alvo -->
+                <div class="space-y-2">
+                    <label class="label font-semibold text-base-content p-0 mb-1">
+                        <span class="label-text text-base font-medium">{{ form.workshop_select.label }}</span>
                     </label>
-                    <select
-                        name="workshops"
-                        multiple
-                        class="select select-bordered w-full h-36"
-                        hx-get="{% url 'notifications:users_options' %}"
-                        hx-target="#user-selector-container"
-                        hx-trigger="change"
-                    >
-                        {% for choice in form.workshops.field.queryset %}
-                            <option value="{{ choice.id }}" {% if form.workshops.value and choice.id in form.workshops.value or form.workshops.value and choice.id|stringformat:"i" in form.workshops.value %}selected{% endif %}>{{ choice.name }}</option>
-                        {% endfor %}
-                    </select>
-                    <span class="text-xs text-base-content/60 mt-1 block">{{ form.workshops.help_text }}</span>
+                    <div @searchable-change="addWorkshop($event.detail.value); $dispatch('searchable-set-value', { value: '', silent: true })">
+                        {{ form.workshop_select }}
+                    </div>
+                    <span class="text-xs text-base-content/60 block">{{ form.workshop_select.help_text }}</span>
+
+                    <!-- Hidden Inputs para envio do formulário Django -->
+                    <template x-for="w in selectedWorkshops" :key="'h-w-' + w.id">
+                        <input type="hidden" name="workshops" :value="w.id">
+                    </template>
+
+                    <!-- Lista de Oficinas Selecionadas -->
+                    <div class="mt-3 min-h-16 p-3 bg-base-200/50 rounded-lg border border-base-200">
+                        <span class="text-xs font-semibold text-base-content/70 block mb-2">Oficinas Selecionadas (<span x-text="selectedWorkshops.length"></span>):</span>
+                        <template x-if="selectedWorkshops.length === 0">
+                            <span class="text-xs text-base-content/40 italic">Nenhuma oficina adicionada à lista.</span>
+                        </template>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="w in selectedWorkshops" :key="w.id">
+                                <div class="badge badge-primary gap-1 py-3 px-3 text-xs font-medium shadow-sm">
+                                    <span class="material-icons text-xs">store</span>
+                                    <span x-text="w.name"></span>
+                                    <button type="button" @click="removeWorkshop(w.id)" class="hover:text-error transition-colors ml-1">
+                                        <span class="material-icons text-sm leading-none">close</span>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
                     {% if form.workshops.errors %}
                         <p class="text-xs text-error mt-1">{{ form.workshops.errors.0 }}</p>
                     {% endif %}
                 </div>
 
-                <!-- Select Usuários (Carregado dinamicamente via HTMX) -->
-                <div>
-                    <label class="label font-semibold text-base-content">
-                        <span class="label-text">{{ form.users.label }}</span>
+                <!-- Usuários Específicos -->
+                <div class="space-y-2">
+                    <label class="label font-semibold text-base-content p-0 mb-1">
+                        <span class="label-text text-base font-medium">{{ form.user_select.label }}</span>
                     </label>
-                    <div id="user-selector-container">
-                        {% include 'notifications/system/partials/user_selector.html' with users=form.users.field.queryset %}
+                    <div @searchable-change="addUser($event.detail.value); $dispatch('searchable-set-value', { value: '', silent: true })">
+                        {{ form.user_select }}
                     </div>
-                    <span class="text-xs text-base-content/60 mt-1 block">{{ form.users.help_text }}</span>
+                    <span class="text-xs text-base-content/60 block">{{ form.user_select.help_text }}</span>
+
+                    <!-- Hidden Inputs para envio do formulário Django -->
+                    <template x-for="u in selectedUsers" :key="'h-u-' + u.id">
+                        <input type="hidden" name="users" :value="u.id">
+                    </template>
+
+                    <!-- Lista de Usuários Selecionados -->
+                    <div class="mt-3 min-h-16 p-3 bg-base-200/50 rounded-lg border border-base-200">
+                        <span class="text-xs font-semibold text-base-content/70 block mb-2">Usuários Selecionados (<span x-text="selectedUsers.length"></span>):</span>
+                        <template x-if="selectedUsers.length === 0">
+                            <span class="text-xs text-base-content/40 italic">Nenhum usuário adicionado à lista.</span>
+                        </template>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="u in selectedUsers" :key="u.id">
+                                <div class="badge badge-secondary gap-1 py-3 px-3 text-xs font-medium shadow-sm">
+                                    <span class="material-icons text-xs">person</span>
+                                    <span x-text="u.name"></span>
+                                    <button type="button" @click="removeUser(u.id)" class="hover:text-error transition-colors ml-1">
+                                        <span class="material-icons text-sm leading-none">close</span>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
                     {% if form.users.errors %}
                         <p class="text-xs text-error mt-1">{{ form.users.errors.0 }}</p>
                     {% endif %}
@@ -70,7 +161,7 @@
             <!-- Título -->
             <div>
                 <label class="label font-semibold text-base-content" for="id_title">
-                    <span class="label-text">{{ form.title.label }}</span>
+                    <span class="label-text font-medium">{{ form.title.label }}</span>
                 </label>
                 {{ form.title }}
                 {% if form.title.errors %}
@@ -81,7 +172,7 @@
             <!-- Mensagem -->
             <div>
                 <label class="label font-semibold text-base-content" for="id_message">
-                    <span class="label-text">{{ form.message.label }}</span>
+                    <span class="label-text font-medium">{{ form.message.label }}</span>
                 </label>
                 {{ form.message }}
                 {% if form.message.errors %}
