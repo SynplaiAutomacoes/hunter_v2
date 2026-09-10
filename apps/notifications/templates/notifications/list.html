@@ -1,0 +1,28 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Notificações{% endblock %}
+{% block crud_subtitle %}Gerencie e acompanhe as notificações da oficina ativa.{% endblock %}
+
+{% block crud_header_actions %}
+    {% if unread_count > 0 %}
+        <button
+            class="btn btn-outline btn-primary font-medium"
+            hx-post="{% url 'notifications:mark_all_read' %}"
+            hx-target="#notifications-table-wrapper"
+            hx-swap="innerHTML"
+            hx-get="{% url 'notifications:list' %}"
+            hx-trigger="click"
+        >
+            <span class="material-icons">mark_email_read</span>
+            Marcar todas como lidas
+        </button>
+    {% endif %}
+{% endblock %}
+
+{% block crud_table_wrapper_id %}notifications-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'notifications:list' %}{% endblock %}
+{% block crud_table_hx_trigger %}notifications-updated from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'notifications/partials/table_partial.html' %}
+{% endblock %}

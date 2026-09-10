@@ -1,0 +1,52 @@
+{% load table_tags %}
+
+<div class="mb-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="tabs tabs-boxed bg-base-200 p-1">
+        <a
+            href="?status=all{% if search_query %}&q={{ search_query }}{% endif %}"
+            class="tab {% if status_filter == 'all' or not status_filter %}tab-active{% endif %}"
+            hx-get="{% url 'notifications:list' %}?status=all{% if search_query %}&q={{ search_query }}{% endif %}"
+            hx-target="#notifications-table-wrapper"
+            hx-push-url="true"
+        >Todas</a>
+        <a
+            href="?status=unread{% if search_query %}&q={{ search_query }}{% endif %}"
+            class="tab {% if status_filter == 'unread' %}tab-active{% endif %}"
+            hx-get="{% url 'notifications:list' %}?status=unread{% if search_query %}&q={{ search_query }}{% endif %}"
+            hx-target="#notifications-table-wrapper"
+            hx-push-url="true"
+        >Não lidas {% if unread_count > 0 %}<span class="badge badge-sm badge-primary ml-1">{{ unread_count }}</span>{% endif %}</a>
+        <a
+            href="?status=read{% if search_query %}&q={{ search_query }}{% endif %}"
+            class="tab {% if status_filter == 'read' %}tab-active{% endif %}"
+            hx-get="{% url 'notifications:list' %}?status=read{% if search_query %}&q={{ search_query }}{% endif %}"
+            hx-target="#notifications-table-wrapper"
+            hx-push-url="true"
+        >Lidas</a>
+    </div>
+
+    <form
+        method="get"
+        action="{% url 'notifications:list' %}"
+        hx-get="{% url 'notifications:list' %}"
+        hx-target="#notifications-table-wrapper"
+        hx-push-url="true"
+        class="join w-full sm:w-auto"
+    >
+        {% if status_filter %}
+            <input type="hidden" name="status" value="{{ status_filter }}">
+        {% endif %}
+        <input
+            type="text"
+            name="q"
+            value="{{ search_query }}"
+            placeholder="Buscar notificação..."
+            class="input input-bordered join-item input-sm w-full sm:w-64"
+        />
+        <button type="submit" class="btn btn-primary join-item btn-sm">
+            <span class="material-icons text-sm">search</span>
+        </button>
+    </form>
+</div>
+
+{% render_table recipients fields=columns table_id='notifications-table' actions=actions %}

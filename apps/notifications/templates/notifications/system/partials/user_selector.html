@@ -1,0 +1,7 @@
+<select name="users" multiple class="select select-bordered w-full h-32">
+    {% for user in users %}
+        <option value="{{ user.id }}">{{ user.username }} {% if user.get_full_name %}({{ user.get_full_name }}){% endif %} - {{ user.email }}</option>
+    {% empty %}
+        <option disabled>Nenhum usuário encontrado</option>
+    {% endfor %}
+</select>

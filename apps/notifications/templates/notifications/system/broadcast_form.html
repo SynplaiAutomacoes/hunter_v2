@@ -1,0 +1,103 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="mb-6 flex items-center justify-between">
+    <div>
+        <h1 class="text-3xl font-bold text-base-content">Transmitir Notificação do Sistema</h1>
+        <p class="text-base-content/70 mt-1">Envie notificações globais para workshops ou usuários específicos de todas as contas.</p>
+    </div>
+    <a href="{% url 'notifications:system_manage' %}" class="btn btn-ghost btn-sm">
+        <span class="material-icons text-sm">arrow_back</span>
+        Voltar
+    </a>
+</div>
+
+<div class="card bg-base-100 shadow-xl max-w-3xl border border-base-200">
+    <div class="card-body p-6 md:p-8">
+        <form method="post" action="{% url 'notifications:broadcast' %}" class="space-y-6">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+                <div class="alert alert-error">
+                    <span class="material-icons">error</span>
+                    <div>
+                        {% for error in form.non_field_errors %}
+                            <p class="text-sm font-medium">{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Select Oficinas -->
+                <div>
+                    <label class="label font-semibold text-base-content">
+                        <span class="label-text">{{ form.workshops.label }}</span>
+                    </label>
+                    <select
+                        name="workshops"
+                        multiple
+                        class="select select-bordered w-full h-36"
+                        hx-get="{% url 'notifications:users_options' %}"
+                        hx-target="#user-selector-container"
+                        hx-trigger="change"
+                    >
+                        {% for choice in form.workshops.field.queryset %}
+                            <option value="{{ choice.id }}">{{ choice.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <span class="text-xs text-base-content/60 mt-1 block">{{ form.workshops.help_text }}</span>
+                    {% if form.workshops.errors %}
+                        <p class="text-xs text-error mt-1">{{ form.workshops.errors.0 }}</p>
+                    {% endif %}
+                </div>
+
+                <!-- Select Usuários (Carregado dinamicamente via HTMX) -->
+                <div>
+                    <label class="label font-semibold text-base-content">
+                        <span class="label-text">{{ form.users.label }}</span>
+                    </label>
+                    <div id="user-selector-container">
+                        {% include 'notifications/system/partials/user_selector.html' with users=form.users.field.queryset %}
+                    </div>
+                    <span class="text-xs text-base-content/60 mt-1 block">{{ form.users.help_text }}</span>
+                    {% if form.users.errors %}
+                        <p class="text-xs text-error mt-1">{{ form.users.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Título -->
+            <div>
+                <label class="label font-semibold text-base-content" for="id_title">
+                    <span class="label-text">{{ form.title.label }}</span>
+                </label>
+                {{ form.title }}
+                {% if form.title.errors %}
+                    <p class="text-xs text-error mt-1">{{ form.title.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- Mensagem -->
+            <div>
+                <label class="label font-semibold text-base-content" for="id_message">
+                    <span class="label-text">{{ form.message.label }}</span>
+                </label>
+                {{ form.message }}
+                {% if form.message.errors %}
+                    <p class="text-xs text-error mt-1">{{ form.message.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <!-- Botões de Ação -->
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-base-200">
+                <a href="{% url 'notifications:system_manage' %}" class="btn btn-ghost">Cancelar</a>
+                <button type="submit" class="btn btn-primary">
+                    <span class="material-icons">send</span>
+                    Transmitir Notificação
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
