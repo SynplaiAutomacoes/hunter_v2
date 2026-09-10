@@ -30,7 +30,8 @@ from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
-from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
+from apps.finance.services.tax_classes import TaxClassServiceError, ensure_default_tax_classes, list_tax_classes
+from apps.finance.services.emission_ncm import apply_product_ncm_updates, extract_ncm_updates_from_post
 from apps.finance.views.request_workflow import build_preview_hidden_fields, render_emission_preview_modal
 from apps.finance.views.ncm_validation import (
     NFE_INVALID_NCM_MODAL_ERROR,
@@ -511,12 +512,23 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         choices_by_type: dict[str, list[tuple[str, str]]] = {"nfe": [], "nfse": []}
         try:
+            ensure_default_tax_classes(workshop=self.workshop)
             tax_classes = list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError as exc:
             messages.warning(self.request, f"Nao foi possivel carregar classes de imposto: {exc}")
             self._tax_class_choices_cache = choices_by_type
             return choices_by_type
 
+        prioritized_labels = ("saída de produto", "saida de produto", "serviço", "servico", "devolução", "devolucao")
+
+        def sort_key(item: tuple[str, str]) -> tuple[int, str]:
+            label_lower = item[1].casefold()
+            for index, needle in enumerate(prioritized_labels):
+                if needle in label_lower:
+                    return (index, label_lower)
+            return (len(prioritized_labels), label_lower)
+
+        collected: dict[str, list[tuple[str, str]]] = {"nfe": [], "nfse": []}
         for tax_class in tax_classes:
             reference = str(tax_class.get("referencia") or "").strip()
             if not reference:
@@ -533,10 +545,42 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 is_nfse = bool(tax_class.get("tipo_emissao")) and bool(tax_class.get("codigo_servico"))
 
             target_type = "nfse" if is_nfse else "nfe"
-            choices_by_type[target_type].append((reference, label))
+            collected[target_type].append((reference, label))
+
+        for key in ("nfe", "nfse"):
+            choices_by_type[key] = sorted(collected[key], key=sort_key)
 
         self._tax_class_choices_cache = choices_by_type
         return choices_by_type
+
+    def _get_tax_class_cfop_map(self) -> dict[str, str]:
+        cached = getattr(self, "_tax_class_cfop_map_cache", None)
+        if cached is not None:
+            return cached
+        try:
+            tax_classes = list_tax_classes(workshop=self.workshop)
+        except TaxClassServiceError:
+            self._tax_class_cfop_map_cache = {}
+            return {}
+        cfop_map: dict[str, str] = {}
+        for tax_class in tax_classes:
+            reference = str(tax_class.get("referencia") or "").strip()
+            if not reference:
+                continue
+            is_nfse = bool(tax_class.get("tipo_emissao")) and bool(tax_class.get("codigo_servico"))
+            if is_nfse:
+                continue
+            cfops: list[str] = []
+            for scenario in tax_class.get("icms") or []:
+                if not isinstance(scenario, dict):
+                    continue
+                cfop = "".join(char for char in str(scenario.get("codigo_cfop") or "") if char.isdigit())
+                if cfop and cfop not in cfops:
+                    cfops.append(cfop)
+            if cfops:
+                cfop_map[reference] = ", ".join(cfops)
+        self._tax_class_cfop_map_cache = cfop_map
+        return cfop_map
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -567,6 +611,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             kwargs["tax_class_choices"] = tax_class_choices["nfe"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
             kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
+            kwargs["tax_class_cfop_map"] = self._get_tax_class_cfop_map()
         elif step_key == "nfse_config":
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfse"]
@@ -977,6 +1022,14 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return self.apply_summary_and_note_mode(form=form, workorder=workorder)
 
         if current_step_key == "nfe_config":
+            ncm_errors = apply_product_ncm_updates(
+                workshop=self.workshop,
+                updates=extract_ncm_updates_from_post(self.request.POST),
+            )
+            if ncm_errors:
+                for error in ncm_errors:
+                    messages.error(self.request, error)
+                return self.form_invalid(form)
             state["nfe_config"] = {
                 "tax_class": form.cleaned_data["tax_class"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),

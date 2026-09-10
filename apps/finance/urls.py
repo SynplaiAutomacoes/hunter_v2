@@ -9,6 +9,7 @@ from apps.finance.views import (
     EmissionWorkOrderItemUpdateView,
     FiscalOperationGatewayView,
     StandaloneEmissionCreateView,
+    StandaloneCustomerSearchView,
     CommissionReportView,
     CommissionReportPdfView,
     FinancialGroupBulkDeleteView,
@@ -138,6 +139,7 @@ urlpatterns = [
     path("emissao/check-workorder/", EmissionCheckWorkorderView.as_view(), name="emission_check_workorder"),
     path("emissao/normal/", EmissionRequestCreateView.as_view(), name="emission_normal"),
     path("emissao/avulsa/", StandaloneEmissionCreateView.as_view(), name="standalone_emission"),
+    path("emissao/avulsa/clientes/", StandaloneCustomerSearchView.as_view(), name="standalone_customer_search"),
     path("emissao/", FiscalOperationGatewayView.as_view(), name="emission_create"),
     # NFE — legacy lists redirect to Central de Notas
     path("nfe/", IssuedDocumentsRedirectView.as_view(note_type="nfe"), name="nfe_emit"),
