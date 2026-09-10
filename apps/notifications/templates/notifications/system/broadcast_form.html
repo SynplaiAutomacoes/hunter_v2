@@ -43,7 +43,7 @@
                         hx-trigger="change"
                     >
                         {% for choice in form.workshops.field.queryset %}
-                            <option value="{{ choice.id }}">{{ choice.name }}</option>
+                            <option value="{{ choice.id }}" {% if form.workshops.value and choice.id in form.workshops.value or form.workshops.value and choice.id|stringformat:"i" in form.workshops.value %}selected{% endif %}>{{ choice.name }}</option>
                         {% endfor %}
                     </select>
                     <span class="text-xs text-base-content/60 mt-1 block">{{ form.workshops.help_text }}</span>

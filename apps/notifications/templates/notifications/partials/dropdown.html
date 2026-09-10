@@ -7,12 +7,11 @@
     </div>
     {% if unread_count > 0 %}
         <button
+            type="button"
             class="text-xs text-primary font-medium hover:underline focus:outline-none"
             hx-post="{% url 'notifications:mark_all_read' %}"
             hx-target="#notification-dropdown-content"
             hx-swap="innerHTML"
-            hx-get="{% url 'notifications:dropdown' %}"
-            hx-trigger="click"
         >
             Marcar lidas
         </button>
@@ -27,8 +26,6 @@
             hx-vals='{"id": "{{ recipient.id }}"}'
             hx-target="#notification-dropdown-content"
             hx-swap="innerHTML"
-            hx-get="{% url 'notifications:dropdown' %}"
-            hx-trigger="click"
         >
             <div class="mt-0.5 text-primary">
                 <span class="material-icons text-lg">

@@ -18,14 +18,20 @@ from apps.workshops.models.workshops import Workshop
 User = get_user_model()
 
 
-class SystemManagementMixin:
+from django.contrib.auth.mixins import LoginRequiredMixin
+
+
+class SystemManagementMixin(LoginRequiredMixin):
     """
     Garante acesso estrito à página Gerenciar Sistema somente se o username estiver em settings.SYSTEM_ADMIN_USERNAMES.
     """
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+
         admin_usernames = getattr(settings, "SYSTEM_ADMIN_USERNAMES", [])
-        if not request.user.is_authenticated or request.user.username not in admin_usernames:
+        if request.user.username not in admin_usernames:
             raise PermissionDenied("Acesso restrito ao gerenciamento do sistema.")
         return super().dispatch(request, *args, **kwargs)
 
@@ -53,14 +59,15 @@ class NotificationUsersOptionsView(SystemManagementMixin, View):
                 .select_related("user")
                 .order_by("user__username")
             )
-            users = list({m.user for m in memberships})
+            users = list(dict.fromkeys(m.user for m in memberships))
         else:
             users = list(User.objects.filter(is_active=True).order_by("username"))
 
+        selected_user_ids = {int(u_id) for u_id in request.GET.getlist("users") if u_id.isdigit()}
         return render(
             request,
             "notifications/system/partials/user_selector.html",
-            {"users": users},
+            {"users": users, "selected_user_ids": selected_user_ids},
         )
 
 

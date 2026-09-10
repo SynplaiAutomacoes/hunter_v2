@@ -28,6 +28,7 @@ class NotificationBroadcastForm(forms.Form):
         widget=forms.TextInput(attrs={"class": "input input-bordered w-full", "placeholder": "Digite o título..."}),
     )
     message = forms.CharField(
+        max_length=2000,
         label="Mensagem",
         widget=forms.Textarea(attrs={"class": "textarea textarea-bordered w-full", "rows": 4, "placeholder": "Digite a mensagem..."}),
     )

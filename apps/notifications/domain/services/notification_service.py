@@ -51,7 +51,7 @@ class NotificationService:
                     )
 
             if recipients:
-                NotificationRecipient.objects.bulk_create(recipients)
+                NotificationRecipient.objects.bulk_create(recipients, batch_size=500)
 
             return notification
 
@@ -75,7 +75,6 @@ class NotificationService:
                 user__is_active=True,
             )
             .select_related("user")
-            .only("workshop_id", "user")
         )
 
         targets = [(workshop, member.user) for member in memberships]

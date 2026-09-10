@@ -6,7 +6,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.urls import reverse
 from django.views import View
 from django.views.generic import ListView
 
@@ -125,6 +124,7 @@ class NotificationListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListVi
                 icon="mark_email_read",
                 a_class="btn btn-ghost btn-xs text-primary",
                 aria_label="Marcar como lida",
+                hx_post="",
                 hx_target="#notifications-table-wrapper",
                 visible=lambda r: not r.is_read,
             ),
@@ -145,15 +145,15 @@ class NotificationListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListVi
 
 class NotificationMarkReadView(LoginRequiredMixin, View):
     """
-    Marca notificações como lidas.
+    Marca notificações como lidas via POST.
     """
 
-    def _mark_read(self, request: HttpRequest, pk: int | None = None) -> HttpResponse:
+    def post(self, request: HttpRequest, pk: int | None = None) -> HttpResponse:
         workshop = get_active_workshop_or_404(request)
         if pk is not None:
             notification_ids = [pk]
         else:
-            raw_ids = request.POST.getlist("id") or request.POST.getlist("notification_ids") or request.GET.getlist("id") or [request.POST.get("id") or request.GET.get("id")]
+            raw_ids = request.POST.getlist("id") or request.POST.getlist("notification_ids") or [request.POST.get("id")]
             notification_ids = []
             for raw_id in raw_ids:
                 if raw_id:
@@ -166,28 +166,64 @@ class NotificationMarkReadView(LoginRequiredMixin, View):
             NotificationService.mark_as_read(
                 user=request.user,
                 workshop=workshop,
-                notification_ids=notification_ids,
+                notification_ids=notification_ids[:100],
             )
+
+        if getattr(request, "htmx", False) and request.headers.get("HX-Target") == "notification-dropdown-content":
+            limit = getattr(settings, "NOTIFICATIONS_DROPDOWN_LIMIT", 5)
+            recipients = list(
+                NotificationService.get_user_notifications(
+                    user=request.user,
+                    workshop=workshop,
+                    limit=limit,
+                )
+            )
+            unread_count = NotificationService.get_unread_count(user=request.user, workshop=workshop)
+            response = render(
+                request,
+                "notifications/partials/dropdown.html",
+                {
+                    "recipients": recipients,
+                    "unread_count": unread_count,
+                },
+            )
+            response["HX-Trigger"] = "notifications-updated"
+            return response
 
         response = HttpResponse(status=200)
         response["HX-Trigger"] = "notifications-updated"
         return response
 
-    def post(self, request: HttpRequest, pk: int | None = None) -> HttpResponse:
-        return self._mark_read(request, pk)
-
-    def get(self, request: HttpRequest, pk: int | None = None) -> HttpResponse:
-        return self._mark_read(request, pk)
-
 
 class NotificationMarkAllReadView(LoginRequiredMixin, View):
     """
-    Marca todas as notificações da workshop ativa como lidas.
+    Marca todas as notificações da workshop ativa como lidas via POST.
     """
 
     def post(self, request: HttpRequest) -> HttpResponse:
         workshop = get_active_workshop_or_404(request)
         NotificationService.mark_all_as_read(user=request.user, workshop=workshop)
+
+        if getattr(request, "htmx", False) and request.headers.get("HX-Target") == "notification-dropdown-content":
+            limit = getattr(settings, "NOTIFICATIONS_DROPDOWN_LIMIT", 5)
+            recipients = list(
+                NotificationService.get_user_notifications(
+                    user=request.user,
+                    workshop=workshop,
+                    limit=limit,
+                )
+            )
+            unread_count = NotificationService.get_unread_count(user=request.user, workshop=workshop)
+            response = render(
+                request,
+                "notifications/partials/dropdown.html",
+                {
+                    "recipients": recipients,
+                    "unread_count": unread_count,
+                },
+            )
+            response["HX-Trigger"] = "notifications-updated"
+            return response
 
         response = HttpResponse(status=200)
         response["HX-Trigger"] = "notifications-updated"
