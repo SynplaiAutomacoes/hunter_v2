@@ -5,15 +5,18 @@ from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.views import View
 from django.views.generic import FormView
 
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.search import apply_text_search
+from apps.customer.models import Customer
 from apps.finance.forms.emission import EmissionNfeConfigForm, EmissionNfseConfigForm
 from apps.finance.forms.standalone_emission import (
     StandaloneAddProductForm,
@@ -27,6 +30,12 @@ from apps.finance.forms.standalone_emission import (
     build_standalone_items_form,
 )
 from apps.finance.models.finance import NfeRequestStatus, NfseRequestStatus
+from apps.finance.services.emission_ncm import (
+    apply_standalone_line_ncm_updates,
+    extract_line_ncm_updates_from_post,
+    extract_ncm_updates_from_post,
+)
+from apps.finance.services.fiscal_recipient import create_customer_from_recipient_snapshot, recipient_snapshot_from_customer
 from apps.finance.services.standalone_emission import (
     default_standalone_state,
     get_or_create_standalone_nfe_request,
@@ -36,7 +45,7 @@ from apps.finance.services.standalone_emission import (
     refresh_standalone_nfe_lines_from_catalog,
     service_line_from_catalog,
 )
-from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
+from apps.finance.services.tax_classes import TaxClassServiceError, ensure_default_tax_classes, list_tax_classes
 from apps.finance.views.ncm_validation import (
     build_standalone_invalid_ncm_modal_context,
     find_first_standalone_line_with_invalid_ncm,
@@ -173,7 +182,13 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         if step_key == "note_mode" and state.get("note_mode"):
             initial["note_mode"] = state["note_mode"]
         elif step_key == "recipient" and state.get("recipient"):
-            initial.update(state["recipient"])
+            recipient = dict(state.get("recipient") or {})
+            initial.update(recipient)
+            initial["recipient_mode"] = str(state.get("recipient_mode") or StandaloneRecipientForm.RECIPIENT_MODE_REGISTERED)
+            customer_id = state.get("customer_id")
+            if customer_id:
+                initial["customer"] = customer_id
+                initial["recipient_mode"] = StandaloneRecipientForm.RECIPIENT_MODE_REGISTERED
         elif step_key == "nfe_config":
             initial.update(state.get("nfe_config") or {})
         elif step_key == "nfse_config":
@@ -183,10 +198,21 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
     def _get_tax_class_choices_by_type(self) -> dict[str, list[tuple[str, str]]]:
         choices_by_type: dict[str, list[tuple[str, str]]] = {"nfe": [], "nfse": []}
         try:
+            ensure_default_tax_classes(workshop=self.workshop)
             tax_classes = list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError:
             return choices_by_type
 
+        prioritized_labels = ("saída de produto", "saida de produto", "serviço", "servico", "devolução", "devolucao")
+
+        def sort_key(item: tuple[str, str]) -> tuple[int, str]:
+            label_lower = item[1].casefold()
+            for index, needle in enumerate(prioritized_labels):
+                if needle in label_lower:
+                    return (index, label_lower)
+            return (len(prioritized_labels), label_lower)
+
+        collected: dict[str, list[tuple[str, str]]] = {"nfe": [], "nfse": []}
         for tax_class in tax_classes:
             reference = str(tax_class.get("referencia") or "").strip()
             label = str(tax_class.get("descricao") or reference).strip()
@@ -194,25 +220,58 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
                 continue
             is_nfse = bool(tax_class.get("tipo_emissao")) and bool(tax_class.get("codigo_servico"))
             target_type = "nfse" if is_nfse else "nfe"
-            choices_by_type[target_type].append((reference, label))
+            collected[target_type].append((reference, label))
+        for key in ("nfe", "nfse"):
+            choices_by_type[key] = sorted(collected[key], key=sort_key)
         return choices_by_type
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         step_key = self._current_step_key()
         tax_class_choices = self._get_tax_class_choices_by_type()
+        state = self._load_state()
 
-        if step_key == "nfe_config":
+        if step_key == "recipient":
+            kwargs["workshop"] = self.workshop
+        elif step_key == "nfe_config":
             kwargs["workorder"] = None
             kwargs["tax_class_choices"] = tax_class_choices["nfe"]
             kwargs["selected_slider"] = 0
             kwargs["discount_type_override"] = ""
+            kwargs["standalone_nfe_lines"] = list(state.get("nfe_lines") or [])
+            kwargs["tax_class_cfop_map"] = self._get_tax_class_cfop_map(note_type="nfe")
         elif step_key == "nfse_config":
             kwargs["workorder"] = None
             kwargs["tax_class_choices"] = tax_class_choices["nfse"]
             kwargs["selected_slider"] = 0
             kwargs["discount_type_override"] = ""
         return kwargs
+
+    def _get_tax_class_cfop_map(self, *, note_type: str) -> dict[str, str]:
+        try:
+            tax_classes = list_tax_classes(workshop=self.workshop)
+        except TaxClassServiceError:
+            return {}
+        cfop_map: dict[str, str] = {}
+        for tax_class in tax_classes:
+            reference = str(tax_class.get("referencia") or "").strip()
+            if not reference:
+                continue
+            is_nfse = bool(tax_class.get("tipo_emissao")) and bool(tax_class.get("codigo_servico"))
+            if note_type == "nfe" and is_nfse:
+                continue
+            if note_type == "nfse" and not is_nfse:
+                continue
+            cfops: list[str] = []
+            for scenario in tax_class.get("icms") or []:
+                if not isinstance(scenario, dict):
+                    continue
+                cfop = "".join(char for char in str(scenario.get("codigo_cfop") or "") if char.isdigit())
+                if cfop and cfop not in cfops:
+                    cfops.append(cfop)
+            if cfops:
+                cfop_map[reference] = ", ".join(cfops)
+        return cfop_map
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -246,6 +305,7 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
                 str(product.pk): {
                     "cost": str(product.cost_price.amount if product.cost_price else 0),
                     "sell": str(product.selling_price.amount if product.selling_price else 0),
+                    "ncm": str(product.ncm or ""),
                 }
                 for product in Product.objects.filter(workshop=self.workshop, is_active=True)
             }
@@ -296,16 +356,21 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             if form.is_valid():
                 product = form.cleaned_data["product"]
                 quantity = form.cleaned_data["quantity"]
+                ncm = str(form.cleaned_data.get("ncm") or "").strip()
                 unit_value = _resolve_unit_value(
                     quantity=quantity,
                     unit_value=form.cleaned_data.get("unit_value"),
                     total_value=form.cleaned_data.get("total_value"),
                 )
+                if ncm and product.ncm != ncm:
+                    product.ncm = ncm
+                    product.save(update_fields=["ncm", "atualizado_em"])
                 line = product_line_from_catalog(
                     product=product,
                     quantity=quantity,
                     unit_value=unit_value,
                     cost_value=form.cleaned_data.get("cost_value"),
+                    ncm=ncm,
                 )
                 state.setdefault("nfe_lines", []).append(line)
                 self._write_state(state)
@@ -595,7 +660,22 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             return self._redirect_to_step(next_step)
 
         if current_step_key == "recipient":
-            state["recipient"] = form.cleaned_data["recipient_snapshot"]
+            snapshot = form.cleaned_data["recipient_snapshot"]
+            if self.request.POST.get("register_as_customer"):
+                try:
+                    customer = create_customer_from_recipient_snapshot(workshop=self.workshop, snapshot=snapshot)
+                except ValueError as exc:
+                    messages.error(self.request, str(exc))
+                    return self.form_invalid(form)
+                snapshot = recipient_snapshot_from_customer(customer)
+                state["recipient"] = snapshot
+                state["recipient_mode"] = StandaloneRecipientForm.RECIPIENT_MODE_REGISTERED
+                state["customer_id"] = customer.pk
+                messages.success(self.request, "Cliente cadastrado com sucesso.")
+            else:
+                state["recipient"] = snapshot
+                state["recipient_mode"] = form.cleaned_data.get("recipient_mode") or StandaloneRecipientForm.RECIPIENT_MODE_REGISTERED
+                state["customer_id"] = form.cleaned_data.get("customer_id")
             next_step = self._set_current_step(state=state, step_key="items")
             self._write_state(state)
             return self._redirect_to_step(next_step)
@@ -609,6 +689,17 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             return self._redirect_to_step(next_step)
 
         if current_step_key == "nfe_config":
+            updated_lines, ncm_errors = apply_standalone_line_ncm_updates(
+                workshop=self.workshop,
+                lines=list(state.get("nfe_lines") or []),
+                line_updates=extract_line_ncm_updates_from_post(self.request.POST),
+                product_updates=extract_ncm_updates_from_post(self.request.POST),
+            )
+            if ncm_errors:
+                for error in ncm_errors:
+                    messages.error(self.request, error)
+                return self.form_invalid(form)
+            state["nfe_lines"] = updated_lines
             state["nfe_config"] = {
                 "tax_class": form.cleaned_data["tax_class"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
@@ -637,3 +728,26 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             return self._finalize_selected_notes(state=state)
 
         return self._redirect_to_step(self._current_step())
+
+
+class StandaloneCustomerSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """JSON autocomplete for registered customers during avulsa emission."""
+
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    def get(self, request, *args: Any, **kwargs: Any) -> JsonResponse:
+        search = str(request.GET.get("q") or "").strip()
+        customers = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+        if search:
+            customers = apply_text_search(customers, search_value=search, lookups=("name", "cpf_or_cnpj", "email"))
+
+        payload = [
+            {
+                "id": customer.pk,
+                "label": f"{customer.name} — {customer.cpf_or_cnpj_formatted}" if customer.cpf_or_cnpj else customer.name,
+            }
+            for customer in customers[:40]
+        ]
+        return JsonResponse(payload, safe=False)
