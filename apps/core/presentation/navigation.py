@@ -6,6 +6,8 @@ from urllib.parse import urlencode
 from django.http import HttpRequest
 from django.urls import reverse
 
+from django.conf import settings
+
 from apps.workshops.context_processors import active_workshops
 from apps.workshops.util.workshops import can_view_payroll_details
 
@@ -27,6 +29,11 @@ def _can_view_payroll(request: HttpRequest, flags: dict[str, Any]) -> bool:
         return False
 
     return can_view_payroll_details(user=request.user, workshop=active_workshop, request=request)
+
+
+def _is_system_admin(request: HttpRequest, flags: dict[str, Any]) -> bool:
+    admin_usernames = getattr(settings, "SYSTEM_ADMIN_USERNAMES", [])
+    return request.user.is_authenticated and request.user.username in admin_usernames
 
 
 BUDGET_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Orçamento", "view_name": "budget:budget_create"}
@@ -102,6 +109,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
             {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
             {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list"},
+            {"label": "Gerenciar Sistema", "view_name": "workshops:system_manage", "visible_if": _is_system_admin},
         ),
     },
 )

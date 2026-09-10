@@ -1,0 +1,26 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-base-content">Gerenciar Sistema</h1>
+    <p class="text-base-content/70 mt-1">Painel administrativo de controle global e envio de notificações para todo o sistema.</p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div class="card bg-base-100 shadow-xl border border-base-200 hover:shadow-2xl transition-shadow">
+        <div class="card-body">
+            <div class="flex items-center gap-3 mb-2 text-primary">
+                <span class="material-icons text-3xl">campaign</span>
+                <h2 class="card-title text-lg">Transmitir Notificação</h2>
+            </div>
+            <p class="text-sm text-base-content/70">Envie avisos, comunicados e alertas para oficinas e usuários de todas as contas cadastradas no sistema.</p>
+            <div class="card-actions justify-end mt-4">
+                <a href="{% url 'workshops:system_broadcast' %}" class="btn btn-primary btn-sm">
+                    Nova Transmissão
+                    <span class="material-icons text-sm">arrow_forward</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
