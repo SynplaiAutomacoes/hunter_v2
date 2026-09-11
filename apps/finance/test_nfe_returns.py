@@ -168,6 +168,21 @@ class NfeReturnOperationalTests(TestCase):
         self.assertEqual(item.raw_payload, original_snapshot)
         self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
 
+    def test_missing_webmania_credentials_marks_return_attempt_as_failed(self) -> None:
+        item = self._create_nfe_item()
+        document = self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}])
+
+        with patch("apps.finance.services.nfe_returns._build_headers", side_effect=NfeReturnError("Credenciais Webmania incompletas")):
+            with self.assertRaisesRegex(NfeReturnError, "Credenciais Webmania incompletas"):
+                transmit_nfe_return_document(document=document)
+
+        document.refresh_from_db()
+        attempt = document.emission_attempts.get()
+        self.assertEqual(document.status, FiscalDocumentStatus.REPROVED)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.FAILED)
+        self.assertFalse(attempt.sent_at)
+        self.assertIn("Credenciais Webmania incompletas", document.response_payload["error"])
+
     def test_partial_return_preserves_multiple_original_item_sequences_and_balances(self) -> None:
         item = self._create_nfe_item()
         document = self._transmit(

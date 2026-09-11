@@ -13,7 +13,9 @@ from django.urls import reverse
 
 from apps.budget.models import BudgetType
 from apps.collaborators.test_commissions import create_workorder, create_workshop
-from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, NfeItem, NfeRequest, NfseItem, NfseRequest
+from apps.finance.models.purchase_return import PurchaseReturnRequest, PurchaseReturnRequestStatus
+from apps.stock.models import StockImport
 from apps.finance.views.issued_documents import (
     ARCHIVE_DOWNLOAD_MAX_WORKERS,
     IssuedDocumentsArchiveDownloadView,
@@ -93,6 +95,8 @@ class IssuedDocumentsNavigationTemplateTests(SimpleTestCase):
                 "issued_nfse_total": 0,
                 "download_xml_url": "/finance/notas-emitidas/download/xml/",
                 "download_pdfs_url": "/finance/notas-emitidas/download/pdfs/",
+                "report_pdf_url": "/finance/notas-emitidas/relatorio/pdf/",
+                "report_excel_url": "/finance/notas-emitidas/relatorio/excel/",
                 "fiscal_operation": operation,
                 "fiscal_operation_label": operation_label,
                 "fiscal_operation_continuation_label": {
@@ -364,6 +368,50 @@ class IssuedDocumentsArchiveDownloadViewTests(TestCase):
         self.assertTrue(nfse_row["has_pdf"])
         self.assertIn("/finance/notas-emitidas/download/xml/", context["download_xml_url"])
         self.assertIn("/finance/notas-emitidas/download/pdfs/", context["download_pdfs_url"])
+
+    def test_list_includes_transmitted_purchase_return_with_its_documents(self) -> None:
+        original_document = FiscalDocument.objects.create(
+            workshop=self.workshop,
+            origin=FiscalDocumentOrigin.EXTERNAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+            status=FiscalDocumentStatus.APPROVED,
+            access_key="35" + ("1" * 42),
+        )
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            nf_key="35" + ("1" * 42),
+            supplier_name="Fornecedor da devolução",
+            fiscal_document=original_document,
+        )
+        return_document = FiscalDocument.objects.create(
+            workshop=self.workshop,
+            origin=FiscalDocumentOrigin.DERIVED,
+            purpose=FiscalDocumentPurpose.RETURN,
+            status=FiscalDocumentStatus.APPROVED,
+            number="456",
+            series="2",
+            xml_url="https://example.com/return.xml",
+            danfe_url="https://example.com/return.pdf",
+        )
+        purchase_return = PurchaseReturnRequest.objects.create(
+            workshop=self.workshop,
+            source_stock_import=stock_import,
+            original_document=original_document,
+            fiscal_document=return_document,
+            status=PurchaseReturnRequestStatus.AUTHORIZED,
+        )
+        view = IssuedDocumentsListView()
+        view.workshop = self.workshop
+        view.request = self.factory.get("/finance/notas-emitidas/")
+
+        context = view.get_context_data()
+        row = next(row for row in context["issued_note_rows"] if row["selection_key"] == f"purchase_return:{purchase_return.pk}")
+
+        self.assertEqual(row["note_type_label"], "Nota de Devolução")
+        self.assertEqual(row["number"], "456")
+        self.assertTrue(row["has_xml"])
+        self.assertTrue(row["has_pdf"])
+        self.assertIn(reverse("finance:purchase_return_workflow", args=[purchase_return.pk]), row["detail_url"])
 
     def test_gateway_operation_is_preserved_when_selecting_reference_nfe(self) -> None:
         nfe_request = self._create_nfe_with_xml(

@@ -59,6 +59,14 @@
             {% if not fiscal_operation %}
                 <button
                     type="button"
+                    class="btn btn-outline btn-sm gap-2"
+                    onclick="document.getElementById('issued-documents-report-modal').showModal()"
+                >
+                    <span class="material-icons text-sm">summarize</span>
+                    Relatório
+                </button>
+                <button
+                    type="button"
                     id="issued-documents-download-xml"
                     data-issued-download="true"
                     data-download-label="XML"
@@ -169,6 +177,83 @@
             <button type="submit">close</button>
         </form>
     </dialog>
+
+    {% if not fiscal_operation %}
+    <dialog id="issued-documents-report-modal" class="modal">
+        <div class="modal-box w-11/12 max-w-md">
+            <h3 class="font-bold text-lg mb-2">Relatório de Notas</h3>
+            <p class="text-sm text-base-content/70 mb-4">
+                Exporte NF-e ou NFS-e separadamente. Notas canceladas entram na lista, mas não somam no valor total.
+            </p>
+            <div class="flex flex-col gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label for="issued-documents-report-start-date" class="label pt-0 pb-1">
+                            <span class="label-text text-xs">Data inicial</span>
+                        </label>
+                        <input
+                            type="date"
+                            id="issued-documents-report-start-date"
+                            value="{{ filter_state.start_raw }}"
+                            class="input input-bordered input-sm w-full"
+                        />
+                    </div>
+                    <div>
+                        <label for="issued-documents-report-end-date" class="label pt-0 pb-1">
+                            <span class="label-text text-xs">Data final</span>
+                        </label>
+                        <input
+                            type="date"
+                            id="issued-documents-report-end-date"
+                            value="{{ filter_state.end_raw }}"
+                            class="input input-bordered input-sm w-full"
+                        />
+                    </div>
+                </div>
+                <div>
+                    <label for="issued-documents-report-type" class="label pt-0 pb-1">
+                        <span class="label-text text-xs">Tipo de nota</span>
+                    </label>
+                    <select id="issued-documents-report-type" class="select select-bordered select-sm w-full" required>
+                        <option value="nfe" {% if filter_state.selected_note_type != 'nfse' %}selected{% endif %}>Nota Fiscal de Produto (NF-e)</option>
+                        <option value="nfse" {% if filter_state.selected_note_type == 'nfse' %}selected{% endif %}>Nota Fiscal de Serviço (NFS-e)</option>
+                    </select>
+                </div>
+                <p id="issued-documents-report-error" class="hidden text-sm text-error"></p>
+                <div class="modal-action">
+                    <button type="button" class="btn btn-ghost btn-sm" data-report-cancel="true" onclick="document.getElementById('issued-documents-report-modal').close()">Cancelar</button>
+                    <button
+                        type="button"
+                        id="issued-documents-report-excel"
+                        class="btn btn-success btn-sm gap-2 text-white"
+                        data-report-export="true"
+                        data-report-base-url="{{ report_excel_url }}"
+                        data-report-label="Excel"
+                    >
+                        <span class="material-icons text-sm report-export-icon">table_view</span>
+                        <span class="loading loading-spinner loading-xs hidden report-export-spinner" aria-hidden="true"></span>
+                        <span class="report-export-label">Excel</span>
+                    </button>
+                    <button
+                        type="button"
+                        id="issued-documents-report-pdf"
+                        class="btn btn-primary btn-sm gap-2"
+                        data-report-export="true"
+                        data-report-base-url="{{ report_pdf_url }}"
+                        data-report-label="PDF"
+                    >
+                        <span class="material-icons text-sm report-export-icon">picture_as_pdf</span>
+                        <span class="loading loading-spinner loading-xs hidden report-export-spinner" aria-hidden="true"></span>
+                        <span class="report-export-label">PDF</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button type="submit">close</button>
+        </form>
+    </dialog>
+    {% endif %}
 
     <dialog id="issued-documents-download-modal" class="modal">
         <div class="modal-box max-w-md border border-base-300 bg-base-100 shadow-2xl">
@@ -333,6 +418,8 @@
                         formData.append('nfe_ids', requestId);
                     } else if (noteType === 'nfse') {
                         formData.append('nfse_ids', requestId);
+                    } else if (noteType === 'purchase_return') {
+                        formData.append('purchase_return_ids', requestId);
                     }
                 });
 
@@ -345,7 +432,7 @@
                 const documentGroup = button.dataset.documentGroup || 'xml';
                 const formData = buildSelectionFormData(documentGroup);
 
-                if (!downloadUrl || (!formData.has('nfe_ids') && !formData.has('nfse_ids'))) {
+                if (!downloadUrl || (!formData.has('nfe_ids') && !formData.has('nfse_ids') && !formData.has('purchase_return_ids'))) {
                     setState('error', 'Selecione ao menos uma nota com documento disponivel.');
                     modal.showModal();
                     return;
@@ -450,4 +537,179 @@
             syncSelectionUi();
         })();
     </script>
+    {% if not fiscal_operation %}
+    <script>
+        (function () {
+            const reportModal = document.getElementById('issued-documents-report-modal');
+            if (!reportModal || reportModal.dataset.bound === 'true') {
+                return;
+            }
+            reportModal.dataset.bound = 'true';
+
+            const typeSelect = document.getElementById('issued-documents-report-type');
+            const startInput = document.getElementById('issued-documents-report-start-date');
+            const endInput = document.getElementById('issued-documents-report-end-date');
+            const errorText = document.getElementById('issued-documents-report-error');
+            const exportButtons = Array.from(reportModal.querySelectorAll('[data-report-export="true"]'));
+            let isExporting = false;
+
+            function buildReportUrl(baseUrl) {
+                const params = new URLSearchParams();
+                const noteType = String(typeSelect && typeSelect.value || '').trim();
+                const startDate = String(startInput && startInput.value || '').trim();
+                const endDate = String(endInput && endInput.value || '').trim();
+
+                if (!noteType) {
+                    throw new Error('Selecione NF-e ou NFS-e para gerar o relatório.');
+                }
+                params.set('tipo', noteType);
+
+                if (startDate || endDate) {
+                    if (!startDate || !endDate) {
+                        throw new Error('Selecione a data inicial e a data final para consultar as notas.');
+                    }
+                    if (startDate > endDate) {
+                        throw new Error('A data inicial nao pode ser maior que a data final.');
+                    }
+                    params.set('data_inicial', startDate);
+                    params.set('data_final', endDate);
+                }
+
+                const separator = baseUrl.includes('?') ? '&' : '?';
+                return baseUrl + separator + params.toString();
+            }
+
+            function setExportLoading(button, loading) {
+                const icon = button.querySelector('.report-export-icon');
+                const spinner = button.querySelector('.report-export-spinner');
+                const label = button.querySelector('.report-export-label');
+                const exportLabel = button.getAttribute('data-report-label') || 'Arquivo';
+
+                button.disabled = loading;
+                button.classList.toggle('pointer-events-none', loading);
+                button.setAttribute('aria-busy', loading ? 'true' : 'false');
+                if (icon) {
+                    icon.classList.toggle('hidden', loading);
+                }
+                if (spinner) {
+                    spinner.classList.toggle('hidden', !loading);
+                }
+                if (label) {
+                    label.textContent = loading ? ('Gerando ' + exportLabel + '...') : exportLabel;
+                }
+            }
+
+            function setAllExportsDisabled(disabled) {
+                exportButtons.forEach(function (button) {
+                    if (!isExporting || button.getAttribute('aria-busy') === 'true') {
+                        return;
+                    }
+                    button.disabled = disabled;
+                    button.classList.toggle('pointer-events-none', disabled);
+                });
+                const cancelButton = reportModal.querySelector('[data-report-cancel="true"]');
+                if (cancelButton) {
+                    cancelButton.disabled = disabled;
+                }
+            }
+
+            function getDownloadFilename(response, fallbackLabel) {
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+                if (utfMatch && utfMatch[1]) {
+                    return decodeURIComponent(utfMatch[1]);
+                }
+                const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+                if (asciiMatch && asciiMatch[1]) {
+                    return asciiMatch[1];
+                }
+                const contentType = response.headers.get('Content-Type') || '';
+                if (contentType.includes('spreadsheetml') || contentType.includes('excel')) {
+                    return 'relatorio_notas.xlsx';
+                }
+                return fallbackLabel === 'Excel' ? 'relatorio_notas.xlsx' : 'relatorio_notas.pdf';
+            }
+
+            async function handleReportExport(button) {
+                if (isExporting) {
+                    return;
+                }
+
+                const baseUrl = button.getAttribute('data-report-base-url') || '';
+                const exportLabel = button.getAttribute('data-report-label') || 'Arquivo';
+
+                try {
+                    if (errorText) {
+                        errorText.classList.add('hidden');
+                        errorText.textContent = '';
+                    }
+
+                    const reportUrl = buildReportUrl(baseUrl);
+                    isExporting = true;
+                    setExportLoading(button, true);
+                    setAllExportsDisabled(true);
+
+                    const response = await fetch(reportUrl, {
+                        method: 'GET',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+
+                    if (!response.ok) {
+                        const errorMessage = await response.text();
+                        throw new Error(errorMessage || ('Nao foi possivel gerar o ' + exportLabel + '.'));
+                    }
+
+                    const blob = await response.blob();
+                    const objectUrl = window.URL.createObjectURL(blob);
+                    const tempLink = document.createElement('a');
+                    tempLink.href = objectUrl;
+                    tempLink.download = getDownloadFilename(response, exportLabel);
+                    document.body.appendChild(tempLink);
+                    tempLink.click();
+                    tempLink.remove();
+                    window.URL.revokeObjectURL(objectUrl);
+
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message: exportLabel + ' gerado com sucesso.',
+                            type: 'success',
+                        },
+                    }));
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : ('Nao foi possivel gerar o ' + exportLabel + '.');
+                    if (errorText) {
+                        errorText.textContent = message;
+                        errorText.classList.remove('hidden');
+                    }
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message: message,
+                            type: 'error',
+                        },
+                    }));
+                } finally {
+                    isExporting = false;
+                    setExportLoading(button, false);
+                    setAllExportsDisabled(false);
+                    exportButtons.forEach(function (item) {
+                        item.disabled = false;
+                        item.classList.remove('pointer-events-none');
+                    });
+                    const cancelButton = reportModal.querySelector('[data-report-cancel="true"]');
+                    if (cancelButton) {
+                        cancelButton.disabled = false;
+                    }
+                }
+            }
+
+            exportButtons.forEach(function (button) {
+                button.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    handleReportExport(button);
+                });
+            });
+        })();
+    </script>
+    {% endif %}
 {% endblock %}
