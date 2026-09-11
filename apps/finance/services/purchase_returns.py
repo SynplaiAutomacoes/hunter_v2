@@ -31,6 +31,7 @@ from apps.finance.services.nfe_returns import (
 from apps.stock.models import StockImport, StockImportFiscalItem
 from apps.stock.services.files import StockImportFileStorageError, read_import_xml_file
 from apps.stock.services.purchase_fiscal import PurchaseNfeValidationError, ensure_legacy_purchase_fiscal_foundation, parse_and_validate_purchase_nfe
+from apps.suppliers.models import Supplier
 
 
 class PurchaseReturnError(ValueError):
@@ -518,16 +519,42 @@ def _supplier_snapshot_for_return(*, request: PurchaseReturnRequest) -> dict[str
     if all(str(address.get(field) or "").strip() for field in required_address):
         return issuer
 
+    supplier = Supplier.objects.filter(
+        workshop=stock_import.workshop,
+        cnpj=stock_import.supplier_cnpj,
+    ).first()
+    if supplier is not None:
+        supplier_address = {
+            "street": supplier.logradouro,
+            "number": supplier.numero,
+            "district": supplier.bairro,
+            "city": supplier.cidade,
+            "state": supplier.estado,
+            "zip_code": supplier.cep,
+            "complement": supplier.complemento,
+            "phone": supplier.phone or supplier.mobile,
+        }
+        if all(str(supplier_address.get(field) or "").strip() for field in required_address):
+            return {
+                "document": stock_import.supplier_cnpj,
+                "name": supplier.name or stock_import.supplier_name,
+                "state_registration": "ISENTO",
+                "address": supplier_address,
+            }
+
     if not stock_import.xml_file_key:
         raise PurchaseReturnError(
-            "A NF-e de compra não possui os dados completos do fornecedor para emitir a devolução. "
-            "Reimporte o XML da NF-e original para continuar."
+            "Não encontramos o endereço completo do fornecedor no cadastro nem o XML original da NF-e de compra. "
+            "Complete o endereço do fornecedor ou reimporte o XML original para continuar."
         )
     try:
         stored_xml = read_import_xml_file(file_id=stock_import.xml_file_key)
         refreshed_snapshot = parse_and_validate_purchase_nfe(workshop=stock_import.workshop, xml_content=stored_xml.content)
     except (StockImportFileStorageError, PurchaseNfeValidationError) as exc:
-        raise PurchaseReturnError("Não foi possível recuperar os dados fiscais do XML da NF-e de compra.") from exc
+        raise PurchaseReturnError(
+            "Não foi possível recuperar os dados fiscais do XML da NF-e de compra. "
+            "Complete o endereço do fornecedor cadastrado ou reimporte o XML original."
+        ) from exc
 
     document = refreshed_snapshot.get("document") if isinstance(refreshed_snapshot.get("document"), dict) else {}
     if str(document.get("access_key") or "") != stock_import.nf_key:

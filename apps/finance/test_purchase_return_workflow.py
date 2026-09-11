@@ -17,7 +17,7 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.finance.forms.purchase_return import PurchaseReturnFiscalForm, PurchaseReturnItemsForm
 from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
-from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest
+from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest, TaxClassNfe
 from apps.finance.services.nfe_returns import NfeReturnError, confirm_nfe_return_document_from_payload
 from apps.finance.services.purchase_returns import (
     PurchaseReturnError,
@@ -36,6 +36,7 @@ from apps.finance.services.purchase_returns import (
 )
 from apps.finance.views.purchase_return import PurchaseReturnCreateView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
 from apps.stock.models import StockImport, StockImportFiscalItem, StockMovement, StockProduct
+from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
@@ -149,6 +150,46 @@ class PurchaseReturnWorkflowTests(TestCase):
             find_purchase_by_access_key(workshop=self.other_workshop, access_key=ACCESS_KEY)
         with self.assertRaisesMessage(PurchaseReturnError, "44 dígitos"):
             find_purchase_by_access_key(workshop=self.workshop, access_key="123")
+
+    def test_fiscal_form_only_accepts_synced_nfe_tax_class_from_current_workshop(self) -> None:
+        valid_tax_class = TaxClassNfe.objects.create(
+            workshop=self.workshop,
+            reference="REF-DEV",
+            description="Devolução de compra",
+        )
+        TaxClassNfe.objects.create(
+            workshop=self.other_workshop,
+            reference="REF-OUTRA",
+            description="Classe de outra oficina",
+        )
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+
+        unbound_form = PurchaseReturnFiscalForm(instance=return_request)
+        choices = dict(unbound_form.fields["tax_class"].widget.choices)
+        self.assertEqual(choices[valid_tax_class.reference], "REF-DEV - Devolução de compra")
+        self.assertNotIn("REF-OUTRA", choices)
+
+        valid_form = PurchaseReturnFiscalForm(
+            {"operation_nature": "Devolução de compra", "cfop": "5202", "tax_class": "REF-DEV"},
+            instance=return_request,
+        )
+        self.assertTrue(valid_form.is_valid(), valid_form.errors)
+
+        invalid_form = PurchaseReturnFiscalForm(
+            {"operation_nature": "Devolução de compra", "cfop": "5202", "tax_class": "REF-INEXISTENTE"},
+            instance=return_request,
+        )
+        self.assertFalse(invalid_form.is_valid())
+        self.assertIn("sincronizada com a Webmania", invalid_form.errors["tax_class"][0])
+
+    def test_fiscal_form_allows_omitting_tax_class_when_no_class_is_synced(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        form = PurchaseReturnFiscalForm(
+            {"operation_nature": "Devolução de compra", "cfop": "5202", "tax_class": ""},
+            instance=return_request,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
 
     def test_selection_supports_partial_multiple_items_and_ignores_zero(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
@@ -372,6 +413,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(FiscalDocument.objects.count(), 1)
 
     def test_review_persists_optional_order_fields_and_sends_them_on_emission(self) -> None:
+        TaxClassNfe.objects.create(workshop=self.workshop, reference="REF-DEV", description="Devolução de compra")
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         invalid_intermediary = PurchaseReturnFiscalForm(
@@ -540,6 +582,41 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(StockMovement.objects.count(), 0)
         self.motor_stock.refresh_from_db()
         self.assertEqual(self.motor_stock.current_quantity, Decimal("2.0000"))
+
+    def test_preview_uses_registered_supplier_address_when_legacy_xml_is_unavailable(self) -> None:
+        self.stock_import.fiscal_snapshot = {
+            "issuer": {"document": self.stock_import.supplier_cnpj, "name": self.stock_import.supplier_name}
+        }
+        self.stock_import.xml_file_key = ""
+        self.stock_import.save(update_fields=["fiscal_snapshot", "xml_file_key", "atualizado_em"])
+        Supplier.objects.create(
+            workshop=self.workshop,
+            cnpj=self.stock_import.supplier_cnpj,
+            name="Fornecedor Teste",
+            cep="01001000",
+            logradouro="Rua do Fornecedor",
+            numero=100,
+            bairro="Centro",
+            cidade="São Paulo",
+            estado="SP",
+        )
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        return_request.cfop = "5202"
+        return_request.save(update_fields=["cfop", "atualizado_em"])
+        return_request = finalize_purchase_return_request(request=return_request)
+        response = MagicMock()
+        response.headers = {"Content-Type": "application/pdf"}
+        response.content = b"%PDF-preview"
+        response.raise_for_status.return_value = None
+
+        with patch("apps.finance.services.nfe_returns._build_headers", return_value={}), patch("apps.finance.services.nfe_returns.requests.post", return_value=response) as post_mock:
+            preview_purchase_return(request_instance=return_request)
+
+        customer = post_mock.call_args.kwargs["json"]["cliente"]
+        self.assertEqual(customer["cnpj"], "99888777000166")
+        self.assertEqual(customer["endereco"], "Rua do Fornecedor")
+        self.assertEqual(customer["cidade"], "São Paulo")
 
     def test_preview_reads_ibs_cbs_from_imported_xml_snapshot(self) -> None:
         self.document.environment = "1"
