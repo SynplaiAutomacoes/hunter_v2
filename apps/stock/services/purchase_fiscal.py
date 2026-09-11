@@ -149,6 +149,36 @@ def _build_product_snapshot(detail: etree._Element, *, fallback_sequence: int) -
     }
 
 
+def _build_party_snapshot(inf_nfe: etree._Element, *, party: str) -> dict[str, Any]:
+    """Keep the fiscal counterparty data required for a later return NF-e.
+
+    The source XML is the fiscal authority for this information.  Persisting it
+    here means a purchase return does not need Webmania to find an incoming
+    NF-e that was issued by a different taxpayer/account.
+    """
+    base_path = f".//nfe:{party}"
+    address_path = f"{base_path}/nfe:ender{party.title()}"
+    document = _digits(
+        _first_text(inf_nfe, f"{base_path}/nfe:CNPJ/text()")
+        or _first_text(inf_nfe, f"{base_path}/nfe:CPF/text()")
+    )
+    return {
+        "document": document,
+        "name": _first_text(inf_nfe, f"{base_path}/nfe:xNome/text()"),
+        "state_registration": _first_text(inf_nfe, f"{base_path}/nfe:IE/text()"),
+        "address": {
+            "street": _first_text(inf_nfe, f"{address_path}/nfe:xLgr/text()"),
+            "number": _first_text(inf_nfe, f"{address_path}/nfe:nro/text()"),
+            "complement": _first_text(inf_nfe, f"{address_path}/nfe:xCpl/text()"),
+            "district": _first_text(inf_nfe, f"{address_path}/nfe:xBairro/text()"),
+            "city": _first_text(inf_nfe, f"{address_path}/nfe:xMun/text()"),
+            "state": _first_text(inf_nfe, f"{address_path}/nfe:UF/text()"),
+            "zip_code": _digits(_first_text(inf_nfe, f"{address_path}/nfe:CEP/text()")),
+            "phone": _digits(_first_text(inf_nfe, f"{address_path}/nfe:fone/text()")),
+        },
+    }
+
+
 def parse_and_validate_purchase_nfe(*, workshop: Any, xml_content: bytes | str) -> dict[str, Any]:
     root = _parse_xml(xml_content)
     documents = _expanded_documents(root)
@@ -208,14 +238,8 @@ def parse_and_validate_purchase_nfe(*, workshop: Any, xml_content: bytes | str) 
             "protocol_number": protocol_number,
             "cancelled": False,
         },
-        "issuer": {
-            "document": issuer_document,
-            "name": _first_text(inf_nfe, ".//nfe:emit/nfe:xNome/text()"),
-        },
-        "recipient": {
-            "document": recipient_document,
-            "name": _first_text(inf_nfe, ".//nfe:dest/nfe:xNome/text()"),
-        },
+        "issuer": _build_party_snapshot(inf_nfe, party="emit"),
+        "recipient": _build_party_snapshot(inf_nfe, party="dest"),
         "products": products,
     }
 

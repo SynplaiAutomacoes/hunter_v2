@@ -11,14 +11,27 @@ from django.utils import timezone
 
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.text_normalization import normalize_search_text
+from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
 from apps.core.infrastructure.services.webmania.nfe_emission import ProductEmissionLine
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
 from apps.finance.models import FiscalDocumentStatus, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus
 from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentType
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
-from apps.finance.services.nfe_returns import NfeReturnError, calculate_available_return_quantities, create_nfe_return_draft, download_nfe_return_preview_document, transmit_nfe_return_document
+from apps.finance.services.nfe_returns import (
+    NfeReturnError,
+    _extract_ibs_cbs_payload_from_product,
+    _original_products_by_sequence,
+    _return_requires_ibs_cbs,
+    apply_return_emission_extras,
+    calculate_available_return_quantities,
+    create_nfe_return_draft,
+    download_generic_nfe_return_preview_document,
+    transmit_nfe_return_document,
+)
 from apps.stock.models import StockImport, StockImportFiscalItem
-from apps.stock.services.purchase_fiscal import PurchaseNfeValidationError, ensure_legacy_purchase_fiscal_foundation
+from apps.stock.services.files import StockImportFileStorageError, read_import_xml_file
+from apps.stock.services.purchase_fiscal import PurchaseNfeValidationError, ensure_legacy_purchase_fiscal_foundation, parse_and_validate_purchase_nfe
+from apps.suppliers.models import Supplier
 
 
 class PurchaseReturnError(ValueError):
@@ -491,6 +504,183 @@ def build_purchase_return_emission_extras(*, request: PurchaseReturnRequest) -> 
     }
 
 
+def _supplier_snapshot_for_return(*, request: PurchaseReturnRequest) -> dict[str, Any]:
+    """Return the supplier data from the purchase XML, refreshing old snapshots.
+
+    Earlier imports did not persist the supplier address.  When their original
+    XML is still stored, parse it again instead of asking Webmania to locate a
+    third-party incoming NF-e.
+    """
+    stock_import = request.source_stock_import
+    snapshot = stock_import.fiscal_snapshot if isinstance(stock_import.fiscal_snapshot, dict) else {}
+    issuer = snapshot.get("issuer") if isinstance(snapshot.get("issuer"), dict) else {}
+    address = issuer.get("address") if isinstance(issuer.get("address"), dict) else {}
+    required_address = ("street", "number", "district", "city", "state", "zip_code")
+    if all(str(address.get(field) or "").strip() for field in required_address):
+        return issuer
+
+    supplier = Supplier.objects.filter(
+        workshop=stock_import.workshop,
+        cnpj=stock_import.supplier_cnpj,
+    ).first()
+    if supplier is not None:
+        supplier_address = {
+            "street": supplier.logradouro,
+            "number": supplier.numero,
+            "district": supplier.bairro,
+            "city": supplier.cidade,
+            "state": supplier.estado,
+            "zip_code": supplier.cep,
+            "complement": supplier.complemento,
+            "phone": supplier.phone or supplier.mobile,
+        }
+        if all(str(supplier_address.get(field) or "").strip() for field in required_address):
+            return {
+                "document": stock_import.supplier_cnpj,
+                "name": supplier.name or stock_import.supplier_name,
+                "state_registration": "ISENTO",
+                "address": supplier_address,
+            }
+
+    if not stock_import.xml_file_key:
+        raise PurchaseReturnError(
+            "Não encontramos o endereço completo do fornecedor no cadastro nem o XML original da NF-e de compra. "
+            "Complete o endereço do fornecedor ou reimporte o XML original para continuar."
+        )
+    try:
+        stored_xml = read_import_xml_file(file_id=stock_import.xml_file_key)
+        refreshed_snapshot = parse_and_validate_purchase_nfe(workshop=stock_import.workshop, xml_content=stored_xml.content)
+    except (StockImportFileStorageError, PurchaseNfeValidationError) as exc:
+        raise PurchaseReturnError(
+            "Não foi possível recuperar os dados fiscais do XML da NF-e de compra. "
+            "Complete o endereço do fornecedor cadastrado ou reimporte o XML original."
+        ) from exc
+
+    document = refreshed_snapshot.get("document") if isinstance(refreshed_snapshot.get("document"), dict) else {}
+    if str(document.get("access_key") or "") != stock_import.nf_key:
+        raise PurchaseReturnError("O XML recuperado não corresponde à NF-e de compra da devolução.")
+    StockImport.objects.filter(pk=stock_import.pk).update(fiscal_snapshot=refreshed_snapshot, atualizado_em=timezone.now())
+    stock_import.fiscal_snapshot = refreshed_snapshot
+    issuer = refreshed_snapshot.get("issuer") if isinstance(refreshed_snapshot.get("issuer"), dict) else {}
+    return issuer
+
+
+def _supplier_customer_payload(*, request: PurchaseReturnRequest) -> dict[str, Any]:
+    supplier = _supplier_snapshot_for_return(request=request)
+    document = "".join(character for character in str(supplier.get("document") or "") if character.isdigit())
+    address = supplier.get("address") if isinstance(supplier.get("address"), dict) else {}
+    required_fields = {
+        "endereco": address.get("street"),
+        "numero": address.get("number"),
+        "bairro": address.get("district"),
+        "cidade": address.get("city"),
+        "uf": address.get("state"),
+        "cep": address.get("zip_code"),
+    }
+    missing = [field for field, value in required_fields.items() if not str(value or "").strip()]
+    if missing:
+        raise PurchaseReturnError("O XML da NF-e de compra não possui endereço completo do fornecedor para emitir a devolução.")
+    payload = {field: str(value).strip() for field, value in required_fields.items()}
+    if address.get("complement"):
+        payload["complemento"] = str(address["complement"]).strip()
+    if address.get("phone"):
+        payload["telefone"] = str(address["phone"])
+    if len(document) == 14:
+        payload.update(
+            {
+                "cnpj": document,
+                "razao_social": str(supplier.get("name") or "").strip(),
+                "ie": str(supplier.get("state_registration") or "ISENTO").strip() or "ISENTO",
+            }
+        )
+    elif len(document) == 11:
+        payload.update({"cpf": document, "nome_completo": str(supplier.get("name") or "").strip()})
+    else:
+        raise PurchaseReturnError("O XML da NF-e de compra não possui CPF/CNPJ válido do fornecedor.")
+    if not payload.get("razao_social") and not payload.get("nome_completo"):
+        raise PurchaseReturnError("O XML da NF-e de compra não possui o nome do fornecedor.")
+    return payload
+
+
+def _format_return_number(value: Decimal, *, places: int) -> str:
+    return f"{value.quantize(Decimal('1.' + ('0' * places))):.{places}f}"
+
+
+def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -> list[dict[str, Any]]:
+    if request.items.filter(kind=PurchaseReturnItemKind.MANUAL).exists():
+        raise PurchaseReturnError("Produto avulso não pode compor uma devolução fiscal por item. Selecione apenas itens da NF-e de compra.")
+
+    access_key = str(request.original_document.access_key or "").strip()
+    if len(access_key) != 44 or not access_key.isdigit():
+        raise PurchaseReturnError("A NF-e de compra não possui chave de acesso válida para referenciamento por item.")
+    products: list[dict[str, Any]] = []
+    requires_ibs_cbs = _return_requires_ibs_cbs(original_document=request.original_document)
+    original_products = _original_products_by_sequence(request.original_document) if requires_ibs_cbs else {}
+    for selected in request.items.select_related("source_item").order_by("source_item__sequence", "pk"):
+        source = selected.source_item
+        if source is None:
+            raise PurchaseReturnError("A devolução possui item sem vínculo com a NF-e de compra.")
+        ncm = "".join(character for character in str(source.ncm or "") if character.isdigit())
+        if len(ncm) != 8:
+            raise PurchaseReturnError(f"Item fiscal {source.sequence} não possui NCM válido para emissão.")
+        if selected.quantity <= 0 or selected.unit_value < 0:
+            raise PurchaseReturnError(f"Item fiscal {source.sequence} possui quantidade ou valor inválido.")
+        tax_snapshot = source.tax_snapshot if isinstance(source.tax_snapshot, dict) else {}
+        product: dict[str, Any] = {
+            "nome": str(source.description or "")[:120],
+            "codigo": str(source.product_code or source.sequence)[:60],
+            "ncm": ncm,
+            "quantidade": _format_return_number(selected.quantity, places=4),
+            "unidade": str(source.unit or "UN").strip().upper(),
+            "origem": int(tax_snapshot.get("orig", tax_snapshot.get("origin", 0)) or 0),
+            "subtotal": _format_return_number(selected.unit_value, places=4),
+            "total": _format_return_number(selected.total_value, places=2),
+            "codigo_cfop": str(request.cfop or "").strip(),
+            "dfe_referenciado": {"chave": access_key, "item": source.sequence},
+        }
+        cest = str(tax_snapshot.get("cest") or "").strip()
+        if cest:
+            product["cest"] = cest
+        if request.tax_class:
+            product["classe_imposto"] = str(request.tax_class).strip()
+        if requires_ibs_cbs:
+            original_product = original_products.get(source.sequence)
+            if original_product is None:
+                raise PurchaseReturnError(f"Item fiscal {source.sequence} não foi encontrado no snapshot da NF-e de compra.")
+            product["impostos"] = {
+                "ibs_cbs": _extract_ibs_cbs_payload_from_product(original_product, sequence=source.sequence)
+            }
+        products.append(product)
+    if not products:
+        raise PurchaseReturnError("A devolução não possui produtos selecionados.")
+    return products
+
+
+def build_generic_purchase_return_payload(*, request: PurchaseReturnRequest, http_request: Any | None = None) -> dict[str, Any]:
+    products = _build_generic_purchase_return_products(request=request)
+    products_total = sum((Decimal(str(product["total"])) for product in products), Decimal("0"))
+    payload: dict[str, Any] = {
+        "ID": f"DEV{request.pk}",
+        "operacao": 1,
+        "natureza_operacao": str(request.operation_nature or "Devolução de mercadoria").strip(),
+        "modelo": 1,
+        "finalidade": 4,
+        "ambiente": int(str(request.original_document.environment or "2")),
+        "url_notificacao": build_webmania_webhook_url(request=http_request),
+        "cliente": _supplier_customer_payload(request=request),
+        "produtos": products,
+        "pedido": {"pagamento": 0, "presenca": 9, "modalidade_frete": 9, "total": _format_return_number(products_total, places=2)},
+    }
+    if request.volume:
+        payload["volume"] = str(request.volume)
+    if request.fisco_information:
+        payload["informacoes_fisco"] = str(request.fisco_information).strip()
+    if request.additional_information:
+        payload["informacoes_complementares"] = str(request.additional_information).strip()
+    apply_return_emission_extras(payload, build_purchase_return_emission_extras(request=request))
+    return payload
+
+
 def save_purchase_return_fiscal_data(*, request: PurchaseReturnRequest, cleaned_data: Mapping[str, Any]) -> PurchaseReturnRequest:
     for field_name in PurchaseReturnRequest.FISCAL_CONFIGURATION_FIELDS:
         if field_name in cleaned_data:
@@ -502,19 +692,11 @@ def save_purchase_return_fiscal_data(*, request: PurchaseReturnRequest, cleaned_
 def preview_purchase_return(*, request_instance: PurchaseReturnRequest, http_request: Any | None = None) -> DownloadedWebmaniaDocument:
     if request_instance.status != PurchaseReturnRequestStatus.READY:
         raise PurchaseReturnError("Finalize a revisão antes de gerar a prévia fiscal.")
-    products = _selected_products(request_instance)
     try:
-        return download_nfe_return_preview_document(
-            original_document=request_instance.original_document,
-            products=products,
-            natureza_operacao=request_instance.operation_nature,
-            codigo_cfop=request_instance.cfop,
-            classe_imposto=request_instance.tax_class,
-            volume=request_instance.volume,
-            informacoes_fisco=request_instance.fisco_information,
-            informacoes_complementares=request_instance.additional_information,
-            extras=build_purchase_return_emission_extras(request=request_instance),
-            request=http_request,
+        payload = build_generic_purchase_return_payload(request=request_instance, http_request=http_request)
+        return download_generic_nfe_return_preview_document(
+            workshop=request_instance.workshop,
+            payload=payload,
         )
     except NfeReturnError as exc:
         raise PurchaseReturnError(str(exc)) from exc
@@ -582,9 +764,15 @@ def transmit_purchase_return(*, request_instance: PurchaseReturnRequest, http_re
                     extras=build_purchase_return_emission_extras(request=locked),
                     request=http_request,
                 )
-            except NfeReturnError as exc:
+                payload = build_generic_purchase_return_payload(request=locked, http_request=http_request)
+            except (NfeReturnError, PurchaseReturnError) as exc:
                 draft_creation_error = str(exc)
             else:
+                # The draft/link/reservation remain the same. Only this
+                # purchase-return flow uses the full Webmania NF-e payload,
+                # which references the external source document per item.
+                document.request_payload = sanitize_fiscal_payload(payload)
+                document.save(update_fields=["request_payload", "atualizado_em"])
                 locked.fiscal_document = document
                 locked.status = PurchaseReturnRequestStatus.PROCESSING
                 locked.save(update_fields=["fiscal_document", "status", "atualizado_em"])
@@ -629,7 +817,7 @@ def transmit_purchase_return(*, request_instance: PurchaseReturnRequest, http_re
         raise PurchaseReturnError(draft_creation_error)
 
     try:
-        transmit_nfe_return_document(document=document)
+        transmit_nfe_return_document(document=document, use_generic_emit_endpoint=True)
     except NfeReturnError as exc:
         sync_purchase_return_status(request_instance=locked)
         raise PurchaseReturnError(str(exc)) from exc

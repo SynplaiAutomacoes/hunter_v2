@@ -49,7 +49,7 @@ def build_purchase_nfe_xml(
             <cUF>35</cUF><mod>{model}</mod><serie>3</serie><nNF>987</nNF>
             <dhEmi>2026-08-02T10:00:00-03:00</dhEmi><tpNF>1</tpNF><finNFe>1</finNFe>
           </ide>
-          <emit><CNPJ>{issuer_document}</CNPJ><xNome>Fornecedor Teste</xNome></emit>
+          <emit><CNPJ>{issuer_document}</CNPJ><xNome>Fornecedor Teste</xNome><IE>123456789</IE><enderEmit><xLgr>Rua do Fornecedor</xLgr><nro>100</nro><xBairro>Centro</xBairro><xMun>São Paulo</xMun><UF>SP</UF><CEP>01001000</CEP></enderEmit></emit>
           <dest><CNPJ>{recipient_document}</CNPJ><xNome>Oficina Teste</xNome></dest>
           <det nItem="1">
             <prod>
@@ -82,6 +82,8 @@ class PurchaseNfeValidationTests(TestCase):
         self.assertEqual(snapshot["document"]["operation_type"], "1")
         self.assertEqual(snapshot["document"]["protocol_status"], "100")
         self.assertEqual(snapshot["issuer"]["document"], SUPPLIER_CNPJ)
+        self.assertEqual(snapshot["issuer"]["address"]["street"], "Rua do Fornecedor")
+        self.assertEqual(snapshot["issuer"]["address"]["zip_code"], "01001000")
         self.assertEqual(snapshot["recipient"]["document"], WORKSHOP_CNPJ)
         self.assertEqual(
             snapshot["products"][0],
