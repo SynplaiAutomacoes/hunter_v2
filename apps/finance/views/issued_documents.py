@@ -523,6 +523,8 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
                 "issued_nfse_total": len(nfse_requests),
                 "download_xml_url": reverse("finance:issued_documents_download", kwargs={"document_group": "xml"}),
                 "download_pdfs_url": reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
+                "report_pdf_url": reverse("finance:issued_documents_report_pdf"),
+                "report_excel_url": reverse("finance:issued_documents_report_excel"),
                 "fiscal_operation": state["fiscal_operation"],
                 "fiscal_operation_label": state["fiscal_operation_label"],
                 "fiscal_operation_continuation_label": state["fiscal_operation_continuation_label"],

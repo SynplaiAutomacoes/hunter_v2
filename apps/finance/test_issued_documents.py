@@ -95,6 +95,8 @@ class IssuedDocumentsNavigationTemplateTests(SimpleTestCase):
                 "issued_nfse_total": 0,
                 "download_xml_url": "/finance/notas-emitidas/download/xml/",
                 "download_pdfs_url": "/finance/notas-emitidas/download/pdfs/",
+                "report_pdf_url": "/finance/notas-emitidas/relatorio/pdf/",
+                "report_excel_url": "/finance/notas-emitidas/relatorio/excel/",
                 "fiscal_operation": operation,
                 "fiscal_operation_label": operation_label,
                 "fiscal_operation_continuation_label": {
