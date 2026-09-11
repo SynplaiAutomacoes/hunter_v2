@@ -11,7 +11,7 @@ from apps.core.presentation.forms import CoreForm
 from apps.core.presentation.widgets import CPForCNPJInput, DecimalInput, NumberInput, SearchableSelectInput, TextareaInput, TextInput
 from apps.customer.cpf_cnpj_validator import is_valid_cnpj
 from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
-from apps.finance.models import PurchaseReturnItemKind, PurchaseReturnRequest
+from apps.finance.models import PurchaseReturnItemKind, PurchaseReturnRequest, TaxClassNfe
 from apps.stock.models import StockImportFiscalItem
 
 PRESENCE_CHOICES: tuple[tuple[str, str], ...] = (
@@ -167,7 +167,7 @@ class PurchaseReturnFiscalForm(CoreForm):
         help_text="Campo obrigatório da Webmania. Informe somente números.",
         widget=forms.TextInput(attrs={"inputmode": "numeric"}),
     )
-    tax_class = forms.CharField(label="Classe de imposto", required=False, max_length=30, widget=TextInput())
+    tax_class = forms.CharField(label="Classe de imposto", required=False, max_length=30)
     additional_information = forms.CharField(label="Informações complementares", required=False, max_length=5000, widget=TextareaInput(rows=3))
     fisco_information = forms.CharField(label="Informações ao fisco", required=False, max_length=2000, widget=TextareaInput(rows=3))
     volume = forms.IntegerField(label="Quantidade de volumes", required=False, min_value=1, max_value=999999999999999, widget=NumberInput())
@@ -218,6 +218,26 @@ class PurchaseReturnFiscalForm(CoreForm):
             initial.update(kwargs.get("initial") or {})
             kwargs["initial"] = initial
         super().__init__(*args, **kwargs)
+        tax_class_choices: list[tuple[str, str]] = [("", "Não informar classe de imposto")]
+        if instance is not None and instance.workshop_id:
+            tax_classes = TaxClassNfe.objects.filter(workshop_id=instance.workshop_id).order_by("reference")
+            tax_class_choices.extend(
+                (
+                    tax_class.reference,
+                    f"{tax_class.reference} - {tax_class.description}" if tax_class.description else tax_class.reference,
+                )
+                for tax_class in tax_classes
+            )
+
+        tax_class_field = self.fields["tax_class"]
+        tax_class_field.widget = SearchableSelectInput(choices=tax_class_choices)
+        tax_class_field.help_text = "Opcional. Selecione somente uma classe de NF-e sincronizada com a Webmania para esta oficina."
+        self._valid_tax_class_refs = {reference for reference, _label in tax_class_choices if reference}
+
+        current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
+        if not self.is_bound and current_tax_class and current_tax_class not in self._valid_tax_class_refs:
+            self.initial["tax_class"] = ""
+
         configure_nfe_transport_form(
             form=self,
             snapshot=getattr(instance, "transport_snapshot", {}),
@@ -306,7 +326,10 @@ class PurchaseReturnFiscalForm(CoreForm):
         return cfop
 
     def clean_tax_class(self) -> str:
-        return str(self.cleaned_data.get("tax_class") or "").strip()
+        tax_class = str(self.cleaned_data.get("tax_class") or "").strip()
+        if tax_class and tax_class not in self._valid_tax_class_refs:
+            raise forms.ValidationError("Selecione uma classe de imposto sincronizada com a Webmania para esta oficina.")
+        return tax_class
 
     def clean_intermediary_cnpj(self) -> str:
         digits = "".join(character for character in str(self.cleaned_data.get("intermediary_cnpj") or "") if character.isdigit())
