@@ -96,7 +96,22 @@ class PurchaseReturnWorkflowTests(TestCase):
             supplier_cnpj="99888777000166",
             status=StockImport.ImportStatus.COMPLETED,
             fiscal_document=self.document,
-            fiscal_snapshot={"document": {"issued_at": "2026-08-02T10:00:00-03:00", "cancelled": False}},
+            fiscal_snapshot={
+                "document": {"issued_at": "2026-08-02T10:00:00-03:00", "cancelled": False},
+                "issuer": {
+                    "document": "99888777000166",
+                    "name": "Fornecedor Teste",
+                    "state_registration": "123456789",
+                    "address": {
+                        "street": "Rua do Fornecedor",
+                        "number": "100",
+                        "district": "Centro",
+                        "city": "São Paulo",
+                        "state": "SP",
+                        "zip_code": "01001000",
+                    },
+                },
+            },
             fiscal_issued_at=timezone.make_aware(datetime(2026, 8, 2, 10, 0)),
             fiscal_validation_status=StockImport.FiscalValidationStatus.VALIDATED,
         )
@@ -458,7 +473,7 @@ class PurchaseReturnWorkflowTests(TestCase):
             transmit_purchase_return(request_instance=return_request)
 
         payload = post_mock.call_args.kwargs["json"]
-        self.assertNotIn("pedido", payload)
+        self.assertEqual(payload["pedido"], {"pagamento": 0, "presenca": 9, "modalidade_frete": 9, "total": "1500.50"})
         self.assertNotIn("transporte", payload)
         self.assertNotIn("volume", payload)
         self.assertNotIn("informacoes_fisco", payload)
@@ -515,9 +530,10 @@ class PurchaseReturnWorkflowTests(TestCase):
 
         payload = post_mock.call_args.kwargs["json"]
         self.assertEqual(downloaded.content, b"%PDF-preview")
-        self.assertEqual(payload["chave"], ACCESS_KEY)
-        self.assertEqual(payload["produtos"], [1])
-        self.assertEqual(payload["quantidade"], ["1.25"])
+        self.assertEqual(payload["finalidade"], 4)
+        self.assertEqual(payload["cliente"]["cnpj"], "99888777000166")
+        self.assertEqual(payload["produtos"][0]["dfe_referenciado"], {"chave": ACCESS_KEY, "item": 1})
+        self.assertEqual(payload["produtos"][0]["quantidade"], "1.2500")
         self.assertTrue(payload["previa_danfe"])
         self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
         self.assertEqual(FiscalDocument.objects.count(), 1)
@@ -529,6 +545,19 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.document.environment = "1"
         self.document.save(update_fields=["environment", "atualizado_em"])
         self.stock_import.fiscal_snapshot = {
+            "issuer": {
+                "document": "99888777000166",
+                "name": "Fornecedor Teste",
+                "state_registration": "123456789",
+                "address": {
+                    "street": "Rua do Fornecedor",
+                    "number": "100",
+                    "district": "Centro",
+                    "city": "São Paulo",
+                    "state": "SP",
+                    "zip_code": "01001000",
+                },
+            },
             "products": [
                 {
                     "sequence": 1,
@@ -599,8 +628,9 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(link.metadata["purchase_return_request_id"], transmitted.pk)
         self.assertEqual(link.metadata["items"][0]["sequence"], 1)
         self.assertEqual(link.metadata["items"][0]["quantity"], "1.2500")
-        self.assertEqual(transmitted.fiscal_document.request_payload["chave"], ACCESS_KEY)
-        self.assertEqual(transmitted.fiscal_document.request_payload["produtos"], [1])
+        product_payload = transmitted.fiscal_document.request_payload["produtos"][0]
+        self.assertEqual(transmitted.fiscal_document.request_payload["finalidade"], 4)
+        self.assertEqual(product_payload["dfe_referenciado"], {"chave": ACCESS_KEY, "item": 1})
 
     def test_authorized_manual_only_return_does_not_move_stock_or_create_persistent_product(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
@@ -635,20 +665,17 @@ class PurchaseReturnWorkflowTests(TestCase):
             "serie": "1",
         }
 
-        with patch("apps.finance.services.nfe_returns._build_headers", return_value={}), patch("apps.finance.services.nfe_returns.requests.post", return_value=response):
-            transmitted = transmit_purchase_return(request_instance=return_request)
+        with self.assertRaisesMessage(PurchaseReturnError, "Produto avulso não pode compor"):
+            transmit_purchase_return(request_instance=return_request)
 
-        transmitted.refresh_from_db()
-        self.assertEqual(transmitted.status, PurchaseReturnRequestStatus.AUTHORIZED)
-        self.assertEqual(transmitted.stock_status, PurchaseReturnStockStatus.PROCESSED)
+        return_request.refresh_from_db()
+        self.assertEqual(return_request.status, PurchaseReturnRequestStatus.DRAFT)
+        self.assertEqual(return_request.stock_status, PurchaseReturnStockStatus.WAITING_AUTHORIZATION)
         self.assertEqual(StockMovement.objects.count(), 0)
         self.assertEqual(Product.objects.count(), 2)
         self.assertEqual(StockProduct.objects.count(), 2)
         self.motor_stock.refresh_from_db()
         self.assertEqual(self.motor_stock.current_quantity, Decimal("2.0000"))
-        payload = transmitted.fiscal_document.request_payload
-        self.assertNotIn("produtos", payload)
-        self.assertIn("produtos_avulsos", payload)
         self.assertEqual(available_purchase_return_quantities(stock_import=self.stock_import)[1], Decimal("2.0000"))
 
     def test_rejected_return_does_not_change_stock(self) -> None:
