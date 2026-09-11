@@ -291,7 +291,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None:
             return None
-        if not movement.is_reconciled:
+        if not movement.is_paid or not movement.is_reconciled:
             return None
 
         agent, description = resolve_payroll_movement_display(movement=movement, user=self.request.user, workshop=self.workshop, request=self.request)
@@ -331,6 +331,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
                 workorder_id__in=workorder_ids,
                 workorder_payment__isnull=False,
+                is_paid=True,
                 is_reconciled=True,
             ).select_related("payment_method", "budget_plan", "bank_account")
             bank_account_id = filter_params["bank_account_id"]
@@ -426,7 +427,14 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "account_id": account_id,
             "value": format_money(overview.confirmed_result),
             "tone": self._resolve_result_tone(overview.confirmed_result),
-            "url": self._build_url(overrides={"conta_bancaria": account_id or None, "page": None}),
+            "url": self._build_url(
+                overrides={
+                    "conta_bancaria": account_id or None,
+                    "data_inicial": None,
+                    "data_final": None,
+                    "page": None,
+                }
+            ),
             "is_selected": (selected_account_id or "") == account_id,
         }
 

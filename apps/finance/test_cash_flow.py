@@ -52,15 +52,24 @@ class CashFlowViewTests(TestCase):
         view.workshop = self.workshop
         return view
 
-    def _create_movement(self, *, description: str, due_date: date, amount: int = 100, bank_account: BankAccount | None = None) -> FinancialMovement:
+    def _create_movement(
+        self,
+        *,
+        description: str,
+        due_date: date,
+        amount: int = 100,
+        bank_account: BankAccount | None = None,
+        is_paid: bool = True,
+        is_reconciled: bool = True,
+    ) -> FinancialMovement:
         return FinancialMovement.objects.create(
             workshop=self.workshop,
             direction=FinancialMovement.MovementDirection.CREDIT,
             description=description,
             amount=Money(amount, "BRL"),
             due_date=due_date,
-            is_paid=True,
-            is_reconciled=True,
+            is_paid=is_paid,
+            is_reconciled=is_reconciled,
             bank_account=bank_account or self.bank_account,
         )
 
@@ -105,6 +114,19 @@ class CashFlowViewTests(TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["description"], "Movimento conta 1")
+
+    def test_listing_hides_reconciled_movements_that_are_not_paid(self) -> None:
+        self._create_movement(description="Pago", due_date=date(2026, 8, 10))
+        self._create_movement(
+            description="Parcela futura pendente",
+            due_date=date(2026, 12, 25),
+            is_paid=False,
+            is_reconciled=True,
+        )
+
+        rows = self._build_view().get_context_data()["financial_movement_report_rows"]
+
+        self.assertEqual([row["description"] for row in rows], ["Pago"])
 
     def test_listing_includes_legacy_group_children_without_consolidated_parent(self) -> None:
         group = MovementGroup.objects.create(
@@ -161,6 +183,19 @@ class CashFlowViewTests(TestCase):
         names = {card["name"] for card in cards}
         self.assertIn(str(self.bank_account), names)
         self.assertIn(str(other_account), names)
+
+    def test_account_card_url_clears_date_filters(self) -> None:
+        context = self._build_view(
+            query={
+                "data_inicial": "2026-08-01",
+                "data_final": "2026-08-31",
+            }
+        ).get_context_data()
+
+        url = context["account_cards"][1]["url"]
+
+        self.assertNotIn("data_inicial", url)
+        self.assertNotIn("data_final", url)
 
     def test_sort_due_date_asc_and_desc(self) -> None:
         self._create_movement(description="Mais antigo", due_date=date(2026, 8, 5), amount=50)
