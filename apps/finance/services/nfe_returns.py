@@ -86,6 +86,21 @@ def _build_return_url() -> str:
     return f"{base_url}/1/nfe/devolucao/"
 
 
+def _build_generic_nfe_emit_url() -> str:
+    """Return the standard Webmania NF-e endpoint.
+
+    Purchase returns whose source NF-e was received from a supplier need the
+    complete emission model.  The specialised endpoint only resolves notes
+    known to the issuer's Webmania account.
+    """
+    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFE_EMIT_ENDPOINT", ""))
+    if custom_endpoint:
+        return f"{custom_endpoint.rstrip('/')}/"
+
+    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_BASE_URL", "https://webmania.com.br/api")).rstrip("/")
+    return f"{base_url}/1/nfe/emissao/"
+
+
 def _build_consulta_url() -> str:
     custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFE_CONSULTA_ENDPOINT", ""))
     if custom_endpoint:
@@ -264,6 +279,11 @@ def _apply_return_emission_extras(payload: dict[str, Any], extras: Mapping[str, 
         pedido.setdefault("modalidade_frete", mode)
         if pedido:
             payload["pedido"] = pedido
+
+
+def apply_return_emission_extras(payload: dict[str, Any], extras: Mapping[str, Any] | None) -> None:
+    """Apply the shared return form fields to a complete NF-e payload."""
+    _apply_return_emission_extras(payload, extras)
 
 
 def _decimal(value: Any) -> Decimal:
@@ -887,6 +907,40 @@ def download_nfe_return_preview_document(
         raise NfeReturnError(str(exc)) from exc
 
 
+def download_generic_nfe_return_preview_document(*, workshop: Any, payload: Mapping[str, Any]) -> DownloadedWebmaniaDocument:
+    """Download a DANFE preview for a complete, item-referenced return payload."""
+    preview_payload = dict(payload)
+    preview_payload["previa_danfe"] = True
+    try:
+        response = requests.post(_build_generic_nfe_emit_url(), json=preview_payload, headers=_build_headers(workshop=workshop), timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao gerar a prévia da Nota de Devolução", scope="nfe")
+        raise NfeReturnError(message) from exc
+
+    content_type = str(response.headers.get("Content-Type") or "application/pdf")
+    if "application/pdf" in content_type.lower() or response.content.startswith(b"%PDF"):
+        return DownloadedWebmaniaDocument(
+            content=response.content,
+            content_type=content_type,
+            content_disposition=str(response.headers.get("Content-Disposition") or ""),
+        )
+    try:
+        response_payload = response.json()
+    except ValueError as exc:
+        raise NfeReturnError("A Webmania não retornou uma prévia válida da Nota de Devolução.") from exc
+    if not isinstance(response_payload, dict):
+        raise NfeReturnError("A Webmania não retornou uma prévia válida da Nota de Devolução.")
+    preview_url = _extract_return_preview_url(response_payload)
+    if not preview_url:
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "A Webmania não retornou a URL da prévia da Nota de Devolução."
+        raise NfeReturnError(message)
+    try:
+        return download_webmania_document(workshop=workshop, url=preview_url)
+    except WebmaniaDocumentDownloadError as exc:
+        raise NfeReturnError(str(exc)) from exc
+
+
 def _is_failed_response(payload: dict[str, Any]) -> bool:
     status = str(payload.get("status") or "").strip().lower()
     return status in {"erro", "error", "falha", "failed", "reprovado", "rejeitado"}
@@ -1011,7 +1065,7 @@ def _assert_transmittable(*, document: FiscalDocument) -> None:
     raise NfeReturnError("Esta intencao de devolucao ou estorno ja possui tentativa fiscal registrada.")
 
 
-def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
+def transmit_nfe_return_document(*, document: FiscalDocument, use_generic_emit_endpoint: bool = False) -> FiscalDocument:
     with transaction.atomic():
         locked_document = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=document.pk)
         _assert_transmittable(document=locked_document)
@@ -1051,7 +1105,8 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
     mark_attempt_sent(attempt=attempt)
 
     try:
-        response = requests.post(_build_return_url(), json=payload, headers=headers, timeout=30)
+        endpoint = _build_generic_nfe_emit_url() if use_generic_emit_endpoint else _build_return_url()
+        response = requests.post(endpoint, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
         message = "Timeout ao emitir devolucao ou estorno; estado remoto incerto."
