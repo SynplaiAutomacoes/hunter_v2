@@ -93,6 +93,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("collaborators", "0020_alter_collaboratorcommissionentry_commission_origin_and_more"),
         ("workorder", "0055_merge_warranty_origin_and_os_tip"),
+        ("finance", "0066_merge_fiscaldocument_options_and_partial_payment"),
     ]
 
     operations = [

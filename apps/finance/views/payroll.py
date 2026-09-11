@@ -48,6 +48,7 @@ from apps.collaborators.services import (
     payroll_has_financial_movements,
     recalculate_payroll_from_linked_movements,
     sync_collaborator_payroll,
+    sync_collaborator_payrolls_batch,
     unmark_payroll_commissions_as_paid,
     update_payroll_work_days,
 )
@@ -486,9 +487,9 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
         if filters["collaborator_id"] is not None:
             queryset = queryset.filter(collaborator_id=filters["collaborator_id"])
         if filters["status"] == CollaboratorPayroll.Status.PAID:
-            queryset = queryset.filter(financial_movement__is_paid=True)
+            queryset = queryset.filter(Q(financial_movement__is_paid=True) | Q(financial_movements__is_paid=True)).distinct()
         elif filters["status"] == CollaboratorPayroll.Status.FORECAST:
-            queryset = queryset.exclude(financial_movement__is_paid=True)
+            queryset = queryset.exclude(financial_movement__is_paid=True).exclude(financial_movements__is_paid=True).distinct()
         search = str(self.request.GET.get("search") or "").strip()
         if search:
             queryset = queryset.filter(collaborator__name__icontains=search)
@@ -502,7 +503,7 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
         diagnoses = get_payroll_movement_diagnoses(payrolls=payrolls)
         rows = []
         for payroll in payrolls:
-            is_reconciled = bool(payroll.financial_movement and payroll.financial_movement.is_reconciled)
+            is_reconciled = payroll.is_reconciled
             diagnosis = diagnoses.get(payroll.pk) or get_payroll_movement_diagnosis(payroll=payroll)
             movements = payroll.get_financial_movements()
             if movements:
@@ -566,6 +567,27 @@ class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixi
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         filters = self._get_filter_params()
+        if not filters["has_modal_date_filter"]:
+            reference_date = date(filters["year"], filters["month"], 1)
+            active_collaborators = WorkshopCollaborator.objects.filter(
+                workshop=self.workshop,
+                is_active=True,
+                admission_date__lte=reference_date,
+            ).filter(Q(termination_date__isnull=True) | Q(termination_date__gte=reference_date))
+            existing_collab_ids = set(
+                CollaboratorPayroll.objects.filter(
+                    workshop=self.workshop,
+                    reference_year=filters["year"],
+                    reference_month=filters["month"],
+                ).values_list("collaborator_id", flat=True)
+            )
+            pending_collaborators = list(active_collaborators.exclude(pk__in=existing_collab_ids))
+            if pending_collaborators:
+                sync_collaborator_payrolls_batch(
+                    collaborators=pending_collaborators,
+                    reference_date=reference_date,
+                    lock_reference=True,
+                )
         queryset = self._get_queryset()
         paginator = Paginator(queryset, self.PER_PAGE)
         page_obj = paginator.get_page(self.request.GET.get("page") or "1")
@@ -1036,7 +1058,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             else:
                 target_payroll = ensure_payroll_movements_confirmed(payroll=target_payroll)
 
-            if not payroll_has_financial_movements(payroll=target_payroll) or target_payroll.financial_movement is None:
+            if not payroll_has_financial_movements(payroll=target_payroll):
                 return _build_hx_toast_response(
                     message="Nao foi possivel gerar movimentacoes financeiras para esta folha.",
                     toast_type="warning",
@@ -1047,7 +1069,7 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
             response["HX-Trigger"] = json.dumps({"payrollListRefresh": True})
             return response
 
-        if payroll is None or not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
+        if payroll is None or not payroll_has_financial_movements(payroll=payroll):
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
 
         raw_work_days = str(request.POST.get("work_days") or "").strip()
@@ -1143,6 +1165,22 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 },
             )
 
+        action_mark_full_payroll_paid = request.POST.get("action_mark_full_payroll_paid") == "true"
+        if action_mark_full_payroll_paid:
+            with transaction.atomic():
+                payroll = mark_payroll_as_paid(payroll=payroll, paid_at=timezone.localdate())
+                payroll.refresh_from_db()
+            response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=self._get_requested_tab())
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {"message": "Folha marcada como paga com sucesso.", "type": "success"},
+                    "payrollListRefresh": True,
+                }
+            )
+            return response
+
+        apply_payment_to_all = request.POST.get("apply_payment_to_all") == "true"
+
         work_days_changed = False
         if all_forms or work_days_requested:
             with transaction.atomic():
@@ -1180,12 +1218,22 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                         )
                 payroll.refresh_from_db()
 
-                movements = payroll.get_financial_movements()
-                if any(movement.is_paid for movement in movements):
-                    mark_payroll_commissions_as_paid(payroll=payroll, paid_at=timezone.localdate())
+                active_tab_key = self._get_requested_tab()
+                active_tab_form = next((form for comp_key, form in all_forms if comp_key == active_tab_key), None)
+                if apply_payment_to_all and active_tab_form is not None:
+                    tab_paid = active_tab_form.cleaned_data.get("is_paid")
+                    if tab_paid is True:
+                        payroll = mark_payroll_as_paid(payroll=payroll, paid_at=timezone.localdate())
+                    elif tab_paid is False and payroll.status == CollaboratorPayroll.Status.PAID:
+                        payroll = mark_payroll_as_unpaid(payroll=payroll)
+                    payroll.refresh_from_db()
                 else:
-                    unmark_payroll_commissions_as_paid(payroll=payroll)
-                payroll.refresh_from_db()
+                    movements = payroll.get_financial_movements()
+                    if any(movement.is_paid for movement in movements):
+                        mark_payroll_commissions_as_paid(payroll=payroll, paid_at=timezone.localdate())
+                    else:
+                        unmark_payroll_commissions_as_paid(payroll=payroll)
+                    payroll.refresh_from_db()
 
             response = self._open_edit_modal(request=request, payroll=payroll, selected_tab=self._get_requested_tab())
             toast_message = "Folha atualizada com sucesso."

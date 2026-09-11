@@ -4,7 +4,7 @@ from .financial_group import FinancialGroupBulkDeleteView, FinancialGroupCreateV
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .fiscal_gateway import FiscalOperationGatewayView
-from .standalone_emission import StandaloneEmissionCreateView
+from .standalone_emission import StandaloneCustomerSearchView, StandaloneEmissionCreateView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportPdfView, CommissionReportView
 from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
@@ -47,6 +47,7 @@ __all__ = [
     "EmissionRequestCreateView",
     "FiscalOperationGatewayView",
     "StandaloneEmissionCreateView",
+    "StandaloneCustomerSearchView",
     "EmissionWorkOrderKitComponentUpdateView",
     "EmissionWorkOrderItemUpdateView",
     "FinancialGroupCreateView",

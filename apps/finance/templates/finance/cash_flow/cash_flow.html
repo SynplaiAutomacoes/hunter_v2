@@ -62,6 +62,142 @@
                         </form>
 
                         <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto lg:pb-0" x-data>
+                            <button type="button" class="btn btn-primary flex-1 sm:w-auto sm:flex-none" aria-controls="cashflow-transfer-modal" aria-haspopup="dialog" @click="$refs.transferModal.showModal()">
+                                <span class="material-icons text-[18px]" aria-hidden="true">swap_horiz</span>
+                                Transferir
+                            </button>
+
+                            <dialog id="cashflow-transfer-modal" class="modal" x-ref="transferModal" @click="if ($event.target === $el) $el.close()">
+                                <div class="modal-box w-11/12 max-w-4xl border border-base-300 bg-base-100 p-0 shadow-2xl">
+                                    <form
+                                        method="post"
+                                        action="{% url 'finance:financial_transfer_create' %}"
+                                        class="space-y-5 p-5 sm:p-6"
+                                        x-data="{
+                                            reviewing: false,
+                                            attempted: false,
+                                            sourceId: '',
+                                            destinationId: '',
+                                            transferAmount: '',
+                                            balances: JSON.parse(document.getElementById('financial-transfer-balances').textContent),
+                                            accountName(accountId) { return this.balances[accountId]?.name || 'Não selecionada'; },
+                                            money(value) {
+                                                const raw = String(value || '').trim();
+                                                const normalized = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw;
+                                                const amount = Number(normalized);
+                                                return Number.isFinite(amount) ? amount.toFixed(2).replace('.', ',') : '';
+                                            },
+                                            formatAmountField(target) {
+                                                const formatted = this.money(target.value);
+                                                if (formatted) target.value = formatted;
+                                                this.transferAmount = target.value;
+                                            },
+                                            get numericAmount() {
+                                                const raw = String(this.transferAmount || '').trim();
+                                                const normalized = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw;
+                                                return Number(normalized);
+                                            },
+                                            get validation() {
+                                                if (!this.sourceId || !this.destinationId || !this.transferAmount) return { state: 'pending', message: 'Selecione as contas e informe o valor para validar a transferência.' };
+                                                if (this.sourceId === this.destinationId) return { state: 'error', message: 'A conta de origem e a conta de destino devem ser diferentes.' };
+                                                if (!Number.isFinite(this.numericAmount) || this.numericAmount <= 0) return { state: 'error', message: 'Informe um valor maior que zero.' };
+                                                const available = Number(this.balances[this.sourceId]?.amount || 0);
+                                                if (available < this.numericAmount) return { state: 'error', message: `Saldo insuficiente na conta de origem. Disponível: ${this.balances[this.sourceId]?.formatted || 'R$ 0,00'}.` };
+                                                return { state: 'success', message: 'Tudo certo. Esta transferência pode ser realizada.' };
+                                            },
+                                            get canTransfer() { return this.validation.state === 'success'; },
+                                            startReview() {
+                                                this.attempted = true;
+                                                if (this.canTransfer) this.reviewing = true;
+                                            }
+                                        }"
+                                        @searchable-change="
+                                            if ($event.detail.name === 'source_account') sourceId = $event.detail.value;
+                                            if ($event.detail.name === 'destination_account') destinationId = $event.detail.value;
+                                        "
+                                        @input="
+                                            if ($event.target.name === 'source_account') sourceId = $event.target.value;
+                                            if ($event.target.name === 'destination_account') destinationId = $event.target.value;
+                                            if ($event.target.name === 'amount') transferAmount = $event.target.value;
+                                        "
+                                        @change="if ($event.target.name === 'amount') formatAmountField($event.target)"
+                                        @submit.prevent="if (reviewing && canTransfer) { $el.submit(); } else { startReview(); }"
+                                    >
+                                        {% csrf_token %}
+                                        <div class="flex items-start justify-between gap-4">
+                                            <div>
+                                                <h3 class="text-xl font-bold text-base-content">Transferir entre contas</h3>
+                                                <p class="mt-1 text-sm text-base-content/70">Registre uma transferência interna entre as contas desta oficina.</p>
+                                            </div>
+                                            <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label="Fechar" @click="$refs.transferModal.close()"><span class="material-icons">close</span></button>
+                                        </div>
+
+                                        <div class="rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex sm:items-center sm:gap-4">
+                                            <span class="material-icons mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-content sm:mb-0" aria-hidden="true">swap_horiz</span>
+                                            <div>
+                                                <p class="font-semibold text-base-content">Transferência interna</p>
+                                                <p class="mt-0.5 text-sm text-base-content/70">O valor sai de uma conta e entra em outra. O resultado total da oficina não é alterado.</p>
+                                            </div>
+                                        </div>
+
+                                        {{ financial_transfer_balances|json_script:"financial-transfer-balances" }}
+                                        <section
+                                            aria-labelledby="modal-transfer-accounts-title"
+                                            class="rounded-2xl border border-base-300 bg-base-200/30 p-4"
+                                            x-data="{
+                                                selectedSource: '',
+                                                balances: JSON.parse(document.getElementById('financial-transfer-balances').textContent),
+                                                get selectedBalance() { return this.balances[this.selectedSource] || null; }
+                                            }"
+                                            @searchable-change="if ($event.detail.name === 'source_account') selectedSource = $event.detail.value"
+                                        >
+                                            <div class="mb-4 flex items-center gap-2"><span class="material-icons text-primary" aria-hidden="true">account_balance</span><h4 id="modal-transfer-accounts-title" class="font-semibold text-base-content">Contas envolvidas</h4></div>
+                                            <div class="grid grid-cols-1 items-end gap-4 lg:grid-cols-[1fr_auto_1fr]">
+                                                <div>
+                                                    <label class="label pb-1 text-sm font-semibold" for="{{ financial_transfer_form.source_account.id_for_label }}">{{ financial_transfer_form.source_account.label }}</label>
+                                                    {{ financial_transfer_form.source_account }}
+                                                    <div x-show="selectedBalance" x-cloak class="mt-3 flex items-center justify-between rounded-xl border px-3 py-2" :class="selectedBalance && selectedBalance.is_negative ? 'border-error/30 bg-error/10' : 'border-success/30 bg-success/10'">
+                                                        <span class="flex items-center gap-2 text-xs font-medium text-base-content/70"><span class="material-icons text-[17px]" :class="selectedBalance && selectedBalance.is_negative ? 'text-error' : 'text-success'">account_balance_wallet</span>Saldo disponível</span>
+                                                        <span class="text-sm font-bold" :class="selectedBalance && selectedBalance.is_negative ? 'text-error' : 'text-success'" x-text="selectedBalance ? selectedBalance.formatted : ''"></span>
+                                                    </div>
+                                                </div>
+                                                <div class="hidden h-10 w-10 items-center justify-center rounded-full border border-primary/30 bg-base-100 text-primary lg:flex" aria-hidden="true"><span class="material-icons">arrow_forward</span></div>
+                                                <div><label class="label pb-1 text-sm font-semibold" for="{{ financial_transfer_form.destination_account.id_for_label }}">{{ financial_transfer_form.destination_account.label }}</label>{{ financial_transfer_form.destination_account }}</div>
+                                            </div>
+                                        </section>
+
+                                        <section aria-labelledby="modal-transfer-details-title" class="rounded-2xl border border-base-300 p-4">
+                                            <div class="mb-4 flex items-center gap-2"><span class="material-icons text-primary" aria-hidden="true">edit_note</span><h4 id="modal-transfer-details-title" class="font-semibold text-base-content">Dados da transferência</h4></div>
+                                            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                                <div><label class="label pb-1 text-sm font-semibold" for="{{ financial_transfer_form.transfer_date.id_for_label }}">{{ financial_transfer_form.transfer_date.label }}</label>{{ financial_transfer_form.transfer_date }}</div>
+                                                <div><label class="label pb-1 text-sm font-semibold" for="{{ financial_transfer_form.amount.id_for_label }}">{{ financial_transfer_form.amount.label }} <span class="font-normal text-base-content/50">(R$)</span></label>{{ financial_transfer_form.amount }}</div>
+                                                <div class="sm:col-span-2"><label class="label pb-1 text-sm font-semibold" for="{{ financial_transfer_form.description.id_for_label }}">{{ financial_transfer_form.description.label }} <span class="font-normal text-base-content/50">(opcional)</span></label>{{ financial_transfer_form.description }}</div>
+                                            </div>
+                                        </section>
+
+                                        <div class="rounded-xl border border-dashed border-base-300 px-4 py-3 text-sm text-base-content/65"><span class="material-icons mr-1 align-text-bottom text-[18px] text-info" aria-hidden="true">info</span>O extrato exibirá a saída na conta de origem e a entrada na conta de destino.</div>
+                                        <div x-show="attempted || (sourceId && destinationId) || transferAmount" x-cloak class="rounded-xl border px-4 py-3" :class="validation.state === 'success' ? 'border-success/30 bg-success/10' : validation.state === 'error' ? 'border-error/30 bg-error/10' : 'border-base-300 bg-base-200/40'" aria-live="polite">
+                                            <div class="flex items-start gap-3">
+                                                <span class="material-icons text-[20px]" :class="validation.state === 'success' ? 'text-success' : validation.state === 'error' ? 'text-error' : 'text-base-content/60'" x-text="validation.state === 'success' ? 'check_circle' : validation.state === 'error' ? 'error' : 'info'"></span>
+                                                <div><p class="font-semibold text-base-content" x-text="validation.state === 'success' ? 'Transferência liberada' : validation.state === 'error' ? 'Transferência bloqueada' : 'Preencha os dados da transferência'"></p><p class="mt-0.5 text-sm text-base-content/70" x-text="validation.message"></p></div>
+                                            </div>
+                                        </div>
+                                        <section x-show="reviewing" x-cloak class="rounded-2xl border border-primary/30 bg-primary/5 p-4" aria-live="polite">
+                                            <div class="flex items-center gap-2"><span class="material-icons text-primary" aria-hidden="true">fact_check</span><h4 class="font-semibold text-base-content">Confirme a transferência</h4></div>
+                                            <div class="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+                                                <div><p class="text-base-content/60">Origem</p><p class="mt-1 font-semibold text-base-content" x-text="accountName(sourceId)"></p></div>
+                                                <div><p class="text-base-content/60">Destino</p><p class="mt-1 font-semibold text-base-content" x-text="accountName(destinationId)"></p></div>
+                                                <div><p class="text-base-content/60">Valor</p><p class="mt-1 font-semibold text-primary" x-text="money(transferAmount) ? 'R$ ' + money(transferAmount) : 'Não informado'"></p></div>
+                                            </div>
+                                        </section>
+                                        <div class="flex flex-col-reverse gap-2 border-t border-base-200 pt-4 sm:flex-row sm:justify-end">
+                                            <button type="button" class="btn-form-cancel" @click="$refs.transferModal.close()">Cancelar</button>
+                                            <button x-show="reviewing" x-cloak type="button" class="btn btn-ghost" @click="reviewing = false">Editar</button>
+                                            <button type="submit" class="btn btn-primary gap-2" :class="{ 'btn-disabled': !canTransfer }" :disabled="!canTransfer"><span class="material-icons text-[18px]" aria-hidden="true">swap_horiz</span><span x-text="reviewing ? 'Confirmar transferência' : 'Transferir'"></span></button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </dialog>
                             <button
                                 type="button"
                                 class="btn btn-primary flex-1 sm:w-auto sm:flex-none"
@@ -217,6 +353,7 @@
                                         <th>Conta Bancária</th>
                                         <th>Tipo Pagamento</th>
                                         <th class="text-right">Valor</th>
+                                        <th class="text-right">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody>

@@ -1,0 +1,19 @@
+<form
+    id="delivery-date-form"
+    method="post"
+    hx-post="{% url 'workorder:update_delivery_date' workorder.pk %}"
+    hx-target="#delivery-date-form"
+    hx-swap="outerHTML"
+    class="flex flex-col gap-2 sm:flex-row sm:items-end"
+    data-allow-locked="1"
+>
+    {% csrf_token %}
+    <div class="form-control flex-1">
+        <label class="label" for="id_delivered_at"><span class="label-text font-medium">Data e hora da entrega</span></label>
+        {{ delivery_date_form.delivered_at }}
+        {% for error in delivery_date_form.delivered_at.errors %}
+            <span class="mt-1 text-sm text-error">{{ error }}</span>
+        {% endfor %}
+    </div>
+    <button type="submit" class="btn btn-outline btn-sm sm:mb-1">Salvar data</button>
+</form>

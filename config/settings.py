@@ -46,6 +46,11 @@ PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 TAX_CLASS_DEBUG_LOGS = os.getenv("TAX_CLASS_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 
+# Notifications System Config
+SYSTEM_ADMIN_USERNAMES = [u.strip() for u in os.getenv("SYSTEM_ADMIN_USERNAMES", "").split(",") if u.strip()]
+NOTIFICATIONS_DROPDOWN_LIMIT = int(os.getenv("NOTIFICATIONS_DROPDOWN_LIMIT", "5"))
+NOTIFICATIONS_AUTO_CAPTURE_MESSAGES = os.getenv("NOTIFICATIONS_AUTO_CAPTURE_MESSAGES", "1").lower() in ("1", "true", "yes")
+
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "hunter-web")
@@ -161,6 +166,7 @@ INSTALLED_APPS = [
     "apps.finance",
     "apps.messaging",
     "apps.terms",
+    "apps.notifications",
 ]
 
 MIDDLEWARE = [
@@ -174,6 +180,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "apps.notifications.infrastructure.middleware.MessagesNotificationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Dependencies
     "simple_history.middleware.HistoryRequestMiddleware",
