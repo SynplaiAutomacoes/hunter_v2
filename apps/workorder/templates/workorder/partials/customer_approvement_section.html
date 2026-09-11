@@ -34,7 +34,7 @@
     </div>
 
     <div class="p-4 bg-base-200/50 rounded-lg">
-        <h4 class="font-bold text-lg mb-2 border-b">Dados de entrega</h4>
+        <h4 class="font-bold text-lg mb-2 border-b">{% if workorder.budget_type == 'direct_sale' %}Conclusão da Venda Direta{% else %}Dados de entrega{% endif %}</h4>
         <form
             id="approval-km-form"
             method="post"
@@ -43,15 +43,21 @@
             hx-swap="innerHTML"
             class="space-y-3"
             data-km-autosave-url="{% url 'workorder:update_km_final' workorder.pk %}"
+            data-direct-sale="{% if workorder.budget_type == 'direct_sale' %}true{% else %}false{% endif %}"
             data-signature-approved="{% if workorder.is_customer_signature_approved %}true{% else %}false{% endif %}"
             data-has-unsigned-reason-error="{% if approval_form.unsigned_delivery_reason.errors %}true{% else %}false{% endif %}"
         >
             {% csrf_token %}
-            {% crispy approval_form %}
+            {% if workorder.budget_type == 'direct_sale' %}
+                <p class="text-sm text-base-content/70">Esta venda não possui veículo. Após a confirmação do pagamento, conclua a O.S. sem dados de entrega.</p>
+            {% else %}
+                {% crispy approval_form %}
+            {% endif %}
             <p id="workorder-km-save-status" class="text-sm text-base-content/70 min-h-5" aria-live="polite"></p>
         </form>
     </div>
 
+    {% if workorder.budget_type != 'direct_sale' %}
     {% if term_signing or approval_form.fields.warranty_term_template.queryset.exists %}
     <div class="p-4 bg-base-200/50 rounded-lg">
         <div class="flex items-center justify-between gap-3 mb-3">
@@ -150,6 +156,7 @@
         });
     })();
     </script>
+    {% endif %}
     {% endif %}
 
     <div class="p-4 bg-base-200/50 rounded-lg">
@@ -279,21 +286,21 @@
 
             <span
                 id="workorder-delivery-button-tooltip"
-                class="inline-flex flex-1 min-w-[8rem] {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}tooltip tooltip-top{% endif %}"
-                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif workorder.km_final is None %}data-tip="É necessário inserir o Km Final para desbloquear o botão" title="É necessário inserir o Km Final para desbloquear o botão" tabindex="0"{% elif workorder.has_completion_blockers %}data-tip="{{ workorder.completion_blockers_display }}" title="{{ workorder.completion_blockers_display }}" tabindex="0"{% endif %}
+                class="inline-flex flex-1 min-w-[8rem] {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.budget_type != 'direct_sale' and workorder.km_final is None %}tooltip tooltip-top{% endif %}"
+                {% if workorder.is_status_locked %}data-tip="Reabra a O.S. antes de alterar o status." title="Reabra a O.S. antes de alterar o status." tabindex="0"{% elif not can_finalize_delivery %}data-tip="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo." tabindex="0"{% elif workorder.budget_type != 'direct_sale' and workorder.km_final is None %}data-tip="É necessário inserir o Km Final para desbloquear o botão" title="É necessário inserir o Km Final para desbloquear o botão" tabindex="0"{% elif workorder.has_completion_blockers %}data-tip="{{ workorder.completion_blockers_display }}" title="{{ workorder.completion_blockers_display }}" tabindex="0"{% endif %}
             >
                 <button
                     type="button"
                     id="workorder-delivery-button"
-                    class="btn w-full rounded-md {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}btn-disabled cursor-not-allowed{% endif %}"
+                    class="btn w-full rounded-md {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.budget_type != 'direct_sale' and workorder.km_final is None %}btn-disabled cursor-not-allowed{% endif %}"
                     data-status-locked="{% if workorder.is_status_locked %}true{% else %}false{% endif %}"
                     data-can-finalize-delivery="{% if can_finalize_delivery %}true{% else %}false{% endif %}"
                     data-has-completion-blockers="{% if workorder.has_completion_blockers %}true{% else %}false{% endif %}"
                     data-completion-blockers-display="{{ workorder.completion_blockers_display }}"
-                    {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.km_final is None %}disabled{% endif %}
-                    {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif not can_finalize_delivery %}title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo."{% elif workorder.km_final is None %}title="É necessário inserir o Km Final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
+                    {% if workorder.is_status_locked or not can_finalize_delivery or workorder.has_completion_blockers or workorder.budget_type != 'direct_sale' and workorder.km_final is None %}disabled{% endif %}
+                    {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif not can_finalize_delivery %}title="Conclua a etapa de entrega para cancelar, reprovar ou entregar o veículo."{% elif workorder.budget_type != 'direct_sale' and workorder.km_final is None %}title="É necessário inserir o Km Final para desbloquear o botão"{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
                 >
-                    {% if workorder.is_reopened_after_delivery %}Veículo entregue/Fechar O.S.{% else %}Entregar veículo{% endif %}
+                    {% if workorder.budget_type == 'direct_sale' %}Concluir Venda Direta{% elif workorder.is_reopened_after_delivery %}Veículo entregue/Fechar O.S.{% else %}Entregar veículo{% endif %}
                 </button>
             </span>
 
@@ -824,6 +831,13 @@
                     proceedDelivery();
                 });
             }
+        }
+
+        if (form?.dataset.directSale === 'true' && deliveryButton) {
+            deliveryButton.addEventListener('click', () => {
+                hideStatusForms();
+                form.requestSubmit();
+            });
         }
 
         if (reopenToggleButton && reopenForm) {

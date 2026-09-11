@@ -59,8 +59,15 @@ class SignatureStatus(models.TextChoices):
 
 class BudgetType(models.TextChoices):
     SALE = "sale", "Venda"
+    DIRECT_SALE = "direct_sale", "Venda Direta"
     WARRANTY = "warranty", "Garantia"
     COURTESY = "courtesy", "Cortesia"
+
+
+# Tipos que representam receita.  Eles não devem ser usados para métricas de
+# veículos: Venda Direta pode ter veículo informado facultativamente, mas nunca
+# representa a entrada/saída de um veículo na oficina.
+REVENUE_BUDGET_TYPES = (BudgetType.SALE, BudgetType.DIRECT_SALE)
 
 
 class BudgetItemBenefitType(models.TextChoices):
@@ -287,7 +294,7 @@ class Budget(TimeStampedModel):
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
-                if self.vehicle_id and self.current_km is not None:
+                if self.budget_type != BudgetType.DIRECT_SALE and self.vehicle_id and self.current_km is not None:
                     from apps.customer.services.oil_change import handle_budget_approved_mileage
 
                     handle_budget_approved_mileage(budget=self)
@@ -934,6 +941,9 @@ class Budget(TimeStampedModel):
 
     @property
     def type_budget_badge(self):
+        if self.budget_type == BudgetType.DIRECT_SALE:
+            return {"text": "Venda Direta", "class": "badge-reopened-after-delivery"}
+
         if self.is_warranty_budget or self.budget_type == BudgetType.WARRANTY:
             return {"text": "Garantia", "class": "badge-error"}
 

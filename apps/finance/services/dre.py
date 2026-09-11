@@ -12,6 +12,7 @@ from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 
 from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.budget.models import REVENUE_BUDGET_TYPES
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.core.workorder_numbers import resolve_budget_workorder_number, resolve_workorder_number
@@ -132,7 +133,7 @@ def build_dre_calculation(
     # Receita Bruta de Vendas e Serviços
     pagamentos_ordens_de_servico = WorkOrderPaymentMethod.objects.filter(
         workorder__workshop__in=workshops,
-        workorder__budget_type="sale",
+        workorder__budget_type__in=REVENUE_BUDGET_TYPES,
         workorder__status__in=WORKORDER_REVENUE_STATUSES,
     )
     if start_date is not None:
@@ -1027,7 +1028,8 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
     number = resolve_budget_workorder_number(budget)
     name = getattr(customer, "name", "-") or "-"
 
-    summary = f"O.S #{number} - {name}"
+    budget_type_label = "Venda Direta" if workorder.budget_type == "direct_sale" else "Venda"
+    summary = f"{budget_type_label} - O.S #{number} - {name}"
     payment_method_name = getattr(getattr(payment, "payment_method", None), "description", "-") or "-"
     reference = f"Pagamento: {payment_method_name}"
 
