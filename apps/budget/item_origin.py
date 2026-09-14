@@ -57,10 +57,7 @@ def build_origin_badge(*, label: str, is_kit: bool = False, tooltip: str = "", h
         return f"<a {attrs}>{badge}</a>"
     if not tip:
         return badge
-    return (
-        f'<span class="tooltip tooltip-bottom z-20 inline-flex cursor-help before:z-50 before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs" '
-        f'data-tip="{escape(tip)}" tabindex="0">{badge}</span>'
-    )
+    return f'<span class="tooltip tooltip-bottom z-20 inline-flex cursor-help before:z-50 before:max-w-[16rem] before:whitespace-normal before:break-words before:text-xs" data-tip="{escape(tip)}" tabindex="0">{badge}</span>'
 
 
 def origin_badge_for_item(*, item: Any) -> tuple[str, str, bool]:
@@ -111,11 +108,7 @@ def iter_kit_product_components(item: Any) -> list[Any]:
 def iter_kit_service_components(item: Any) -> list[Any]:
     frozen = list(item._iter_frozen_kit_service_overrides())
     if frozen:
-        return [
-            override
-            for override in frozen
-            if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False)
-        ]
+        return [override for override in frozen if int(getattr(override, "quantity", 0) or 0) > 0 and not getattr(override, "excluded_from_composition", False)]
 
     _product_overrides, service_overrides = item._get_kit_override_maps()
     components: list[Any] = []
@@ -219,6 +212,19 @@ def build_kit_component_service_item(*, kit_item: Any, override: Any) -> SimpleN
         show_kit_duplicate_warning=False,
         is_kit_component=True,
     )
+
+
+def build_step4_kit_service_item(*, kit_item: Any, exploded: dict[str, Any]) -> Any:
+    """Quoted kit service line for step 4 rows/totals, without slider allocation."""
+    service_id = exploded.get("id")
+    for override in kit_item._iter_frozen_kit_service_overrides():
+        if getattr(override, "service_id", None) != service_id:
+            continue
+        component = build_kit_component_service_item(kit_item=kit_item, override=override)
+        if component is not None:
+            return component
+        break
+    return build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
 
 
 def build_kit_component_product_item_from_exploded(*, kit_item: Any, row: dict[str, Any]) -> SimpleNamespace:
