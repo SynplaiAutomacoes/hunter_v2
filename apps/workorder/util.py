@@ -29,7 +29,7 @@ from apps.budget.item_origin import (
 )
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.pricing import _is_better_service_source, _is_better_source, kit_component_winning_item_ids, zero_money
-from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.budget.service_costs import displayed_service_mechanic_cost
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.services.workorder_emission import get_workorder_emission_ui_state
@@ -413,15 +413,14 @@ def _annotate_workorder_resume_gestor_costs(*, workorder: WorkOrder, display_pro
         fallback_cost = unit_fallback * quantity if quantity else unit_fallback
         service = getattr(item, "service", None)
         is_third_party = bool(getattr(service, "is_third_party", False))
-        if budget is None or is_third_party:
+        is_kit_origin = bool(getattr(item, "origin_is_kit", False) or getattr(item, "is_kit_component", False))
+        if budget is None:
+            mechanic_cost = fallback_cost
+        elif is_third_party and is_kit_origin:
+            # Kit tables use the exploded catalog cost for third-party rows.
             mechanic_cost = fallback_cost
         else:
-            mechanic_cost = calculate_mechanic_service_cost(
-                budget=budget,
-                duration=getattr(item, "duration", None),
-                quantity=quantity,
-                fallback_cost=fallback_cost,
-            )
+            mechanic_cost = displayed_service_mechanic_cost(budget=budget, item=item)
         total_price = getattr(item, "total_price", None) or _zero_brl()
         profit = total_price - mechanic_cost
         benefit = str(getattr(item, "item_benefit_type", "normal") or "normal")
