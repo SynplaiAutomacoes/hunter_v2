@@ -5,7 +5,7 @@
                 href="{{ action.href }}"
                 class="{{ action.a_class }}"
                 aria-label="{{ action.aria_label }}"
-                {% if action.hx_get %}hx-get="{{ action.hx_get }}"{% endif %}
+                {% if action.hx_post %}hx-post="{{ action.hx_post }}"{% elif action.hx_get %}hx-get="{{ action.hx_get }}"{% endif %}
                 {% if action.hx_target %}hx-target="{{ action.hx_target }}"{% endif %}
                 {% if action.hx_swap %}hx-swap="{{ action.hx_swap }}"{% endif %}
                 {% if action.hx_select %}hx-select="{{ action.hx_select }}"{% endif %}
