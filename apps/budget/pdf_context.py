@@ -18,6 +18,7 @@ from apps.budget.pricing import (
 )
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.discount import split_budget_discount
+from apps.budget.service_costs import displayed_service_mechanic_cost
 from apps.workorder.models import WorkOrderDiscountType
 
 
@@ -497,7 +498,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             produtos.append(produto)
 
         for line in review_display.direct_services:
-            service_mechanic_cost_price = line.warranty_total_price
+            service_mechanic_cost_price = displayed_service_mechanic_cost(budget=budget, item=line.item)
             item_service_shipping = getattr(line.item, "service_shipping", Money(0, "BRL"))
             service_sale_total = line.total_price + item_service_shipping
             servico = {
