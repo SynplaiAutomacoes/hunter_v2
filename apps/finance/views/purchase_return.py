@@ -74,11 +74,7 @@ class PurchaseReturnCreateView(PurchaseReturnPermissionMixin, View):
         query_params.pop("page", None)
         return {
             "form": form,
-            "current_step": 1,
-            "max_reached_step": 1,
-            "steps": _steps(),
-            "steps_config": _steps_config(),
-            "min_accessible_step": 1,
+            **_stepper_context(current_step=1, max_reached_step=1),
             "return_request": None,
             "page_obj": page_obj,
             "filter_query": query_params.urlencode(),
@@ -180,17 +176,13 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
         fiscal_form = fiscal_form or PurchaseReturnFiscalForm(instance=return_request)
         fiscal_document = return_request.fiscal_document
         attempt = fiscal_document.emission_attempts.order_by("-pk").first() if fiscal_document else None
+        is_editable = return_request.status == PurchaseReturnRequestStatus.DRAFT
         context = {
             "return_request": return_request,
             "source": source,
             "document": source.fiscal_document,
             "document_snapshot": document_snapshot,
-            "current_step": step,
-            "max_reached_step": return_request.current_step,
-            "steps": _steps(),
-            "steps_config": _steps_config(),
-            "object": return_request,
-            "min_accessible_step": 4 if return_request.status != PurchaseReturnRequestStatus.DRAFT else 1,
+            **_stepper_context(current_step=step, max_reached_step=return_request.current_step, return_request=return_request),
             "items_form": items_form,
             "fiscal_form": fiscal_form,
             "item_rows": item_rows,
@@ -199,7 +191,8 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
             "selected_manual_items": selected_manual_items,
             "total_quantity": total_quantity,
             "total_value": total_value,
-            "is_ready": return_request.status != PurchaseReturnRequestStatus.DRAFT,
+            "is_editable": is_editable,
+            "is_ready": not is_editable,
             "can_transmit": return_request.status == PurchaseReturnRequestStatus.READY,
             "fiscal_document": fiscal_document,
             "fiscal_attempt": attempt,
@@ -269,3 +262,15 @@ def _steps() -> tuple[tuple[int, str], ...]:
 
 def _steps_config() -> list[dict[str, int | str]]:
     return [{"number": number, "title": title} for number, title in _steps()]
+
+
+def _stepper_context(*, current_step: int, max_reached_step: int, return_request: PurchaseReturnRequest | None = None) -> dict[str, object]:
+    return {
+        "current_step": current_step,
+        "max_reached_step": max_reached_step,
+        "steps": _steps(),
+        "steps_config": _steps_config(),
+        "min_accessible_step": 1,
+        "stepper_navigation": "links",
+        "object": return_request,
+    }
