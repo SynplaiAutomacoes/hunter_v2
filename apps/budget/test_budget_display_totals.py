@@ -8,7 +8,8 @@ from djmoney.money import Money
 
 from apps.budget.forms.presenters.step5_context import build_step5_context
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
-from apps.budget.review_totals import build_step4_table_totals
+from apps.budget.pdf_context import build_budget_pdf_context
+from apps.budget.review_totals import build_step4_table_totals, build_step6_table_totals
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitService
 from apps.catalog.models.products import Product
@@ -175,3 +176,79 @@ class BudgetDisplayTotalsTests(TestCase):
 
         self.assertEqual(totals["services"].sale, _money("0.00"))
         self.assertLess(totals["services"].profit.amount, Decimal("0.00"))
+
+    def test_zero_duration_third_party_pdf_matches_budget_table(self) -> None:
+        labor = Service.objects.create(
+            workshop=self.workshop,
+            name="Kit embreagem",
+            duration=timedelta(hours=8),
+            suggested_cost=_money("10.00"),
+            selling_price=_money("600.00"),
+        )
+        third_party = Service.objects.create(
+            workshop=self.workshop,
+            name="Retifica do Volante",
+            duration=timedelta(0),
+            suggested_cost=_money("150.00"),
+            selling_price=_money("360.00"),
+            is_third_party=True,
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            service=labor,
+            quantity=1,
+            service_cost_price=_money("10.00"),
+            service_selling_price=_money("600.00"),
+            duration=timedelta(hours=8),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            service=third_party,
+            quantity=1,
+            service_cost_price=_money("150.00"),
+            service_selling_price=_money("360.00"),
+            duration=timedelta(0),
+        )
+        self.budget.invalidate_pricing_snapshot_cache()
+
+        table = build_step6_table_totals(budget=self.budget)
+        pdf = build_budget_pdf_context(budget=self.budget, presentation="selected_items")
+        third_party_row = next(row for row in pdf["servicos"] if row["description"] == third_party.name)
+
+        self.assertEqual(table["services"].sale, _money("960.00"))
+        self.assertEqual(third_party_row["service_mechanic_cost_price"], _money("0.00"))
+        self.assertEqual(pdf["total_services_mechanic_cost_value"], table["services"].cost)
+        self.assertEqual(pdf["total_profit_service_value"], table["services"].profit)
+
+    def test_warranty_zero_duration_third_party_stays_sale_zero(self) -> None:
+        third_party = Service.objects.create(
+            workshop=self.workshop,
+            name="Retifica garantia",
+            duration=timedelta(0),
+            suggested_cost=_money("150.00"),
+            selling_price=_money("360.00"),
+            is_third_party=True,
+        )
+        item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            service=third_party,
+            quantity=1,
+            service_cost_price=_money("150.00"),
+            service_selling_price=_money("360.00"),
+            duration=timedelta(0),
+        )
+        item.item_benefit_type = "warranty"
+        item.save(update_fields=["item_benefit_type"])
+        self.budget.invalidate_pricing_snapshot_cache()
+
+        table = build_step4_table_totals(budget=self.budget)
+        pdf = build_budget_pdf_context(budget=self.budget, presentation="selected_items")
+
+        self.assertEqual(table["services"].sale, _money("0.00"))
+        self.assertEqual(table["services"].cost, _money("0.00"))
+        self.assertEqual(table["services"].profit, _money("0.00"))
+        self.assertEqual(pdf["total_services_mechanic_cost_value"], _money("0.00"))
+        self.assertEqual(pdf["total_profit_service_value"], _money("0.00"))
