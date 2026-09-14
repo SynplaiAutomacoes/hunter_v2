@@ -545,7 +545,7 @@ class Budget(TimeStampedModel):
         custo_pecas = breakdown.products_unit_cost
         custo_servico_terceiro = breakdown.third_party_cost
         custo_frete_servico = breakdown.services_freight
-        custo_total_mao_obra = breakdown.labor_cost
+        custo_total_mao_obra = self.pricing_snapshot.total_labor_cost_value
         custo_frete_pecas = breakdown.products_freight
 
         # Venda
@@ -578,7 +578,7 @@ class Budget(TimeStampedModel):
         custo_servico_terceiro = breakdown.third_party_cost
         custo_frete_servicos = breakdown.services_freight
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
-        custo_total_mao_obra = breakdown.labor_cost
+        custo_total_mao_obra = self.pricing_snapshot.total_labor_cost_value
 
         # Valores de Venda
         venda_pecas = self.total_products_value
@@ -639,14 +639,22 @@ class Budget(TimeStampedModel):
             "valor_orcamento": valor_orcamento_hun,
         }
 
-        # Prefer traditional when more profitable; only then attach heavy MLR/MLO extras.
+        # Method badge still compares Traditional vs Hunter, but displayed money
+        # always follows the charged budget — never the hypothetical traditional hour.
         if rentabilidade_trad > rentabilidade_hun:
-            return data_trad
+            chosen = dict(data_trad)
+        else:
+            chosen = dict(data_hun)
+            if include_method_extras:
+                chosen["mlr"] = self.get_mlr
+                chosen["mlo"] = self.get_mlo
 
-        if include_method_extras:
-            data_hun["mlr"] = self.get_mlr
-            data_hun["mlo"] = self.get_mlo
-        return data_hun
+        chosen["custo_total_mao_obra"] = custo_total_mao_obra
+        chosen["lucro_operacional"] = lucro_operacional_hun
+        chosen["rentabilidade"] = rentabilidade_hun
+        chosen["valor_orcamento"] = valor_orcamento_hun
+        chosen["venda_mao_obra"] = venda_mao_obra_hun
+        return chosen
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
         breakdown = self.step4_pricing_breakdown

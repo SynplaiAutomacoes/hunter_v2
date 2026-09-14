@@ -8,6 +8,7 @@ from apps.budget.item_origin import (
     build_kit_component_product_item_from_exploded,
     build_kit_component_service_item_from_exploded,
     build_origin_badge,
+    build_step4_kit_service_item,
     origin_badge_for_item,
 )
 from apps.budget.pdf_context import _explode_kit_product_rows, _explode_kit_service_rows
@@ -242,9 +243,7 @@ def _render_budget_items_rows(budget, step6=False):
                         step6=False,
                         origin_badge=avulso_badge,
                         extra={
-                            "show_kit_duplicate_warning": False
-                            if is_locked
-                            else bool((item.product_id and item.product_id in kit_product_ids) and not item.is_local),
+                            "show_kit_duplicate_warning": False if is_locked else bool((item.product_id and item.product_id in kit_product_ids) and not item.is_local),
                         },
                     )
                 elif item_type == "service":
@@ -255,9 +254,7 @@ def _render_budget_items_rows(budget, step6=False):
                         step6=False,
                         origin_badge=avulso_badge,
                         extra={
-                            "show_kit_duplicate_warning": False
-                            if is_locked
-                            else bool((item.service_id and item.service_id in kit_service_ids) and not item.is_local),
+                            "show_kit_duplicate_warning": False if is_locked else bool((item.service_id and item.service_id in kit_service_ids) and not item.is_local),
                             "service_mechanic_cost": calculate_mechanic_service_cost(
                                 budget=budget_for_render,
                                 duration=item.duration,
@@ -286,7 +283,7 @@ def _render_budget_items_rows(budget, step6=False):
                 for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
                     if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
-                    component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
+                    component = build_step4_kit_service_item(kit_item=kit_item, exploded=exploded)
                     rows["service"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_service_row.html",
                         item=component,
@@ -295,7 +292,7 @@ def _render_budget_items_rows(budget, step6=False):
                         origin_badge=kit_badge,
                         extra={
                             "is_kit_component": True,
-                            "duration_display": exploded.get("duration_display"),
+                            "duration_display": exploded.get("duration_display") or component.duration_display,
                             "service_mechanic_cost": _money_or_zero(exploded.get("service_mechanic_cost_price")),
                         },
                     )
