@@ -142,7 +142,17 @@
                         if (document.hidden) return;
                         fetch('{% url 'notifications:unread_count' %}')
                             .then(r => r.json())
-                            .then(data => { if (typeof data.count === 'number') this.unreadCount = data.count; })
+                            .then(data => {
+                                if (typeof data.count === 'number') {
+                                    const previous = this.unreadCount;
+                                    this.unreadCount = data.count;
+                                    if (data.count !== previous) {
+                                        // Count mudou: invalida cache do dropdown
+                                        this.loaded = false;
+                                        if (this.open) this.reload();
+                                    }
+                                }
+                            })
                             .catch(() => {});
                     },
                     init() {

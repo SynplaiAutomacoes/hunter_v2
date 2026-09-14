@@ -215,6 +215,21 @@
             getWorkshopTotalCount(workshopId) {
                 const all = this.workshopMembersData[workshopId] || [];
                 return all.length;
+            },
+
+            addAllWorkshops() {
+                Object.keys(this.workshopsMap).forEach(id => this.addWorkshop(id));
+            },
+
+            removeAllWorkshops() {
+                this.selectedWorkshops = [];
+                this.workshopMembersSelected = {};
+                this.syncCoveredUsers();
+            },
+
+            get allWorkshopsAdded() {
+                const total = Object.keys(this.workshopsMap).length;
+                return total > 0 && this.selectedWorkshops.length === total;
             }
         };
     }
@@ -355,7 +370,18 @@
                         <label class="label font-semibold text-base-content p-0 mb-1">
                             <span class="label-text text-base font-semibold">{{ form.workshop_select.label }}</span>
                         </label>
-                        <span class="badge badge-sm badge-ghost font-medium">Filtro por Oficina</span>
+                        <div class="flex items-center gap-2">
+                            <button
+                                type="button"
+                                class="btn btn-xs btn-outline btn-primary gap-1"
+                                @click="allWorkshopsAdded ? removeAllWorkshops() : addAllWorkshops()"
+                                :title="allWorkshopsAdded ? 'Remover todas as oficinas' : 'Adicionar todas as oficinas'"
+                            >
+                                <span class="material-icons text-xs" x-text="allWorkshopsAdded ? 'remove_done' : 'done_all'"></span>
+                                <span x-text="allWorkshopsAdded ? 'Remover Todas' : 'Adicionar Todas'"></span>
+                            </button>
+                            <span class="badge badge-sm badge-ghost font-medium">Filtro por Oficina</span>
+                        </div>
                     </div>
 
                     <div class="flex items-center gap-2" @searchable-change="pendingWorkshopId = $event.detail ? String($event.detail.value || '') : ''">
