@@ -149,12 +149,43 @@ class SynplaiSignSignatureServiceTests(SimpleTestCase):
         create_envelope_mock.assert_called_once()
         self.assertEqual(create_envelope_mock.call_args.kwargs["api_key"], "sk_live_workshop")
         self.assertEqual(create_envelope_mock.call_args.kwargs["whatsapp_instance"], "workshop_19")
-        self.assertEqual(create_envelope_mock.call_args.kwargs["content_type"], "application/pdf")
+        self.assertEqual(create_envelope_mock.call_args.kwargs["sender_name"], "")
         signatories = create_envelope_mock.call_args.kwargs["signatories"]
         self.assertEqual(signatories[0]["order"], 0)
         self.assertEqual(signatories[0]["deliveryChannel"], "EMAIL")
         self.assertIn("fieldX", signatories[0])
         send_envelope_mock.assert_called_once_with(api_key="sk_live_workshop", envelope_id="env-1")
+
+    @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
+    @patch("apps.core.infrastructure.services.signature_synplaisign.gateway.send_envelope")
+    @patch("apps.core.infrastructure.services.signature_synplaisign.gateway.create_envelope")
+    def test_send_document_passes_sender_name(
+        self,
+        create_envelope_mock: Mock,
+        send_envelope_mock: Mock,
+    ) -> None:
+        create_envelope_mock.return_value = SynplaiSignGatewayResult(
+            envelope_id="env-sn",
+            signing_token="tok-sn",
+            raw_response={"id": "env-sn"},
+        )
+        send_envelope_mock.return_value = {"message": "ok"}
+
+        self.service.send_document(
+            SignatureSendRequest(
+                document_bytes=b"%PDF",
+                file_name="doc.pdf",
+                document_ref_id="budget-1",
+                title="Orcamento #1",
+                message="Assine",
+                signatory={"name": "Joao", "email": "joao@example.com", "signingOrder": 0},
+                observers=[],
+                fields=[],
+                api_key="sk_live_workshop",
+                sender_name="Oficina Central Auto",
+            )
+        )
+        self.assertEqual(create_envelope_mock.call_args.kwargs["sender_name"], "Oficina Central Auto")
 
     @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
     @patch("apps.core.infrastructure.services.signature_synplaisign.gateway.send_envelope")
@@ -299,7 +330,7 @@ class SignatureWebhookHmacTests(SimpleTestCase):
         self.view = SignatureWebhookView.as_view()
 
     @override_settings(SYNPLAISIGN_WEBHOOK_SECRET="whsec_test")
-    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None))
+    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None, None, None))
     def test_rejects_invalid_hmac(self, _resolve_mock: Mock) -> None:
         body = json.dumps({"event": "ENVELOPE_COMPLETED", "envelopeId": "env-1"}).encode("utf-8")
         request = self.factory.post(
@@ -312,7 +343,7 @@ class SignatureWebhookHmacTests(SimpleTestCase):
         self.assertEqual(response.status_code, 403)
 
     @override_settings(SYNPLAISIGN_WEBHOOK_SECRET="whsec_test")
-    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None))
+    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None, None, None))
     @patch(
         "apps.core.infrastructure.services.signature_webhook.process_signature_webhook_payload",
         return_value=HttpResponse(status=200),
@@ -331,7 +362,7 @@ class SignatureWebhookHmacTests(SimpleTestCase):
         process_mock.assert_called_once()
 
     @override_settings(SYNPLAISIGN_WEBHOOK_SECRET="whsec_test")
-    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None))
+    @patch("apps.core.infrastructure.services.signature_webhook._resolve_workshop_for_envelope", return_value=(None, None, None, None, None))
     @patch(
         "apps.core.infrastructure.services.signature_webhook.process_signature_webhook_payload",
         return_value=HttpResponse(status=200),
@@ -351,6 +382,15 @@ class SignatureWebhookHmacTests(SimpleTestCase):
 
 
 class SignatureWebhookProcessingTests(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.patch_find_budget_term = patch("apps.core.infrastructure.services.signature_webhook._find_budget_term_signing", return_value=None)
+        self.patch_find_wo_term = patch("apps.core.infrastructure.services.signature_webhook._find_workorder_term_signing", return_value=None)
+        self.patch_find_budget_term.start()
+        self.patch_find_wo_term.start()
+        self.addCleanup(self.patch_find_budget_term.stop)
+        self.addCleanup(self.patch_find_wo_term.stop)
+
     @patch("apps.workorder.models.WorkOrder.objects.filter")
     @patch("apps.budget.models.Budget.objects.filter")
     def test_unknown_envelope_is_acked(self, budget_filter: Mock, workorder_filter: Mock) -> None:
@@ -444,7 +484,7 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         approve_mock: Mock,
         _can_finalize_mock: Mock,
     ) -> None:
-        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", mark_signature_approved=Mock())
+        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", is_fully_paid=False, budget_type="normal", status="approved", mark_signature_approved=Mock())
 
         response = process_signature_webhook_payload(
             payload={"event": "DOCUMENT_SIGNED", "envelopeId": "env-os-685"},
@@ -456,20 +496,23 @@ class SignatureWebhookProcessingTests(SimpleTestCase):
         approve_mock.assert_not_called()
 
     @patch("apps.core.infrastructure.services.signature_webhook.workorder_can_finalize_after_signature", return_value=True)
-    @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock", side_effect=RuntimeError("estoque insuficiente"))
+    @patch("apps.core.infrastructure.services.signature_webhook.approve_workorder_with_stock")
     def test_workorder_signature_is_approved_even_when_finalize_fails(
         self,
-        _approve_mock: Mock,
+        approve_mock: Mock,
         _can_finalize_mock: Mock,
     ) -> None:
-        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", mark_signature_approved=Mock())
+        from apps.workorder.approval import WorkOrderApprovalError
+
+        approve_mock.side_effect = WorkOrderApprovalError("estoque insuficiente")
+        workorder = SimpleNamespace(pk=685, warranty_plan="days_90", is_fully_paid=False, budget_type="normal", status="approved", mark_signature_approved=Mock())
 
         response = process_signature_webhook_payload(
             payload={"event": "ENVELOPE_COMPLETED", "envelopeId": "env-os-685"},
             workorder=workorder,
         )
 
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.status_code, 200)
         workorder.mark_signature_approved.assert_called_once()
 
     @patch("apps.workorder.models.WorkOrder.objects.filter")
@@ -630,6 +673,54 @@ class SignatureHtmlDocumentTests(SimpleTestCase):
         self.assertEqual(files["file"][0], "doc.html")
         self.assertEqual(files["file"][1], html)
         self.assertEqual(files["file"][2], "text/html")
+
+    @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
+    @patch("apps.core.infrastructure.gateways.synplaisign.requests.post")
+    def test_create_envelope_includes_sender_name_when_provided(self, requests_post_mock: Mock) -> None:
+        from apps.core.infrastructure.gateways.synplaisign import create_envelope
+
+        response = Mock()
+        response.status_code = 200
+        response.raise_for_status = Mock()
+        response.json.return_value = {"id": "env-1", "signatories": [{"token": "tok"}]}
+        requests_post_mock.return_value = response
+
+        create_envelope(
+            api_key="sk_live",
+            document_bytes=b"%PDF",
+            file_name="doc.pdf",
+            title="T",
+            message="M",
+            signatories=[{"name": "A", "email": "a@b.com", "order": 0, "deliveryChannel": "EMAIL"}],
+            sender_name="Oficina Fantasia",
+        )
+
+        data = requests_post_mock.call_args.kwargs["data"]
+        self.assertEqual(data["senderName"], "Oficina Fantasia")
+
+    @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
+    @patch("apps.core.infrastructure.gateways.synplaisign.requests.post")
+    def test_create_envelope_omits_sender_name_when_empty(self, requests_post_mock: Mock) -> None:
+        from apps.core.infrastructure.gateways.synplaisign import create_envelope
+
+        response = Mock()
+        response.status_code = 200
+        response.raise_for_status = Mock()
+        response.json.return_value = {"id": "env-1", "signatories": [{"token": "tok"}]}
+        requests_post_mock.return_value = response
+
+        create_envelope(
+            api_key="sk_live",
+            document_bytes=b"%PDF",
+            file_name="doc.pdf",
+            title="T",
+            message="M",
+            signatories=[{"name": "A", "email": "a@b.com", "order": 0, "deliveryChannel": "EMAIL"}],
+            sender_name="",
+        )
+
+        data = requests_post_mock.call_args.kwargs["data"]
+        self.assertNotIn("senderName", data)
 
     @override_settings(SYNPLAISIGN_BASE_URL="https://synplaisign.example")
     @patch("apps.core.infrastructure.gateways.synplaisign.requests.get")
