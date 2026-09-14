@@ -504,64 +504,119 @@ def build_purchase_return_emission_extras(*, request: PurchaseReturnRequest) -> 
     }
 
 
-def _supplier_snapshot_for_return(*, request: PurchaseReturnRequest) -> dict[str, Any]:
-    """Return the supplier data from the purchase XML, refreshing old snapshots.
+_SUPPLIER_ADDRESS_FIELDS = ("street", "number", "district", "city", "state", "zip_code")
 
-    Earlier imports did not persist the supplier address.  When their original
-    XML is still stored, parse it again instead of asking Webmania to locate a
-    third-party incoming NF-e.
-    """
-    stock_import = request.source_stock_import
-    snapshot = stock_import.fiscal_snapshot if isinstance(stock_import.fiscal_snapshot, dict) else {}
-    issuer = snapshot.get("issuer") if isinstance(snapshot.get("issuer"), dict) else {}
-    address = issuer.get("address") if isinstance(issuer.get("address"), dict) else {}
-    required_address = ("street", "number", "district", "city", "state", "zip_code")
-    if all(str(address.get(field) or "").strip() for field in required_address):
-        return issuer
 
-    supplier = Supplier.objects.filter(
-        workshop=stock_import.workshop,
-        cnpj=stock_import.supplier_cnpj,
-    ).first()
-    if supplier is not None:
-        supplier_address = {
-            "street": supplier.logradouro,
-            "number": supplier.numero,
-            "district": supplier.bairro,
-            "city": supplier.cidade,
-            "state": supplier.estado,
-            "zip_code": supplier.cep,
-            "complement": supplier.complemento,
-            "phone": supplier.phone or supplier.mobile,
-        }
-        if all(str(supplier_address.get(field) or "").strip() for field in required_address):
-            return {
-                "document": stock_import.supplier_cnpj,
-                "name": supplier.name or stock_import.supplier_name,
-                "state_registration": "ISENTO",
-                "address": supplier_address,
-            }
+def _issuer_from_snapshot(snapshot: Any) -> dict[str, Any]:
+    issuer = snapshot.get("issuer") if isinstance(snapshot, dict) and isinstance(snapshot.get("issuer"), dict) else {}
+    return dict(issuer)
 
-    if not stock_import.xml_file_key:
-        raise PurchaseReturnError(
-            "Não encontramos o endereço completo do fornecedor no cadastro nem o XML original da NF-e de compra. "
-            "Complete o endereço do fornecedor ou reimporte o XML original para continuar."
-        )
-    try:
-        stored_xml = read_import_xml_file(file_id=stock_import.xml_file_key)
-        refreshed_snapshot = parse_and_validate_purchase_nfe(workshop=stock_import.workshop, xml_content=stored_xml.content)
-    except (StockImportFileStorageError, PurchaseNfeValidationError) as exc:
-        raise PurchaseReturnError(
-            "Não foi possível recuperar os dados fiscais do XML da NF-e de compra. "
-            "Complete o endereço do fornecedor cadastrado ou reimporte o XML original."
-        ) from exc
 
+def _complete_supplier_address(address: Any) -> bool:
+    if not isinstance(address, dict):
+        return False
+    return all(str(address.get(field) or "").strip() for field in _SUPPLIER_ADDRESS_FIELDS)
+
+
+def _normalize_supplier_ie(value: object) -> str:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return ""
+    if raw_value.upper() in {"ISENTO", "ISENTA"}:
+        return "ISENTO"
+    return "".join(character for character in raw_value if character.isdigit())
+
+
+def _issuer_state_registration(issuer: Mapping[str, Any]) -> str:
+    return _normalize_supplier_ie(issuer.get("state_registration") or issuer.get("ie") or issuer.get("IE"))
+
+
+def _merge_supplier_issuer(base: Mapping[str, Any], extra: Mapping[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    extra_ie = _issuer_state_registration(extra)
+    if extra_ie:
+        merged["state_registration"] = extra_ie
+    extra_address = extra.get("address") if isinstance(extra.get("address"), dict) else {}
+    base_address = merged.get("address") if isinstance(merged.get("address"), dict) else {}
+    if _complete_supplier_address(extra_address):
+        merged["address"] = dict(extra_address)
+    elif extra_address:
+        merged["address"] = {**base_address, **{key: value for key, value in extra_address.items() if str(value or "").strip()}}
+    for field_name in ("document", "name"):
+        extra_value = str(extra.get(field_name) or "").strip()
+        if extra_value and not str(merged.get(field_name) or "").strip():
+            merged[field_name] = extra_value
+    return merged
+
+
+def _reload_supplier_issuer_from_xml(*, stock_import: StockImport) -> dict[str, Any]:
+    stored_xml = read_import_xml_file(file_id=stock_import.xml_file_key)
+    refreshed_snapshot = parse_and_validate_purchase_nfe(workshop=stock_import.workshop, xml_content=stored_xml.content)
     document = refreshed_snapshot.get("document") if isinstance(refreshed_snapshot.get("document"), dict) else {}
     if str(document.get("access_key") or "") != stock_import.nf_key:
         raise PurchaseReturnError("O XML recuperado não corresponde à NF-e de compra da devolução.")
     StockImport.objects.filter(pk=stock_import.pk).update(fiscal_snapshot=refreshed_snapshot, atualizado_em=timezone.now())
     stock_import.fiscal_snapshot = refreshed_snapshot
-    issuer = refreshed_snapshot.get("issuer") if isinstance(refreshed_snapshot.get("issuer"), dict) else {}
+    return _issuer_from_snapshot(refreshed_snapshot)
+
+
+def _supplier_snapshot_for_return(*, request: PurchaseReturnRequest) -> dict[str, Any]:
+    """Return the supplier data from the purchase XML, refreshing old snapshots.
+
+    Earlier imports did not persist the supplier address.  When their original
+    XML is still stored, parse it again instead of asking Webmania to locate a
+    third-party incoming NF-e. The supplier IE is taken from that XML at
+    emission time, including snapshots that already have a complete address.
+    """
+    stock_import = request.source_stock_import
+    snapshot = stock_import.fiscal_snapshot if isinstance(stock_import.fiscal_snapshot, dict) else {}
+    issuer = _issuer_from_snapshot(snapshot)
+    needs_address = not _complete_supplier_address(issuer.get("address"))
+    needs_ie = not _issuer_state_registration(issuer)
+
+    if (needs_address or needs_ie) and stock_import.xml_file_key:
+        try:
+            issuer = _merge_supplier_issuer(issuer, _reload_supplier_issuer_from_xml(stock_import=stock_import))
+        except PurchaseReturnError:
+            raise
+        except (StockImportFileStorageError, PurchaseNfeValidationError) as exc:
+            if needs_address:
+                raise PurchaseReturnError(
+                    "Não foi possível recuperar os dados fiscais do XML da NF-e de compra. "
+                    "Complete o endereço do fornecedor cadastrado ou reimporte o XML original."
+                ) from exc
+
+    needs_address = not _complete_supplier_address(issuer.get("address"))
+    if needs_address:
+        supplier = Supplier.objects.filter(workshop=stock_import.workshop, cnpj=stock_import.supplier_cnpj).first()
+        if supplier is not None:
+            supplier_address = {
+                "street": supplier.logradouro,
+                "number": supplier.numero,
+                "district": supplier.bairro,
+                "city": supplier.cidade,
+                "state": supplier.estado,
+                "zip_code": supplier.cep,
+                "complement": supplier.complemento,
+                "phone": supplier.phone or supplier.mobile,
+            }
+            if _complete_supplier_address(supplier_address):
+                issuer = _merge_supplier_issuer(
+                    issuer,
+                    {
+                        "document": stock_import.supplier_cnpj,
+                        "name": supplier.name or stock_import.supplier_name,
+                        "address": supplier_address,
+                    },
+                )
+
+    if not _complete_supplier_address(issuer.get("address")):
+        raise PurchaseReturnError(
+            "Não encontramos o endereço completo do fornecedor no cadastro nem o XML original da NF-e de compra. "
+            "Complete o endereço do fornecedor ou reimporte o XML original para continuar."
+        )
+
+    issuer["state_registration"] = _issuer_state_registration(issuer) or "ISENTO"
     return issuer
 
 
@@ -590,7 +645,7 @@ def _supplier_customer_payload(*, request: PurchaseReturnRequest) -> dict[str, A
             {
                 "cnpj": document,
                 "razao_social": str(supplier.get("name") or "").strip(),
-                "ie": str(supplier.get("state_registration") or "ISENTO").strip() or "ISENTO",
+                "ie": _issuer_state_registration(supplier) or "ISENTO",
             }
         )
     elif len(document) == 11:
