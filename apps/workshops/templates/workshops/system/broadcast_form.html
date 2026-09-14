@@ -5,6 +5,7 @@
 {{ workshop_members|json_script:"broadcast-workshop-members" }}
 {{ user_workshops|json_script:"broadcast-user-workshops" }}
 {{ user_info|json_script:"broadcast-user-info" }}
+{{ system_roles|json_script:"broadcast-system-roles" }}
 <script>
     function broadcastNotificationForm(config) {
         const readJson = (id) => {
@@ -18,6 +19,8 @@
         };
         return {
             tipo: config.tipo || 'info',
+            userFilterMode: 'all',
+            systemRoles: [],
             workshopsMap: {},
             workshopMembersData: {},
             userWorkshopsMap: {},
@@ -34,6 +37,10 @@
                 this.workshopMembersData = readJson(config.workshopMembersDataId || 'broadcast-workshop-members');
                 this.userWorkshopsMap = readJson(config.userWorkshopsMapId || 'broadcast-user-workshops');
                 this.userInfoMap = readJson(config.userInfoMapId || 'broadcast-user-info');
+                this.systemRoles = readJson(config.systemRolesDataId || 'broadcast-system-roles');
+                if (!Array.isArray(this.systemRoles)) {
+                    this.systemRoles = [];
+                }
 
                 // Carregar oficinas iniciais
                 const initialWorkshops = config.initialWorkshops || [];
@@ -58,6 +65,12 @@
                 }));
                 this.selectedUsers = usersList;
 
+                // Watcher para atualizar allowedUsers ao mudar o filtro selecionado
+                this.$watch('userFilterMode', () => {
+                    this.pendingUserId = '';
+                    this.syncAllowedUsers();
+                });
+
                 this.syncCoveredUsers();
             },
 
@@ -80,10 +93,33 @@
                 // Remover dos usuários específicos qualquer um que já esteja coberto por uma oficina alvo
                 this.selectedUsers = this.selectedUsers.filter(u => !covered.has(String(u.id)));
 
-                // Notificar o SearchableSelectInput dos usuários permitidos
+                this.syncAllowedUsers();
+            },
+
+            syncAllowedUsers() {
+                const covered = this.getCoveredUserIds();
                 const allUserIds = Object.keys(this.userInfoMap);
-                const allowedUserIds = allUserIds.filter(uId => !covered.has(String(uId)));
-                this.$dispatch('searchable-set-allowed', { allowed: allowedUserIds });
+                let allowedUserIds = allUserIds.filter(uId => !covered.has(String(uId)));
+
+                if (this.userFilterMode !== 'all') {
+                    allowedUserIds = allowedUserIds.filter(uId => {
+                        const info = this.userInfoMap[uId];
+                        const sysRoles = (info && info.system_roles) || [];
+                        return sysRoles.includes(this.userFilterMode);
+                    });
+                }
+
+                // Notificar o SearchableSelectInput dos usuários permitidos via ref direta
+                this.$nextTick(() => {
+                    const wrap = this.$refs.userSelectWrap;
+                    const selectEl = wrap && wrap.firstElementChild;
+                    if (selectEl) {
+                        selectEl.dispatchEvent(new CustomEvent('searchable-set-allowed', {
+                            detail: { allowed: allowedUserIds },
+                            bubbles: true
+                        }));
+                    }
+                });
             },
 
             addWorkshop(id) {
@@ -266,6 +302,7 @@
         workshopMembersDataId: 'broadcast-workshop-members',
         userWorkshopsMapId: 'broadcast-user-workshops',
         userInfoMapId: 'broadcast-user-info',
+        systemRolesDataId: 'broadcast-system-roles',
         initialWorkshops: [
             {% if form.workshops.value %}
                 {% for w_id in form.workshops.value %}
@@ -462,6 +499,37 @@
                             <span class="label-text text-base font-semibold">{{ form.user_select.label }}</span>
                         </label>
                         <span class="badge badge-sm badge-ghost font-medium">Filtro Individual</span>
+                    </div>
+
+                    <!-- Opções de Filtragem: Todos os usuários e cada Cargo do Sistema -->
+                    <div class="bg-base-200/50 p-2.5 rounded-lg border border-base-200 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-semibold text-base-content/80">Filtrar usuários por:</span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                            <label class="label cursor-pointer gap-2 p-0">
+                                <input
+                                    type="radio"
+                                    name="user_filter_mode"
+                                    value="all"
+                                    x-model="userFilterMode"
+                                    class="radio radio-primary radio-xs"
+                                >
+                                <span class="text-xs font-medium text-base-content">Todos os usuários</span>
+                            </label>
+                            <template x-for="role in systemRoles" :key="role">
+                                <label class="label cursor-pointer gap-2 p-0">
+                                    <input
+                                        type="radio"
+                                        name="user_filter_mode"
+                                        :value="role"
+                                        x-model="userFilterMode"
+                                        class="radio radio-primary radio-xs"
+                                    >
+                                    <span class="text-xs font-medium text-base-content" x-text="'Usuários com cargo ' + role"></span>
+                                </label>
+                            </template>
+                        </div>
                     </div>
 
                     <div class="flex items-center gap-2" @searchable-change="pendingUserId = $event.detail ? String($event.detail.value || '') : ''">
