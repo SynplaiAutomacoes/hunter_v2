@@ -10,6 +10,7 @@ from apps.budget.item_origin import (
     build_kit_component_product_item_from_exploded,
     build_kit_component_service_item,
     build_kit_component_service_item_from_exploded,
+    build_step4_kit_service_item,
 )
 from apps.budget.pdf_context import _explode_kit_product_rows, _explode_kit_service_rows
 from apps.budget.pricing import kit_component_winning_item_ids, zero_money
@@ -182,7 +183,7 @@ def build_step4_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
         for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
             if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
-            component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
+            component = build_step4_kit_service_item(kit_item=kit_item, exploded=exploded)
             services = _accumulate_totals(
                 target=services,
                 row=_step4_service_row_totals(
