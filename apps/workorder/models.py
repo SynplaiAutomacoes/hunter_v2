@@ -1189,6 +1189,7 @@ class WorkOrder(TimeStampedModel):
         verbose_name_plural = "Ordens de Serviço"
         permissions = [
             ("reopen_workorder", "Can Reopen Ordem de Serviço"),
+            ("change_delivery_date", "Editar data de entrega do veículo"),
         ]
         indexes = [
             models.Index(fields=["workshop", "status", "delivered_at"], name="workorder_ws_status_deliv_idx"),
@@ -1681,6 +1682,7 @@ class WorkOrderKitItemOverride(TimeStampedModel):
 class WorkOrderHistory(TimeStampedModel):
     class Action(models.TextChoices):
         REOPENED = "reopened", "O.S. reaberta"
+        DELIVERY_DATE_CHANGED = "delivery_date_changed", "Data de entrega alterada"
 
     workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.CASCADE, related_name="history_entries")
     user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="workorder_history_entries", null=True, blank=True)
