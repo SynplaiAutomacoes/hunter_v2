@@ -235,10 +235,21 @@ class RequireFirstWorkshopMiddleware:
         "accounts:login",
         "accounts:register",
         "accounts:logout",
+        "accounts:password_reset",
+        "accounts:password_reset_resend",
+        "accounts:login_code",
+        "accounts:login_code_resend",
         "iam:role_list",
         "iam:role_create",
         "iam:role_update",
         "iam:role_delete",
+        "billing:plans",
+        "billing:checkout",
+        "billing:checkout_success",
+        "billing:portal",
+        "billing:upgrade_required",
+        "billing:webhook",
+        "billing:webhook_ping",
     }
 
     def __init__(self, get_response):
