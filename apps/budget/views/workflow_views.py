@@ -1446,7 +1446,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         display_products_value = budget.display_total_products_by_slider
         display_third_party_value = budget.display_total_third_party_by_slider
-        display_labor_value = budget.display_total_services_by_slider - display_third_party_value
+        display_labor_value = budget.display_total_services_by_slider
         budget_for_lists = _get_budget_with_prefetched_items(budget)
         products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
         services_list_html = build_step5_services_list_html(budget=budget_for_lists, oob=True)
@@ -1457,7 +1457,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_third_party_services_selling.amount}">
                     {display_third_party_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}" data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
+                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.total_services_value.amount}" data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
                     {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
