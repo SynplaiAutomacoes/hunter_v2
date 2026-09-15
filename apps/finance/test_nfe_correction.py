@@ -170,7 +170,7 @@ class NfeCorrectionOperationalTests(TestCase):
             patch("apps.finance.services.nfe_events._build_headers", return_value={}),
             patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(payload)),
         ):
-            with self.assertRaisesMessage(NfeCorrectionError, "Carta de correcao rejeitada"):
+            with self.assertRaisesMessage(NfeCorrectionError, "Rejeicao do evento"):
                 emit_nfe_correction(nfe_item=self.item, correction_text=CORRECTION_TEXT, requested_by=self.user)
 
         event = FiscalDocumentEvent.objects.get(document__legacy_nfe_item=self.item)

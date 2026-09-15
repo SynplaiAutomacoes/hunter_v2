@@ -8,7 +8,8 @@ import requests
 
 _ENDPOINT_SUFFIX_PATTERN = re.compile(r"\s*endpoint\s*:\s*.+$", flags=re.IGNORECASE)
 _URL_PATTERN = re.compile(r"https?://[^\s]+", flags=re.IGNORECASE)
-_ERROR_KEYS = ("error", "message", "msg", "detail", "erro", "mensagem")
+_ERROR_KEYS = ("error", "message", "msg", "detail", "erro", "mensagem", "motivo", "xMotivo", "log")
+_GENERIC_ERROR_TOKENS = frozenset({"error", "erro", "failed", "falha", "reprovado", "rejeitado", "true", "false"})
 
 
 def sanitize_webmania_api_message(message: object, *, scope: str | None = None) -> str:
@@ -38,7 +39,10 @@ def sanitize_webmania_api_message(message: object, *, scope: str | None = None) 
 
 def extract_webmania_error_message(payload: Any, *, scope: str | None = None) -> str:
     if isinstance(payload, str):
-        return sanitize_webmania_api_message(payload, scope=scope)
+        extracted = sanitize_webmania_api_message(payload, scope=scope)
+        if extracted.lower() in _GENERIC_ERROR_TOKENS:
+            return ""
+        return extracted
 
     if isinstance(payload, dict):
         for key in _ERROR_KEYS:

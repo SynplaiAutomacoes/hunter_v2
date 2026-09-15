@@ -214,10 +214,15 @@ class BudgetDisplayTotalsTests(TestCase):
         self.budget.invalidate_pricing_snapshot_cache()
 
         table = build_step6_table_totals(budget=self.budget)
+        step4 = build_step4_table_totals(budget=self.budget)
         pdf = build_budget_pdf_context(budget=self.budget, presentation="selected_items")
+        step5 = build_step5_context(self.budget)
         third_party_row = next(row for row in pdf["servicos"] if row["description"] == third_party.name)
 
         self.assertEqual(table["services"].sale, _money("960.00"))
+        self.assertEqual(step4["services"].sale, _money("960.00"))
+        self.assertEqual(step5.venda_mao_obra, step4["services"].sale)
+        self.assertEqual(step5.venda_servico_terceiros, _money("360.00"))
         self.assertEqual(third_party_row["service_mechanic_cost_price"], _money("0.00"))
         self.assertEqual(pdf["total_services_mechanic_cost_value"], table["services"].cost)
         self.assertEqual(pdf["total_profit_service_value"], table["services"].profit)
