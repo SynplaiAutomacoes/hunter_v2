@@ -82,6 +82,7 @@ class PurchaseReturnCreateView(PurchaseReturnPermissionMixin, View):
             "return_request": None,
             "page_obj": page_obj,
             "filter_query": query_params.urlencode(),
+            "issued_documents_url": build_issued_documents_list_url(note_type="nfe"),
         }
 
 
@@ -106,6 +107,8 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
 
     def get(self, request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
         return_request = self._get_request(pk)
+        if "step" not in request.GET:
+            return self._redirect(return_request, return_request.resume_step)
         step = self._requested_step(request)
         if step > return_request.current_step:
             return HttpResponseRedirect(f"{reverse('finance:purchase_return_workflow', args=[pk])}?step={return_request.current_step}")
