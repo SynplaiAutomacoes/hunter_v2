@@ -256,18 +256,6 @@ def available_purchase_return_quantities(*, stock_import: StockImport, exclude_r
 
 
 def get_or_create_purchase_return_request(*, stock_import: StockImport, requested_by: Any) -> PurchaseReturnRequest:
-    existing = (
-        PurchaseReturnRequest.objects.filter(
-            workshop=stock_import.workshop,
-            source_stock_import=stock_import,
-            requested_by=requested_by,
-            status=PurchaseReturnRequestStatus.DRAFT,
-        )
-        .order_by("-pk")
-        .first()
-    )
-    if existing is not None:
-        return existing
     return PurchaseReturnRequest.objects.create(
         workshop=stock_import.workshop,
         source_stock_import=stock_import,

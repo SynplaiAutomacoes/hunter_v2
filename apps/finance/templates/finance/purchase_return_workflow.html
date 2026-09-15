@@ -4,10 +4,15 @@
 
 {% block crud_content %}
 <div class="space-y-6">
-    <div>
-        <p class="text-sm font-medium uppercase tracking-wide text-primary">NF-e</p>
-        <h1 class="mt-1 text-3xl font-bold text-base-content">Nota de Devolução</h1>
-        <p class="mt-1 text-base-content/70">Localize a nota recebida, selecione os produtos e emita a Nota de Devolução.</p>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+            <p class="text-sm font-medium uppercase tracking-wide text-primary">NF-e</p>
+            <h1 class="mt-1 text-3xl font-bold text-base-content">Nota de Devolução</h1>
+            <p class="mt-1 text-base-content/70">Localize a nota recebida, selecione os produtos e emita a Nota de Devolução.</p>
+        </div>
+        {% if issued_documents_url %}
+            <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+        {% endif %}
     </div>
 
     {% include 'navbar/stepper.html' %}
@@ -74,7 +79,10 @@
                         </div>
                     {% endif %}
 
-                    <div class="mt-6 border-t border-base-200 pt-5"><a href="{% url 'finance:emission_create' %}" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a></div>
+                    <div class="mt-6 flex flex-wrap justify-between gap-3 border-t border-base-200 pt-5">
+                        <a href="{% url 'finance:emission_create' %}" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                        <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                    </div>
                 {% else %}
                     <div class="mt-6 rounded-xl border border-success/30 bg-success/5 p-5">
                         <div class="mb-4 flex items-center gap-2 text-success"><span class="material-icons">verified</span><span class="font-semibold">NF-e de compra localizada</span></div>
@@ -90,11 +98,17 @@
                         {% if is_editable %}
                             <form method="post" class="flex w-full justify-between gap-3">
                                 {% csrf_token %}
-                                <a href="{% url 'finance:purchase_return_create' %}" class="btn btn-ghost gap-2"><span class="material-icons text-sm">search</span>Selecionar outra NF-e</a>
+                                <div class="flex flex-wrap gap-2">
+                                    <a href="{% url 'finance:purchase_return_create' %}" class="btn btn-ghost gap-2"><span class="material-icons text-sm">search</span>Selecionar outra NF-e</a>
+                                    <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                                </div>
                                 <button type="submit" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></button>
                             </form>
                         {% else %}
-                            <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=4" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar para emissão</a>
+                            <div class="flex flex-wrap gap-2">
+                                <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=4" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar para emissão</a>
+                                <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                            </div>
                             <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=2" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></a>
                         {% endif %}
                     </div>
@@ -144,14 +158,20 @@
                         </div>
                     </div>
                     <div class="flex justify-between border-t border-base-200 pt-5">
-                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=1" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=1" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                            <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                        </div>
                         <button type="submit" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></button>
                     </div>
                 </form>
                 {% else %}
                     {% include 'finance/partials/purchase_return_summary.html' with show_origin=False show_items=True show_fiscal=False %}
                     <div class="mt-6 flex justify-between border-t border-base-200 pt-5">
-                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=1" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=1" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                            <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                        </div>
                         <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=3" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></a>
                     </div>
                 {% endif %}
@@ -172,14 +192,20 @@
                         {% crispy fiscal_form %}
                     </div>
                     <div class="flex flex-wrap justify-between gap-3 border-t border-base-200 pt-5">
-                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=2" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=2" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                            <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                        </div>
                         <button type="submit" class="btn btn-primary gap-2">Continuar para emitir<span class="material-icons text-sm">arrow_forward</span></button>
                     </div>
                 </form>
                 {% else %}
                     {% include 'finance/partials/purchase_return_summary.html' with show_origin=False show_items=False show_fiscal=True %}
                     <div class="mt-6 flex flex-wrap justify-between gap-3 border-t border-base-200 pt-5">
-                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=2" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=2" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                            <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                        </div>
                         <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=4" class="btn btn-primary gap-2">Continuar para emitir<span class="material-icons text-sm">arrow_forward</span></a>
                     </div>
                 {% endif %}

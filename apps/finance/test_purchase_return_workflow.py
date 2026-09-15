@@ -1208,7 +1208,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(StockMovement.objects.count(), 1)
         self.assertEqual(self.motor_stock.current_quantity, Decimal("1.2500"))
 
-    def test_source_selection_creates_reusable_draft_and_redirects_to_products(self) -> None:
+    def test_source_selection_creates_new_draft_and_redirects_to_products(self) -> None:
         self.stock_import.fiscal_snapshot = {"document": {"issued_at": "2026-08-02T10:00:00-03:00"}}
         self.stock_import.fiscal_validation_status = StockImport.FiscalValidationStatus.UNVALIDATED
         self.stock_import.save(update_fields=["fiscal_snapshot", "fiscal_validation_status"])
@@ -1224,6 +1224,39 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertRedirects(response, f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=2", fetch_redirect_response=False)
         self.assertEqual(return_request.original_document, self.document)
         self.assertEqual(return_request.current_step, 2)
+
+    def test_source_selection_starts_new_flow_even_if_open_return_exists(self) -> None:
+        existing = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=existing, quantities={self.motor.pk: Decimal("1")})
+        request = self.factory.post(reverse("finance:purchase_return_create"), {"stock_import_id": self.stock_import.pk})
+        request.user = self.user
+        view = PurchaseReturnCreateView()
+        view.setup(request)
+        view.workshop = self.workshop
+
+        response = view.post(request)
+
+        existing.refresh_from_db()
+        created = PurchaseReturnRequest.objects.exclude(pk=existing.pk).get()
+        self.assertEqual(PurchaseReturnRequest.objects.count(), 2)
+        self.assertEqual(existing.current_step, 3)
+        self.assertEqual(created.status, PurchaseReturnRequestStatus.DRAFT)
+        self.assertEqual(created.current_step, 2)
+        self.assertRedirects(response, f"{reverse('finance:purchase_return_workflow', args=[created.pk])}?step=2", fetch_redirect_response=False)
+
+    def test_workflow_without_step_redirects_to_saved_progress(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        request = self.factory.get(reverse("finance:purchase_return_workflow", args=[return_request.pk]))
+        request.user = self.user
+        view = PurchaseReturnWorkflowView()
+        view.setup(request, pk=return_request.pk)
+        view.workshop = self.workshop
+
+        response = view.get(request, pk=return_request.pk)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=3")
 
     def test_source_list_does_not_require_access_key_and_shows_document_summary(self) -> None:
         self.stock_import.fiscal_snapshot = {"document": {"issued_at": "2026-08-02T10:00:00-03:00"}}
