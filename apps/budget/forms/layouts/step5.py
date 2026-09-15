@@ -127,10 +127,10 @@ def configure_budget_step5_form(form):
                                                 <span class="font-semibold text-error whitespace-nowrap">{custo_frete_servicos}</span>
                                             </div>
                                             <div class="flex justify-between gap-2 border-t border-base-300 pt-2">
-                                                <span class="font-medium">Valor de venda mão de obra</span>
+                                                <span class="font-medium">Valor de venda serviços</span>
                                                 <span id="display-venda-mo"
                                                       class="font-bold text-success whitespace-nowrap"
-                                                      data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}"
+                                                      data-base-val="{budget.total_services_value.amount}"
                                                       data-cost-val="{custo_total_mao_obra.amount}"
                                                       data-frete-val="{custo_frete_mao_obra.amount}">
                                                     {venda_mao_obra}

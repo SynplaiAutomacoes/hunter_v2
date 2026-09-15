@@ -86,18 +86,26 @@
                             <div class="md:col-span-2"><dt class="text-base-content/60">Chave</dt><dd class="break-all font-mono font-semibold">{{ document.access_key }}</dd></div>
                         </dl>
                     </div>
-                    <form method="post" class="mt-6 flex justify-between border-t border-base-200 pt-5">
-                        {% csrf_token %}
-                        <a href="{% url 'finance:purchase_return_create' %}" class="btn btn-ghost gap-2"><span class="material-icons text-sm">search</span>Selecionar outra NF-e</a>
-                        <button type="submit" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></button>
-                    </form>
+                    <div class="mt-6 flex justify-between border-t border-base-200 pt-5">
+                        {% if is_editable %}
+                            <form method="post" class="flex w-full justify-between gap-3">
+                                {% csrf_token %}
+                                <a href="{% url 'finance:purchase_return_create' %}" class="btn btn-ghost gap-2"><span class="material-icons text-sm">search</span>Selecionar outra NF-e</a>
+                                <button type="submit" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></button>
+                            </form>
+                        {% else %}
+                            <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=4" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar para emissão</a>
+                            <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=2" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></a>
+                        {% endif %}
+                    </div>
                 {% endif %}
 
             {% elif current_step == 2 %}
                 <div>
                     <h2 class="text-2xl font-bold">Produtos da NF-e</h2>
-                    <p class="mt-1 text-base-content/70">Informe somente as quantidades que serão devolvidas. Campos vazios ou zerados não serão incluídos.</p>
+                    <p class="mt-1 text-base-content/70">{% if is_editable %}Informe somente as quantidades que serão devolvidas. Campos vazios ou zerados não serão incluídos.{% else %}Produtos selecionados para esta Nota de Devolução.{% endif %}</p>
                 </div>
+                {% if is_editable %}
                 <form method="post" class="mt-6 space-y-5" novalidate>
                     {% csrf_token %}
                     {% if items_form.non_field_errors %}<div class="alert alert-error">{{ items_form.non_field_errors }}</div>{% endif %}
@@ -140,13 +148,23 @@
                         <button type="submit" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></button>
                     </div>
                 </form>
+                {% else %}
+                    {% include 'finance/partials/purchase_return_summary.html' with show_origin=False show_items=True show_fiscal=False %}
+                    <div class="mt-6 flex justify-between border-t border-base-200 pt-5">
+                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=1" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=3" class="btn btn-primary gap-2">Continuar<span class="material-icons text-sm">arrow_forward</span></a>
+                    </div>
+                {% endif %}
 
             {% elif current_step == 3 %}
                 <div>
-                    <h2 class="text-2xl font-bold">Revisar Nota de Devolução</h2>
-                    <p class="mt-1 text-base-content/70">Confira a origem, os itens e os dados fiscais antes de preparar a emissão.</p>
+                    <h2 class="text-2xl font-bold">Dados fiscais</h2>
+                    <p class="mt-1 text-base-content/70">{% if is_editable %}Informe CFOP, inscrição estadual e os demais dados da Nota de Devolução. Seções opcionais ficam recolhidas.{% else %}Dados fiscais preenchidos para esta Nota de Devolução.{% endif %}</p>
                 </div>
-                {% include 'finance/partials/purchase_return_summary.html' %}
+                <div class="mt-6">
+                    {% include 'finance/partials/purchase_return_context.html' %}
+                </div>
+                {% if is_editable %}
                 <form method="post" class="mt-6 space-y-5" novalidate>
                     {% csrf_token %}
                     {% if fiscal_form.non_field_errors %}<div class="alert alert-error">{{ fiscal_form.non_field_errors }}</div>{% endif %}
@@ -158,50 +176,58 @@
                         <button type="submit" class="btn btn-primary gap-2">Continuar para emitir<span class="material-icons text-sm">arrow_forward</span></button>
                     </div>
                 </form>
+                {% else %}
+                    {% include 'finance/partials/purchase_return_summary.html' with show_origin=False show_items=False show_fiscal=True %}
+                    <div class="mt-6 flex flex-wrap justify-between gap-3 border-t border-base-200 pt-5">
+                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=2" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
+                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=4" class="btn btn-primary gap-2">Continuar para emitir<span class="material-icons text-sm">arrow_forward</span></a>
+                    </div>
+                {% endif %}
 
             {% else %}
-                {% if is_ready %}
-                    <div class="text-center">
-                        <span class="material-icons text-6xl {% if return_request.status == 'authorized' %}text-success{% elif return_request.status == 'rejected' or return_request.status == 'communication_error' %}text-error{% else %}text-warning{% endif %}">receipt_long</span>
-                        <h2 class="mt-3 text-2xl font-bold">Emissão da Nota de Devolução</h2>
-                        <p class="mt-2 text-base-content/70">Status: <span class="font-semibold">{{ return_request.get_status_display }}</span></p>
-                    </div>
-                    {% include 'finance/partials/purchase_return_summary.html' %}
-                    {% if fiscal_document %}
-                        <dl class="mt-5 grid grid-cols-1 gap-4 rounded-xl border border-base-300 bg-base-200/30 p-5 text-sm md:grid-cols-2">
-                            <div><dt class="text-base-content/60">Documento fiscal</dt><dd class="font-semibold">{{ fiscal_document.get_status_display }}</dd></div>
-                            <div><dt class="text-base-content/60">Status do estoque</dt><dd class="font-semibold {% if return_request.stock_status == 'processed' %}text-success{% elif return_request.stock_status == 'error' %}text-error{% else %}text-warning{% endif %}">{{ return_request.get_stock_status_display }}</dd></div>
-                            <div><dt class="text-base-content/60">Tentativa</dt><dd class="font-semibold">{{ fiscal_attempt.get_status_display|default:'—' }}</dd></div>
-                            <div><dt class="text-base-content/60">NF-e emitida</dt><dd class="font-semibold">{{ fiscal_document.number|default:'—' }} / Série {{ fiscal_document.series|default:'—' }}</dd></div>
-                            <div><dt class="text-base-content/60">Chave emitida</dt><dd class="break-all font-mono">{{ fiscal_document.access_key|default:'—' }}</dd></div>
-                            {% if fiscal_attempt.error_message %}<div class="md:col-span-2"><dt class="text-base-content/60">Retorno fiscal</dt><dd class="text-error">{{ fiscal_attempt.error_message }}</dd></div>{% endif %}
-                            {% if return_request.stock_error %}<div class="md:col-span-2"><dt class="text-base-content/60">Atualização do estoque</dt><dd class="text-error">{{ return_request.stock_error }}</dd></div>{% endif %}
-                        </dl>
-                        {% if return_request.status == 'canceled' and return_request.stock_status == 'processed' %}
-                            <div class="alert alert-warning mt-4"><span class="material-icons">warning</span><span>A NF-e foi cancelada após a baixa. O estoque não é estornado automaticamente e exige conferência operacional.</span></div>
-                        {% endif %}
+                <div>
+                    <h2 class="text-2xl font-bold">{% if can_transmit %}Transmitir Nota de Devolução{% else %}Emissão da Nota de Devolução{% endif %}</h2>
+                    <p class="mt-1 text-base-content/70">Status: <span class="font-semibold">{{ return_request.get_status_display }}</span></p>
+                </div>
+                <div class="mt-6">
+                    {% include 'finance/partials/purchase_return_context.html' %}
+                </div>
+                {% include 'finance/partials/purchase_return_summary.html' with show_origin=False show_items=True show_fiscal=False %}
+                {% if fiscal_document %}
+                    <dl class="mt-5 grid grid-cols-1 gap-4 rounded-xl border border-base-300 bg-base-200/30 p-5 text-sm md:grid-cols-2">
+                        <div><dt class="text-base-content/60">Documento fiscal</dt><dd class="font-semibold">{{ fiscal_document.get_status_display }}</dd></div>
+                        <div><dt class="text-base-content/60">Status do estoque</dt><dd class="font-semibold {% if return_request.stock_status == 'processed' %}text-success{% elif return_request.stock_status == 'error' %}text-error{% else %}text-warning{% endif %}">{{ return_request.get_stock_status_display }}</dd></div>
+                        <div><dt class="text-base-content/60">Tentativa</dt><dd class="font-semibold">{{ fiscal_attempt.get_status_display|default:'—' }}</dd></div>
+                        <div><dt class="text-base-content/60">NF-e emitida</dt><dd class="font-semibold">{{ fiscal_document.number|default:'—' }} / Série {{ fiscal_document.series|default:'—' }}</dd></div>
+                        <div><dt class="text-base-content/60">Chave emitida</dt><dd class="break-all font-mono">{{ fiscal_document.access_key|default:'—' }}</dd></div>
+                        {% if fiscal_attempt.error_message %}<div class="md:col-span-2"><dt class="text-base-content/60">Retorno fiscal</dt><dd class="text-error">{{ fiscal_attempt.error_message }}</dd></div>{% endif %}
+                        {% if return_request.stock_error %}<div class="md:col-span-2"><dt class="text-base-content/60">Atualização do estoque</dt><dd class="text-error">{{ return_request.stock_error }}</dd></div>{% endif %}
+                    </dl>
+                    {% if return_request.status == 'canceled' and return_request.stock_status == 'processed' %}
+                        <div class="alert alert-warning mt-4"><span class="material-icons">warning</span><span>A NF-e foi cancelada após a baixa. O estoque não é estornado automaticamente e exige conferência operacional.</span></div>
                     {% endif %}
-                    <div class="mt-6 flex flex-wrap justify-end gap-3 border-t border-base-200 pt-5">
-                        <a href="{% url 'finance:emission_create' %}" class="btn btn-ghost">Concluir</a>
-                        {% if return_request.status == 'rejected' or return_request.status == 'communication_error' %}
-                            <a href="{% url 'finance:purchase_return_create' %}" class="btn btn-primary">Iniciar nova devolução</a>
+                {% endif %}
+                <div class="mt-6 flex flex-wrap justify-between gap-3 border-t border-base-200 pt-5">
+                    <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=1" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Ver NF-e origem</a>
+                    <div class="flex flex-wrap justify-end gap-3">
+                        <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                        {% if can_reconcile %}
+                            <form method="post" action="{% url 'finance:purchase_return_reconcile' return_request.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-outline gap-2"><span class="material-icons text-sm">sync</span>Reconsultar status</button>
+                            </form>
+                        {% endif %}
+                        {% if can_reissue %}
+                            <form method="post" action="{% url 'finance:purchase_return_reissue' return_request.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary">Emitir novamente</button>
+                            </form>
                         {% endif %}
                         {% if can_transmit %}
                             <button type="button" class="btn btn-primary gap-2" hx-get="{% url 'finance:purchase_return_preview' return_request.pk %}" hx-target="#modal-container" hx-swap="innerHTML"><span class="material-icons text-sm">preview</span>Ver prévia e transmitir</button>
                         {% endif %}
                     </div>
-                {% else %}
-                    <div>
-                        <h2 class="text-2xl font-bold">Criar intenção de emissão</h2>
-                        <p class="mt-1 text-base-content/70">Ao confirmar, as quantidades ficarão reservadas para a futura transmissão da Nota de Devolução.</p>
-                    </div>
-                    {% include 'finance/partials/purchase_return_summary.html' %}
-                    <form method="post" class="mt-6 flex justify-between border-t border-base-200 pt-5">
-                        {% csrf_token %}
-                        <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=3" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Voltar</a>
-                        <button type="submit" class="btn btn-primary gap-2"><span class="material-icons text-sm">assignment_turned_in</span>Criar intenção</button>
-                    </form>
-                {% endif %}
+                </div>
             {% endif %}
         </div>
     </div>
