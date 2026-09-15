@@ -23,6 +23,7 @@ from apps.finance.services.nfe_returns import NfeReturnError, confirm_nfe_return
 from apps.finance.services.purchase_returns import (
     PurchaseReturnError,
     available_purchase_return_quantities,
+    clone_purchase_return_for_reissue,
     finalize_purchase_return_request,
     build_purchase_return_product_lines,
     find_purchase_by_access_key,
@@ -33,10 +34,18 @@ from apps.finance.services.purchase_returns import (
     save_purchase_return_items,
     preview_purchase_return,
     build_generic_purchase_return_payload,
+    reconcile_purchase_return,
     sync_purchase_return_status,
     transmit_purchase_return,
 )
-from apps.finance.views.purchase_return import PurchaseReturnCreateView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
+from apps.finance.views.navigation import build_issued_documents_list_url
+from apps.finance.views.purchase_return import (
+    PurchaseReturnCreateView,
+    PurchaseReturnReconcileView,
+    PurchaseReturnReissueView,
+    PurchaseReturnTransmitView,
+    PurchaseReturnWorkflowView,
+)
 from apps.stock.models import StockImport, StockImportFiscalItem, StockMovement, StockProduct
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -218,6 +227,25 @@ class PurchaseReturnWorkflowTests(TestCase):
         )
 
         self.assertTrue(form.is_valid(), form.errors)
+
+    def test_fiscal_form_prefills_supplier_ie_from_purchase_xml(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        form = PurchaseReturnFiscalForm(instance=return_request)
+        self.assertEqual(form.initial["supplier_ie"], "123456789")
+
+        empty_ie_form = PurchaseReturnFiscalForm(
+            {"operation_nature": "Devolução de compra", "cfop": "5202", "supplier_ie": ""},
+            instance=return_request,
+        )
+        self.assertTrue(empty_ie_form.is_valid(), empty_ie_form.errors)
+        self.assertEqual(empty_ie_form.cleaned_data["supplier_ie"], "")
+
+        isento_form = PurchaseReturnFiscalForm(
+            {"operation_nature": "Devolução de compra", "cfop": "5202", "supplier_ie": "ISENTO"},
+            instance=return_request,
+        )
+        self.assertTrue(isento_form.is_valid(), isento_form.errors)
+        self.assertEqual(isento_form.cleaned_data["supplier_ie"], "")
 
     def test_selection_supports_partial_multiple_items_and_ignores_zero(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
@@ -422,13 +450,14 @@ class PurchaseReturnWorkflowTests(TestCase):
 
         response = view.get(request, pk=return_request.pk)
 
-        self.assertContains(response, "Revisar Nota de Devolução")
+        self.assertContains(response, "Dados fiscais")
         self.assertContains(response, "Dados fiscais da Nota de Devolução")
         self.assertContains(response, "Valores do pedido")
         self.assertContains(response, "Despesas acessórias")
         self.assertContains(response, "Transporte")
-        self.assertContains(response, "Motor")
+        self.assertContains(response, "Inscrição Estadual")
         self.assertContains(response, "R$ 1.500,50")
+        self.assertNotContains(response, "Transmitir Nota de Devolução")
         self.assertContains(response, "w-10 h-10")
 
         minimal_form = PurchaseReturnFiscalForm({"operation_nature": "Devolução de mercadoria", "cfop": "5202"}, instance=return_request)
@@ -471,6 +500,31 @@ class PurchaseReturnWorkflowTests(TestCase):
         emit_response = emit_view.get(emit_request, pk=return_request.pk)
         self.assertContains(emit_response, "Ver NF-e origem")
         self.assertContains(emit_response, "window.location.href='?step=1'")
+        self.assertContains(emit_response, "Transmitir Nota de Devolução")
+        self.assertContains(emit_response, "Motor")
+        self.assertContains(emit_response, "Fechar")
+        self.assertContains(emit_response, build_issued_documents_list_url(note_type="nfe"))
+        self.assertNotContains(emit_response, "Dados fiscais da Nota de Devolução")
+        self.assertNotContains(emit_response, "Criar intenção")
+        self.assertNotContains(emit_response, "Concluir")
+        self.assertNotContains(emit_response, "Iniciar nova devolução")
+        self.assertNotContains(emit_response, "Reconsultar status")
+
+    def test_draft_step_four_redirects_back_to_fiscal_data(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        return_request.current_step = 4
+        return_request.save(update_fields=["current_step", "atualizado_em"])
+
+        request = self.factory.get(f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=4")
+        request.user = self.user
+        view = PurchaseReturnWorkflowView()
+        view.setup(request, pk=return_request.pk)
+        view.workshop = self.workshop
+        response = view.get(request, pk=return_request.pk)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=3")
 
     def test_review_persists_optional_order_fields_and_sends_them_on_emission(self) -> None:
         TaxClassNfe.objects.create(workshop=self.workshop, reference="REF-DEV", description="Devolução de compra")
@@ -750,6 +804,116 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(payload["cliente"]["endereco"], "Rua do Fornecedor")
         self.assertEqual(payload["cliente"]["ie"], "998877665")
 
+    def test_empty_supplier_ie_field_emits_isento_instead_of_xml_ie(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        save_purchase_return_fiscal_data(
+            request=return_request,
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "supplier_ie": ""},
+        )
+        return_request = finalize_purchase_return_request(request=return_request)
+
+        payload = build_generic_purchase_return_payload(request=return_request)
+
+        self.assertEqual(payload["cliente"]["ie"], "ISENTO")
+
+    def test_saved_supplier_ie_overrides_purchase_xml(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        save_purchase_return_fiscal_data(
+            request=return_request,
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "supplier_ie": "998877665"},
+        )
+        return_request = finalize_purchase_return_request(request=return_request)
+
+        payload = build_generic_purchase_return_payload(request=return_request)
+
+        self.assertEqual(payload["cliente"]["ie"], "998877665")
+
+    def test_reissue_clones_items_and_fiscal_configuration(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1.25")})
+        save_purchase_return_fiscal_data(
+            request=return_request,
+            cleaned_data={
+                "operation_nature": "Devolução de compra",
+                "cfop": "5202",
+                "additional_information": "Devolução parcial",
+                "supplier_ie": "123456789",
+                "freight_mode": 9,
+                "transport_snapshot": {},
+            },
+        )
+        return_request.status = PurchaseReturnRequestStatus.REJECTED
+        return_request.current_step = 4
+        return_request.save(update_fields=["status", "current_step", "atualizado_em"])
+
+        cloned = clone_purchase_return_for_reissue(request=return_request, requested_by=self.user)
+
+        self.assertNotEqual(cloned.pk, return_request.pk)
+        self.assertEqual(cloned.status, PurchaseReturnRequestStatus.DRAFT)
+        self.assertEqual(cloned.current_step, 3)
+        self.assertIsNone(cloned.fiscal_document_id)
+        self.assertEqual(cloned.source_stock_import_id, return_request.source_stock_import_id)
+        self.assertEqual(cloned.cfop, "5202")
+        self.assertEqual(cloned.operation_nature, "Devolução de compra")
+        self.assertEqual(cloned.additional_information, "Devolução parcial")
+        self.assertEqual(cloned.supplier_ie, "123456789")
+        cloned_item = cloned.items.get()
+        self.assertEqual(cloned_item.source_item_id, self.motor.pk)
+        self.assertEqual(cloned_item.quantity, Decimal("1.25"))
+
+        request = self.factory.post(reverse("finance:purchase_return_reissue", args=[return_request.pk]))
+        request.user = self.user
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        view = PurchaseReturnReissueView()
+        view.setup(request, pk=return_request.pk)
+        view.workshop = self.workshop
+        response = view.post(request, pk=return_request.pk)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("?step=3", response.url)
+        self.assertNotEqual(response.url, reverse("finance:purchase_return_workflow", args=[return_request.pk]) + "?step=3")
+
+    def test_reconcile_view_consults_return_document_status(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        return_request.cfop = "5202"
+        return_request.save(update_fields=["cfop", "atualizado_em"])
+        return_request = finalize_purchase_return_request(request=return_request)
+        derived = FiscalDocument.objects.create(
+            workshop=self.workshop,
+            origin=FiscalDocumentOrigin.DERIVED,
+            purpose=FiscalDocumentPurpose.RETURN,
+            status=FiscalDocumentStatus.UNCERTAIN,
+            access_key="35" + ("9" * 42),
+            remote_uuid=str(uuid4()),
+        )
+        return_request.fiscal_document = derived
+        return_request.status = PurchaseReturnRequestStatus.UNCERTAIN
+        return_request.save(update_fields=["fiscal_document", "status", "atualizado_em"])
+
+        with patch("apps.finance.services.purchase_returns.reconcile_nfe_return_document", return_value=derived) as reconcile_mock:
+            reconciled = reconcile_purchase_return(request_instance=return_request)
+
+        reconcile_mock.assert_called_once()
+        self.assertEqual(reconcile_mock.call_args.kwargs["document"].pk, derived.pk)
+        self.assertEqual(reconciled.status, PurchaseReturnRequestStatus.UNCERTAIN)
+
+        request = self.factory.post(reverse("finance:purchase_return_reconcile", args=[return_request.pk]))
+        request.user = self.user
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        view = PurchaseReturnReconcileView()
+        view.setup(request, pk=return_request.pk)
+        view.workshop = self.workshop
+        with patch("apps.finance.views.purchase_return.reconcile_purchase_return", return_value=return_request) as view_mock:
+            response = view.post(request, pk=return_request.pk)
+        view_mock.assert_called_once()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=4")
+
     def test_preview_reads_ibs_cbs_from_imported_xml_snapshot(self) -> None:
         self.document.environment = "1"
         self.document.save(update_fields=["environment", "atualizado_em"])
@@ -937,6 +1101,13 @@ class PurchaseReturnWorkflowTests(TestCase):
         page = view.get(request, pk=return_request.pk)
         self.assertContains(page, "Rejeicao: CFOP de entrada para NF-e de saida")
         self.assertContains(page, "Ver NF-e origem")
+        self.assertContains(page, "Fechar")
+        self.assertContains(page, "Emitir novamente")
+        self.assertContains(page, "Reconsultar status")
+        self.assertContains(page, reverse("finance:purchase_return_reissue", args=[return_request.pk]))
+        self.assertContains(page, reverse("finance:purchase_return_reconcile", args=[return_request.pk]))
+        self.assertNotContains(page, "Concluir")
+        self.assertNotContains(page, "Iniciar nova devolução")
 
     def test_draft_creation_failure_releases_reservation_for_new_review(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
