@@ -130,6 +130,31 @@ class PurchaseReturnRequest(TimeStampedModel):
         if errors:
             raise ValidationError(errors)
 
+    @property
+    def resume_step(self) -> int:
+        current = max(1, min(int(self.current_step or 1), 4))
+        if self.status == PurchaseReturnRequestStatus.DRAFT:
+            return min(current, 3)
+        return 4
+
+    @property
+    def purchase_return_status_badge(self) -> dict[str, str]:
+        status_color = {
+            PurchaseReturnRequestStatus.DRAFT: "badge-soft badge-ghost",
+            PurchaseReturnRequestStatus.READY: "badge-soft badge-info",
+            PurchaseReturnRequestStatus.PROCESSING: "badge-soft badge-warning",
+            PurchaseReturnRequestStatus.AUTHORIZED: "badge-success",
+            PurchaseReturnRequestStatus.REJECTED: "badge-error",
+            PurchaseReturnRequestStatus.COMMUNICATION_ERROR: "badge-error",
+            PurchaseReturnRequestStatus.CONTINGENCY: "badge-soft badge-warning",
+            PurchaseReturnRequestStatus.UNCERTAIN: "badge-warning",
+            PurchaseReturnRequestStatus.CANCELED: "badge-soft badge-error",
+        }
+        return {
+            "text": str(PurchaseReturnRequestStatus(self.status).label),
+            "class": status_color.get(self.status, "badge-ghost"),
+        }
+
     def __str__(self) -> str:
         return f"Devolução de compra {self.pk or '---'} - {self.source_stock_import.nf_number_display}"
 
