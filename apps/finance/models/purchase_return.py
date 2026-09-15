@@ -71,6 +71,7 @@ class PurchaseReturnRequest(TimeStampedModel):
     departure_at = models.DateTimeField(null=True, blank=True, verbose_name="Data de entrada/saída")
     delivery_forecast = models.DateField(null=True, blank=True, verbose_name="Previsão de entrega")
     transport_snapshot = models.JSONField(default=dict, blank=True, verbose_name="Snapshot de transporte")
+    supplier_ie = models.CharField(max_length=14, blank=True, null=True, verbose_name="Inscrição Estadual do fornecedor")
     FISCAL_CONFIGURATION_FIELDS: tuple[str, ...] = (
         "operation_nature",
         "cfop",
@@ -101,6 +102,7 @@ class PurchaseReturnRequest(TimeStampedModel):
         "departure_at",
         "delivery_forecast",
         "transport_snapshot",
+        "supplier_ie",
     )
     stock_status = models.CharField(max_length=24, choices=PurchaseReturnStockStatus.choices, default=PurchaseReturnStockStatus.WAITING_AUTHORIZATION, db_index=True, verbose_name="Status do estoque")
     stock_processed_at = models.DateTimeField(null=True, blank=True, verbose_name="Estoque atualizado em")

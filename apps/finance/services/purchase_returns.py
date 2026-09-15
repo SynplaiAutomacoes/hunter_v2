@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -26,6 +27,7 @@ from apps.finance.services.nfe_returns import (
     calculate_available_return_quantities,
     create_nfe_return_draft,
     download_generic_nfe_return_preview_document,
+    reconcile_nfe_return_document,
     transmit_nfe_return_document,
 )
 from apps.stock.models import StockImport, StockImportFiscalItem
@@ -272,6 +274,56 @@ def get_or_create_purchase_return_request(*, stock_import: StockImport, requeste
         original_document=stock_import.fiscal_document,
         requested_by=requested_by,
     )
+
+
+_REISSUE_ALLOWED_STATUSES = frozenset({PurchaseReturnRequestStatus.REJECTED, PurchaseReturnRequestStatus.COMMUNICATION_ERROR})
+_PURCHASE_RETURN_ITEM_COPY_FIELDS = (
+    "kind",
+    "source_item",
+    "manual_snapshot",
+    "description",
+    "product_code",
+    "ncm",
+    "cest",
+    "unit",
+    "cfop",
+    "origin",
+    "tax_class",
+    "quantity",
+    "unit_value",
+)
+
+
+@transaction.atomic
+def clone_purchase_return_for_reissue(*, request: PurchaseReturnRequest, requested_by: Any) -> PurchaseReturnRequest:
+    if request.status not in _REISSUE_ALLOWED_STATUSES:
+        raise PurchaseReturnError("Somente notas rejeitadas ou com erro de comunicação podem ser emitidas novamente.")
+    fiscal_values: dict[str, Any] = {}
+    for field_name in PurchaseReturnRequest.FISCAL_CONFIGURATION_FIELDS:
+        value = getattr(request, field_name)
+        fiscal_values[field_name] = copy.deepcopy(value) if field_name == "transport_snapshot" else value
+    cloned = PurchaseReturnRequest.objects.create(
+        workshop=request.workshop,
+        source_stock_import=request.source_stock_import,
+        original_document=request.original_document,
+        requested_by=requested_by,
+        current_step=3,
+        status=PurchaseReturnRequestStatus.DRAFT,
+        **fiscal_values,
+    )
+    cloned_items = [
+        PurchaseReturnRequestItem(
+            request=cloned,
+            **{
+                field_name: copy.deepcopy(getattr(item, field_name)) if field_name == "manual_snapshot" else getattr(item, field_name)
+                for field_name in _PURCHASE_RETURN_ITEM_COPY_FIELDS
+            },
+        )
+        for item in request.items.order_by("kind", "source_item__sequence", "pk")
+    ]
+    if cloned_items:
+        PurchaseReturnRequestItem.objects.bulk_create(cloned_items)
+    return cloned
 
 
 def _validated_selection(*, request: PurchaseReturnRequest, quantities: Mapping[int, Decimal]) -> list[tuple[StockImportFiscalItem, Decimal]]:
@@ -531,6 +583,24 @@ def _issuer_state_registration(issuer: Mapping[str, Any]) -> str:
     return _normalize_supplier_ie(issuer.get("state_registration") or issuer.get("ie") or issuer.get("IE"))
 
 
+def inferred_purchase_return_supplier_ie(*, request: PurchaseReturnRequest) -> str:
+    snapshot = request.source_stock_import.fiscal_snapshot if isinstance(request.source_stock_import.fiscal_snapshot, dict) else {}
+    ie = _issuer_state_registration(_issuer_from_snapshot(snapshot))
+    return "" if ie == "ISENTO" else ie
+
+
+def display_purchase_return_supplier_ie(*, request: PurchaseReturnRequest) -> str:
+    if request.supplier_ie is not None:
+        return _normalize_supplier_ie(request.supplier_ie) or "ISENTO"
+    return inferred_purchase_return_supplier_ie(request=request) or "ISENTO"
+
+
+def _resolved_supplier_ie(*, request: PurchaseReturnRequest, supplier: Mapping[str, Any]) -> str:
+    if request.supplier_ie is not None:
+        return _normalize_supplier_ie(request.supplier_ie) or "ISENTO"
+    return _issuer_state_registration(supplier) or "ISENTO"
+
+
 def _merge_supplier_issuer(base: Mapping[str, Any], extra: Mapping[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     extra_ie = _issuer_state_registration(extra)
@@ -645,7 +715,7 @@ def _supplier_customer_payload(*, request: PurchaseReturnRequest) -> dict[str, A
             {
                 "cnpj": document,
                 "razao_social": str(supplier.get("name") or "").strip(),
-                "ie": _issuer_state_registration(supplier) or "ISENTO",
+                "ie": _resolved_supplier_ie(request=request, supplier=supplier),
             }
         )
     elif len(document) == 11:
@@ -788,6 +858,17 @@ def sync_purchase_return_status(*, request_instance: PurchaseReturnRequest) -> P
 
         request_instance = apply_authorized_purchase_return_stock(request_instance=request_instance)
     return request_instance
+
+
+def reconcile_purchase_return(*, request_instance: PurchaseReturnRequest) -> PurchaseReturnRequest:
+    document = request_instance.fiscal_document
+    if document is None:
+        raise PurchaseReturnError("A Nota de Devolução ainda não possui documento fiscal para consultar.")
+    try:
+        reconcile_nfe_return_document(document=document)
+    except NfeReturnError as exc:
+        raise PurchaseReturnError(str(exc)) from exc
+    return sync_purchase_return_status(request_instance=request_instance)
 
 
 def transmit_purchase_return(*, request_instance: PurchaseReturnRequest, http_request: Any | None = None) -> PurchaseReturnRequest:
