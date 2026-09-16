@@ -211,6 +211,7 @@ BUDGET_STATUS_BADGE_CLASSES = {
 }
 BUDGET_TYPE_BADGE_CLASSES = {
     BudgetType.SALE: "badge-success min-w-sm",
+    BudgetType.DIRECT_SALE: "badge-reopened-after-delivery min-w-sm",
     BudgetType.COURTESY: "badge-info min-w-sm",
     BudgetType.WARRANTY: "badge-error min-w-sm",
 }
@@ -573,7 +574,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return f"{reverse('budget:budget_create')}?{urlencode(query_params)}"
 
     def _apply_auto_link(self) -> None:
-        if not self.object or not self.object.vehicle_id:
+        if not self.object or self.object.budget_type == BudgetType.DIRECT_SALE or not self.object.vehicle_id:
             return
         if self.object.reference_budget_id is not None:
             return

@@ -103,6 +103,22 @@ class DreMonthlyAggregationTests(TestCase):
 
     @patch("apps.finance.services.dre._build_workorder_cost_breakdown", side_effect=mock_cost_breakdown)
     @patch.object(WorkOrder, "total_budget_value", new_callable=PropertyMock)
+    def test_direct_sale_is_included_and_identified_in_revenue_details(self, mock_total_budget_value, _mock_breakdown) -> None:
+        mock_total_budget_value.return_value = Money(1000, "BRL")
+        self.budget.budget_type = BudgetType.DIRECT_SALE
+        self.budget.save(update_fields=["budget_type"])
+        self.workorder.budget_type = BudgetType.DIRECT_SALE
+        self.workorder.save(update_fields=["budget_type"])
+        self._create_payment(amount=Decimal("100.00"), due_date=date(2026, 1, 5))
+
+        dre = build_dre_calculation(workshops=[self.workshop], start_date=date(2026, 1, 1), end_date=date(2026, 1, 31), tipo_data="A")
+
+        revenue_row = _row_for_component(dre_result=dre, component=COMP_GROSS_REVENUE)
+        self.assertEqual(revenue_row["amount"].amount, Decimal("100.00"))
+        self.assertIn("Venda Direta", revenue_row["details"][0]["summary"])
+
+    @patch("apps.finance.services.dre._build_workorder_cost_breakdown", side_effect=mock_cost_breakdown)
+    @patch.object(WorkOrder, "total_budget_value", new_callable=PropertyMock)
     def test_revenue_details_keep_separate_months(self, mock_total_budget_value, _mock_breakdown) -> None:
         mock_total_budget_value.return_value = Money(1000, "BRL")
         self._create_payment(amount=Decimal("100.00"), due_date=date(2026, 1, 15))
