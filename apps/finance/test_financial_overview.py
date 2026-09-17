@@ -130,3 +130,45 @@ class FinancialOverviewWorkorderIsPaidTests(TestCase):
         self.assertEqual(overview.total_credits.amount, Decimal("650.00"))
         self.assertEqual(overview.paid_credits.amount, Decimal("250.00"))
         self.assertEqual(open_credits(overview).amount, Decimal("400.00"))
+
+
+class FinancialOverviewOrphanWorkorderParentTests(TestCase):
+    def test_paid_orphan_parent_without_payment_plan_does_not_count_movement_amount(self) -> None:
+        """OS parent without payment plans is ignored — revenue comes only from plans.
+
+        Counting ``movement.amount`` for these orphans inflated the Stone card by
+        ~R$ 41k without matching real bank money.
+        """
+        workshop = create_workshop(suffix=21)
+        budget = Budget.objects.create(workshop=workshop, entry_date=date(2026, 6, 10))
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        FinancialMovement.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            workorder_payment=None,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            description="OS orfao pago",
+            amount=Money("412.50", "BRL"),
+            due_date=date(2026, 6, 15),
+            is_paid=True,
+            is_reconciled=True,
+        )
+
+        overview = build_financial_overview(
+            workshop=workshop,
+            start_date=date(2026, 6, 1),
+            end_date=date(2026, 6, 30),
+            paid_status="paid",
+            reconciliation_status="reconciled",
+        )
+        self.assertEqual(overview.paid_credits.amount, Decimal("0.00"))
+        self.assertEqual(overview.confirmed_result.amount, Decimal("0.00"))
+
+        open_overview = build_financial_overview_with_open_workorder_credits(
+            workshop=workshop,
+            start_date=date(2026, 6, 1),
+            end_date=date(2026, 6, 30),
+        )
+        self.assertEqual(open_overview.total_credits.amount, Decimal("0.00"))
+        self.assertEqual(open_overview.paid_credits.amount, Decimal("0.00"))
