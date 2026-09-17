@@ -58,13 +58,31 @@ class SignatureTokenPayload:
 
 
 def normalize_signature_phone_number(raw_phone: object, default_region: str = "BR") -> str:
+    """Normalize a phone to E.164 for signature delivery, or "" if invalid.
+
+    Rejects glued/overlong values (e.g. two BR mobiles concatenated) so SynplaiSign
+    does not receive undeliverable WhatsApp numbers. Invalid PhoneNumber objects
+    (is_valid=False / empty as_e164 digits) are treated as missing.
+    """
     if raw_phone is None:
+        return ""
+
+    is_valid_attr = getattr(raw_phone, "is_valid", None)
+    if callable(is_valid_attr) and not is_valid_attr():
         return ""
 
     e164_phone = getattr(raw_phone, "as_e164", "")
     if e164_phone:
         digits = re.sub(r"\D", "", str(e164_phone))
-        return f"+{digits}" if digits else ""
+        if not digits:
+            return ""
+        try:
+            parsed_e164 = phonenumbers.parse(f"+{digits}", None)
+        except phonenumbers.NumberParseException:
+            return ""
+        if phonenumbers.is_valid_number(parsed_e164):
+            return phonenumbers.format_number(parsed_e164, PhoneNumberFormat.E164)
+        return ""
 
     phone = str(raw_phone).strip()
     if not phone:
@@ -78,17 +96,8 @@ def normalize_signature_phone_number(raw_phone: object, default_region: str = "B
     if parsed_phone is not None and phonenumbers.is_valid_number(parsed_phone):
         return phonenumbers.format_number(parsed_phone, PhoneNumberFormat.E164)
 
-    phone = re.sub(r"[^\d+]", "", phone)
-    if not phone:
-        return ""
-
-    if phone.startswith("+"):
-        return "+" + re.sub(r"\D", "", phone)
-
     digits = re.sub(r"\D", "", phone)
-    if digits:
-        if len(digits) in {10, 11}:
-            return f"+55{digits}"
-        return f"+{digits}"
+    if len(digits) in {10, 11}:
+        return f"+55{digits}"
 
     return ""

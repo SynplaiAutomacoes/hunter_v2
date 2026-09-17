@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+from apps.core.domain.contracts.documents import normalize_signature_phone_number
 from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult
 from apps.core.infrastructure.gateways.synplaisign import (
     SynplaiSignGatewayResult,
@@ -23,6 +24,32 @@ from apps.core.infrastructure.services.signature_webhook import (
     process_signature_webhook_payload,
 )
 from apps.core.infrastructure.services.signature_whatsapp import maybe_dispatch_signature_whatsapp
+
+
+class NormalizeSignaturePhoneNumberTests(SimpleTestCase):
+    def test_valid_e164_br_mobile(self) -> None:
+        self.assertEqual(normalize_signature_phone_number("+5511988887777"), "+5511988887777")
+
+    def test_valid_national_br_mobile(self) -> None:
+        self.assertEqual(normalize_signature_phone_number("11988887777"), "+5511988887777")
+
+    def test_rejects_glued_digit_string(self) -> None:
+        self.assertEqual(normalize_signature_phone_number("1199471380011995973800"), "")
+
+    def test_rejects_two_phones_with_separator(self) -> None:
+        self.assertEqual(normalize_signature_phone_number("(11) 99471-3800 / (11) 99597-3800"), "")
+
+    def test_rejects_invalid_phonenumber_object(self) -> None:
+        from phonenumber_field.phonenumber import to_python
+
+        invalid = to_python("1199471380011995973800")
+        self.assertIsNotNone(invalid)
+        self.assertFalse(invalid.is_valid())
+        self.assertEqual(normalize_signature_phone_number(invalid), "")
+
+    def test_empty_and_none(self) -> None:
+        self.assertEqual(normalize_signature_phone_number(""), "")
+        self.assertEqual(normalize_signature_phone_number(None), "")
 
 
 class SignatureWhatsAppSkipNoteTests(SimpleTestCase):
@@ -44,6 +71,13 @@ class SignatureWhatsAppSkipNoteTests(SimpleTestCase):
         note = build_signature_whatsapp_skip_note(
             workshop=SimpleNamespace(whatsapp_instance_name=""),
             phone="+5511988887777",
+        )
+        self.assertIn("WhatsApp não foi solicitado", note)
+
+    def test_note_when_phone_glued_invalid(self) -> None:
+        note = build_signature_whatsapp_skip_note(
+            workshop=SimpleNamespace(whatsapp_instance_name="workshop_1"),
+            phone="1199471380011995973800",
         )
         self.assertIn("WhatsApp não foi solicitado", note)
 
@@ -106,6 +140,19 @@ class SynplaiSignGatewayHelperTests(SimpleTestCase):
         self.assertEqual(mapped[0]["deliveryChannel"], "WHATSAPP")
         self.assertEqual(mapped[0]["phone"], "5511888777666")
         self.assertEqual(mapped[0]["order"], 1)
+
+    def test_map_signatories_rejects_glued_phone_and_falls_back_to_email(self) -> None:
+        mapped = _map_signatories(
+            signatory={
+                "name": "Cliente",
+                "email": "a@b.com",
+                "phoneNumber": "+1199471380011995973800",
+                "signingOrder": 0,
+            },
+            fields=[],
+        )
+        self.assertNotIn("phone", mapped[0])
+        self.assertEqual(mapped[0]["deliveryChannel"], "EMAIL")
 
 
 class SynplaiSignSignatureServiceTests(SimpleTestCase):
