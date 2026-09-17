@@ -133,7 +133,12 @@ class FinancialOverviewWorkorderIsPaidTests(TestCase):
 
 
 class FinancialOverviewOrphanWorkorderParentTests(TestCase):
-    def test_paid_orphan_parent_without_payment_plan_counts_movement_amount(self) -> None:
+    def test_paid_orphan_parent_without_payment_plan_does_not_count_movement_amount(self) -> None:
+        """OS parent without payment plans is ignored — revenue comes only from plans.
+
+        Counting ``movement.amount`` for these orphans inflated the Stone card by
+        ~R$ 41k without matching real bank money.
+        """
         workshop = create_workshop(suffix=21)
         budget = Budget.objects.create(workshop=workshop, entry_date=date(2026, 6, 10))
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
@@ -157,38 +162,13 @@ class FinancialOverviewOrphanWorkorderParentTests(TestCase):
             paid_status="paid",
             reconciliation_status="reconciled",
         )
-        self.assertEqual(overview.paid_credits.amount, Decimal("412.50"))
-        self.assertEqual(overview.confirmed_result.amount, Decimal("412.50"))
+        self.assertEqual(overview.paid_credits.amount, Decimal("0.00"))
+        self.assertEqual(overview.confirmed_result.amount, Decimal("0.00"))
 
         open_overview = build_financial_overview_with_open_workorder_credits(
             workshop=workshop,
             start_date=date(2026, 6, 1),
             end_date=date(2026, 6, 30),
         )
-        self.assertEqual(open_overview.total_credits.amount, Decimal("412.50"))
-        self.assertEqual(open_overview.paid_credits.amount, Decimal("412.50"))
-
-    def test_unpaid_orphan_parent_is_open_in_with_open_variant(self) -> None:
-        workshop = create_workshop(suffix=22)
-        budget = Budget.objects.create(workshop=workshop, entry_date=date(2026, 6, 10))
-        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
-        FinancialMovement.objects.create(
-            workshop=workshop,
-            workorder=workorder,
-            direction=FinancialMovement.MovementDirection.CREDIT,
-            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
-            description="OS orfao aberto",
-            amount=Money("200.00", "BRL"),
-            due_date=date(2026, 6, 15),
-            is_paid=False,
-            is_reconciled=False,
-        )
-
-        open_overview = build_financial_overview_with_open_workorder_credits(
-            workshop=workshop,
-            start_date=date(2026, 6, 1),
-            end_date=date(2026, 6, 30),
-        )
-        self.assertEqual(open_overview.total_credits.amount, Decimal("200.00"))
+        self.assertEqual(open_overview.total_credits.amount, Decimal("0.00"))
         self.assertEqual(open_overview.paid_credits.amount, Decimal("0.00"))
-        self.assertEqual(open_credits(open_overview).amount, Decimal("200.00"))

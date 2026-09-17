@@ -50,24 +50,18 @@ def _sum_payment_totals(queryset) -> Decimal:
 
 
 def _apply_workorder_payment_aware_date_filter(queryset, *, lookup: str, value: date):
-    """Filter by due_date, using payment due dates for OS parents that have plans.
-
-    WORKORDER_PARENT rows without any payment plan fall back to the movement's
-    own due_date so paid orphans are not dropped from dated overviews.
-    """
+    """Filter by due_date, using payment due dates for OS parents that have plans."""
     workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
-    parent_with_payments_query = workorder_parent_query & Q(workorder__payments__isnull=False)
-    orphan_parent_query = workorder_parent_query & Q(workorder__payments__isnull=True)
     return queryset.filter(
         (~workorder_parent_query & Q(**{lookup: value}))
-        | (parent_with_payments_query & Q(**{f"workorder__payments__{lookup}": value}))
-        | (orphan_parent_query & Q(**{lookup: value}))
+        | (
+            workorder_parent_query
+            & Q(
+                workorder__payments__isnull=False,
+                **{f"workorder__payments__{lookup}": value},
+            )
+        )
     ).distinct()
-
-
-def _orphan_workorder_ids(*, unlinked_workorder_ids: list[int], unlinked_payments) -> list[int]:
-    workorders_with_payments = set(unlinked_payments.values_list("workorder_id", flat=True))
-    return [wid for wid in unlinked_workorder_ids if wid not in workorders_with_payments]
 
 
 def filter_grouped_movements_for_reporting(queryset):
@@ -229,24 +223,10 @@ def build_financial_overview(
             unlinked_payments = unlinked_payments.filter(payment_method_id=payment_method_id)
         wo_payment_credits += _sum_payment_totals(unlinked_payments)
 
-        # Path C: paid/aggregate parent with no payment plans — use movement.amount.
-        orphan_workorder_ids = _orphan_workorder_ids(
-            unlinked_workorder_ids=unlinked_workorder_ids,
-            unlinked_payments=unlinked_payments,
-        )
-        wo_orphan_credits = _ZERO_DECIMAL
-        if orphan_workorder_ids:
-            wo_orphan_credits = _sum_amount(
-                parent_movements.filter(workorder_payment_id=None, workorder_id__in=orphan_workorder_ids)
-            )
-
         # Only add positive payment totals (matches previous Python guard).
         if wo_payment_credits > _ZERO_DECIMAL:
             total_credits += wo_payment_credits
             paid_credits += wo_payment_credits
-        if wo_orphan_credits > _ZERO_DECIMAL:
-            total_credits += wo_orphan_credits
-            paid_credits += wo_orphan_credits
 
     total_result = total_credits - total_debits
     confirmed_result = paid_credits - paid_debits
@@ -492,25 +472,10 @@ def build_financial_overview_with_open_workorder_credits(
         paid_unlinked_workorder_ids = [wid for wid in paid_unlinked_workorder_ids if wid not in linked_workorder_ids]
         wo_paid_credits += _sum_payment_totals(unlinked_payments.filter(workorder_id__in=paid_unlinked_workorder_ids))
 
-        # Path C: aggregate parent with no payment plans — use movement.amount.
-        orphan_workorder_ids = _orphan_workorder_ids(
-            unlinked_workorder_ids=unlinked_workorder_ids,
-            unlinked_payments=unlinked_payments,
-        )
-        wo_orphan_credits = _ZERO_DECIMAL
-        wo_orphan_paid_credits = _ZERO_DECIMAL
-        if orphan_workorder_ids:
-            orphan_parents = parent_movements.filter(workorder_payment_id=None, workorder_id__in=orphan_workorder_ids)
-            wo_orphan_credits = _sum_amount(orphan_parents)
-            wo_orphan_paid_credits = _sum_amount(orphan_parents.filter(is_paid=True))
-
         # Only add positive payment totals (matches previous Python guard).
         if wo_payment_credits > _ZERO_DECIMAL:
             total_credits += wo_payment_credits
             paid_credits += wo_paid_credits
-        if wo_orphan_credits > _ZERO_DECIMAL:
-            total_credits += wo_orphan_credits
-            paid_credits += wo_orphan_paid_credits
 
     total_result = total_credits - total_debits
     confirmed_result = paid_credits - paid_debits
