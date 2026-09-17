@@ -333,7 +333,7 @@ class CashFlowWorkorderPathTests(TestCase):
         )
         self.assertEqual(overview.confirmed_result.amount, Money("319.00", "BRL").amount)
 
-    def test_orphan_workorder_parent_appears_as_movement_row(self) -> None:
+    def test_orphan_workorder_parent_without_plans_is_ignored(self) -> None:
         from apps.budget.models import Budget
         from apps.finance.services.reports import build_financial_overview
         from apps.workorder.models import WorkOrder
@@ -355,8 +355,7 @@ class CashFlowWorkorderPathTests(TestCase):
         )
 
         rows = self._build_view(query={"conta_bancaria": str(self.bank_account.pk)}).get_context_data()["financial_movement_report_rows"]
-        self.assertEqual(len(rows), 1)
-        self.assertTrue(str(rows[0]["component"]).startswith("financial-movement-"))
+        self.assertEqual(rows, [])
 
         overview = build_financial_overview(
             workshop=self.workshop,
@@ -366,4 +365,4 @@ class CashFlowWorkorderPathTests(TestCase):
             reconciliation_status="reconciled",
             bank_account_id=self.bank_account.pk,
         )
-        self.assertEqual(overview.confirmed_result.amount, Money("500.00", "BRL").amount)
+        self.assertEqual(overview.confirmed_result.amount, Money("0.00", "BRL").amount)

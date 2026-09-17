@@ -626,6 +626,13 @@
                     <div class="col-span-12 lg:col-span-4">{{ fiscal_form.regime_especial_nacional|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-4">{{ fiscal_form.regime_especial_municipal|as_crispy_field }}</div>
 
+                    <div class="col-span-12 divider my-1"></div>
+                    <p class="col-span-12 text-sm font-semibold text-base-content/80">Acesso Portal NFS-e</p>
+                    <p class="col-span-12 text-xs text-base-content/60 -mt-2">Login e senha (ou token) do Portal da Prefeitura ou Portal Nacional (MEI).</p>
+                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfse_login|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfse_password|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ fiscal_form.nfse_token|as_crispy_field }}</div>
+
                     <div class="col-span-12">{{ fiscal_form.informacoes_fisco|as_crispy_field }}</div>
                 </div>
 

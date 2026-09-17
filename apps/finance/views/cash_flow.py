@@ -293,16 +293,11 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "details": [],
         }
 
-    def _build_financial_movement_row(
-        self,
-        movement: FinancialMovement,
-        *,
-        allow_orphan_workorder_parent: bool = False,
-    ) -> dict[str, object] | None:
+    def _build_financial_movement_row(self, movement: FinancialMovement) -> dict[str, object] | None:
         workorder = getattr(movement, "workorder", None)
         customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
 
-        if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None and not allow_orphan_workorder_parent:
+        if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None:
             return None
         if not movement.is_paid or not movement.is_reconciled:
             return None
@@ -316,7 +311,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "due_date": movement.due_date,
             "agent": agent if not workorder else (getattr(customer, "name", "-") or "-"),
             "origin": movement.report_origin_display if not workorder else format_workorder_reference(workorder),
-            "description": description if not workorder else self._resolve_workorder_description(workorder),
+            "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
             "payment_type": movement.report_payment_method_display,
@@ -387,10 +382,6 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                 )
                 if filtered_payments:
                     rows.extend(self._build_workorder_payment_row(movement=movement, payment=payment) for payment in filtered_payments)
-                elif not payments:
-                    orphan_row = self._build_financial_movement_row(movement, allow_orphan_workorder_parent=True)
-                    if orphan_row is not None:
-                        rows.append(orphan_row)
                 continue
             row = self._build_financial_movement_row(movement)
             if row is not None:
