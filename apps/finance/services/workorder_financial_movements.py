@@ -217,17 +217,26 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         stale_payment_movements = stale_payment_movements.exclude(workorder_payment_id__in=active_payment_ids)
     stale_payment_movements.delete()
 
-    movement = (
+    if active_payment_ids:
+        # Payment-linked parents already cover the OS — drop leftover aggregate parents.
         FinancialMovement.objects.filter(
             workorder=workorder,
             movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            workorder_payment__isnull=True,
             reversal_of__isnull=True,
+        ).exclude(pk__in=reversed_movement_ids).delete()
+        movement = (
+            FinancialMovement.objects.filter(
+                workorder=workorder,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder_payment__isnull=False,
+                reversal_of__isnull=True,
+            )
+            .exclude(pk__in=reversed_movement_ids)
+            .order_by("pk")
+            .first()
         )
-        .exclude(pk__in=reversed_movement_ids)
-        .order_by("pk")
-        .first()
-    )
-    if movement is not None and movement.workorder_payment_id is not None:
+    else:
         movement = (
             FinancialMovement.objects.filter(
                 workorder=workorder,
@@ -239,15 +248,15 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
             .order_by("pk")
             .first()
         )
-    if movement is None:
-        movement = FinancialMovement.objects.filter(workorder=workorder, workorder_payment__isnull=True, reversal_of__isnull=True).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
+        if movement is None:
+            movement = FinancialMovement.objects.filter(workorder=workorder, workorder_payment__isnull=True, reversal_of__isnull=True).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
 
-    if movement is None:
-        movement = FinancialMovement.objects.create(workorder=workorder, is_paid=False, is_reconciled=False, **defaults)
-    else:
-        for field_name, field_value in defaults.items():
-            setattr(movement, field_name, field_value)
-        movement.save(update_fields=[*defaults.keys()])
+        if movement is None:
+            movement = FinancialMovement.objects.create(workorder=workorder, is_paid=False, is_reconciled=False, **defaults)
+        else:
+            for field_name, field_value in defaults.items():
+                setattr(movement, field_name, field_value)
+            movement.save(update_fields=[*defaults.keys()])
 
     sync_workorder_card_fee_movements(workorder=workorder)
     # Comissão v3 — gerar pool (idempotente, respeita PAID)

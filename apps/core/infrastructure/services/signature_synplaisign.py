@@ -30,9 +30,15 @@ DeliveryChannel = Literal["EMAIL", "WHATSAPP", "BOTH"]
 
 
 def _phone_digits_for_synplaisign(raw_phone: object) -> str:
-    """SynplaiSign expects international digits without '+' (e.g. 5511999999999)."""
+    """SynplaiSign expects international digits without '+' (e.g. 5511999999999).
+
+    Only forward plausible BR E.164 lengths (12–13 digits starting with 55).
+    Glued/overlong numbers are rejected so delivery falls back to EMAIL.
+    """
     digits = re.sub(r"\D", "", str(raw_phone or ""))
-    return digits
+    if digits.startswith("55") and len(digits) in {12, 13}:
+        return digits
+    return ""
 
 
 def _resolve_delivery_channel(*, phone_digits: str, explicit: object = None) -> DeliveryChannel:
