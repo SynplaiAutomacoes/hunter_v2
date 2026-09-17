@@ -267,3 +267,103 @@ class CashFlowViewTests(TestCase):
         self.assertIn("spreadsheetml", response["Content-Type"])
         self.assertIn("fluxo_de_contas", response["Content-Disposition"])
         self.assertGreater(len(response.content), 0)
+
+
+class CashFlowWorkorderPathTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(username="fluxo-wo-user", password="test-pass")
+        self.workshop = create_workshop(suffix=11)
+        self.bank_account = create_bank_account(workshop=self.workshop, suffix=11)
+
+    def _build_view(self, *, query: dict[str, str] | None = None) -> CashFlowView:
+        request = self.factory.get(reverse("finance:cash_flow"), query or {})
+        request.user = self.user
+        request.htmx = False  # type: ignore[attr-defined]
+        view = CashFlowView()
+        view.setup(request)
+        view.request = request
+        view.workshop = self.workshop
+        return view
+
+    def test_path_b_aggregate_parent_shows_payment_rows(self) -> None:
+        from apps.budget.models import Budget
+        from apps.finance.models.payment_method import PaymentMethod
+        from apps.finance.services.reports import build_financial_overview
+        from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
+
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix")
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=date(2026, 8, 1))
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        plan = WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("319.00", "BRL"),
+            remaining_installments_amount=Money(0, "BRL"),
+            due_date=date(2026, 8, 10),
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            workorder_payment=None,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            description="OS agregado Path B",
+            amount=Money("319.00", "BRL"),
+            due_date=date(2026, 8, 10),
+            is_paid=True,
+            is_reconciled=True,
+            bank_account=self.bank_account,
+            payment_method=payment_method,
+        )
+
+        rows = self._build_view(query={"conta_bancaria": str(self.bank_account.pk)}).get_context_data()["financial_movement_report_rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["component"], f"workorder-payment-{plan.pk}")
+        self.assertIn("319", rows[0]["total"]["text"])
+
+        overview = build_financial_overview(
+            workshop=self.workshop,
+            start_date=None,
+            end_date=None,
+            paid_status="paid",
+            reconciliation_status="reconciled",
+            bank_account_id=self.bank_account.pk,
+        )
+        self.assertEqual(overview.confirmed_result.amount, Money("319.00", "BRL").amount)
+
+    def test_orphan_workorder_parent_appears_as_movement_row(self) -> None:
+        from apps.budget.models import Budget
+        from apps.finance.services.reports import build_financial_overview
+        from apps.workorder.models import WorkOrder
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=date(2026, 8, 1))
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            workorder_payment=None,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            description="OS orfao na lista",
+            amount=Money("500.00", "BRL"),
+            due_date=date(2026, 8, 12),
+            is_paid=True,
+            is_reconciled=True,
+            bank_account=self.bank_account,
+        )
+
+        rows = self._build_view(query={"conta_bancaria": str(self.bank_account.pk)}).get_context_data()["financial_movement_report_rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(str(rows[0]["component"]).startswith("financial-movement-"))
+
+        overview = build_financial_overview(
+            workshop=self.workshop,
+            start_date=None,
+            end_date=None,
+            paid_status="paid",
+            reconciliation_status="reconciled",
+            bank_account_id=self.bank_account.pk,
+        )
+        self.assertEqual(overview.confirmed_result.amount, Money("500.00", "BRL").amount)

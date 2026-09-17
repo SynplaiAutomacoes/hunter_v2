@@ -235,6 +235,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         bank_account_id: str | None,
     ) -> list[WorkOrderPaymentMethod]:
         reconciled_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_workorder_payment_movements", {})
+        aggregate_movement_by_workorder_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_aggregate_workorder_movements", {})
         filtered_payments = []
         for payment in payments:
             payment_amount = self._resolve_money_amount(payment.total_paid)
@@ -247,6 +248,8 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             if payment_method_id and str(getattr(payment.payment_method, "pk", "")) != str(payment_method_id):
                 continue
             payment_movement = reconciled_movement_by_payment_id.get(payment.pk)
+            if payment_movement is None:
+                payment_movement = aggregate_movement_by_workorder_id.get(getattr(payment, "workorder_id", None))
             if payment_movement is None:
                 continue
             if bank_account_id:
@@ -261,7 +264,12 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     def _build_workorder_payment_row(self, *, movement: FinancialMovement, payment: WorkOrderPaymentMethod) -> dict[str, object]:
         workorder = movement.workorder
         reconciled_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_workorder_payment_movements", {})
-        payment_movement = reconciled_movement_by_payment_id.get(payment.pk) or movement
+        aggregate_movement_by_workorder_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_aggregate_workorder_movements", {})
+        payment_movement = reconciled_movement_by_payment_id.get(payment.pk)
+        if payment_movement is None and workorder is not None:
+            payment_movement = aggregate_movement_by_workorder_id.get(workorder.pk)
+        if payment_movement is None:
+            payment_movement = movement
         customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
         payment_method = getattr(payment_movement, "payment_method", None) or getattr(payment, "payment_method", None)
         agent, description = resolve_payroll_movement_display(movement=payment_movement, user=self.request.user, workshop=self.workshop, request=self.request)
@@ -285,11 +293,16 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "details": [],
         }
 
-    def _build_financial_movement_row(self, movement: FinancialMovement) -> dict[str, object] | None:
+    def _build_financial_movement_row(
+        self,
+        movement: FinancialMovement,
+        *,
+        allow_orphan_workorder_parent: bool = False,
+    ) -> dict[str, object] | None:
         workorder = getattr(movement, "workorder", None)
         customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
 
-        if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None:
+        if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None and not allow_orphan_workorder_parent:
             return None
         if not movement.is_paid or not movement.is_reconciled:
             return None
@@ -303,7 +316,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "due_date": movement.due_date,
             "agent": agent if not workorder else (getattr(customer, "name", "-") or "-"),
             "origin": movement.report_origin_display if not workorder else format_workorder_reference(workorder),
-            "description": description,
+            "description": description if not workorder else self._resolve_workorder_description(workorder),
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
             "payment_type": movement.report_payment_method_display,
@@ -325,7 +338,9 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         movements = list(self._get_financial_movements_queryset())
         workorder_ids = sorted({movement.workorder.pk for movement in movements if movement.workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT})
         reconciled_workorder_payment_movements = FinancialMovement.objects.none()
+        reconciled_aggregate_workorder_movements = FinancialMovement.objects.none()
         if workorder_ids:
+            bank_account_id = filter_params["bank_account_id"]
             reconciled_workorder_payment_movements = FinancialMovement.objects.filter(
                 workshop=self.workshop,
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
@@ -334,14 +349,26 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                 is_paid=True,
                 is_reconciled=True,
             ).select_related("payment_method", "budget_plan", "bank_account")
-            bank_account_id = filter_params["bank_account_id"]
+            reconciled_aggregate_workorder_movements = FinancialMovement.objects.filter(
+                workshop=self.workshop,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder_id__in=workorder_ids,
+                workorder_payment__isnull=True,
+                is_paid=True,
+                is_reconciled=True,
+            ).select_related("payment_method", "budget_plan", "bank_account")
             if bank_account_id:
                 if bank_account_id == "none":
                     reconciled_workorder_payment_movements = reconciled_workorder_payment_movements.filter(bank_account__isnull=True)
+                    reconciled_aggregate_workorder_movements = reconciled_aggregate_workorder_movements.filter(bank_account__isnull=True)
                 else:
                     reconciled_workorder_payment_movements = reconciled_workorder_payment_movements.filter(bank_account_id=bank_account_id)
+                    reconciled_aggregate_workorder_movements = reconciled_aggregate_workorder_movements.filter(bank_account_id=bank_account_id)
 
         self._reconciled_workorder_payment_movements = {movement.workorder_payment.pk: movement for movement in reconciled_workorder_payment_movements if movement.workorder_payment is not None}
+        self._reconciled_aggregate_workorder_movements = {
+            movement.workorder_id: movement for movement in reconciled_aggregate_workorder_movements if movement.workorder_id is not None
+        }
 
         processed_workorder_ids: set[int] = set()
         for movement in movements:
@@ -351,16 +378,19 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                     continue
                 processed_workorder_ids.add(workorder.pk)
                 payments = list(workorder.payments.all())
-                rows.extend(
-                    self._build_workorder_payment_row(movement=movement, payment=payment)
-                    for payment in self._filter_workorder_payments_for_rows(
-                        payments=payments,
-                        filter_start_date=filter_params["start_date"],
-                        filter_end_date=filter_params["end_date"],
-                        payment_method_id=filter_params["payment_method_id"],
-                        bank_account_id=filter_params["bank_account_id"],
-                    )
+                filtered_payments = self._filter_workorder_payments_for_rows(
+                    payments=payments,
+                    filter_start_date=filter_params["start_date"],
+                    filter_end_date=filter_params["end_date"],
+                    payment_method_id=filter_params["payment_method_id"],
+                    bank_account_id=filter_params["bank_account_id"],
                 )
+                if filtered_payments:
+                    rows.extend(self._build_workorder_payment_row(movement=movement, payment=payment) for payment in filtered_payments)
+                elif not payments:
+                    orphan_row = self._build_financial_movement_row(movement, allow_orphan_workorder_parent=True)
+                    if orphan_row is not None:
+                        rows.append(orphan_row)
                 continue
             row = self._build_financial_movement_row(movement)
             if row is not None:
