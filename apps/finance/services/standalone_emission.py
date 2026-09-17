@@ -43,6 +43,8 @@ def default_standalone_state() -> dict[str, Any]:
         "max_reached_step": 1,
         "note_mode": "",
         "recipient": {},
+        "recipient_mode": "registered",
+        "customer_id": None,
         "nfe_lines": [],
         "nfse_lines": [],
         "nfe_config": {"tax_class": "", "additional_information": "", "freight_mode": "9", "transport_snapshot": {}},
@@ -67,15 +69,17 @@ def product_line_from_catalog(
     quantity: Decimal,
     unit_value: Decimal | None = None,
     cost_value: Decimal | None = None,
+    ncm: str | None = None,
 ) -> dict[str, Any]:
     resolved_unit_value = unit_value if unit_value is not None else Decimal(str(product.selling_price.amount))
     resolved_cost = cost_value if cost_value is not None else Decimal(str(getattr(product.cost_price, "amount", 0) or 0))
     total_value = (quantity * resolved_unit_value).quantize(Decimal("0.01"))
+    resolved_ncm = normalize_ncm(ncm) if ncm is not None else normalize_ncm(product.ncm)
     return {
         "product_id": product.pk,
         "description": product.name,
         "product_code": product.code,
-        "ncm": product.ncm,
+        "ncm": resolved_ncm,
         "cest": product.cest or "",
         "unit": product.unit,
         "origin": int(product.origin_cst or 0),

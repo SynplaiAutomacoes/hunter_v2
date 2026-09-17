@@ -47,9 +47,18 @@ from apps.workshops.views.workshop_costs import (
     WorkshopCostSyncSalaryItemsView,
 )
 
+from apps.workshops.views.system_management import (
+    NotificationBroadcastView,
+    SystemManageDashboardView,
+)
+
 app_name = "workshops"
 
 urlpatterns = [
+    # System Management
+    path("sistema/gerenciar/", SystemManageDashboardView.as_view(), name="system_manage"),
+    path("sistema/gerenciar/notificacoes/broadcast/", NotificationBroadcastView.as_view(), name="system_broadcast"),
+
     # Workshop
     path("", WorkshopListView.as_view(), name="list"),
     path("create/", WorkshopCreateView.as_view(), name="create"),
