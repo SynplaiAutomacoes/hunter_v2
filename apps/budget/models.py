@@ -18,7 +18,7 @@ from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
-from apps.budget.review_totals import Step4PricingBreakdown, build_step4_pricing_breakdown
+from apps.budget.review_totals import Step4PricingBreakdown, build_step4_pricing_breakdown, build_step6_table_totals
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -1020,7 +1020,8 @@ class Budget(TimeStampedModel):
         """Canonical value persisted into ``stored_total_amount``."""
         if self.is_fixed_budget:
             return self.summary_total_before_benefit_value
-        return self.total_budget_value
+        totals = build_step6_table_totals(budget=self)
+        return totals["products"].sale + totals["services"].sale
 
     @property
     def display_total_budget_value(self) -> Money:

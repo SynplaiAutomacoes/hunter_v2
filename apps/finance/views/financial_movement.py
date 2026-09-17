@@ -30,6 +30,8 @@ from apps.core.utils import clean_id
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
+from apps.finance.services.money_parse import format_brl_amount, parse_brl_amount
+from apps.finance.services.report_ordering import parse_ordering, sort_report_rows
 from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.finance.views.navigation import append_query_params
 from apps.accounts.models import User
@@ -125,6 +127,7 @@ def _parse_report_filter_params(request: HttpRequest) -> dict[str, Any]:
         "payment_method_id": _parse_int_param(request.GET.get("payment_method")),
         "reconciliation_status": str(request.GET.get("reconciliation_status") or "").strip(),
         "search": str(request.GET.get("search") or "").strip(),
+        "amount": parse_brl_amount(request.GET.get("valor")),
     }
 
 
@@ -178,6 +181,17 @@ def _apply_report_filters_to_queryset(queryset: QuerySet[FinancialMovement], *, 
             queryset = queryset.filter(is_reconciled=False)
     if params["paid_status"]:
         queryset = _apply_paid_status_filter_to_queryset(queryset, paid_status=params["paid_status"])
+    if params["amount"] is not None:
+        # WORKORDER_PARENT rows are filtered by payment (total_paid) in row
+        # expansion, so they must not be dropped by the movement.amount
+        # exact-match filter.
+        queryset = queryset.filter(
+            Q(amount=params["amount"])
+            | Q(
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+            )
+        )
     if params["search"]:
         search_query = build_text_search_query(
             search_value=params["search"],
@@ -275,12 +289,15 @@ def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str,
     end_date = filter_params.get("end_date")
     payment_method_id = filter_params.get("payment_method_id")
     reconciliation_status = filter_params.get("reconciliation_status", "")
+    amount = filter_params.get("amount")
     apply_date_filters = not str(filter_params.get("search") or "").strip()
 
     filtered: list[object] = []
     for payment in payments:
         payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
         if payment_amount.amount <= 0:
+            continue
+        if amount is not None and _money_amount(payment_amount) != amount:
             continue
         if apply_date_filters:
             if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
@@ -309,7 +326,7 @@ def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str,
     return filtered
 
 
-def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], workshop: Any, user: Any, request: HttpRequest, filter_params: dict[str, Any] | None = None) -> list[dict[str, object]]:
+def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], workshop: Any, user: Any, request: HttpRequest, filter_params: dict[str, Any] | None = None, ordering: dict[str, str | bool] | None = None) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     filter_params = filter_params or {}
 
@@ -426,6 +443,9 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 "adjustment_is_surcharge": movement.discount_mode == FinancialMovement.DiscountMode.SURCHARGE,
             }
         )
+
+    if ordering is not None:
+        rows = sort_report_rows(rows=rows, key=str(ordering["key"]), direction=str(ordering["direction"]))
     return rows
 
 
@@ -514,6 +534,10 @@ def _build_financial_movement_filter_labels(*, request: HttpRequest, workshop: A
         source = Source.objects.filter(workshop=workshop, pk=source_id).first()
         if source is not None:
             labels.append(f"Origem: {source.name}")
+
+    amount = parse_brl_amount(request.GET.get("valor"))
+    if amount is not None:
+        labels.append(f"Valor: {format_brl_amount(amount)}")
 
     search_query = str(request.GET.get("search") or request.GET.get("q") or "").strip()
     if search_query:
@@ -614,7 +638,8 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     ).order_by("-pk")
     movements.extend(list(fallback))
 
-    rows = _build_financial_movement_pdf_rows(movements=movements, workshop=workshop, user=request.user, request=request, filter_params=filter_params)
+    ordering = parse_ordering(request.GET.get("ordering"))
+    rows = _build_financial_movement_pdf_rows(movements=movements, workshop=workshop, user=request.user, request=request, filter_params=filter_params, ordering=ordering)
     totals = _build_financial_movement_pdf_totals(rows=rows)
     context = {
         "workshop": workshop,
