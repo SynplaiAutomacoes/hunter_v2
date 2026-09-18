@@ -104,7 +104,7 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
     )
 
     with transaction.atomic():
-        locked_workorder = WorkOrder.objects.select_for_update().select_related("workshop", "budget").get(pk=workorder.pk)
+        locked_workorder = WorkOrder.objects.select_for_update(of=("self",)).select_related("workshop", "budget").get(pk=workorder.pk)
 
         logger.info(
             "workorder_stock_approval_locked",

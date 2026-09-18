@@ -282,6 +282,7 @@ class Budget(TimeStampedModel):
             update_fields_set.add("first_approved_at")
             kwargs["update_fields"] = list(update_fields_set)
 
+        workorder_id_to_sync: int | None = None
         with transaction.atomic():
             if is_new and self.number is None and self.workshop_id is not None:
                 from apps.budget.services.numbering import allocate_budget_number
@@ -303,7 +304,8 @@ class Budget(TimeStampedModel):
                     budget=self,
                     defaults={"workshop": self.workshop},
                 )
-                workorder.sync_from_budget()
+                # Sync after commit so Budget row lock is released before financial/commission work.
+                workorder_id_to_sync = int(workorder.pk)
 
             if self.status == BudgetStatus.APPROVED or self.status == BudgetStatus.REJECTED or self.status == BudgetStatus.CANCELLED:
                 self.signature_token_active = False
@@ -311,6 +313,18 @@ class Budget(TimeStampedModel):
 
             if not skip_stored_refresh:
                 self.refresh_stored_total_amount()
+
+        if workorder_id_to_sync is not None:
+            sync_id = workorder_id_to_sync
+
+            def _sync_workorder_after_approve() -> None:
+                from apps.workorder.models import WorkOrder as WorkOrderModel
+
+                workorder = WorkOrderModel.objects.filter(pk=sync_id).first()
+                if workorder is not None:
+                    workorder.sync_from_budget()
+
+            transaction.on_commit(_sync_workorder_after_approve)
 
     def _sync_first_approved_at(self, *, old_status: str | None, is_new: bool) -> bool:
         """Set first_approved_at once on first transition to approved. Never clears or overwrites."""
