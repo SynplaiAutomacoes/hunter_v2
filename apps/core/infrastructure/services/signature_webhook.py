@@ -407,6 +407,10 @@ def process_signature_webhook_payload(
             if not budget.approve():
                 budget.mark_signature_approved()
                 logger.info("signature_webhook_budget_already_approved", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
+                # Heal: previous approve may have committed status before sync_from_budget failed.
+                workorder_from_budget = WorkOrder.objects.filter(budget_id=budget.pk).first()
+                if workorder_from_budget is not None:
+                    workorder_from_budget.sync_from_budget()
             else:
                 logger.info("signature_webhook_budget_approved", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
 

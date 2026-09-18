@@ -20,7 +20,7 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
         raise WorkOrderReopenError("Informe a justificativa para reabrir a O.S.")
 
     with transaction.atomic():
-        locked_workorder = WorkOrder.objects.select_for_update().select_related("budget", "workshop").get(pk=workorder.pk)
+        locked_workorder = WorkOrder.objects.select_for_update(of=("self",)).select_related("budget", "workshop").get(pk=workorder.pk)
         if locked_workorder.status not in WORKORDER_REOPENABLE_STATUSES:
             raise WorkOrderReopenError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
