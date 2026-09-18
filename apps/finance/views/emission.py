@@ -53,8 +53,19 @@ def _normalize_note_mode(value: object) -> str:
     return ""
 
 
-def _empty_nfse_config() -> dict[str, str]:
-    return {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": ""}
+def _empty_nfse_config() -> dict[str, object]:
+    return {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": "", "consumidor_final": True}
+
+
+def _coerce_consumidor_final(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized in {"false", "0", "nao", "não", "no"}:
+        return False
+    if normalized in {"true", "1", "sim", "yes"}:
+        return True
+    return True
 
 
 def bind_emission_request_view(*, request, workshop) -> EmissionRequestCreateView:
@@ -777,6 +788,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request.service_description = str((state.get("nfse_config") or {}).get("service_description") or "")
         nfse_request.additional_information = str((state.get("nfse_config") or {}).get("additional_information") or "")
         nfse_request.codigo_nbs = str((state.get("nfse_config") or {}).get("codigo_nbs") or "")
+        nfse_request.consumidor_final = _coerce_consumidor_final((state.get("nfse_config") or {}).get("consumidor_final"))
         nfse_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfse_request.discount_type_override = str(state.get("discount_type_override") or "")
         nfse_request.save()
@@ -998,6 +1010,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 "service_description": form.cleaned_data["service_description"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
                 "codigo_nbs": form.cleaned_data.get("codigo_nbs", ""),
+                "consumidor_final": bool(form.cleaned_data.get("consumidor_final", True)),
             }
             self._write_state(state)
             if self.request.POST.get("intent") == "preview":

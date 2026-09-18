@@ -980,11 +980,22 @@ class EmissionNfeConfigForm(CoreForm):
 
 
 class EmissionNfseConfigForm(CoreForm):
+    CONSUMIDOR_FINAL_CHOICES = ((True, "Sim"), (False, "Não"))
+
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     codigo_nbs = forms.CharField(
         label="Código NBS",
         required=False,
         widget=TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}),
+    )
+    consumidor_final = forms.TypedChoiceField(
+        label="Consumidor final?",
+        required=True,
+        initial=True,
+        coerce=lambda value: str(value).lower() in {"true", "1"},
+        choices=CONSUMIDOR_FINAL_CHOICES,
+        widget=SearchableSelectInput(choices=CONSUMIDOR_FINAL_CHOICES),
+        help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
     )
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
@@ -1009,6 +1020,8 @@ class EmissionNfseConfigForm(CoreForm):
             self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
 
         self.fields["codigo_nbs"].help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
+        if not self.is_bound and "consumidor_final" not in self.initial:
+            self.initial["consumidor_final"] = True
 
         default_service_description = "Prestacao de servico"
         if workorder is not None:
@@ -1031,8 +1044,12 @@ class EmissionNfseConfigForm(CoreForm):
                 HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Serviço</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Confira os serviços que compõem a Nota Fiscal de Serviço, escolha a classe fiscal e revise a descrição.</p>"),
                 Div(
-                    Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("tax_class", wrapper_class="col-span-12"),
+                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                ),
+                Div(
                     Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("consumidor_final", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
                 Field("service_description"),

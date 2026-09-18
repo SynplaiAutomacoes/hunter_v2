@@ -630,6 +630,7 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
                 "service_description": form.cleaned_data["service_description"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
                 "codigo_nbs": form.cleaned_data.get("codigo_nbs", ""),
+                "consumidor_final": bool(form.cleaned_data.get("consumidor_final", True)),
             }
             self._write_state(state)
             if self.request.POST.get("intent") == "preview":
