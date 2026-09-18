@@ -83,9 +83,20 @@ class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
 
 
 class NfseRequestStep3Form(CoreModelForm):
+    CONSUMIDOR_FINAL_CHOICES = ((True, "Sim"), (False, "Não"))
+
+    consumidor_final = forms.TypedChoiceField(
+        label="Consumidor final?",
+        required=True,
+        coerce=lambda value: str(value).lower() in {"true", "1"},
+        choices=CONSUMIDOR_FINAL_CHOICES,
+        widget=SearchableSelectInput(choices=CONSUMIDOR_FINAL_CHOICES),
+        help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
+    )
+
     class Meta:
         model = NfseRequest
-        fields = ["pricing_slider", "tax_class", "codigo_nbs", "service_description", "additional_information"]
+        fields = ["pricing_slider", "tax_class", "codigo_nbs", "consumidor_final", "service_description", "additional_information"]
         widgets = {
             "tax_class": TextInput(),
             "codigo_nbs": TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}),
@@ -131,6 +142,9 @@ class NfseRequestStep3Form(CoreModelForm):
         codigo_nbs_field = self.fields["codigo_nbs"]
         codigo_nbs_field.required = False
         codigo_nbs_field.help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
+
+        if not self.is_bound and "consumidor_final" not in self.initial:
+            self.initial["consumidor_final"] = getattr(self.instance, "consumidor_final", True)
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
         current_tax_class = str(current_tax_class_source or "").strip()
@@ -224,8 +238,12 @@ class NfseRequestStep3Form(CoreModelForm):
                 HTML("<p class='text-base-content/70 mb-6'>Revise os serviços e finalize a emissão da Nota Fiscal de Serviço.</p>"),
                 build_step5_pricing_panel_layout(prefix="nfse", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#nfse-form") if panel_data is not None else HTML(""),
                 Div(
-                    Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("tax_class", wrapper_class="col-span-12"),
+                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                ),
+                Div(
                     Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("consumidor_final", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
                 Field("service_description"),
