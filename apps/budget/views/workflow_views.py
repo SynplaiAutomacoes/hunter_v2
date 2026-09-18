@@ -1351,7 +1351,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 cancellation_responsible = self._get_service_responsible(request.POST.get("cancellation_responsible_id"))
                 if cancellation_responsible is None:
-                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento administrativo ativo desta oficina."}, status=400)
+                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento ativo desta oficina (administrativo ou pró-labore)."}, status=400)
                 budget.cancellation_reason = cancellation_reason
                 budget.cancellation_responsible = cancellation_responsible
             elif status == "reject":
@@ -1360,7 +1360,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
                 rejection_responsible = self._get_service_responsible(request.POST.get("rejection_responsible_id"))
                 if rejection_responsible is None:
-                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento administrativo ativo desta oficina."}, status=400)
+                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento ativo desta oficina (administrativo ou pró-labore)."}, status=400)
                 budget.rejection_reason = rejection_reason
                 budget.rejection_responsible = rejection_responsible
             elif status == "reopen":
@@ -1397,7 +1397,10 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 pk=int(collaborator_id or 0),
                 workshop=self.workshop,
                 is_active=True,
-                collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+                collaborator_type__in=[
+                    WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+                    WorkshopCollaborator.CollaboratorType.PRO_LABORE,
+                ],
             ).first()
         except (TypeError, ValueError):
             return None
