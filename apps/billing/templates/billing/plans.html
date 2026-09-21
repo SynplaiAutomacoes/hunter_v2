@@ -36,6 +36,11 @@
                 </li>
                 {% endfor %}
             </ul>
+            {% if plan.price_label %}
+            <p class="mt-4 text-2xl font-bold">
+                {{ plan.price_label }}{% if plan.interval_label %}<span class="text-base font-medium text-base-content/60">{{ plan.interval_label }}</span>{% endif %}
+            </p>
+            {% endif %}
             <div class="card-actions justify-end mt-6">
                 {% if not is_account_owner %}
                 <p class="text-sm text-base-content/60">Somente o dono da conta pode assinar ou alterar o plano.</p>

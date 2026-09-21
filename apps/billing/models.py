@@ -81,3 +81,63 @@ class StripeWebhookEvent(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.event_type} ({self.event_id})"
+
+
+class PendingSignupStatus(models.TextChoices):
+    PENDING = "pending", "Pendente"
+    PAID = "paid", "Pago"
+    EXPIRED = "expired", "Expirado"
+    FAILED = "failed", "Falhou"
+
+
+class PendingSignup(TimeStampedModel):
+    email = models.EmailField(verbose_name="E-mail")
+    username = models.CharField(max_length=150, verbose_name="Usuário")
+    password_hash = models.CharField(max_length=128, verbose_name="Hash da senha")
+    first_name = models.CharField(max_length=150, blank=True, default="", verbose_name="Nome")
+    last_name = models.CharField(max_length=150, blank=True, default="", verbose_name="Sobrenome")
+    cpf = models.CharField(max_length=14, verbose_name="CPF")
+    plan = models.CharField(max_length=20, choices=SubscriptionPlan.choices, verbose_name="Plano")
+    status = models.CharField(
+        max_length=20,
+        choices=PendingSignupStatus.choices,
+        default=PendingSignupStatus.PENDING,
+        verbose_name="Status",
+    )
+    stripe_customer_id = models.CharField(max_length=255, blank=True, default="", verbose_name="Cliente Stripe")
+    stripe_subscription_id = models.CharField(max_length=255, blank=True, default="", verbose_name="Assinatura Stripe")
+    stripe_payment_intent_id = models.CharField(max_length=255, blank=True, default="", verbose_name="PaymentIntent Stripe")
+    expires_at = models.DateTimeField(verbose_name="Expira em")
+    created_account = models.ForeignKey(
+        "accounts.Account",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pending_signups",
+        verbose_name="Conta criada",
+    )
+    login_token = models.CharField(max_length=64, blank=True, default="", verbose_name="Token de login")
+    login_token_used_at = models.DateTimeField(null=True, blank=True, verbose_name="Token usado em")
+
+    class Meta:
+        verbose_name = "Cadastro pendente de assinatura"
+        verbose_name_plural = "Cadastros pendentes de assinatura"
+        indexes = [
+            models.Index(fields=["email", "status"]),
+            models.Index(fields=["stripe_subscription_id"]),
+            models.Index(fields=["login_token"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["email"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_signup_email",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email} ({self.get_status_display()})"
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at

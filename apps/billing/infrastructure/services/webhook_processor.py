@@ -10,7 +10,18 @@ from django.utils.dateparse import parse_datetime
 
 from apps.billing.access import sync_subscription_from_stripe
 from apps.billing.domain.plans import Plan
-from apps.billing.models import AccountSubscription, StripeWebhookEvent, SubscriptionPlan, SubscriptionStatus
+from apps.billing.infrastructure.services.pending_signup import (
+    mark_pending_signup_failed,
+    materialize_account_from_pending_signup,
+)
+from apps.billing.models import (
+    AccountSubscription,
+    PendingSignup,
+    PendingSignupStatus,
+    StripeWebhookEvent,
+    SubscriptionPlan,
+    SubscriptionStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +130,73 @@ def process_checkout_session_completed(data: dict[str, Any]) -> AccountSubscript
     )
 
 
+def _extract_pending_signup_id(data: dict[str, Any]) -> int | None:
+    metadata = data.get("metadata") or {}
+    raw = metadata.get("pending_signup_id")
+    if raw is None:
+        parent = data.get("subscription_details") or data.get("parent") or {}
+        if isinstance(parent, dict):
+            nested_meta = parent.get("metadata") or {}
+            raw = nested_meta.get("pending_signup_id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _find_pending_signup(data: dict[str, Any]) -> PendingSignup | None:
+    pending_id = _extract_pending_signup_id(data)
+    if pending_id is not None:
+        pending = PendingSignup.objects.filter(pk=pending_id).first()
+        if pending is not None:
+            return pending
+
+    subscription_id = str(data.get("id") or data.get("subscription") or "")
+    customer_id = str(data.get("customer") or "")
+    if subscription_id:
+        pending = PendingSignup.objects.filter(stripe_subscription_id=subscription_id).first()
+        if pending is not None:
+            return pending
+    if customer_id:
+        return PendingSignup.objects.filter(stripe_customer_id=customer_id, status=PendingSignupStatus.PENDING).first()
+    return None
+
+
+def process_pending_signup_paid(data: dict[str, Any]) -> AccountSubscription | None:
+    pending = _find_pending_signup(data)
+    if pending is None:
+        return None
+
+    customer_id = str(data.get("customer") or pending.stripe_customer_id or "")
+    subscription_id = str(data.get("id") or data.get("subscription") or pending.stripe_subscription_id or "")
+    try:
+        materialized = materialize_account_from_pending_signup(
+            pending=pending,
+            stripe_customer_id=customer_id,
+            stripe_subscription_id=subscription_id,
+            stripe_price_id=_extract_price_id(data),
+            current_period_end=_parse_unix_timestamp(data.get("current_period_end")),
+        )
+    except ValueError as exc:
+        logger.warning("Falha ao materializar PendingSignup %s: %s", pending.pk, exc)
+        return None
+
+    if materialized.created_account_id is None:
+        return None
+    return AccountSubscription.objects.filter(account_id=materialized.created_account_id).first()
+
+
 def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -> AccountSubscription | None:
+    pending = _find_pending_signup(data)
+    stripe_status = str(data.get("status") or "")
+    if pending is not None and not deleted and stripe_status in ("active", "trialing"):
+        return process_pending_signup_paid(data)
+    if pending is not None and (deleted or stripe_status in ("incomplete_expired", "canceled")):
+        mark_pending_signup_failed(pending)
+        return None
+
     account_id = _extract_account_id(data)
     customer_id = str(data.get("customer") or "")
     subscription_id = str(data.get("id") or "")
@@ -135,7 +212,6 @@ def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -
         logger.warning("subscription event sem account_id: %s", subscription_id)
         return None
 
-    stripe_status = str(data.get("status") or "")
     status = SubscriptionStatus.CANCELED if deleted else STRIPE_STATUS_MAP.get(stripe_status, SubscriptionStatus.INCOMPLETE)
     plan = _plan_from_data(data)
     price_id = _extract_price_id(data)
@@ -152,7 +228,34 @@ def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -
     )
 
 
+def process_invoice_paid(data: dict[str, Any]) -> AccountSubscription | None:
+    pending = _find_pending_signup(data)
+    if pending is None:
+        subscription_id = str(data.get("subscription") or "")
+        if subscription_id:
+            pending = PendingSignup.objects.filter(stripe_subscription_id=subscription_id).first()
+    if pending is None:
+        return None
+    return process_pending_signup_paid(
+        {
+            **data,
+            "id": str(data.get("subscription") or pending.stripe_subscription_id or ""),
+            "metadata": {
+                **(data.get("metadata") or {}),
+                "pending_signup_id": str(pending.pk),
+                "plan": pending.plan,
+            },
+            "status": "active",
+        }
+    )
+
+
 def process_invoice_payment_failed(data: dict[str, Any]) -> AccountSubscription | None:
+    pending = _find_pending_signup(data)
+    if pending is not None and pending.status == PendingSignupStatus.PENDING:
+        mark_pending_signup_failed(pending)
+        return None
+
     subscription_id = str(data.get("subscription") or "")
     customer_id = str(data.get("customer") or "")
     existing = None
@@ -178,6 +281,8 @@ def process_stripe_event(*, event_type: str, data: dict[str, Any]) -> AccountSub
         return process_subscription_event(data)
     if event_type == "customer.subscription.deleted":
         return process_subscription_event(data, deleted=True)
+    if event_type == "invoice.paid":
+        return process_invoice_paid(data)
     if event_type == "invoice.payment_failed":
         return process_invoice_payment_failed(data)
     logger.info("Evento Stripe ignorado: %s", event_type)

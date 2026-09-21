@@ -4,7 +4,8 @@ import re
 from django.contrib.auth.views import LoginView, LogoutView
 from django.db import transaction
 from django.http import JsonResponse
-from django.urls import reverse_lazy
+from django.shortcuts import redirect
+from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import FormView
 from django_htmx.http import HttpResponseClientRedirect
@@ -282,6 +283,9 @@ class UserSignUpView(FormView):
     template_name = "register.html"
     form_class = SignUpForm
     success_url = reverse_lazy("accounts:login")
+
+    def dispatch(self, request, *args, **kwargs):
+        return redirect(f"{reverse('billing:subscribe')}?plan=basic")
 
     def form_valid(self, form):
         with transaction.atomic():
