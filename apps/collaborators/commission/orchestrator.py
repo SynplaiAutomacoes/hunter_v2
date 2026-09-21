@@ -61,159 +61,163 @@ class WorkOrderCommissionOrchestrator:
     """Orquestrador pool + global + fixed (v3). Idempotente e respeita PAID imutável."""
 
     def generate_commissions_for_workorder(self, workorder: WorkOrder, reference_date: date | None = None) -> list[CollaboratorCommissionEntry]:
-        # Lock workorder to avoid race
-        with transaction.atomic():
-            locked = WorkOrder.objects.select_for_update().select_related("workshop", "budget").get(pk=workorder.pk)
-            # Prefetch needed relations for calculators and collaborator checks
-            # need items for calculators: ensure _iter_items works; no extra prefetch required
-            # but fetch collaborators
-            collabs = list(locked.collaborators.all().prefetch_related("commission_rules"))
-            # Also need workorder payments for reference date
-            # Force fetch payments if not prefetched
-            if not hasattr(locked, "_prefetched_objects_cache") or "payments" not in locked._prefetched_objects_cache:
-                list(locked.payments.all())
+        from apps.core.infrastructure.db import retry_on_deadlock
 
-            if not _workorder_can_generate_commission(locked):
-                # Remove pending FORECAST for this workorder
-                CollaboratorCommissionEntry.objects.filter(workorder=locked, status=CollaboratorCommissionEntry.Status.FORECAST).delete()
-                return []
+        def _generate_once() -> list[CollaboratorCommissionEntry]:
+            # Lock only the workorder row (not related budget/workshop) to avoid Budget↔WO deadlocks.
+            with transaction.atomic():
+                locked = WorkOrder.objects.select_for_update(of=("self",)).select_related("workshop", "budget").get(pk=workorder.pk)
+                # Prefetch needed relations for calculators and collaborator checks
+                # need items for calculators: ensure _iter_items works; no extra prefetch required
+                # but fetch collaborators
+                collabs = list(locked.collaborators.all().prefetch_related("commission_rules"))
+                # Also need workorder payments for reference date
+                # Force fetch payments if not prefetched
+                if not hasattr(locked, "_prefetched_objects_cache") or "payments" not in locked._prefetched_objects_cache:
+                    list(locked.payments.all())
 
-            from apps.collaborators.commission.allocation import CommissionAllocationService
+                if not _workorder_can_generate_commission(locked):
+                    # Remove pending FORECAST for this workorder
+                    CollaboratorCommissionEntry.objects.filter(workorder=locked, status=CollaboratorCommissionEntry.Status.FORECAST).delete()
+                    return []
 
-            CommissionAllocationService.sync_for_workorder(workorder=locked)
+                from apps.collaborators.commission.allocation import CommissionAllocationService
 
-            workshop = locked.workshop
-            reference = reference_date or _resolve_commission_reference_date(locked)
+                CommissionAllocationService.sync_for_workorder(workorder=locked)
 
-            # Allocations por escopo (strict: lock para evitar corrida)
-            allocations_by_scope: dict[str, dict[int, WorkOrderCommissionAllocation]] = {"service": {}, "product": {}}
-            for alloc in WorkOrderCommissionAllocation.objects.select_for_update().filter(workorder=locked).select_related("collaborator"):
-                allocations_by_scope.setdefault(alloc.scope, {})[alloc.collaborator_id] = alloc
+                workshop = locked.workshop
+                reference = reference_date or _resolve_commission_reference_date(locked)
 
-            synced: list[CollaboratorCommissionEntry] = []
-            # Process each scope
-            for scope in ("service", "product"):
-                total_S = calculate_total_for_scope(workorder=locked, workshop=workshop, scope=scope)
-                total_S_money = _money(total_S)
-                # Segregar candidatos
-                # P_fix / P_pct: ativos, participação, colaborador ∈ WO
-                collab_ids_in_wo = {c.pk for c in collabs}
-                rules_in_wo = CollaboratorCommissionRule.objects.filter(
-                    collaborator_id__in=collab_ids_in_wo,
-                    scope=scope,
-                    is_active=True,
-                ).select_related("collaborator")
+                # Allocations por escopo (strict: lock para evitar corrida)
+                allocations_by_scope: dict[str, dict[int, WorkOrderCommissionAllocation]] = {"service": {}, "product": {}}
+                for alloc in WorkOrderCommissionAllocation.objects.select_for_update().filter(workorder=locked).select_related("collaborator"):
+                    allocations_by_scope.setdefault(alloc.scope, {})[alloc.collaborator_id] = alloc
 
-                P_fix = [r for r in rules_in_wo if r.modality == CollaboratorCommissionRule.Modality.FIXED and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
-                P_pct = [r for r in rules_in_wo if r.modality == CollaboratorCommissionRule.Modality.PERCENTAGE and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
-
-                # G: global, workshop-wide, is_active, collaborator.is_active.
-                # A regra global vigente deve alcançar todas as O.S. de venda da oficina;
-                # ``criado_em`` não representa a vigência porque a mesma regra pode ter
-                # sido alterada de participação para global.
-                G = list(
-                    CollaboratorCommissionRule.objects.filter(
+                synced: list[CollaboratorCommissionEntry] = []
+                # Process each scope
+                for scope in ("service", "product"):
+                    total_S = calculate_total_for_scope(workorder=locked, workshop=workshop, scope=scope)
+                    total_S_money = _money(total_S)
+                    # Segregar candidatos
+                    # P_fix / P_pct: ativos, participação, colaborador ∈ WO
+                    collab_ids_in_wo = {c.pk for c in collabs}
+                    rules_in_wo = CollaboratorCommissionRule.objects.filter(
+                        collaborator_id__in=collab_ids_in_wo,
                         scope=scope,
                         is_active=True,
-                        apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
-                        collaborator__workshop=workshop,
-                        collaborator__is_active=True,
                     ).select_related("collaborator")
-                )
 
-                max_pct_S = Decimal("0")
-                for r in P_pct:
-                    pct = Decimal(str(r.percentage or 0))
-                    if pct > max_pct_S:
-                        max_pct_S = pct
-                pool_S = _quantize(total_S * max_pct_S) if max_pct_S > 0 else ZERO
-                pool_S_money = _money(pool_S)
+                    P_fix = [r for r in rules_in_wo if r.modality == CollaboratorCommissionRule.Modality.FIXED and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
+                    P_pct = [r for r in rules_in_wo if r.modality == CollaboratorCommissionRule.Modality.PERCENTAGE and r.apply_scope == CollaboratorCommissionRule.ApplyScope.PARTICIPATION]
 
-                # Para Fixed (participação)
-                for rule in P_fix:
-                    commission_amount = _quantize(Decimal(str(getattr(rule.fixed_amount, "amount", 0) or 0)))
-                    origin = ORIGIN_MAP[(scope, "fixed")]
-                    entry = self._upsert_entry(
-                        collaborator=rule.collaborator,
-                        workorder=locked,
-                        workshop=workshop,
-                        origin=origin,
-                        rule=rule,
-                        base_amount=total_S_money,
-                        pool_amount=pool_S_money,
-                        distribution_pct=ZERO,
-                        commission_amount=_money(commission_amount),
-                        reference=reference,
-                        is_fixed=True,
+                    # G: global, workshop-wide, is_active, collaborator.is_active.
+                    # A regra global vigente deve alcançar todas as O.S. de venda da oficina;
+                    # ``criado_em`` não representa a vigência porque a mesma regra pode ter
+                    # sido alterada de participação para global.
+                    G = list(
+                        CollaboratorCommissionRule.objects.filter(
+                            scope=scope,
+                            is_active=True,
+                            apply_scope=CollaboratorCommissionRule.ApplyScope.GLOBAL,
+                            collaborator__workshop=workshop,
+                            collaborator__is_active=True,
+                        ).select_related("collaborator")
                     )
-                    if entry:
-                        synced.append(entry)
 
-                # Para Pct Pool (participação) — truncar ao teto individual (cap) por segurança
-                sole_pct_collaborator_id = P_pct[0].collaborator_id if len(P_pct) == 1 else None
-                for rule in P_pct:
-                    alloc = allocations_by_scope.get(scope, {}).get(rule.collaborator_id)
-                    dist_pct = Decimal(str(alloc.distribution_percentage or 0)) if alloc else ZERO
-                    if dist_pct <= ZERO and sole_pct_collaborator_id == rule.collaborator_id:
-                        dist_pct = Decimal("1")
-                    raw_commission = pool_S * dist_pct
-                    cap_commission = total_S * Decimal(str(rule.percentage or 0))
-                    commission_amount = _quantize(min(raw_commission, cap_commission))
-                    origin = ORIGIN_MAP[(scope, "pct_pool")]
-                    entry = self._upsert_entry(
-                        collaborator=rule.collaborator,
-                        workorder=locked,
-                        workshop=workshop,
-                        origin=origin,
-                        rule=rule,
-                        base_amount=total_S_money,
-                        pool_amount=pool_S_money,
-                        distribution_pct=dist_pct,
-                        commission_amount=_money(commission_amount),
-                        reference=reference,
-                        is_fixed=False,
-                    )
-                    if entry:
-                        synced.append(entry)
+                    max_pct_S = Decimal("0")
+                    for r in P_pct:
+                        pct = Decimal(str(r.percentage or 0))
+                        if pct > max_pct_S:
+                            max_pct_S = pct
+                    pool_S = _quantize(total_S * max_pct_S) if max_pct_S > 0 else ZERO
+                    pool_S_money = _money(pool_S)
 
-                # Para Global (fora do pool)
-                for rule in G:
-                    if rule.modality == CollaboratorCommissionRule.Modality.FIXED:
+                    # Para Fixed (participação)
+                    for rule in P_fix:
                         commission_amount = _quantize(Decimal(str(getattr(rule.fixed_amount, "amount", 0) or 0)))
-                        is_fixed = True
-                    else:
-                        commission_amount = _quantize(total_S * Decimal(str(rule.percentage or 0)))
-                        is_fixed = False
-                    origin = ORIGIN_MAP[(scope, "global")]
-                    entry = self._upsert_entry(
-                        collaborator=rule.collaborator,
-                        workorder=locked,
-                        workshop=workshop,
-                        origin=origin,
-                        rule=rule,
-                        base_amount=total_S_money,
-                        pool_amount=pool_S_money,
-                        distribution_pct=ZERO,
-                        commission_amount=_money(commission_amount),
-                        reference=reference,
-                        is_fixed=is_fixed,
-                    )
-                    # Garante que colaborador global esteja formalmente vinculado como colaborador da O.S. de venda
-                    if locked.budget_type == "sale" and not locked.collaborators.filter(pk=rule.collaborator_id).exists():
-                        locked.collaborators.add(rule.collaborator)
+                        origin = ORIGIN_MAP[(scope, "fixed")]
+                        entry = self._upsert_entry(
+                            collaborator=rule.collaborator,
+                            workorder=locked,
+                            workshop=workshop,
+                            origin=origin,
+                            rule=rule,
+                            base_amount=total_S_money,
+                            pool_amount=pool_S_money,
+                            distribution_pct=ZERO,
+                            commission_amount=_money(commission_amount),
+                            reference=reference,
+                            is_fixed=True,
+                        )
+                        if entry:
+                            synced.append(entry)
 
-                    if entry:
-                        synced.append(entry)
+                    # Para Pct Pool (participação) — truncar ao teto individual (cap) por segurança
+                    sole_pct_collaborator_id = P_pct[0].collaborator_id if len(P_pct) == 1 else None
+                    for rule in P_pct:
+                        alloc = allocations_by_scope.get(scope, {}).get(rule.collaborator_id)
+                        dist_pct = Decimal(str(alloc.distribution_percentage or 0)) if alloc else ZERO
+                        if dist_pct <= ZERO and sole_pct_collaborator_id == rule.collaborator_id:
+                            dist_pct = Decimal("1")
+                        raw_commission = pool_S * dist_pct
+                        cap_commission = total_S * Decimal(str(rule.percentage or 0))
+                        commission_amount = _quantize(min(raw_commission, cap_commission))
+                        origin = ORIGIN_MAP[(scope, "pct_pool")]
+                        entry = self._upsert_entry(
+                            collaborator=rule.collaborator,
+                            workorder=locked,
+                            workshop=workshop,
+                            origin=origin,
+                            rule=rule,
+                            base_amount=total_S_money,
+                            pool_amount=pool_S_money,
+                            distribution_pct=dist_pct,
+                            commission_amount=_money(commission_amount),
+                            reference=reference,
+                            is_fixed=False,
+                        )
+                        if entry:
+                            synced.append(entry)
 
-            # Limpeza de stale FORECAST (remover entradas que não foram geradas nesta execução mas existem como FORECAST)
-            synced_ids = {e.pk for e in synced if e.pk}
-            stale_qs = CollaboratorCommissionEntry.objects.filter(workorder=locked, status=CollaboratorCommissionEntry.Status.FORECAST)
-            if synced_ids:
-                stale_qs = stale_qs.exclude(pk__in=synced_ids)
-            stale_qs.delete()
+                    # Para Global (fora do pool)
+                    for rule in G:
+                        if rule.modality == CollaboratorCommissionRule.Modality.FIXED:
+                            commission_amount = _quantize(Decimal(str(getattr(rule.fixed_amount, "amount", 0) or 0)))
+                            is_fixed = True
+                        else:
+                            commission_amount = _quantize(total_S * Decimal(str(rule.percentage or 0)))
+                            is_fixed = False
+                        origin = ORIGIN_MAP[(scope, "global")]
+                        entry = self._upsert_entry(
+                            collaborator=rule.collaborator,
+                            workorder=locked,
+                            workshop=workshop,
+                            origin=origin,
+                            rule=rule,
+                            base_amount=total_S_money,
+                            pool_amount=pool_S_money,
+                            distribution_pct=ZERO,
+                            commission_amount=_money(commission_amount),
+                            reference=reference,
+                            is_fixed=is_fixed,
+                        )
+                        # Garante que colaborador global esteja formalmente vinculado como colaborador da O.S. de venda
+                        if locked.budget_type == "sale" and not locked.collaborators.filter(pk=rule.collaborator_id).exists():
+                            locked.collaborators.add(rule.collaborator)
 
-            return synced
+                        if entry:
+                            synced.append(entry)
 
+                # Limpeza de stale FORECAST (remover entradas que não foram geradas nesta execução mas existem como FORECAST)
+                synced_ids = {e.pk for e in synced if e.pk}
+                stale_qs = CollaboratorCommissionEntry.objects.filter(workorder=locked, status=CollaboratorCommissionEntry.Status.FORECAST)
+                if synced_ids:
+                    stale_qs = stale_qs.exclude(pk__in=synced_ids)
+                stale_qs.delete()
+
+                return synced
+
+        return retry_on_deadlock(_generate_once)
     def sync_collaborator_commissions(self, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> list[CollaboratorCommissionEntry]:
         """Compatibilidade: apura comissões de todas as WOs relevantes ao colaborador (mês alvo)."""
         from apps.collaborators.services import _resolve_payroll_reference_date_from_lookup, _resolve_reference_date

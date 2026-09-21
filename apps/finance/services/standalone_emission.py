@@ -37,6 +37,17 @@ def line_has_valid_ncm(*, line: dict[str, Any]) -> bool:
     return len(normalize_ncm(line.get("ncm"))) == 8
 
 
+def _coerce_consumidor_final(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized in {"false", "0", "nao", "não", "no"}:
+        return False
+    if normalized in {"true", "1", "sim", "yes"}:
+        return True
+    return True
+
+
 def default_standalone_state() -> dict[str, Any]:
     return {
         "current_step": 1,
@@ -48,7 +59,7 @@ def default_standalone_state() -> dict[str, Any]:
         "nfe_lines": [],
         "nfse_lines": [],
         "nfe_config": {"tax_class": "", "additional_information": "", "freight_mode": "9", "transport_snapshot": {}},
-        "nfse_config": {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": ""},
+        "nfse_config": {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": "", "consumidor_final": True},
         "nfe_request_id": None,
         "nfse_request_id": None,
         "nfe_done": False,
@@ -199,6 +210,7 @@ def get_or_create_standalone_nfse_request(*, workshop: Any, state: dict[str, Any
     nfse_request.service_description = str(nfse_config.get("service_description") or "")
     nfse_request.additional_information = str(nfse_config.get("additional_information") or "")
     nfse_request.codigo_nbs = str(nfse_config.get("codigo_nbs") or "")
+    nfse_request.consumidor_final = _coerce_consumidor_final(nfse_config.get("consumidor_final"))
     nfse_request.pricing_slider = 0
     nfse_request.discount_type_override = ""
     nfse_request.save()

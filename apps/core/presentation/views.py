@@ -51,6 +51,31 @@ MESES_PT: list[str] = [
 ]
 
 
+class LandingPageView(TemplateView):
+    template_name = "core/landing.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        from apps.billing.infrastructure.providers import get_billing_service
+
+        context = super().get_context_data(**kwargs)
+        subscribe_url = reverse("billing:subscribe")
+        plans = get_billing_service().list_public_plans()
+        context["plans"] = [
+            {
+                "key": plan.key,
+                "name": plan.name,
+                "description": plan.description,
+                "features": plan.features,
+                "price_label": plan.price_label,
+                "interval_label": plan.interval_label,
+                "cta_url": f"{subscribe_url}?plan={plan.key}",
+            }
+            for plan in plans
+        ]
+        context["plans_cta_url"] = f"{subscribe_url}?plan=basic"
+        return context
+
+
 class DashboardView(HtmxTemplateResponseMixin, TemplateView):
     template_name = "partials/dashboard.html"
 

@@ -100,6 +100,16 @@ class FinanceMigrationHistoryTests(SimpleTestCase):
             },
         )
 
+    def test_staging_amount_index_and_nfse_are_merged_at_tip(self) -> None:
+        deps = _finance_dependencies("0072_merge_nfse_consumidor_final_and_staging")
+        self.assertEqual(
+            set(deps),
+            {
+                "0070_nfserequest_consumidor_final",
+                "0071_merge_amount_index_and_transfer",
+            },
+        )
+
 
 class IdempotentMigrationStateTests(SimpleTestCase):
     def test_duplicate_create_add_index_constraint_are_state_safe(self) -> None:

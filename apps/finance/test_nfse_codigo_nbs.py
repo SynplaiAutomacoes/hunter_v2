@@ -33,11 +33,12 @@ class CleanRequiredCodigoNbsTests(SimpleTestCase):
 
 
 class EmissionNfseConfigFormCodigoNbsTests(SimpleTestCase):
-    def _form(self, **overrides: str) -> EmissionNfseConfigForm:
+    def _form(self, **overrides: object) -> EmissionNfseConfigForm:
         data = {
             "tax_class": "REF1",
             "service_description": "Prestação de serviço",
             "codigo_nbs": "115021000",
+            "consumidor_final": True,
             **overrides,
         }
         return EmissionNfseConfigForm(data=data, tax_class_choices=[("REF1", "Classe 1")])
@@ -52,13 +53,24 @@ class EmissionNfseConfigFormCodigoNbsTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["codigo_nbs"], "")
 
+    def test_consumidor_final_sim_is_true(self) -> None:
+        form = self._form(consumidor_final=True)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIs(form.cleaned_data["consumidor_final"], True)
+
+    def test_consumidor_final_nao_is_false(self) -> None:
+        form = self._form(consumidor_final=False)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIs(form.cleaned_data["consumidor_final"], False)
+
 
 class BuildNfsePayloadCodigoNbsTests(SimpleTestCase):
-    def _request(self, *, codigo_nbs: str) -> SimpleNamespace:
+    def _request(self, *, codigo_nbs: str, consumidor_final: bool = True) -> SimpleNamespace:
         return SimpleNamespace(
             pk=11,
             tax_class="REF000001",
             codigo_nbs=codigo_nbs,
+            consumidor_final=consumidor_final,
             reserved_rps_number=None,
             reserved_rps_series="",
             workorder=SimpleNamespace(pk=22),
@@ -84,3 +96,23 @@ class BuildNfsePayloadCodigoNbsTests(SimpleTestCase):
     def test_payload_omits_blank_codigo_nbs(self, *_mocks: object) -> None:
         payload = build_nfse_payload(nfse_request=self._request(codigo_nbs=""))
         self.assertNotIn("codigo_nbs", payload["rps"][0]["servico"])
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    @patch("apps.core.infrastructure.services.webmania.emission.build_webmania_webhook_url", return_value="https://example.test/hook")
+    @patch("apps.core.infrastructure.services.webmania.emission._build_taker_payload", return_value={"cpf": "00000000000"})
+    @patch("apps.core.infrastructure.services.webmania.emission._additional_information", return_value="")
+    @patch("apps.core.infrastructure.services.webmania.emission._default_service_description", return_value="Serviço")
+    @patch("apps.core.infrastructure.services.webmania.emission.calculate_nfse_service_total", return_value="100.00")
+    def test_payload_maps_consumidor_final_true_to_one(self, *_mocks: object) -> None:
+        payload = build_nfse_payload(nfse_request=self._request(codigo_nbs="", consumidor_final=True))
+        self.assertEqual(payload["rps"][0]["servico"]["consumidor_final"], 1)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    @patch("apps.core.infrastructure.services.webmania.emission.build_webmania_webhook_url", return_value="https://example.test/hook")
+    @patch("apps.core.infrastructure.services.webmania.emission._build_taker_payload", return_value={"cnpj": "00000000000000"})
+    @patch("apps.core.infrastructure.services.webmania.emission._additional_information", return_value="")
+    @patch("apps.core.infrastructure.services.webmania.emission._default_service_description", return_value="Serviço")
+    @patch("apps.core.infrastructure.services.webmania.emission.calculate_nfse_service_total", return_value="100.00")
+    def test_payload_maps_consumidor_final_false_to_zero(self, *_mocks: object) -> None:
+        payload = build_nfse_payload(nfse_request=self._request(codigo_nbs="", consumidor_final=False))
+        self.assertEqual(payload["rps"][0]["servico"]["consumidor_final"], 0)

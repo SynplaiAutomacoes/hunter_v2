@@ -12,6 +12,7 @@ from django.urls import reverse_lazy
 from django.views.generic import FormView, TemplateView
 
 from apps.collaborators.models import WorkshopMember
+from apps.iam.models import WorkshopRole
 from apps.notifications.domain.services.notification_service import NotificationService
 from apps.workshops.forms.system_management import NotificationBroadcastForm
 from apps.workshops.models.workshops import Workshop
@@ -47,6 +48,14 @@ class NotificationBroadcastView(SystemManagementMixin, FormView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
 
+        # Buscar todas as roles criadas exclusivamente pelo sistema
+        system_roles = list(
+            WorkshopRole.objects.filter(is_system=True)
+            .values_list("name", flat=True)
+            .distinct()
+            .order_by("name")
+        )
+
         # Buscar todos os membros ativos das oficinas para preenchimento de modais e relações
         memberships = (
             WorkshopMember.objects.filter(
@@ -67,6 +76,7 @@ class NotificationBroadcastView(SystemManagementMixin, FormView):
             u_id = str(m.user_id)
             user_display = m.user.get_full_name() or m.user.username
             role_name = m.role.name if m.role else "Sem cargo"
+            is_system_role = bool(m.role and m.role.is_system)
 
             if w_id not in workshop_members_map:
                 workshop_members_map[w_id] = []
@@ -88,11 +98,14 @@ class NotificationBroadcastView(SystemManagementMixin, FormView):
                     "name": user_display,
                     "username": m.user.username,
                     "roles": [role_name] if m.role else [],
+                    "system_roles": [m.role.name] if is_system_role else [],
                     "workshops": [m.workshop.name],
                 }
             else:
                 if m.role and role_name not in user_info_map[u_id]["roles"]:
                     user_info_map[u_id]["roles"].append(role_name)
+                if is_system_role and m.role.name not in user_info_map[u_id]["system_roles"]:
+                    user_info_map[u_id]["system_roles"].append(m.role.name)
                 if m.workshop.name not in user_info_map[u_id]["workshops"]:
                     user_info_map[u_id]["workshops"].append(m.workshop.name)
 
@@ -105,6 +118,7 @@ class NotificationBroadcastView(SystemManagementMixin, FormView):
                     "name": u.get_full_name() or u.username,
                     "username": u.username,
                     "roles": [],
+                    "system_roles": [],
                     "workshops": [],
                 }
 
@@ -117,6 +131,7 @@ class NotificationBroadcastView(SystemManagementMixin, FormView):
             "workshop_members": workshop_members_map,
             "user_workshops": user_workshops_map,
             "user_info": user_info_map,
+            "system_roles": system_roles,
         })
         return context
 
