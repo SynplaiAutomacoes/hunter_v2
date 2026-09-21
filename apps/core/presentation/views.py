@@ -280,10 +280,11 @@ class DashboardFinancialReportView(View):
             "is_budget_report": report_data.is_budget_report,
             "report_rows": report_data.rows,
             "workorder_groups": report_data.workorder_groups,
+            "daily_sales_groups": report_data.daily_sales_groups,
             "summary_count": report_data.summary_count,
             "record_count": report_data.record_count,
             "value_column_label": report_data.value_column_label,
-            "is_grouped_report": bool(report_data.workorder_groups),
+            "is_grouped_report": bool(report_data.workorder_groups or report_data.daily_sales_groups),
             "download_url": f"{reverse('core:dashboard_financial_report')}?download=1&{report_querystring}",
             "excel_download_url": f"{reverse('core:dashboard_financial_report_excel')}?{report_querystring}",
             "report_querystring": report_querystring,
@@ -292,7 +293,8 @@ class DashboardFinancialReportView(View):
             "warranty_count": warranty_count,
             "courtesy_count": courtesy_count,
             "summary_count_label": (
-                "Quantidade de Veículos" if indicador in ("carros_mes", "garantia_cortesia_mes")
+                "Quantidade de Dias com Vendas" if indicador == "total_vendido"
+                else "Quantidade de Veículos" if indicador in ("carros_mes", "garantia_cortesia_mes")
                 else "Quantidade de veículos/grupos de O.S." if indicador == "total_vendido"
                 else "Quantidade de Registros"
             ),

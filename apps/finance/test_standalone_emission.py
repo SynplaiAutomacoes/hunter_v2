@@ -10,15 +10,19 @@ from django.urls import resolve, reverse
 
 from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, _build_taker_payload, calculate_nfse_service_total
 from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, _build_customer_payload, _build_nfe_products_payload
+from apps.finance.forms.emission import EmissionNfeConfigForm
 from apps.finance.forms.fiscal_gateway import EmissionLinkage, FiscalOperation, FiscalOperationGatewayForm, NoteDocument
 from apps.finance.forms.standalone_emission import (
+    StandaloneAddProductForm,
     StandaloneManualProductForm,
     StandaloneRecipientForm,
     _render_product_lines_html,
     build_standalone_items_form,
 )
 from apps.finance.models.finance import NfeRequest
+from apps.finance.services.emission_ncm import extract_ncm_updates_from_post
 from apps.finance.services.fiscal_recipient import validate_recipient_snapshot
+from apps.finance.services.standalone_emission import product_line_from_catalog
 from apps.finance.views.fiscal_gateway import FiscalOperationGatewayView
 from apps.finance.views.navigation import IssuedDocumentsRedirectView, build_issued_documents_list_url
 from apps.finance.views.ncm_validation import (
@@ -120,6 +124,7 @@ class StandaloneRecipientValidationTests(SimpleTestCase):
     def test_recipient_form_accepts_minimal_pf_payload(self) -> None:
         form = StandaloneRecipientForm(
             {
+                "recipient_mode": "guest",
                 "customer_type": "PF",
                 "cpf_or_cnpj": "39053344705",
                 "name": "Destinatario Avulso",
@@ -135,6 +140,44 @@ class StandaloneRecipientValidationTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["recipient_snapshot"]["estado"], "MG")
         self.assertEqual(form.cleaned_data["recipient_snapshot"]["cpf_or_cnpj"], "39053344705")
+        self.assertEqual(form.cleaned_data["recipient_mode"], "guest")
+
+    def test_recipient_form_requires_customer_in_registered_mode(self) -> None:
+        form = StandaloneRecipientForm({"recipient_mode": "registered"})
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("customer", form.errors)
+
+    def test_recipient_form_wires_customer_search_url_when_workshop_provided(self) -> None:
+        workshop = SimpleNamespace(pk=99)
+        form = StandaloneRecipientForm(workshop=workshop)
+
+        self.assertEqual(
+            form.fields["customer"].widget.attrs.get("data-source-url"),
+            reverse("finance:standalone_customer_search"),
+        )
+        self.assertEqual(form.fields["customer"].widget.attrs.get("data-min-search-length"), "0")
+
+    def test_nfe_config_label_and_cfop_block(self) -> None:
+        form = EmissionNfeConfigForm(
+            tax_class_choices=[("REF1", "Saída de produto")],
+            tax_class_cfop_map={"REF1": "5102, 6102"},
+            standalone_nfe_lines=[{"description": "Filtro", "ncm": "12345678", "quantity": "1", "unit_value": "10", "total_value": "10"}],
+        )
+
+        self.assertEqual(form.fields["tax_class"].label, "Selecione a classe de imposto correta")
+        from django.template import Context, Template
+
+        rendered = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+        self.assertIn("CFOP", rendered)
+        self.assertIn("ncm_line_0", rendered)
+        self.assertIn("Para configurar o CFOP", rendered)
+
+
+class EmissionNcmHelperTests(SimpleTestCase):
+    def test_extract_ncm_updates_from_post(self) -> None:
+        updates = extract_ncm_updates_from_post({"ncm_product_12": "12.345.678", "other": "x"})
+        self.assertEqual(updates, {12: "12345678"})
 
 
 class StandaloneItemsFormTests(SimpleTestCase):
@@ -203,6 +246,48 @@ class StandaloneNcmValidationTests(SimpleTestCase):
         )
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["ncm"], "73269090")
+
+    def test_add_product_form_includes_and_normalizes_ncm(self) -> None:
+        form = StandaloneAddProductForm()
+        self.assertIn("ncm", form.fields)
+        form.cleaned_data = {"ncm": "7326.90.90"}
+        self.assertEqual(form.clean_ncm(), "73269090")
+
+    def test_product_line_from_catalog_uses_submitted_ncm(self) -> None:
+        product = SimpleNamespace(
+            pk=11,
+            name="Filtro de óleo",
+            code="FO-01",
+            ncm="11111111",
+            cest="",
+            unit="UN",
+            origin_cst=0,
+            selling_price=SimpleNamespace(amount=Decimal("25.00")),
+            cost_price=SimpleNamespace(amount=Decimal("10.00")),
+        )
+        line = product_line_from_catalog(
+            product=product,  # type: ignore[arg-type]
+            quantity=Decimal("2"),
+            ncm="7326.90.90",
+        )
+        self.assertEqual(line["ncm"], "73269090")
+        self.assertEqual(line["product_id"], 11)
+        self.assertEqual(line["total_value"], "50.00")
+
+    def test_product_line_from_catalog_falls_back_to_product_ncm(self) -> None:
+        product = SimpleNamespace(
+            pk=12,
+            name="Filtro de ar",
+            code="FA-01",
+            ncm="8421.23.00",
+            cest="",
+            unit="UN",
+            origin_cst=0,
+            selling_price=SimpleNamespace(amount=Decimal("15.00")),
+            cost_price=SimpleNamespace(amount=Decimal("5.00")),
+        )
+        line = product_line_from_catalog(product=product, quantity=Decimal("1"))  # type: ignore[arg-type]
+        self.assertEqual(line["ncm"], "84212300")
 
     def test_product_lines_html_shows_ncm_warning_icon(self) -> None:
         html = _render_product_lines_html(

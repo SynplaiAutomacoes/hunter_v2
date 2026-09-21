@@ -150,6 +150,7 @@ class FinancialMovement(TimeStampedModel):
             models.Index(fields=["workshop", "due_date"], name="fin_mov_ws_due_idx"),
             models.Index(fields=["workshop", "direction", "movement_kind"], name="fin_mov_ws_dir_kind_idx"),
             models.Index(fields=["workshop", "is_paid", "due_date"], name="fin_mov_ws_paid_due_idx"),
+            models.Index(fields=["workshop", "amount"], name="fin_mov_ws_amt_idx"),
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:

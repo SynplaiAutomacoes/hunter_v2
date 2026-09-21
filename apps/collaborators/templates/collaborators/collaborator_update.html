@@ -715,10 +715,10 @@
                             >
                                 Resumo
                             </button>
-                            {% if payroll.financial_movement %}
-                                <a href="{% url 'finance:reports_home' %}?search={{ payroll.financial_movement.description|urlencode }}" class="btn btn-ghost btn-xs">Ver no financeiro</a>
+                            {% if payroll.primary_financial_movement %}
+                                <a href="{% url 'finance:reports_home' %}?search={{ payroll.primary_financial_movement.description|urlencode }}" class="btn btn-ghost btn-xs">Ver no financeiro</a>
                             {% endif %}
-                            {% if payroll.financial_movement and payroll.status != 'PAID' %}
+                            {% if payroll.status != 'PAID' %}
                                 <form method="post" action="{% url 'collaborators:collaborator_payroll_mark_paid' form.instance.pk payroll.pk %}">
                                     {% csrf_token %}
                                     <input type="hidden" name="tab" value="historico">

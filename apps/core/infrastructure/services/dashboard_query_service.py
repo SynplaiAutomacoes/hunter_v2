@@ -145,6 +145,15 @@ class FinancialIndicatorWorkOrderGroup:
 
 
 @dataclass(frozen=True)
+class FinancialIndicatorDailySalesGroup:
+    """Sales report rows consolidated by the day shown to the manager."""
+
+    sales_date: date
+    items: list[WorkOrder]
+    total: Decimal
+
+
+@dataclass(frozen=True)
 class FinancialIndicatorReportData:
     indicator: str
     report_title: str
@@ -157,6 +166,7 @@ class FinancialIndicatorReportData:
     value_column_label: str
     rows: list[Any]
     workorder_groups: list[FinancialIndicatorWorkOrderGroup]
+    daily_sales_groups: list[FinancialIndicatorDailySalesGroup]
 
 
 # ─── Pure utility functions ───────────────────────────────────────────────────
@@ -538,6 +548,30 @@ def _resolve_value_column_label(indicator: str) -> str:
     return "Valor total"
 
 
+def _get_sales_report_date(item: WorkOrder) -> date:
+    """Use the delivery day when available, preserving a usable date for older OSs."""
+    value = item.delivered_at or item.criado_em
+    return value.date() if hasattr(value, "date") else value
+
+
+def _build_daily_sales_groups(*, items: list[WorkOrder], indicator: str) -> list[FinancialIndicatorDailySalesGroup]:
+    grouped: dict[date, list[WorkOrder]] = {}
+    for item in items:
+        grouped.setdefault(_get_sales_report_date(item), []).append(item)
+
+    return [
+        FinancialIndicatorDailySalesGroup(
+            sales_date=sales_date,
+            items=day_items,
+            total=sum(
+                (resolve_indicator_row_amount(item=item, indicator=indicator, is_budget_report=False) for item in day_items),
+                Decimal("0.00"),
+            ),
+        )
+        for sales_date, day_items in sorted(grouped.items(), reverse=True)
+    ]
+
+
 def build_financial_indicator_report_data(*, indicator: str, month: int, year: int, items: list[Any], is_budget_report: bool) -> FinancialIndicatorReportData:
     report_title, _ = INDICATOR_LABELS[indicator]
     periodo_label = f"{MONTH_LABELS_PT[month]} de {year}"
@@ -582,13 +616,19 @@ def _build_budget_report(*, indicator: str, report_title: str, periodo_label: st
         value_column_label=value_column_label,
         rows=items,
         workorder_groups=[],
+        daily_sales_groups=[],
     )
 
 
 def _build_workorder_report(*, indicator: str, report_title: str, periodo_label: str, items_label: str, items: list[Any]) -> FinancialIndicatorReportData:
-    workorder_groups = _build_workorder_groups(items=items, indicator=indicator)
-    total_value = sum((group.group_total for group in workorder_groups), Decimal("0.00"))
-    summary_count = len(workorder_groups)
+    daily_sales_groups = _build_daily_sales_groups(items=items, indicator=indicator) if indicator == "total_vendido" else []
+    workorder_groups = [] if daily_sales_groups else _build_workorder_groups(items=items, indicator=indicator)
+    total_value = (
+        sum((group.total for group in daily_sales_groups), Decimal("0.00"))
+        if daily_sales_groups
+        else sum((group.group_total for group in workorder_groups), Decimal("0.00"))
+    )
+    summary_count = len(daily_sales_groups) if daily_sales_groups else len(workorder_groups)
 
     if indicator == "carros_mes":
         total_value = sum((resolve_decimal_amount(item.total_budget_value) for item in items), Decimal("0.00"))
@@ -613,6 +653,7 @@ def _build_workorder_report(*, indicator: str, report_title: str, periodo_label:
         value_column_label=_resolve_value_column_label(indicator),
         rows=[],
         workorder_groups=workorder_groups,
+        daily_sales_groups=daily_sales_groups,
     )
 
 
