@@ -151,7 +151,7 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
 
 
 @transaction.atomic
-def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovement | None:
+def _sync_workorder_financial_movement_core(*, workorder: WorkOrder) -> FinancialMovement | None:
     if workorder.budget_type in ("warranty", "courtesy"):
         return None
 
@@ -217,17 +217,26 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         stale_payment_movements = stale_payment_movements.exclude(workorder_payment_id__in=active_payment_ids)
     stale_payment_movements.delete()
 
-    movement = (
+    if active_payment_ids:
+        # Payment-linked parents already cover the OS — drop leftover aggregate parents.
         FinancialMovement.objects.filter(
             workorder=workorder,
             movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            workorder_payment__isnull=True,
             reversal_of__isnull=True,
+        ).exclude(pk__in=reversed_movement_ids).delete()
+        movement = (
+            FinancialMovement.objects.filter(
+                workorder=workorder,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder_payment__isnull=False,
+                reversal_of__isnull=True,
+            )
+            .exclude(pk__in=reversed_movement_ids)
+            .order_by("pk")
+            .first()
         )
-        .exclude(pk__in=reversed_movement_ids)
-        .order_by("pk")
-        .first()
-    )
-    if movement is not None and movement.workorder_payment_id is not None:
+    else:
         movement = (
             FinancialMovement.objects.filter(
                 workorder=workorder,
@@ -239,25 +248,48 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
             .order_by("pk")
             .first()
         )
-    if movement is None:
-        movement = FinancialMovement.objects.filter(workorder=workorder, workorder_payment__isnull=True, reversal_of__isnull=True).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
+        if movement is None:
+            movement = FinancialMovement.objects.filter(workorder=workorder, workorder_payment__isnull=True, reversal_of__isnull=True).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
 
-    if movement is None:
-        movement = FinancialMovement.objects.create(workorder=workorder, is_paid=False, is_reconciled=False, **defaults)
-    else:
-        for field_name, field_value in defaults.items():
-            setattr(movement, field_name, field_value)
-        movement.save(update_fields=[*defaults.keys()])
+        if movement is None:
+            movement = FinancialMovement.objects.create(workorder=workorder, is_paid=False, is_reconciled=False, **defaults)
+        else:
+            for field_name, field_value in defaults.items():
+                setattr(movement, field_name, field_value)
+            movement.save(update_fields=[*defaults.keys()])
 
     sync_workorder_card_fee_movements(workorder=workorder)
-    # Comissão v3 — gerar pool (idempotente, respeita PAID)
-    try:
-        from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+    return movement
 
+
+def _run_workorder_commission_and_payroll(*, workorder: WorkOrder) -> None:
+    import logging
+
+    from apps.collaborators.commission.orchestrator import WorkOrderCommissionOrchestrator
+
+    try:
         WorkOrderCommissionOrchestrator().generate_commissions_for_workorder(workorder=workorder)
     except Exception:  # pragma: no cover
-        import logging
-
         logging.getLogger(__name__).exception("workorder_commission_orchestrator_failed", extra={"workorder_id": workorder.pk})
     sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=resolve_workorder_payroll_reference_date(workorder=workorder))
+
+
+def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovement | None:
+    """Sync workorder financial movements, then commissions/payroll after the financial commit."""
+    movement = _sync_workorder_financial_movement_core(workorder=workorder)
+    if workorder.budget_type in ("warranty", "courtesy"):
+        return None
+
+    workorder_id = int(workorder.pk)
+
+    def _after_financial_commit() -> None:
+        refreshed = WorkOrder.objects.filter(pk=workorder_id).select_related("budget", "workshop").first()
+        if refreshed is None:
+            return
+        _run_workorder_commission_and_payroll(workorder=refreshed)
+
+    if transaction.get_connection().in_atomic_block:
+        transaction.on_commit(_after_financial_commit)
+    else:
+        _after_financial_commit()
     return movement

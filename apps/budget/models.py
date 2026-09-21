@@ -59,8 +59,15 @@ class SignatureStatus(models.TextChoices):
 
 class BudgetType(models.TextChoices):
     SALE = "sale", "Venda"
+    DIRECT_SALE = "direct_sale", "Venda Direta"
     WARRANTY = "warranty", "Garantia"
     COURTESY = "courtesy", "Cortesia"
+
+
+# Tipos que representam receita.  Eles não devem ser usados para métricas de
+# veículos: Venda Direta pode ter veículo informado facultativamente, mas nunca
+# representa a entrada/saída de um veículo na oficina.
+REVENUE_BUDGET_TYPES = (BudgetType.SALE, BudgetType.DIRECT_SALE)
 
 
 class BudgetItemBenefitType(models.TextChoices):
@@ -275,6 +282,7 @@ class Budget(TimeStampedModel):
             update_fields_set.add("first_approved_at")
             kwargs["update_fields"] = list(update_fields_set)
 
+        workorder_id_to_sync: int | None = None
         with transaction.atomic():
             if is_new and self.number is None and self.workshop_id is not None:
                 from apps.budget.services.numbering import allocate_budget_number
@@ -287,7 +295,7 @@ class Budget(TimeStampedModel):
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
-                if self.vehicle_id and self.current_km is not None:
+                if self.budget_type != BudgetType.DIRECT_SALE and self.vehicle_id and self.current_km is not None:
                     from apps.customer.services.oil_change import handle_budget_approved_mileage
 
                     handle_budget_approved_mileage(budget=self)
@@ -296,7 +304,8 @@ class Budget(TimeStampedModel):
                     budget=self,
                     defaults={"workshop": self.workshop},
                 )
-                workorder.sync_from_budget()
+                # Sync after commit so Budget row lock is released before financial/commission work.
+                workorder_id_to_sync = int(workorder.pk)
 
             if self.status == BudgetStatus.APPROVED or self.status == BudgetStatus.REJECTED or self.status == BudgetStatus.CANCELLED:
                 self.signature_token_active = False
@@ -304,6 +313,18 @@ class Budget(TimeStampedModel):
 
             if not skip_stored_refresh:
                 self.refresh_stored_total_amount()
+
+        if workorder_id_to_sync is not None:
+            sync_id = workorder_id_to_sync
+
+            def _sync_workorder_after_approve() -> None:
+                from apps.workorder.models import WorkOrder as WorkOrderModel
+
+                workorder = WorkOrderModel.objects.filter(pk=sync_id).first()
+                if workorder is not None:
+                    workorder.sync_from_budget()
+
+            transaction.on_commit(_sync_workorder_after_approve)
 
     def _sync_first_approved_at(self, *, old_status: str | None, is_new: bool) -> bool:
         """Set first_approved_at once on first transition to approved. Never clears or overwrites."""
@@ -538,7 +559,7 @@ class Budget(TimeStampedModel):
         custo_pecas = breakdown.products_unit_cost
         custo_servico_terceiro = breakdown.third_party_cost
         custo_frete_servico = breakdown.services_freight
-        custo_total_mao_obra = breakdown.labor_cost
+        custo_total_mao_obra = self.pricing_snapshot.total_labor_cost_value
         custo_frete_pecas = breakdown.products_freight
 
         # Venda
@@ -571,7 +592,7 @@ class Budget(TimeStampedModel):
         custo_servico_terceiro = breakdown.third_party_cost
         custo_frete_servicos = breakdown.services_freight
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
-        custo_total_mao_obra = breakdown.labor_cost
+        custo_total_mao_obra = self.pricing_snapshot.total_labor_cost_value
 
         # Valores de Venda
         venda_pecas = self.total_products_value
@@ -632,14 +653,22 @@ class Budget(TimeStampedModel):
             "valor_orcamento": valor_orcamento_hun,
         }
 
-        # Prefer traditional when more profitable; only then attach heavy MLR/MLO extras.
+        # Method badge still compares Traditional vs Hunter, but displayed money
+        # always follows the charged budget — never the hypothetical traditional hour.
         if rentabilidade_trad > rentabilidade_hun:
-            return data_trad
+            chosen = dict(data_trad)
+        else:
+            chosen = dict(data_hun)
+            if include_method_extras:
+                chosen["mlr"] = self.get_mlr
+                chosen["mlo"] = self.get_mlo
 
-        if include_method_extras:
-            data_hun["mlr"] = self.get_mlr
-            data_hun["mlo"] = self.get_mlo
-        return data_hun
+        chosen["custo_total_mao_obra"] = custo_total_mao_obra
+        chosen["lucro_operacional"] = lucro_operacional_hun
+        chosen["rentabilidade"] = rentabilidade_hun
+        chosen["valor_orcamento"] = valor_orcamento_hun
+        chosen["venda_mao_obra"] = venda_mao_obra_hun
+        return chosen
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
         breakdown = self.step4_pricing_breakdown
@@ -934,6 +963,9 @@ class Budget(TimeStampedModel):
 
     @property
     def type_budget_badge(self):
+        if self.budget_type == BudgetType.DIRECT_SALE:
+            return {"text": "Venda Direta", "class": "badge-reopened-after-delivery"}
+
         if self.is_warranty_budget or self.budget_type == BudgetType.WARRANTY:
             return {"text": "Garantia", "class": "badge-error"}
 

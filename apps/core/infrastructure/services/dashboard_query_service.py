@@ -15,7 +15,7 @@ from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetStatus, BudgetType
+from apps.budget.models import Budget, BudgetStatus, BudgetType, REVENUE_BUDGET_TYPES
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, budget_kit_overrides_prefetch, workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
@@ -215,7 +215,7 @@ def _aggregate_revenue(*, workshop_id: int, month: int, year: int) -> Decimal:
         WorkOrderPaymentMethod.objects.filter(
             workorder__workshop_id=workshop_id,
             workorder__status__in=WORKORDER_REVENUE_STATUSES,
-            workorder__budget_type="sale",
+            workorder__budget_type__in=REVENUE_BUDGET_TYPES,
             due_date__month=month,
             due_date__year=year,
         )
@@ -235,7 +235,7 @@ def _get_workorder_ids_from_payments(*, workshop_id: int, month: int, year: int)
         WorkOrderPaymentMethod.objects.filter(
             workorder__workshop_id=workshop_id,
             workorder__status__in=WORKORDER_REVENUE_STATUSES,
-            workorder__budget_type="sale",
+            workorder__budget_type__in=REVENUE_BUDGET_TYPES,
             due_date__month=month,
             due_date__year=year,
         )
@@ -851,7 +851,7 @@ class DashboardQueryService:
 
     @staticmethod
     def _compute_delivery_counts(*, sale_workorders: list[WorkOrder], warranty_workorders: list[WorkOrder]) -> tuple[int, int, float]:
-        cars_this_month = _count_unique_vehicle_groups(sale_workorders)
+        cars_this_month = _count_unique_vehicle_groups([wo for wo in sale_workorders if wo.budget_type == BudgetType.SALE])
         warranty_courtesy_cars = sum(1 for wo in warranty_workorders if wo.budget.reference_budget_id is None)
         warranty_count = sum(1 for wo in warranty_workorders if wo.budget_type == "warranty")
         total_cars_with_warranty = cars_this_month + warranty_count
@@ -956,7 +956,7 @@ class DashboardQueryService:
             WorkOrderPaymentMethod.objects.filter(
                 workorder__workshop_id=workshop_id,
                 workorder__status__in=WORKORDER_REVENUE_STATUSES,
-                workorder__budget_type="sale",
+                workorder__budget_type__in=REVENUE_BUDGET_TYPES,
                 due_date__month=selected_month,
                 due_date__year=selected_year,
             )
@@ -976,7 +976,7 @@ class DashboardQueryService:
             WorkOrderPaymentMethod.objects.filter(
                 workorder__workshop_id=workshop_id,
                 workorder__status__in=WORKORDER_REVENUE_STATUSES,
-                workorder__budget_type="sale",
+                workorder__budget_type__in=REVENUE_BUDGET_TYPES,
                 due_date=today,
             )
             .annotate(
@@ -1013,7 +1013,7 @@ class DashboardQueryService:
             stored_total = getattr(workorder, "stored_total_amount", None)
             display_total = stored_total if stored_total is not None else Money(0, "BRL")
             setattr(workorder, "dashboard_display_total", display_total)
-        sale_workorders = [wo for wo in all_workorders if wo.budget_type == "sale"]
+        sale_workorders = [wo for wo in all_workorders if wo.budget_type in REVENUE_BUDGET_TYPES]
         warranty_workorders = [wo for wo in all_workorders if wo.budget_type in ("warranty", "courtesy")]
         return sale_workorders, warranty_workorders
 
@@ -1109,7 +1109,7 @@ class DashboardQueryService:
                 workshop_id=workshop_id,
                 status__in=WORKORDER_OPEN_STATUSES,
                 budget__isnull=False,
-                budget_type=BudgetType.SALE,
+                budget_type__in=REVENUE_BUDGET_TYPES,
             )
             .annotate(pending_amount=pending_expr)
             .aggregate(
@@ -1141,7 +1141,7 @@ class DashboardQueryService:
         decimal_out = DecimalField(max_digits=14, decimal_places=2)
         aggregates = Budget.objects.filter(
             workshop_id=workshop_id,
-            budget_type=BudgetType.SALE,
+            budget_type__in=REVENUE_BUDGET_TYPES,
             status__in=OPEN_BUDGET_STATUSES,
         ).aggregate(
             total_general=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=decimal_out),
@@ -1186,42 +1186,42 @@ class DashboardQueryService:
 _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     "a_receber_em_execucao": {
         "model": "workorder",
-        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type": BudgetType.SALE},
+        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type__in": REVENUE_BUDGET_TYPES},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_mes_atual": {
         "model": "workorder",
-        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type": BudgetType.SALE},
+        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type__in": REVENUE_BUDGET_TYPES},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_meses_anteriores": {
         "model": "workorder",
-        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type": BudgetType.SALE},
+        "filters": {"status__in": WORKORDER_OPEN_STATUSES, "budget_type__in": REVENUE_BUDGET_TYPES},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": True,
     },
     "aguardando_aprovacao": {
         "model": "budget",
-        "filters": {"budget_type": BudgetType.SALE, "status__in": OPEN_BUDGET_STATUSES},
+        "filters": {"budget_type__in": REVENUE_BUDGET_TYPES, "status__in": OPEN_BUDGET_STATUSES},
         "date_field": "entry_date",
         "value_field": "total_budget_value",
         "exclude_month": False,
     },
     "aguardando_aprovacao_mes_atual": {
         "model": "budget",
-        "filters": {"budget_type": BudgetType.SALE, "status__in": OPEN_BUDGET_STATUSES},
+        "filters": {"budget_type__in": REVENUE_BUDGET_TYPES, "status__in": OPEN_BUDGET_STATUSES},
         "date_field": "entry_date",
         "value_field": "total_budget_value",
         "exclude_month": False,
     },
     "aguardando_aprovacao_meses_anteriores": {
         "model": "budget",
-        "filters": {"budget_type": BudgetType.SALE, "status__in": OPEN_BUDGET_STATUSES},
+        "filters": {"budget_type__in": REVENUE_BUDGET_TYPES, "status__in": OPEN_BUDGET_STATUSES},
         "date_field": "entry_date",
         "value_field": "total_budget_value",
         "exclude_month": True,
@@ -1269,7 +1269,7 @@ def _get_total_sold_workorders(*, workshop: Workshop, month: int, year: int) -> 
         for row in WorkOrderPaymentMethod.objects.filter(
             workorder__workshop=workshop,
             workorder__status__in=WORKORDER_REVENUE_STATUSES,
-            workorder__budget_type="sale",
+            workorder__budget_type__in=REVENUE_BUDGET_TYPES,
             due_date__month=month,
             due_date__year=year,
         )
@@ -1299,7 +1299,7 @@ def _get_today_sales_workorders(workshop: Workshop) -> tuple[list[Any], bool, st
         WorkOrderPaymentMethod.objects.filter(
             workorder__workshop=workshop,
             workorder__status__in=WORKORDER_REVENUE_STATUSES,
-            workorder__budget_type="sale",
+            workorder__budget_type__in=REVENUE_BUDGET_TYPES,
             due_date=today,
         )
         .values_list("workorder_id", flat=True)

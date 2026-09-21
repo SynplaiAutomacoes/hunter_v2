@@ -122,6 +122,8 @@ def _datetime_local_value(value: object) -> str:
 
 
 def build_purchase_return_fiscal_initial(instance: PurchaseReturnRequest) -> dict[str, Any]:
+    from apps.finance.services.purchase_returns import inferred_purchase_return_supplier_ie
+
     return {
         "operation_nature": instance.operation_nature,
         "cfop": instance.cfop,
@@ -150,7 +152,24 @@ def build_purchase_return_fiscal_initial(instance: PurchaseReturnRequest) -> dic
         "issue_at": _datetime_local_value(instance.issue_at),
         "departure_at": _datetime_local_value(instance.departure_at),
         "delivery_forecast": instance.delivery_forecast,
+        "supplier_ie": instance.supplier_ie if instance.supplier_ie is not None else inferred_purchase_return_supplier_ie(request=instance),
     }
+
+
+def _optional_fiscal_section(title: str, help_text: str, *fields: Any) -> list[Any]:
+    return [
+        HTML(
+            "<details class='rounded-xl border border-base-300 bg-base-200/30'>"
+            f"<summary class='cursor-pointer px-5 py-4 text-lg font-semibold'>{title}"
+            "<span class='ml-2 text-sm font-normal text-base-content/50'>opcional</span></summary>"
+        ),
+        Div(
+            HTML(f"<p class='text-sm text-base-content/70'>{help_text}</p>"),
+            Div(*fields, css_class="grid grid-cols-1 lg:grid-cols-12 gap-4"),
+            css_class="space-y-4 px-5 pb-5",
+        ),
+        HTML("</details>"),
+    ]
 
 
 class PurchaseReturnFiscalForm(CoreForm):
@@ -210,6 +229,13 @@ class PurchaseReturnFiscalForm(CoreForm):
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
     )
     delivery_forecast = forms.DateField(label="Previsão de entrega", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    supplier_ie = forms.CharField(
+        label="Inscrição Estadual",
+        required=False,
+        max_length=14,
+        help_text="Preenchido automaticamente pelo XML da NF-e de origem. Deixe em branco para enviar ISENTO.",
+        widget=TextInput(),
+    )
 
     def __init__(self, *args: Any, instance: PurchaseReturnRequest | None = None, **kwargs: Any) -> None:
         self.instance = instance
@@ -252,10 +278,11 @@ class PurchaseReturnFiscalForm(CoreForm):
         self.helper.layout = Layout(
             Div(
                 HTML("<h3 class='text-lg font-semibold'>Dados fiscais da Nota de Devolução</h3>"),
-                HTML("<p class='text-sm text-base-content/70'>Somente natureza da operação e CFOP são obrigatórios na emissão da devolução.</p>"),
+                HTML("<p class='text-sm text-base-content/70'>Natureza da operação e CFOP são obrigatórios. A inscrição estadual vem do XML; deixe em branco para enviar ISENTO.</p>"),
                 Div(
                     Field("operation_nature", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("cfop", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("supplier_ie", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("volume", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("additional_information", wrapper_class="col-span-12 lg:col-span-6"),
@@ -264,59 +291,46 @@ class PurchaseReturnFiscalForm(CoreForm):
                 ),
                 css_class="space-y-4 rounded-xl border border-base-300 bg-base-200/30 p-5",
             ),
-            Div(
-                HTML("<h3 class='text-lg font-semibold'>Valores do pedido</h3>"),
-                HTML("<p class='text-sm text-base-content/70'>Informe frete, desconto, seguro e despesas acessórias quando precisarem constar na Nota de Devolução.</p>"),
-                Div(
-                    Field("freight_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("discount_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("accessory_expenses", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("insurance_amount", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("customs_expenses", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("total_override", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
-                ),
-                css_class="space-y-4 rounded-xl border border-base-300 bg-base-200/30 p-5",
+            *_optional_fiscal_section(
+                "Valores do pedido",
+                "Informe frete, desconto, seguro e despesas acessórias quando precisarem constar na Nota de Devolução.",
+                Field("freight_amount", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("discount_amount", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("accessory_expenses", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("insurance_amount", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("customs_expenses", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("total_override", wrapper_class="col-span-12 lg:col-span-4"),
             ),
-            Div(
-                HTML("<h3 class='text-lg font-semibold'>Presença, intermediador e referências</h3>"),
-                Div(
-                    Field("presence", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("intermediary", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("intermediary_cnpj", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("intermediary_id", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("purchase_order", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("contract", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("commitment_note", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
-                ),
-                css_class="space-y-4 rounded-xl border border-base-300 bg-base-200/30 p-5",
+            *_optional_fiscal_section(
+                "Presença, intermediador e referências",
+                "Preencha somente se a operação exigir indicador de presença, intermediador ou referências de pedido.",
+                Field("presence", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("intermediary", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("intermediary_cnpj", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("intermediary_id", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("purchase_order", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("contract", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("commitment_note", wrapper_class="col-span-12 lg:col-span-4"),
             ),
-            Div(
-                HTML("<h3 class='text-lg font-semibold'>Pagamento</h3>"),
-                HTML("<p class='text-sm text-base-content/70'>Opcional. Preencha somente se a devolução precisar declarar forma de pagamento, inclusive 90 - Sem pagamento.</p>"),
-                Div(
-                    Field("payment_indicator", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("payment_value", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("payment_description", wrapper_class="col-span-12 lg:col-span-8"),
-                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
-                ),
-                css_class="space-y-4 rounded-xl border border-base-300 bg-base-200/30 p-5",
+            *_optional_fiscal_section(
+                "Pagamento",
+                "Opcional. Preencha somente se a devolução precisar declarar forma de pagamento, inclusive 90 - Sem pagamento.",
+                Field("payment_indicator", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("payment_method", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("payment_value", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("payment_date", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("payment_description", wrapper_class="col-span-12 lg:col-span-8"),
             ),
-            Div(
-                HTML("<h3 class='text-lg font-semibold'>Datas da nota</h3>"),
-                HTML("<p class='text-sm text-base-content/70'>Opcional. A Webmania preenche automaticamente quando estes campos ficam vazios.</p>"),
-                Div(
-                    Field("issue_at", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("departure_at", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("delivery_forecast", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
-                ),
-                css_class="space-y-4 rounded-xl border border-base-300 bg-base-200/30 p-5",
+            *_optional_fiscal_section(
+                "Datas da nota",
+                "Opcional. A Webmania preenche automaticamente quando estes campos ficam vazios.",
+                Field("issue_at", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("departure_at", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("delivery_forecast", wrapper_class="col-span-12 lg:col-span-4"),
             ),
-            build_nfe_transport_form_layout(),
+            HTML("<details class='rounded-xl border border-base-300 bg-base-200/30'><summary class='cursor-pointer px-5 py-4 text-lg font-semibold'>Transporte<span class='ml-2 text-sm font-normal text-base-content/50'>opcional</span></summary>"),
+            Div(build_nfe_transport_form_layout(), css_class="px-5 pb-5"),
+            HTML("</details>"),
         )
 
     def clean_cfop(self) -> str:
@@ -335,6 +349,15 @@ class PurchaseReturnFiscalForm(CoreForm):
         digits = "".join(character for character in str(self.cleaned_data.get("intermediary_cnpj") or "") if character.isdigit())
         if digits and not is_valid_cnpj(digits):
             raise forms.ValidationError("Informe um CNPJ válido para o intermediador.")
+        return digits
+
+    def clean_supplier_ie(self) -> str:
+        raw_value = str(self.cleaned_data.get("supplier_ie") or "").strip()
+        if not raw_value or raw_value.upper() in {"ISENTO", "ISENTA"}:
+            return ""
+        digits = "".join(character for character in raw_value if character.isdigit())
+        if not digits:
+            raise forms.ValidationError("Informe a Inscrição Estadual somente com números, ou deixe em branco para ISENTO.")
         return digits
 
     def clean(self) -> dict[str, Any]:

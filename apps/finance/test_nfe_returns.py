@@ -399,6 +399,24 @@ class NfeReturnOperationalTests(TestCase):
         self.assertEqual(document.status, FiscalDocumentStatus.UNCERTAIN)
         self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.UNCERTAIN)
 
+    def test_rejected_response_uses_webmania_motivo_instead_of_generic_fallback(self) -> None:
+        item = self._create_nfe_item()
+        document = self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}])
+        payload = {"status": "reprovado", "modelo": "nfe", "motivo": "Rejeicao: Informar a NF-e referenciada [nItem:1]"}
+
+        with (
+            patch("apps.finance.services.nfe_returns._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_returns.requests.post", return_value=_mock_response(payload)),
+        ):
+            with self.assertRaisesMessage(NfeReturnError, "Rejeicao: Informar a NF-e referenciada"):
+                transmit_nfe_return_document(document=document)
+
+        document.refresh_from_db()
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document=document)
+        self.assertEqual(document.status, FiscalDocumentStatus.REPROVED)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.FAILED)
+        self.assertEqual(attempt.error_message, "Rejeicao: Informar a NF-e referenciada [nItem:1]")
+
     def test_inconclusive_response_stays_uncertain_and_preserves_remote_payload(self) -> None:
         item = self._create_nfe_item()
         document = self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}])

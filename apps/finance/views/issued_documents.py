@@ -18,7 +18,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.finance.models.finance import FiscalDocumentStatus, NfeItem, NfeRequest, NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest, NfseRequestStatus
 from apps.finance.models.purchase_return import PurchaseReturnRequest
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
@@ -233,16 +233,16 @@ class IssuedDocumentsFilterMixin:
         return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
     def _build_purchase_return_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
-        qs = PurchaseReturnRequest.objects.filter(workshop=self.workshop, fiscal_document__isnull=False)
+        qs = PurchaseReturnRequest.objects.filter(workshop=self.workshop)
         if start_date and end_date:
-            qs = qs.filter(fiscal_document__criado_em__date__range=(start_date, end_date))
+            qs = qs.filter(criado_em__date__range=(start_date, end_date))
         if search_raw:
             qs = qs.filter(
                 Q(fiscal_document__number__icontains=search_raw)
                 | Q(source_stock_import__supplier_name__icontains=search_raw)
                 | Q(source_stock_import__nf_number__icontains=search_raw)
             )
-        return qs.select_related("fiscal_document", "source_stock_import").order_by("-fiscal_document__criado_em", "-pk")
+        return qs.select_related("fiscal_document", "source_stock_import").order_by("-criado_em", "-pk")
 
     def _get_filtered_requests(self, *, state: dict[str, Any]) -> tuple[list[NfeRequest], list[NfseRequest], list[PurchaseReturnRequest]]:
         if not state["is_valid"]:
@@ -366,31 +366,29 @@ class IssuedDocumentsFilterMixin:
 
     def _build_purchase_return_row(self, request_obj: PurchaseReturnRequest) -> dict[str, Any]:
         document = request_obj.fiscal_document
-        assert document is not None
-        status_badges = {
-            FiscalDocumentStatus.APPROVED: {"class": "badge-success", "text": "Aprovada"},
-            FiscalDocumentStatus.REPROVED: {"class": "badge-error", "text": "Reprovada"},
-            FiscalDocumentStatus.DENIED: {"class": "badge-error", "text": "Denegada"},
-            FiscalDocumentStatus.CANCELED: {"class": "badge-warning", "text": "Cancelada"},
-            FiscalDocumentStatus.UNCERTAIN: {"class": "badge-warning", "text": "Aguardando reconciliação"},
-        }
+        source = request_obj.source_stock_import
+        origin_number = str(getattr(source, "nf_number_display", "") or "").strip()
+        xml_url = str(getattr(document, "xml_url", "") or "").strip() if document is not None else ""
+        danfe_url = str(getattr(document, "danfe_url", "") or "").strip() if document is not None else ""
+        document_number = str(getattr(document, "number", "") or "").strip() if document is not None else ""
+        document_series = str(getattr(document, "series", "") or "").strip() if document is not None else ""
         return {
             "note_type": "purchase_return",
             "note_type_label": "Nota de Devolução",
             "note_type_badge_class": "badge-soft badge-warning",
             "request_id": request_obj.pk,
             "selection_key": f"purchase_return:{request_obj.pk}",
-            "has_xml": bool(document.xml_url),
-            "has_pdf": bool(document.danfe_url),
-            "is_selectable": bool(document.xml_url or document.danfe_url),
-            "number": document.number or "-",
-            "reference": f"Série {document.series}" if document.series else "-",
+            "has_xml": bool(xml_url),
+            "has_pdf": bool(danfe_url),
+            "is_selectable": bool(xml_url or danfe_url),
+            "number": document_number or origin_number or "-",
+            "reference": f"Série {document_series}" if document_series else (f"Origem {origin_number}" if origin_number else "-"),
             "workorder_id": "Avulsa",
-            "customer_name": request_obj.source_stock_import.supplier_name or "Fornecedor não informado",
-            "created_at": document.criado_em,
-            "status_badge": status_badges.get(document.status, {"class": "badge-info", "text": document.get_status_display()}),
-            "available_documents": [label for url, label in ((document.xml_url, "XML"), (document.danfe_url, "DANFE")) if url],
-            "detail_url": reverse("finance:purchase_return_workflow", args=[request_obj.pk]) + "?step=4",
+            "customer_name": source.supplier_name or "Fornecedor não informado",
+            "created_at": request_obj.criado_em,
+            "status_badge": request_obj.purchase_return_status_badge,
+            "available_documents": [label for url, label in ((xml_url, "XML"), (danfe_url, "DANFE")) if url],
+            "detail_url": reverse("finance:purchase_return_workflow", args=[request_obj.pk]) + f"?step={request_obj.resume_step}",
             "action_label": "Abrir",
         }
 

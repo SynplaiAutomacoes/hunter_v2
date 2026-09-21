@@ -160,6 +160,32 @@ class DashboardMetricsQueryTests(TestCase):
         self.assertEqual(total_label, "R$ 425,00")
         self.assertIn(budget.pk, [item.budget_id for item in items])
 
+    def test_direct_sale_adds_revenue_without_counting_as_a_vehicle(self) -> None:
+        customer = Customer.objects.get(workshop=self.workshop)
+        vehicle = Vehicle.objects.get(workshop=self.workshop)
+        payment_method = PaymentMethod.objects.get(workshop=self.workshop)
+        budget = self._create_budget(self.workshop, customer, vehicle, date(2026, 7, 18), BudgetStatus.APPROVED, BudgetType.DIRECT_SALE)
+        self._create_payment(budget, payment_method, WorkOrderStatus.APPROVED, date(2026, 7, 18), Decimal("75.00"), 1, Decimal("0.00"))
+
+        total_sold = DashboardQueryService._calculate_total_sold(
+            workshop_id=self.workshop.pk,
+            selected_month=7,
+            selected_year=2026,
+        )
+        delivered_revenue, _ = DashboardQueryService._get_delivered_workorders(
+            workshop_id=self.workshop.pk,
+            selected_month=7,
+            selected_year=2026,
+        )
+        cars, _, _ = DashboardQueryService._compute_delivery_counts(
+            sale_workorders=delivered_revenue,
+            warranty_workorders=[],
+        )
+
+        self.assertEqual(total_sold, Decimal("425.00"))
+        self.assertIn(budget.pk, [item.budget_id for item in delivered_revenue])
+        self.assertEqual(cars, 1)
+
     def test_pending_receivable_includes_open_workorders_and_remaining_balance(self) -> None:
         customer = Customer.objects.get(workshop=self.workshop)
         vehicle = Vehicle.objects.get(workshop=self.workshop)

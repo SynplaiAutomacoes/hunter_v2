@@ -516,6 +516,7 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
             "valor_servicos": calculate_nfse_service_total(nfse_request, slider_override=slider_override),
             "discriminacao": _default_service_description(nfse_request),
             "classe_imposto": nfse_request.tax_class,
+            "consumidor_final": 1 if bool(getattr(nfse_request, "consumidor_final", True)) else 0,
         },
         "tomador": _build_taker_payload(nfse_request),
     }

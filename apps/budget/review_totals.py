@@ -10,11 +10,12 @@ from apps.budget.item_origin import (
     build_kit_component_product_item_from_exploded,
     build_kit_component_service_item,
     build_kit_component_service_item_from_exploded,
+    build_step4_kit_service_item,
 )
 from apps.budget.pdf_context import _explode_kit_product_rows, _explode_kit_service_rows
 from apps.budget.pricing import kit_component_winning_item_ids, zero_money
 from apps.budget.review_display import build_budget_review_display
-from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.budget.service_costs import calculate_mechanic_service_cost, displayed_service_mechanic_cost
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +183,7 @@ def build_step4_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
         for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
             if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
-            component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
+            component = build_step4_kit_service_item(kit_item=kit_item, exploded=exploded)
             services = _accumulate_totals(
                 target=services,
                 row=_step4_service_row_totals(
@@ -305,15 +306,7 @@ def _product_row_profit(*, item: Any, sale: Money, total_cost: Money) -> Money:
 def _service_row_unit_cost(*, budget: Any, item: Any, mechanic_cost: Money | None = None) -> Money:
     if mechanic_cost is not None:
         return mechanic_cost
-    quantity = int(getattr(item, "quantity", 0) or 0)
-    fallback = _money(getattr(item, "service_cost_price", None))
-    fallback_total = fallback * quantity if quantity else fallback
-    return calculate_mechanic_service_cost(
-        budget=budget,
-        duration=getattr(item, "duration", None),
-        quantity=quantity,
-        fallback_cost=fallback_total,
-    )
+    return displayed_service_mechanic_cost(budget=budget, item=item)
 
 
 def _service_row_freight(*, item: Any) -> Money:

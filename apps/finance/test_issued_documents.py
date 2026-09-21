@@ -409,9 +409,46 @@ class IssuedDocumentsArchiveDownloadViewTests(TestCase):
 
         self.assertEqual(row["note_type_label"], "Nota de Devolução")
         self.assertEqual(row["number"], "456")
+        self.assertEqual(row["status_badge"]["text"], "Autorizada")
         self.assertTrue(row["has_xml"])
         self.assertTrue(row["has_pdf"])
         self.assertIn(reverse("finance:purchase_return_workflow", args=[purchase_return.pk]), row["detail_url"])
+        self.assertIn("step=4", row["detail_url"])
+
+    def test_list_includes_in_progress_purchase_return_and_resumes_current_step(self) -> None:
+        original_document = FiscalDocument.objects.create(
+            workshop=self.workshop,
+            origin=FiscalDocumentOrigin.EXTERNAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+            status=FiscalDocumentStatus.APPROVED,
+            access_key="35" + ("2" * 42),
+        )
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            nf_key="35" + ("2" * 42),
+            nf_number="987",
+            supplier_name="Fornecedor em elaboração",
+            fiscal_document=original_document,
+        )
+        purchase_return = PurchaseReturnRequest.objects.create(
+            workshop=self.workshop,
+            source_stock_import=stock_import,
+            original_document=original_document,
+            status=PurchaseReturnRequestStatus.DRAFT,
+            current_step=3,
+        )
+        view = IssuedDocumentsListView()
+        view.workshop = self.workshop
+        view.request = self.factory.get("/finance/notas-emitidas/")
+
+        context = view.get_context_data()
+        row = next(row for row in context["issued_note_rows"] if row["selection_key"] == f"purchase_return:{purchase_return.pk}")
+
+        self.assertEqual(row["note_type_label"], "Nota de Devolução")
+        self.assertEqual(row["number"], "987")
+        self.assertEqual(row["status_badge"]["text"], "Rascunho")
+        self.assertFalse(row["is_selectable"])
+        self.assertEqual(row["detail_url"], reverse("finance:purchase_return_workflow", args=[purchase_return.pk]) + "?step=3")
 
     def test_gateway_operation_is_preserved_when_selecting_reference_nfe(self) -> None:
         nfe_request = self._create_nfe_with_xml(

@@ -18,6 +18,8 @@ from apps.finance.models import PurchaseReturnRequest, PurchaseReturnRequestStat
 from apps.finance.services.purchase_returns import (
     PurchaseReturnError,
     available_purchase_return_quantities,
+    clone_purchase_return_for_reissue,
+    display_purchase_return_supplier_ie,
     finalize_purchase_return_request,
     find_purchase_by_id,
     get_or_create_purchase_return_request,
@@ -26,9 +28,11 @@ from apps.finance.services.purchase_returns import (
     save_purchase_return_fiscal_data,
     save_purchase_return_items,
     preview_purchase_return,
+    reconcile_purchase_return,
     sync_purchase_return_status,
     transmit_purchase_return,
 )
+from apps.finance.views.navigation import build_issued_documents_list_url
 from apps.finance.views.request_workflow import render_emission_preview_modal
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -74,14 +78,11 @@ class PurchaseReturnCreateView(PurchaseReturnPermissionMixin, View):
         query_params.pop("page", None)
         return {
             "form": form,
-            "current_step": 1,
-            "max_reached_step": 1,
-            "steps": _steps(),
-            "steps_config": _steps_config(),
-            "min_accessible_step": 1,
+            **_stepper_context(current_step=1, max_reached_step=1),
             "return_request": None,
             "page_obj": page_obj,
             "filter_query": query_params.urlencode(),
+            "issued_documents_url": build_issued_documents_list_url(note_type="nfe"),
         }
 
 
@@ -106,9 +107,13 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
 
     def get(self, request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
         return_request = self._get_request(pk)
+        if "step" not in request.GET:
+            return self._redirect(return_request, return_request.resume_step)
         step = self._requested_step(request)
         if step > return_request.current_step:
             return HttpResponseRedirect(f"{reverse('finance:purchase_return_workflow', args=[pk])}?step={return_request.current_step}")
+        if step == 4 and return_request.status == PurchaseReturnRequestStatus.DRAFT:
+            return self._redirect(return_request, min(return_request.current_step, 3))
         return self._render(return_request=return_request, step=step)
 
     def post(self, request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -180,17 +185,13 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
         fiscal_form = fiscal_form or PurchaseReturnFiscalForm(instance=return_request)
         fiscal_document = return_request.fiscal_document
         attempt = fiscal_document.emission_attempts.order_by("-pk").first() if fiscal_document else None
+        is_editable = return_request.status == PurchaseReturnRequestStatus.DRAFT
         context = {
             "return_request": return_request,
             "source": source,
             "document": source.fiscal_document,
             "document_snapshot": document_snapshot,
-            "current_step": step,
-            "max_reached_step": return_request.current_step,
-            "steps": _steps(),
-            "steps_config": _steps_config(),
-            "object": return_request,
-            "min_accessible_step": 4 if return_request.status != PurchaseReturnRequestStatus.DRAFT else 1,
+            **_stepper_context(current_step=step, max_reached_step=return_request.current_step, return_request=return_request),
             "items_form": items_form,
             "fiscal_form": fiscal_form,
             "item_rows": item_rows,
@@ -199,10 +200,15 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
             "selected_manual_items": selected_manual_items,
             "total_quantity": total_quantity,
             "total_value": total_value,
-            "is_ready": return_request.status != PurchaseReturnRequestStatus.DRAFT,
+            "is_editable": is_editable,
+            "is_ready": not is_editable,
             "can_transmit": return_request.status == PurchaseReturnRequestStatus.READY,
             "fiscal_document": fiscal_document,
             "fiscal_attempt": attempt,
+            "supplier_ie_display": display_purchase_return_supplier_ie(request=return_request),
+            "issued_documents_url": build_issued_documents_list_url(note_type="nfe"),
+            "can_reissue": return_request.status in {PurchaseReturnRequestStatus.REJECTED, PurchaseReturnRequestStatus.COMMUNICATION_ERROR},
+            "can_reconcile": fiscal_document is not None,
         }
         return render(self.request, self.template_name, context)
 
@@ -263,9 +269,53 @@ class PurchaseReturnTransmitView(PurchaseReturnPermissionMixin, View):
         return HttpResponseRedirect(redirect_url)
 
 
+class PurchaseReturnReconcileView(PurchaseReturnPermissionMixin, View):
+    workshop_permission_codename = "change_nfserequest"
+
+    def post(self, request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
+        return_request = get_object_or_404(PurchaseReturnRequest, pk=pk, workshop=self.workshop)
+        try:
+            reconcile_purchase_return(request_instance=return_request)
+        except PurchaseReturnError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Status da Nota de Devolução atualizado com sucesso.")
+        return HttpResponseRedirect(f"{reverse('finance:purchase_return_workflow', args=[pk])}?step=4")
+
+
+class PurchaseReturnReissueView(PurchaseReturnPermissionMixin, View):
+    workshop_permission_codename = "change_nfserequest"
+
+    def post(self, request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
+        return_request = get_object_or_404(
+            PurchaseReturnRequest.objects.select_related("source_stock_import", "original_document").prefetch_related("items"),
+            pk=pk,
+            workshop=self.workshop,
+        )
+        try:
+            cloned = clone_purchase_return_for_reissue(request=return_request, requested_by=request.user)
+        except PurchaseReturnError as exc:
+            messages.error(request, str(exc))
+            return HttpResponseRedirect(f"{reverse('finance:purchase_return_workflow', args=[pk])}?step=4")
+        messages.info(request, "Nova Nota de Devolução criada com os mesmos dados. Revise e transmita novamente.")
+        return HttpResponseRedirect(f"{reverse('finance:purchase_return_workflow', args=[cloned.pk])}?step=3")
+
+
 def _steps() -> tuple[tuple[int, str], ...]:
-    return ((1, "NF-e origem"), (2, "Produtos"), (3, "Revisar Nota de Devolução"), (4, "Emitir"))
+    return ((1, "NF-e origem"), (2, "Produtos"), (3, "Dados fiscais"), (4, "Emitir"))
 
 
 def _steps_config() -> list[dict[str, int | str]]:
     return [{"number": number, "title": title} for number, title in _steps()]
+
+
+def _stepper_context(*, current_step: int, max_reached_step: int, return_request: PurchaseReturnRequest | None = None) -> dict[str, object]:
+    return {
+        "current_step": current_step,
+        "max_reached_step": max_reached_step,
+        "steps": _steps(),
+        "steps_config": _steps_config(),
+        "min_accessible_step": 1,
+        "stepper_navigation": "links",
+        "object": return_request,
+    }

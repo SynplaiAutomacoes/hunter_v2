@@ -18,6 +18,7 @@ from apps.budget.pricing import (
 )
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.discount import split_budget_discount
+from apps.budget.service_costs import displayed_service_mechanic_cost
 from apps.workorder.models import WorkOrderDiscountType
 
 
@@ -497,7 +498,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             produtos.append(produto)
 
         for line in review_display.direct_services:
-            service_mechanic_cost_price = line.warranty_total_price
+            service_mechanic_cost_price = displayed_service_mechanic_cost(budget=budget, item=line.item)
             item_service_shipping = getattr(line.item, "service_shipping", Money(0, "BRL"))
             service_sale_total = line.total_price + item_service_shipping
             servico = {
@@ -539,6 +540,32 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         kits = []
 
     _apply_pdf_gestor_cost_rules(produtos=produtos, servicos=servicos)
+
+    if presentation == "selected_items":
+        # O cabecalho do PDF deve fechar com a soma das linhas exibidas
+        # (vencedoras, sem duplicados de kit e sem itens nao cobrados),
+        # igual a tabela do step 6 — nao com o snapshot.
+        total_produtos = sum(
+            (
+                row.get("total_price")
+                for row in produtos
+                if not row.get("is_customer_supplied", False)
+                and str(row.get("item_benefit_type") or "normal") in ("normal", "")
+            ),
+            zero_money(),
+        )
+        total_servicos = sum(
+            (
+                row.get("total_price")
+                for row in servicos
+                if str(row.get("item_benefit_type") or "normal") in ("normal", "")
+            ),
+            zero_money(),
+        )
+        net_total = total_produtos + total_servicos - desconto
+        if net_total.amount < _ZERO_DECIMAL:
+            net_total = zero_money()
+        total_geral = zero_money() if is_warranty_or_courtesy else net_total
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     expected_delivery_at = resolve_expected_delivery_at(budget=budget)
