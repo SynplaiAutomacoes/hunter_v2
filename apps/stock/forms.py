@@ -11,13 +11,10 @@ from django.conf import settings
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
-import gzip
-import base64
 
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
-from lxml.etree import fromstring
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
@@ -51,9 +48,10 @@ from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
 
 from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
+from apps.stock.services.sefaz_distribution import synchronize_workshop_sefaz_documents
 from apps.stock.services.files import StockImportFileStorageError, _extract_nfe_xml_from_sefaz_response, save_import_xml_file
 from apps.stock.services.purchase_fiscal import ensure_purchase_fiscal_foundation
-from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
+from apps.stock.utils import NFParser, extract_nf_number_from_access_key
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import workshop_certificate_temp_path, workshop_has_certificate
@@ -1088,66 +1086,18 @@ class ImportSefazListForm(CoreModelForm):
         if not self.workshop:
             return False, "Oficina não identificada para consulta na SEFAZ."
 
-        if not self.workshop.can_search_sefaz:
-            return False, "A busca da SEFAZ foi executada recentemente. Aguarde alguns minutos para atualizar novamente."
-
-        if not workshop_has_certificate(self.workshop) or not self.workshop.certificate_password:
-            return False, "Configure certificado e senha da oficina antes de buscar notas na SEFAZ."
-
         started_at = time.perf_counter()
-        try:
-            cnpj = re.sub(r"\D", "", self.workshop.cnpj)
-            nsu = self.workshop.last_nsu_sefaz
-
-            with workshop_certificate_temp_path(self.workshop) as certificate_path:
-                xml_content = get_sefaz_service().consultar_distribuicao(
-                    certificado_path=certificate_path,
-                    certificado_senha=self.workshop.certificate_password,
-                    uf=self.workshop.uf.upper(),
-                    cnpj=cnpj,
-                    nsu=nsu,
-                )
-
-            # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
-            tree = fromstring(xml_content)
-            ns = {"ns": "http://www.portalfiscal.inf.br/nfe"}
-            cached_count = 0
-
-            if tree.xpath("//ns:cStat/text()", namespaces=ns)[0] == "138":
-                self.workshop.last_nsu_sefaz = tree.xpath("//ns:ultNSU/text()", namespaces=ns)[0]
-
-                docs = tree.xpath("//ns:docZip", namespaces=ns)
-                for doc in docs:
-                    content = gzip.decompress(base64.b64decode(doc.text))
-                    dados = parse_sefaz_distribution_doc_metadata(content) or {}
-
-                    if dados.get("key"):
-                        SefazZipCache.objects.update_or_create(
-                            key=dados["key"],
-                            workshop=self.workshop,
-                            defaults={
-                                "nf_number": dados.get("nf_number"),
-                                "issuer_name": dados.get("nome"),
-                                "issuer_cnpj": dados.get("cnpj"),
-                                "total_value": dados.get("valor"),
-                                "issue_date": dados.get("data"),
-                            },
-                        )
-                        cached_count += 1
-
-            self.workshop.last_sefaz_search_date = timezone.now()
-            self.workshop.save(update_fields=["last_nsu_sefaz", "last_sefaz_search_date"])
-
-            if settings.PERF_LOGGING_ENABLED:
-                elapsed_ms = (time.perf_counter() - started_at) * 1000
-                external_calls_logger.warning("external_call service=sefaz_consulta_distribuicao duration_ms=%.2f workshop_id=%s success=true", elapsed_ms, self.workshop.id)
-
-            return True, f"Lista da SEFAZ atualizada com sucesso ({cached_count} nota(s) processada(s))."
-        except Exception as exc:
-            if settings.PERF_LOGGING_ENABLED:
-                elapsed_ms = (time.perf_counter() - started_at) * 1000
-                external_calls_logger.warning("external_call service=sefaz_consulta_distribuicao duration_ms=%.2f workshop_id=%s success=false", elapsed_ms, self.workshop.id)
-            return False, f"Erro ao atualizar lista da SEFAZ: {exc}"
+        result = synchronize_workshop_sefaz_documents(workshop=self.workshop)
+        if settings.PERF_LOGGING_ENABLED:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            external_calls_logger.warning(
+                "external_call service=sefaz_consulta_distribuicao duration_ms=%.2f workshop_id=%s success=%s requests=%s",
+                elapsed_ms,
+                self.workshop.id,
+                result.success,
+                result.requests,
+            )
+        return result.success, result.message
 
     def save(self, commit=True):
         instance = super().save(commit=False)
