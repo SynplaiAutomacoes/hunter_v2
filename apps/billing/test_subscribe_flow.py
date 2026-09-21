@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -192,6 +193,41 @@ class SubscribeFlowTests(TestCase):
         self.assertEqual(User.objects.filter(username="bruno").count(), 1)
         self.assertEqual(Account.objects.count(), 1)
         self.assertEqual(AccountSubscription.objects.filter(status=SubscriptionStatus.ACTIVE).count(), 1)
+        self.assertTrue(pending.login_token)
+        subscription = AccountSubscription.objects.get(account__owner__username="bruno")
+        self.assertIsNone(subscription.current_period_end)
+
+    def test_invoice_paid_stores_renewal_from_line_period(self) -> None:
+        period_end = 1792608307
+        pending = PendingSignup.objects.create(
+            email="duda@example.com",
+            username="duda",
+            password_hash=make_password("SenhaForte123!"),
+            first_name="Duda",
+            last_name="Nunes",
+            cpf="15350946056",
+            plan=SubscriptionPlan.BASIC,
+            status=PendingSignupStatus.PENDING,
+            stripe_customer_id="cus_duda",
+            stripe_subscription_id="sub_duda",
+            expires_at=timezone.now() + timezone.timedelta(hours=2),
+        )
+        result = process_stripe_event(
+            event_type="invoice.paid",
+            data={
+                "id": "in_duda",
+                "customer": "cus_duda",
+                "subscription": "sub_duda",
+                "metadata": {"pending_signup_id": str(pending.pk)},
+                "lines": {"data": [{"period": {"end": period_end}}]},
+            },
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        expected = datetime.fromtimestamp(period_end, tz=timezone.get_current_timezone())
+        self.assertEqual(result.current_period_end, expected)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, PendingSignupStatus.PAID)
         self.assertTrue(pending.login_token)
 
     def test_materialize_does_not_create_second_account(self) -> None:

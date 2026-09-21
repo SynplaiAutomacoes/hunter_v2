@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
@@ -105,3 +107,45 @@ class StripeWebhookTests(TestCase):
         self.assertEqual(result.plan, SubscriptionPlan.BASIC)
         self.assertEqual(result.status, SubscriptionStatus.ACTIVE)
         self.assertEqual(result.stripe_customer_id, "cus_new")
+
+    def test_subscription_updated_reads_renewal_from_item(self) -> None:
+        period_end = 1792608307
+        result = process_stripe_event(
+            event_type="customer.subscription.updated",
+            data={
+                "id": "sub_period",
+                "customer": "cus_period",
+                "status": "active",
+                "metadata": {"account_id": str(self.account.pk), "plan": "basic"},
+                "items": {
+                    "data": [
+                        {
+                            "price": {"id": "price_basic"},
+                            "current_period_end": period_end,
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        expected = datetime.fromtimestamp(period_end, tz=timezone.get_current_timezone())
+        self.assertEqual(result.current_period_end, expected)
+
+    def test_later_subscription_event_updates_renewal_date(self) -> None:
+        first_end = 1792608307
+        second_end = 1795286707
+        payload = {
+            "id": "sub_period",
+            "customer": "cus_period",
+            "status": "active",
+            "metadata": {"account_id": str(self.account.pk), "plan": "full"},
+            "items": {"data": [{"price": {"id": "price_full"}, "current_period_end": first_end}]},
+        }
+        process_stripe_event(event_type="customer.subscription.updated", data=payload)
+        payload["items"]["data"][0]["current_period_end"] = second_end
+        result = process_stripe_event(event_type="customer.subscription.updated", data=payload)
+        self.assertIsNotNone(result)
+        assert result is not None
+        expected = datetime.fromtimestamp(second_end, tz=timezone.get_current_timezone())
+        self.assertEqual(result.current_period_end, expected)

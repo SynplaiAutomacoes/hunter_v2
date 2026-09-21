@@ -32,6 +32,28 @@ PLAN_CATALOG: tuple[dict[str, object], ...] = (
 )
 
 
+def features_from_stripe_product(*, description: str, marketing_features: list[str]) -> tuple[str, ...]:
+    names = [item.strip() for item in marketing_features if item and item.strip()]
+    if names:
+        return tuple(names)
+
+    lines: list[str] = []
+    for line in (description or "").splitlines():
+        item = line.strip().lstrip("-•").strip()
+        if item:
+            lines.append(item)
+    return tuple(lines)
+
+
+def description_for_plan_card(*, description: str, features: tuple[str, ...], used_marketing_features: bool) -> str:
+    text = (description or "").strip()
+    if used_marketing_features:
+        return text
+    if features:
+        return ""
+    return text
+
+
 def format_money_label(*, unit_amount: int | None, currency: str) -> str:
     if unit_amount is None:
         return "Consulte"

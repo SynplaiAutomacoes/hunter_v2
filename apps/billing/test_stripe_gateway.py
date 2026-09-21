@@ -20,6 +20,7 @@ class StripeGatewayTests(SimpleTestCase):
             "product": {
                 "name": "Hunter Orçamento",
                 "description": "Plano para emissão de orçamentos.",
+                "marketing_features": [{"name": "Clientes e veículos"}, {"name": "Orçamentos"}],
             },
         }
         retrieve.return_value = price_resource
@@ -31,6 +32,7 @@ class StripeGatewayTests(SimpleTestCase):
         self.assertEqual(result["unit_amount"], 9900)
         self.assertEqual(result["interval"], "month")
         self.assertEqual(result["product_name"], "Hunter Orçamento")
+        self.assertEqual(result["marketing_features"], ["Clientes e veículos", "Orçamentos"])
 
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")

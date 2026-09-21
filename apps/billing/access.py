@@ -129,16 +129,19 @@ def sync_subscription_from_stripe(
     if status not in SubscriptionStatus.values:
         status = SubscriptionStatus.INCOMPLETE
 
+    defaults: dict = {
+        "plan": plan,
+        "status": status,
+        "stripe_customer_id": stripe_customer_id or "",
+        "stripe_subscription_id": stripe_subscription_id or "",
+        "stripe_price_id": stripe_price_id or "",
+        "cancel_at_period_end": cancel_at_period_end,
+    }
+    if current_period_end is not None:
+        defaults["current_period_end"] = current_period_end
+
     subscription, _created = AccountSubscription.objects.update_or_create(
         account_id=account_id,
-        defaults={
-            "plan": plan,
-            "status": status,
-            "stripe_customer_id": stripe_customer_id or "",
-            "stripe_subscription_id": stripe_subscription_id or "",
-            "stripe_price_id": stripe_price_id or "",
-            "current_period_end": current_period_end,
-            "cancel_at_period_end": cancel_at_period_end,
-        },
+        defaults=defaults,
     )
     return subscription

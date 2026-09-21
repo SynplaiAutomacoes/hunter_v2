@@ -72,6 +72,37 @@ def _extract_account_id(data: dict[str, Any]) -> int | None:
         return None
 
 
+def _extract_current_period_end(data: dict[str, Any]) -> datetime | None:
+    parsed = _parse_unix_timestamp(data.get("current_period_end"))
+    if parsed is not None:
+        return parsed
+
+    items = data.get("items") or {}
+    item_data = items.get("data") if isinstance(items, dict) else None
+    if isinstance(item_data, list):
+        for item in item_data:
+            if not isinstance(item, dict):
+                continue
+            parsed = _parse_unix_timestamp(item.get("current_period_end"))
+            if parsed is not None:
+                return parsed
+
+    lines = data.get("lines") or {}
+    line_data = lines.get("data") if isinstance(lines, dict) else None
+    if isinstance(line_data, list):
+        for line in line_data:
+            if not isinstance(line, dict):
+                continue
+            period = line.get("period") or {}
+            if not isinstance(period, dict):
+                continue
+            parsed = _parse_unix_timestamp(period.get("end"))
+            if parsed is not None:
+                return parsed
+
+    return _parse_unix_timestamp(data.get("period_end"))
+
+
 def _extract_price_id(data: dict[str, Any]) -> str:
     items = data.get("items") or {}
     item_data = items.get("data") if isinstance(items, dict) else None
@@ -171,13 +202,14 @@ def process_pending_signup_paid(data: dict[str, Any]) -> AccountSubscription | N
 
     customer_id = str(data.get("customer") or pending.stripe_customer_id or "")
     subscription_id = str(data.get("id") or data.get("subscription") or pending.stripe_subscription_id or "")
+    period_end = _extract_current_period_end(data)
     try:
         materialized = materialize_account_from_pending_signup(
             pending=pending,
             stripe_customer_id=customer_id,
             stripe_subscription_id=subscription_id,
             stripe_price_id=_extract_price_id(data),
-            current_period_end=_parse_unix_timestamp(data.get("current_period_end")),
+            current_period_end=period_end,
         )
     except ValueError as exc:
         logger.warning("Falha ao materializar PendingSignup %s: %s", pending.pk, exc)
@@ -185,7 +217,12 @@ def process_pending_signup_paid(data: dict[str, Any]) -> AccountSubscription | N
 
     if materialized.created_account_id is None:
         return None
-    return AccountSubscription.objects.filter(account_id=materialized.created_account_id).first()
+
+    subscription = AccountSubscription.objects.filter(account_id=materialized.created_account_id).first()
+    if subscription is not None and period_end is not None and subscription.current_period_end != period_end:
+        subscription.current_period_end = period_end
+        subscription.save(update_fields=["current_period_end", "atualizado_em"])
+    return subscription
 
 
 def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -> AccountSubscription | None:
@@ -223,7 +260,7 @@ def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -
         stripe_customer_id=customer_id,
         stripe_subscription_id=subscription_id,
         stripe_price_id=price_id,
-        current_period_end=_parse_unix_timestamp(data.get("current_period_end")),
+        current_period_end=_extract_current_period_end(data),
         cancel_at_period_end=bool(data.get("cancel_at_period_end")),
     )
 

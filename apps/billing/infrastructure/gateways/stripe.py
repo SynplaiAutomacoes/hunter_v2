@@ -127,6 +127,17 @@ def retrieve_price(*, price_id: str) -> dict[str, Any]:
         recurring = recurring.to_dict()
     recurring_data = recurring if isinstance(recurring, dict) else {}
 
+    marketing_features: list[str] = []
+    raw_features = product_data.get("marketing_features") or []
+    if isinstance(raw_features, list):
+        for feature in raw_features:
+            if isinstance(feature, dict):
+                name = str(feature.get("name") or "").strip()
+            else:
+                name = str(feature or "").strip()
+            if name:
+                marketing_features.append(name)
+
     unit_amount = price.get("unit_amount")
     return {
         "id": str(price.get("id") or ""),
@@ -135,6 +146,7 @@ def retrieve_price(*, price_id: str) -> dict[str, Any]:
         "interval": str(recurring_data.get("interval") or ""),
         "product_name": str(product_data.get("name") or ""),
         "product_description": str(product_data.get("description") or ""),
+        "marketing_features": marketing_features,
     }
 
 

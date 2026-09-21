@@ -6,7 +6,13 @@ from typing import Any
 from django.conf import settings
 from django.core.cache import cache
 
-from apps.billing.catalog import PLAN_CATALOG, format_money_label, interval_label_for
+from apps.billing.catalog import (
+    PLAN_CATALOG,
+    description_for_plan_card,
+    features_from_stripe_product,
+    format_money_label,
+    interval_label_for,
+)
 from apps.billing.domain.contracts import (
     BillingPortalRequest,
     BillingPortalResult,
@@ -24,7 +30,7 @@ from apps.billing.infrastructure.gateways import stripe as stripe_gateway
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_PLANS_CACHE_KEY = "billing:public_plans:v1"
+PUBLIC_PLANS_CACHE_KEY = "billing:public_plans:v2"
 PUBLIC_PLANS_CACHE_TTL_SECONDS = 300
 
 
@@ -81,11 +87,12 @@ class StripeBillingService(IBillingService):
         key = str(entry["key"])
         fallback_name = str(entry["fallback_name"])
         fallback_description = str(entry["fallback_description"])
-        features = tuple(str(item) for item in entry["features"])  # type: ignore[index]
+        fallback_features = tuple(str(item) for item in entry["features"])  # type: ignore[index]
         price_id = self._price_id_for_plan(key)
 
         name = fallback_name
         description = fallback_description
+        features = fallback_features
         price_label = "Consulte"
         interval_label = ""
         currency = ""
@@ -95,7 +102,19 @@ class StripeBillingService(IBillingService):
             try:
                 price = stripe_gateway.retrieve_price(price_id=price_id)
                 name = str(price.get("product_name") or fallback_name)
-                description = str(price.get("product_description") or fallback_description)
+                marketing_features = [str(item) for item in price.get("marketing_features") or []]
+                product_description = str(price.get("product_description") or "")
+                stripe_features = features_from_stripe_product(
+                    description=product_description,
+                    marketing_features=marketing_features,
+                )
+                if stripe_features:
+                    features = stripe_features
+                    description = description_for_plan_card(
+                        description=product_description,
+                        features=stripe_features,
+                        used_marketing_features=bool(marketing_features),
+                    )
                 unit_amount = price.get("unit_amount")
                 currency = str(price.get("currency") or "")
                 price_label = format_money_label(unit_amount=unit_amount if isinstance(unit_amount, int) else None, currency=currency)
