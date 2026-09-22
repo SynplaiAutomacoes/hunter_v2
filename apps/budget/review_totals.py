@@ -172,9 +172,10 @@ def build_step4_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
             )
 
     winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
+    snapshot = getattr(budget, "pricing_snapshot", None)
     for line in review_display.kits:
         kit_item = line.item
-        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item, snapshot=snapshot):
             if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
@@ -360,9 +361,10 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
         service_profit += _service_row_profit(item=item, sale=row_sale, total_cost=total_cost)
 
     winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
+    snapshot = getattr(budget, "pricing_snapshot", None)
     for line in review_display.kits:
         kit_item = line.item
-        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item, snapshot=snapshot):
             if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
