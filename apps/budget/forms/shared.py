@@ -175,11 +175,12 @@ def _render_budget_items_rows(budget, step6=False):
                     },
                 )
 
+            snapshot = getattr(budget_for_render, "pricing_snapshot", None)
             for line in review_display.kits:
                 kit_item = line.item
                 _label, kit_badge, _is_kit = origin_badge_for_item(item=kit_item)
 
-                for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+                for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item, snapshot=snapshot):
                     if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
@@ -263,11 +264,12 @@ def _render_budget_items_rows(budget, step6=False):
                         },
                     )
 
+            snapshot = getattr(budget_for_render, "pricing_snapshot", None)
             for line in review_display.kits:
                 kit_item = line.item
                 _label, kit_badge, _is_kit = origin_badge_for_item(item=kit_item)
 
-                for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+                for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item, snapshot=snapshot):
                     if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
