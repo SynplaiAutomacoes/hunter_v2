@@ -7,7 +7,15 @@ from typing import Any
 
 from djmoney.money import Money
 
-from apps.budget.pricing import _distribute_money_by_weights, _distribute_totals, format_duration_display, money_div, zero_money
+from apps.budget.pricing import (
+    ConsolidatedPricingLine,
+    _distribute_money_by_weights,
+    _distribute_totals,
+    format_duration_display,
+    kit_component_winning_item_ids,
+    money_div,
+    zero_money,
+)
 
 
 @dataclass(slots=True)
@@ -186,12 +194,104 @@ def _allocate_product_totals(*, budget: Any, contributions: list[_SelectedItemCo
     if not product_entries:
         return
 
-    allocated_product_bases = _distribute_totals(
-        base_values=[contribution.product_base for contribution in product_entries],
-        target_total=budget.get_total_products_by_slider_without_shipping,
-    )
-    for contribution, allocated_base in zip(product_entries, allocated_product_bases, strict=False):
-        contribution.allocated_product_base = allocated_base
+    snapshot = getattr(budget, "pricing_snapshot", None)
+    if snapshot is None:
+        allocated_product_bases = _distribute_totals(
+            base_values=[contribution.product_base for contribution in product_entries],
+            target_total=budget.get_total_products_by_slider_without_shipping,
+        )
+        for contribution, allocated_base in zip(product_entries, allocated_product_bases, strict=False):
+            contribution.allocated_product_base = allocated_base
+        return
+
+    snap_by_product_id: dict[int, ConsolidatedPricingLine] = {}
+    snap_by_source_item_id: dict[int, ConsolidatedPricingLine] = {}
+    for line in snapshot.product_lines:
+        if line.entity_id is not None:
+            snap_by_product_id[line.entity_id] = line
+        if line.source_item_id is not None:
+            snap_by_source_item_id[line.source_item_id] = line
+
+    all_items = list(budget._iter_items())
+    winning_kit_product_item_ids, _ = kit_component_winning_item_ids(all_items)
+
+    direct_by_product_id: dict[int, list[_SelectedItemContribution]] = {}
+    direct_by_source_item_id: dict[int, list[_SelectedItemContribution]] = {}
+
+    for contribution in product_entries:
+        if contribution.is_direct_product:
+            product_id = getattr(contribution.item, "product_id", None)
+            item_id = getattr(contribution.item, "pk", None) or getattr(contribution.item, "id", None)
+            if product_id is not None:
+                direct_by_product_id.setdefault(product_id, []).append(contribution)
+            elif item_id is not None:
+                direct_by_source_item_id.setdefault(item_id, []).append(contribution)
+
+    for product_id, direct_contribs in direct_by_product_id.items():
+        snap_line = snap_by_product_id.get(product_id)
+        if snap_line is not None:
+            if snap_line.has_kit_source and not snap_line.has_direct_source:
+                for c in direct_contribs:
+                    c.allocated_product_base = zero_money()
+            elif len(direct_contribs) == 1:
+                direct_contribs[0].allocated_product_base = snap_line.adjusted_total
+            else:
+                allocated = _distribute_totals(
+                    base_values=[c.product_base for c in direct_contribs],
+                    target_total=snap_line.adjusted_total,
+                )
+                for c, base in zip(direct_contribs, allocated, strict=False):
+                    c.allocated_product_base = base
+        else:
+            for c in direct_contribs:
+                c.allocated_product_base = c.product_base
+
+    for item_id, direct_contribs in direct_by_source_item_id.items():
+        snap_line = snap_by_source_item_id.get(item_id)
+        if snap_line is not None:
+            if len(direct_contribs) == 1:
+                direct_contribs[0].allocated_product_base = snap_line.adjusted_total
+            else:
+                allocated = _distribute_totals(
+                    base_values=[c.product_base for c in direct_contribs],
+                    target_total=snap_line.adjusted_total,
+                )
+                for c, base in zip(direct_contribs, allocated, strict=False):
+                    c.allocated_product_base = base
+        else:
+            for c in direct_contribs:
+                c.allocated_product_base = c.product_base
+
+    for contribution in product_entries:
+        if not contribution.is_kit:
+            continue
+        kit_item = contribution.item
+        kit_item_pk = getattr(kit_item, "pk", None) or getattr(kit_item, "id", None)
+        kit_total = zero_money()
+
+        for override in kit_item._iter_frozen_kit_product_overrides():
+            product_id = getattr(override, "product_id", None)
+            if product_id is None:
+                continue
+            per_kit_qty = int(getattr(override, "quantity", 0) or 0)
+            if per_kit_qty <= 0:
+                continue
+
+            winner_item_pk = winning_kit_product_item_ids.get(product_id)
+            if winner_item_pk is not None and winner_item_pk != kit_item_pk:
+                continue
+
+            snap_line = snap_by_product_id.get(product_id)
+            if snap_line is not None:
+                if snap_line.has_direct_source and not snap_line.has_kit_source:
+                    continue
+                kit_total += snap_line.adjusted_total
+            else:
+                kit_quantity = int(getattr(kit_item, "quantity", 0) or 0)
+                unit_price = getattr(override, "product_selling_price", None) or zero_money()
+                kit_total += unit_price * per_kit_qty * kit_quantity
+
+        contribution.allocated_product_base = kit_total
 
 
 def _allocate_labor_totals(*, budget: Any, contributions: list[_SelectedItemContribution]) -> None:

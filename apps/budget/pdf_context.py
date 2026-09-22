@@ -249,7 +249,7 @@ def _build_snapshot_service_rows(*, snapshot) -> list[dict[str, Any]]:
     return servicos
 
 
-def _explode_kit_product_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
+def _explode_kit_product_rows(*, kit_line, kit_item, snapshot: Any | None = None) -> list[dict[str, Any]]:
     kit_quantity = kit_item.quantity
     product_entries: list[tuple[Any, int, Money]] = []
     for override in kit_item._iter_frozen_kit_product_overrides():
@@ -258,10 +258,25 @@ def _explode_kit_product_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
             continue
         product_entries.append((override, total_quantity, override.product_selling_price * total_quantity))
 
-    allocated_bases = _distribute_totals(
-        base_values=[raw_base for _, _, raw_base in product_entries],
-        target_total=kit_line.allocated_product_base,
-    )
+    snap_by_product_id: dict[int, Any] = {}
+    if snapshot is not None:
+        for line in getattr(snapshot, "product_lines", []):
+            if getattr(line, "entity_id", None) is not None:
+                snap_by_product_id[line.entity_id] = line
+
+    if snap_by_product_id:
+        allocated_bases = []
+        for override, total_quantity, raw_base in product_entries:
+            snap_line = snap_by_product_id.get(override.product_id)
+            if snap_line is not None:
+                allocated_bases.append(snap_line.adjusted_unit_price * total_quantity)
+            else:
+                allocated_bases.append(raw_base)
+    else:
+        allocated_bases = _distribute_totals(
+            base_values=[raw_base for _, _, raw_base in product_entries],
+            target_total=kit_line.allocated_product_base,
+        )
 
     produtos: list[dict[str, Any]] = []
     for (override, total_quantity, _), allocated_base in zip(product_entries, allocated_bases, strict=False):
@@ -525,7 +540,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
         for line in review_display.kits:
             kit_item = line.item
-            for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+            for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item, snapshot=snapshot):
                 if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                     continue
                 produtos.append(exploded)
