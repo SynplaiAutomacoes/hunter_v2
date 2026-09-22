@@ -186,19 +186,6 @@ class CashFlowViewTests(TestCase):
         self.assertIn(str(self.bank_account), names)
         self.assertIn(str(other_account), names)
 
-    def test_account_card_url_clears_date_filters(self) -> None:
-        context = self._build_view(
-            query={
-                "data_inicial": "2026-08-01",
-                "data_final": "2026-08-31",
-            }
-        ).get_context_data()
-
-        url = context["account_cards"][1]["url"]
-
-        self.assertNotIn("data_inicial", url)
-        self.assertNotIn("data_final", url)
-
     def test_transfer_changes_individual_account_cards_but_not_the_consolidated_total(self) -> None:
         other_account = create_bank_account(workshop=self.workshop, suffix=2)
         self._create_movement(description="Saldo inicial", due_date=date(2026, 8, 10), amount=300)
@@ -326,6 +313,19 @@ class CashFlowViewTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("excede o saldo disponível", form.errors["amount"][0])
+
+    def test_account_card_url_clears_date_filters(self) -> None:
+        context = self._build_view(
+            query={
+                "data_inicial": "2026-08-01",
+                "data_final": "2026-08-31",
+            }
+        ).get_context_data()
+
+        url = context["account_cards"][1]["url"]
+
+        self.assertNotIn("data_inicial", url)
+        self.assertNotIn("data_final", url)
 
     def test_sort_due_date_asc_and_desc(self) -> None:
         self._create_movement(description="Mais antigo", due_date=date(2026, 8, 5), amount=50)

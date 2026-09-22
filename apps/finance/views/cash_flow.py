@@ -556,14 +556,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "account_id": account_id,
             "value": format_money(result),
             "tone": self._resolve_result_tone(result),
-            "url": self._build_url(
-                overrides={
-                    "conta_bancaria": account_id or None,
-                    "data_inicial": None,
-                    "data_final": None,
-                    "page": None,
-                }
-            ),
+            "url": self._build_url(overrides={"conta_bancaria": account_id or None, "page": None}),
             "is_selected": (selected_account_id or "") == account_id,
         }
 
