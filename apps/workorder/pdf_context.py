@@ -111,13 +111,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
     ]
 
     _item_data: dict[int, dict] = {}
-    for _wo_item in WorkOrderItem.objects.filter(workorder=workorder).only(
-        "id", "product_id", "service_id", "item_benefit_type",
-        "product_selling_price", "product_selling_price_currency",
-        "service_selling_price", "service_selling_price_currency",
-        "shipping", "shipping_currency",
-    ):
-        unit_price = _wo_item.product_selling_price or _wo_item.service_selling_price
+    for _wo_item in WorkOrderItem.objects.filter(workorder=workorder).select_related("budget_item"):
+        unit_price = _wo_item.resolved_product_selling_price if _wo_item.product_id else _wo_item.resolved_service_selling_price
         _item_data[_wo_item.id] = {
             "benefit_type": _wo_item.item_benefit_type,
             "unit_price": unit_price,

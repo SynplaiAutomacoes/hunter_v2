@@ -1188,6 +1188,13 @@ class WorkOrderItemEditForm(CoreModelForm):
         budget_type = getattr(getattr(item, "workorder", None), "budget_type", "sale")
         if budget_type in ("warranty", "courtesy"):
             self.fields["item_benefit_type"].disabled = True
+            
+        # Bloqueia a edição de preços caso seja uma OS de venda com orçamento vinculado,
+        # para garantir que o Budget seja a única fonte de verdade.
+        if budget_type == "sale" and getattr(getattr(item, "workorder", None), "budget_id", None):
+            for price_field in ["product_selling_price", "product_cost_price", "service_selling_price", "service_cost_price"]:
+                if price_field in self.fields:
+                    self.fields[price_field].disabled = True
 
     def clean_item_benefit_type(self):
         value = self.cleaned_data.get("item_benefit_type")

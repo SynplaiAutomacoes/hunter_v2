@@ -1126,6 +1126,7 @@ class WorkOrder(TimeStampedModel):
                     WorkOrderItem(
                         workshop=self.workshop,
                         workorder=self,
+                        budget_item=budget_item,
                         product=budget_item.product,
                         service=budget_item.service,
                         kit=budget_item.kit,
@@ -1279,6 +1280,7 @@ class WorkOrderItem(TimeStampedModel):
 
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorder_items")
     workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="items")
+    budget_item = models.ForeignKey("budget.BudgetItem", on_delete=models.SET_NULL, null=True, blank=True, related_name="workorder_items")
 
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
     service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, blank=True)
@@ -1351,8 +1353,8 @@ class WorkOrderItem(TimeStampedModel):
 
             for kit_service in self.kit.kit_services.select_related("service").all():
                 override = service_overrides.get(kit_service.service_id)
-                default_cost = kit_service.resolved_cost_price
-                default_sell = kit_service.resolved_selling_price
+                default_cost = kit_service.resolved_cost_price or Money(0, "BRL")
+                default_sell = kit_service.resolved_selling_price or Money(0, "BRL")
                 WorkOrderKitItemOverride.objects.update_or_create(
                     workshop=self.workshop,
                     workorder_item=self,
@@ -1592,10 +1594,42 @@ class WorkOrderItem(TimeStampedModel):
         return len(self.effective_kit_services)
 
     @property
+    def resolved_product_selling_price(self) -> Money:
+        if self.workorder_id and getattr(self.workorder, "budget_type", "sale") == "sale" and self.budget_item_id:
+            return self.budget_item.product_selling_price
+        return self.product_selling_price
+
+    @property
+    def resolved_product_cost_price(self) -> Money:
+        if self.workorder_id and getattr(self.workorder, "budget_type", "sale") == "sale" and self.budget_item_id:
+            return self.budget_item.product_cost_price
+        return self.product_cost_price
+
+    @property
+    def resolved_service_selling_price(self) -> Money:
+        if self.workorder_id and getattr(self.workorder, "budget_type", "sale") == "sale" and self.budget_item_id:
+            return self.budget_item.service_selling_price
+        return self.service_selling_price
+
+    @property
+    def resolved_service_cost_price(self) -> Money:
+        if self.workorder_id and getattr(self.workorder, "budget_type", "sale") == "sale" and self.budget_item_id:
+            return self.budget_item.service_cost_price
+        return self.service_cost_price
+
+    @property
+    def resolved_unit_selling_price(self) -> Money:
+        return self.resolved_product_selling_price + self.resolved_service_selling_price
+
+    @property
+    def resolved_unit_cost_price(self) -> Money:
+        return self.resolved_product_cost_price + self.resolved_service_cost_price
+
+    @property
     def total_price(self):
         if self.kit:
             return self.get_kit_total_with_overrides()
-        return (self.product_selling_price + self.service_selling_price) * self.quantity
+        return (self.resolved_product_selling_price + self.resolved_service_selling_price) * self.quantity
 
     def get_kit_total_with_overrides(self):
         if not self.kit:

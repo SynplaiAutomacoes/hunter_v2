@@ -83,7 +83,7 @@ def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], li
                     "description": str(item.description),
                     "origin": _build_origin_badge(label="Avulso"),
                     "quantity": item.quantity,
-                    "unit_price": item.product_selling_price,
+                    "unit_price": item.resolved_product_selling_price,
                     "total": item.total_price,
                     "edit_url": reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": workorder.pk, "item_id": item.pk}),
                 }
@@ -96,7 +96,7 @@ def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], li
                     "description": str(item.description),
                     "origin": _build_origin_badge(label="Avulso"),
                     "quantity": item.quantity,
-                    "unit_price": item.service_selling_price,
+                    "unit_price": item.resolved_service_selling_price,
                     "total": item.total_price,
                     "duration": item.duration_display,
                     "edit_url": reverse("finance:emission_workorder_item_edit", kwargs={"workorder_pk": workorder.pk, "item_id": item.pk}),

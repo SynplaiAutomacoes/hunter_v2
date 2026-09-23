@@ -52,8 +52,8 @@
                                     </td>
                                     <td class="whitespace-normal break-words">{{ item.product.application|default:"-" }}</td>
                                     <td class="text-center">{{ item.quantity }}</td>
-                                    <td>{{ item.product_cost_price }}</td>
-                                    <td>{{ item.product_selling_price }}</td>
+                                    <td>{{ item.resolved_product_cost_price }}</td>
+                                    <td>{{ item.resolved_product_selling_price }}</td>
                                     <td>{{ item.shipping }}</td>
                                     <td class="font-semibold">{{ item.total_price }}</td>
                                     <td class="text-center">
@@ -130,8 +130,8 @@
                                         </div>
                                     </td>
                                     <td class="text-center">{{ item.quantity }}</td>
-                                    <td>{{ item.service_cost_price }}</td>
-                                    <td>{{ item.service_selling_price }}</td>
+                                    <td>{{ item.resolved_service_cost_price }}</td>
+                                    <td>{{ item.resolved_service_selling_price }}</td>
                                     <td>{{ item.duration_display }}</td>
                                     <td class="font-semibold">{{ item.total_price }}</td>
                                     <td class="text-center">

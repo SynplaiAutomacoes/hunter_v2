@@ -147,7 +147,7 @@
                                     </span>
                                 </td>
                                 <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.gestor_cost_total|money_br }}{% endif %}</td>
-                                <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.product_selling_price }}{% endif %}</td>
+                                <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.resolved_product_selling_price }}{% endif %}</td>
                                 <td class="text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.shipping }}{% endif %}</td>
                                 <td class="font-bold text-right">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.total_price }}{% endif %}</td>
                             </tr>
@@ -202,7 +202,7 @@
                                 </td>
                                 <td class="text-center">{{ item.quantity }}</td>
                                 <td class="text-right">{{ item.gestor_cost_total|money_br }}</td>
-                                <td class="text-right">{{ item.service_selling_price }}</td>
+                                <td class="text-right">{{ item.resolved_service_selling_price }}</td>
                                 <td class="text-right">{{ item.service_shipping }}</td>
                                 <td class="text-center">{{ item.duration_display }}</td>
                                 <td class="font-bold text-right">{{ item.total_price }}</td>
