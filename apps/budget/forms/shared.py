@@ -15,6 +15,7 @@ from apps.budget.pdf_context import _explode_kit_product_rows, _explode_kit_serv
 from apps.budget.pricing import kit_component_winning_item_ids, zero_money
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.budget.service_display_totals import service_line_display_total
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
 
 MAX_BUDGET_IMAGES = 10
@@ -160,6 +161,10 @@ def _render_budget_items_rows(budget, step6=False):
                 )
 
             for line in review_display.direct_services:
+                slider_total_price = line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price
+                mechanic_cost_total = calculate_mechanic_service_cost(budget=budget_for_render, duration=line.item.duration, quantity=line.item.quantity, fallback_cost=line.item.service_cost_price)
+                sale_total = slider_total_price
+                service_display_total = service_line_display_total(cost_total=mechanic_cost_total, sale_total=sale_total, item=line.item)
                 rows["service"] += _render_budget_item_row(
                     template_name="budget/partials/items/item_service_row.html",
                     item=line.item,
@@ -169,9 +174,10 @@ def _render_budget_items_rows(budget, step6=False):
                     extra={
                         "show_kit_duplicate_warning": False if is_locked else bool((line.item.service_id and line.item.service_id in kit_service_ids) and not line.item.is_local),
                         "slider_price": line.unit_price,
-                        "slider_total_price": (line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price),
+                        "slider_total_price": slider_total_price,
                         "duration_display": line.duration_display,
-                        "service_mechanic_cost": calculate_mechanic_service_cost(budget=budget_for_render, duration=line.item.duration, fallback_cost=line.item.service_cost_price),
+                        "service_mechanic_cost": mechanic_cost_total,
+                        "service_display_total": service_display_total,
                     },
                 )
 
@@ -200,6 +206,9 @@ def _render_budget_items_rows(budget, step6=False):
                     if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
+                    cost_total = component.mechanic_cost
+                    sale_total = component.display_total_price - component.service_shipping
+                    service_display_total = service_line_display_total(cost_total=cost_total, sale_total=sale_total, item=component)
                     rows["service"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_service_row.html",
                         item=component,
@@ -210,7 +219,8 @@ def _render_budget_items_rows(budget, step6=False):
                             "slider_price": exploded.get("unit_price"),
                             "slider_total_price": exploded.get("total_price"),
                             "duration_display": exploded.get("duration_display"),
-                            "service_mechanic_cost": component.mechanic_cost,
+                            "service_mechanic_cost": cost_total,
+                            "service_display_total": service_display_total,
                         },
                     )
 
@@ -248,6 +258,14 @@ def _render_budget_items_rows(budget, step6=False):
                         },
                     )
                 elif item_type == "service":
+                    mechanic_cost_total = calculate_mechanic_service_cost(
+                        budget=budget_for_render,
+                        duration=item.duration,
+                        quantity=item.quantity,
+                        fallback_cost=item.service_cost_price,
+                    )
+                    sale_total = item.display_total_price
+                    service_display_total = service_line_display_total(cost_total=mechanic_cost_total, sale_total=sale_total, item=item)
                     rows["service"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_service_row.html",
                         item=item,
@@ -256,11 +274,8 @@ def _render_budget_items_rows(budget, step6=False):
                         origin_badge=avulso_badge,
                         extra={
                             "show_kit_duplicate_warning": False if is_locked else bool((item.service_id and item.service_id in kit_service_ids) and not item.is_local),
-                            "service_mechanic_cost": calculate_mechanic_service_cost(
-                                budget=budget_for_render,
-                                duration=item.duration,
-                                fallback_cost=item.service_cost_price,
-                            ),
+                            "service_mechanic_cost": mechanic_cost_total,
+                            "service_display_total": service_display_total,
                         },
                     )
 
@@ -286,6 +301,9 @@ def _render_budget_items_rows(budget, step6=False):
                     if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_step4_kit_service_item(kit_item=kit_item, exploded=exploded)
+                    cost_total = _money_or_zero(exploded.get("service_mechanic_cost_price"))
+                    sale_total = component.display_total_price
+                    service_display_total = service_line_display_total(cost_total=cost_total, sale_total=sale_total, item=component)
                     rows["service"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_service_row.html",
                         item=component,
@@ -295,7 +313,8 @@ def _render_budget_items_rows(budget, step6=False):
                         extra={
                             "is_kit_component": True,
                             "duration_display": exploded.get("duration_display") or component.duration_display,
-                            "service_mechanic_cost": _money_or_zero(exploded.get("service_mechanic_cost_price")),
+                            "service_mechanic_cost": cost_total,
+                            "service_display_total": service_display_total,
                         },
                     )
 
