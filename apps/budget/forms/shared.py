@@ -1,6 +1,7 @@
 from django import forms
 from django.template.loader import render_to_string
 from djmoney.money import Money
+from django.utils.html import escape
 
 from apps.catalog.product_issues import annotate_product_issues
 from apps.budget.item_origin import (
@@ -349,3 +350,73 @@ def _validate_uploaded_files(files):
         if file_size > MAX_IMAGE_SIZE_BYTES:
             size_mb = file_size / 1024 / 1024
             raise forms.ValidationError(f"Arquivo '{file_name}' excede o tamanho máximo de 10MB ({size_mb:.2f}MB).")
+
+def _build_excluded_services_banner_html(budget) -> str:
+    """
+    Constrói o banner visual com os serviços de kits ocultos por duplicidade
+    (com a regra de 'Manter Valor').
+    """
+    from apps.core.templatetags.format_tags import money_br
+
+    if not budget or not budget.pk:
+        return ""
+
+    excluded_by_kit: dict[str, list[tuple[str, str]]] = {}
+    for item in budget._iter_items():
+        if not getattr(item, "kit_id", None):
+            continue
+        kit_name = getattr(getattr(item, "kit", None), "name", None) or "Kit desconhecido"
+        item_quantity = int(getattr(item, "quantity", 0) or 0)
+        for override in item._iter_frozen_kit_service_overrides():
+            if not getattr(override, "excluded_from_composition", False):
+                continue
+            per_kit_qty = int(getattr(override, "quantity", 0) or 0)
+            if per_kit_qty <= 0:
+                continue
+            service = override.service
+            service_name = getattr(service, "name", None) or "Serviço desconhecido"
+            unit_price = override.service_selling_price or zero_money()
+            total = unit_price * per_kit_qty * item_quantity
+            excluded_by_kit.setdefault(kit_name, []).append((service_name, money_br(total)))
+
+    if not excluded_by_kit:
+        return ""
+
+    rows_html = ""
+    for kit_name, services in excluded_by_kit.items():
+        services_list = "".join(
+            f"<li class='py-1 border-b border-amber-200/40 last:border-0'>"
+            f"<span class='font-medium'>{escape(svc)}</span>"
+            f"<span class='ml-2 text-amber-900/70 font-semibold'>{total}</span></li>"
+            for svc, total in services
+        )
+        rows_html += (
+            f"<div class='mb-2'>"
+            f"<p class='text-sm font-semibold text-amber-800 mb-1'>"
+            f"<span class='material-icons text-xs align-middle mr-1'>category</span>"
+            f"{escape(kit_name)}</p>"
+            f"<ul class='pl-4 text-sm text-amber-800'>{services_list}</ul></div>"
+        )
+
+    toggle_id = "excluded-services-details"
+    banner = (
+        f"<div class='mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3'>"
+        f"<div class='flex items-start gap-2'>"
+        f"<span class='material-icons text-amber-500 mt-0.5 text-lg'>info</span>"
+        f"<div class='flex-1'>"
+        f"<p class='text-sm font-semibold text-amber-800'>"
+        f"Serviços ocultos com valor retido (Manter Valor)"
+        f"</p>"
+        f"<p class='text-xs text-amber-700 mt-0.5'>"
+        f"Os serviços abaixo foram ocultados por duplicidade entre kits, mas seus valores de venda "
+        f"foram distribuídos entre os demais serviços visíveis do mesmo kit."
+        f"</p>"
+        f"<button type='button' "
+        f"class='text-xs text-amber-700 underline mt-1 hover:text-amber-900' "
+        f"onclick=\"document.getElementById('{toggle_id}').classList.toggle('hidden')\">"
+        f"Exibir / Ocultar detalhes"
+        f"</button>"
+        f"<div id='{toggle_id}' class='hidden mt-3'>{rows_html}</div>"
+        f"</div></div></div>"
+    )
+    return banner
