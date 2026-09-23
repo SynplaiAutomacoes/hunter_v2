@@ -1054,11 +1054,11 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_base_value(self) -> Money:
-        return self.pricing_snapshot.total_base_value
+        return self.budget.total_base_value
 
     @property
     def total_budget_value(self) -> Money:
-        return self.pricing_snapshot.total_budget_value
+        return self.budget.total_budget_value
 
     @property
     def is_fixed_budget(self) -> bool:
