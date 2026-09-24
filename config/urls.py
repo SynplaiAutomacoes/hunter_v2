@@ -19,15 +19,14 @@ from django.contrib import admin
 from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path, include
-from django.views.generic import RedirectView
 
-from apps.core.presentation.views import permission_denied
+from apps.core.presentation.views import LandingPageView, permission_denied
 from apps.messaging.presentation.views.satisfaction_review_views import PublicSatisfactionReviewView
 
 handler403 = permission_denied
 
 urlpatterns = [
-    path("", RedirectView.as_view(pattern_name="accounts:login", permanent=False)),
+    path("", LandingPageView.as_view(), name="landing"),
     path("admin/", admin.site.urls),
     path("accounts/", include("apps.accounts.urls")),
     path("roles/", include(("apps.iam.urls", "iam"), namespace="iam")),
@@ -46,6 +45,8 @@ urlpatterns = [
     path("finance/", include("apps.finance.urls")),
     path("messaging/", include("apps.messaging.urls")),
     path("terms/", include("apps.terms.urls")),
+    path("notifications/", include(("apps.notifications.urls", "notifications"), namespace="notifications")),
+    path("billing/", include("apps.billing.urls")),
     path("review/<str:token>/", PublicSatisfactionReviewView.as_view(), name="public_satisfaction_review"),
 ]
 

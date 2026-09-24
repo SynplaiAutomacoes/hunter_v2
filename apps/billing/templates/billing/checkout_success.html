@@ -1,0 +1,19 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="max-w-xl mx-auto text-center py-16">
+    <span class="material-icons text-6xl text-success mb-4">check_circle</span>
+    <h1 class="text-3xl font-bold text-base-content">Pagamento confirmado</h1>
+    <p class="text-base-content/70 mt-2">
+        {% if subscription %}
+            Seu plano <strong>{{ subscription.get_plan_display }}</strong> está {{ subscription.get_status_display|lower }}.
+        {% else %}
+            Estamos confirmando sua assinatura. Isso pode levar alguns segundos.
+        {% endif %}
+    </p>
+    <div class="mt-8 flex items-center justify-center gap-3">
+        <a href="{{ home_url }}" class="btn btn-primary">Ir para o sistema</a>
+        <a href="{% url 'billing:plans' %}" class="btn btn-ghost">Ver planos</a>
+    </div>
+</div>
+{% endblock %}

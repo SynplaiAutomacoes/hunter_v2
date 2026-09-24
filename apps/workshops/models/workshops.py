@@ -19,6 +19,11 @@ def generate_workshop_logo_public_token() -> str:
 
 
 class Workshop(TimeStampedModel):
+    class SefazSyncStatus(models.TextChoices):
+        NEVER = "NEVER", "Nunca sincronizada"
+        SUCCESS = "SUCCESS", "Sincronizada"
+        ERROR = "ERROR", "Falha na sincronização"
+
     account = models.ForeignKey(
         "accounts.Account",
         on_delete=models.PROTECT,
@@ -46,6 +51,9 @@ class Workshop(TimeStampedModel):
     certificate_password = models.CharField(verbose_name="Senha do Certificado", max_length=255, null=True, blank=True)
     last_nsu_sefaz = models.CharField(null=True, blank=True, default="0")
     last_sefaz_search_date = models.DateTimeField(null=True, blank=True)
+    last_sefaz_sync_status = models.CharField(max_length=16, choices=SefazSyncStatus.choices, default=SefazSyncStatus.NEVER)
+    last_sefaz_sync_message = models.CharField(max_length=500, blank=True, default="")
+    last_sefaz_sync_attempt_at = models.DateTimeField(null=True, blank=True)
     whatsapp_phone = CharField(
         verbose_name="Telefone Assistente Virtual",
         max_length=20,
@@ -200,6 +208,12 @@ class Workshop(TimeStampedModel):
         if not self.last_sefaz_search_date:
             return True
         return timezone.now() > self.last_sefaz_search_date + timedelta(hours=1)
+
+    @property
+    def next_sefaz_search_at(self):
+        if not self.last_sefaz_search_date:
+            return None
+        return self.last_sefaz_search_date + timedelta(hours=1)
 
     @staticmethod
     def _extract_file_name(raw_name: object) -> str:

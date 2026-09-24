@@ -2112,6 +2112,11 @@ def mark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll, paid_at: d
         status=CollaboratorCommissionEntry.Status.PAID,
         paid_at=resolved_paid_at,
     )
+    commission_movements = [m for m in payroll.get_financial_movements() if m.payroll_component == FinancialMovement.PayrollComponent.COMMISSION and not m.is_paid]
+    if commission_movements:
+        FinancialMovement.objects.filter(pk__in=[m.pk for m in commission_movements]).update(is_paid=True)
+        for m in commission_movements:
+            m.is_paid = True
     return int(updated_count)
 
 
@@ -2125,6 +2130,12 @@ def unmark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> int:
         status=CollaboratorCommissionEntry.Status.FORECAST,
         paid_at=None,
     )
+    commission_movements = [m for m in payroll.get_financial_movements() if m.payroll_component == FinancialMovement.PayrollComponent.COMMISSION and m.is_paid]
+    if commission_movements:
+        FinancialMovement.objects.filter(pk__in=[m.pk for m in commission_movements]).update(is_paid=False, is_reconciled=False)
+        for m in commission_movements:
+            m.is_paid = False
+            m.is_reconciled = False
     return int(updated_count)
 
 

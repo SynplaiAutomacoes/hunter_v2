@@ -14,6 +14,7 @@ from apps.finance.models.finance import TaxClassNfe, TaxClassNfse, TaxClassSyncS
 from apps.finance.services.tax_classes import (
     NFSE_CODIGO_SERVICO_NATIONAL_LENGTH_ERROR,
     TaxClassServiceError,
+    ensure_default_tax_classes,
     format_nfse_service_code_for_api,
     is_valid_nfse_service_code,
     list_tax_classes,
@@ -219,6 +220,21 @@ class TaxClassServiceTests(TestCase):
         self.assertEqual(tax_classes, [])
         remote_list.assert_not_called()
 
+    def test_ensure_default_tax_classes_is_idempotent(self) -> None:
+        workshop = create_workshop(suffix=11)
+
+        with patch("apps.finance.services.tax_classes.save_tax_class", side_effect=TaxClassServiceError("offline")):
+            first = ensure_default_tax_classes(workshop=workshop)
+            second = ensure_default_tax_classes(workshop=workshop)
+
+        descriptions = {str(item.get("descricao") or "") for item in first}
+        self.assertIn("Saída de produto", descriptions)
+        self.assertIn("Serviço", descriptions)
+        self.assertIn("Devolução", descriptions)
+        self.assertEqual(len(first), len(second))
+        self.assertEqual(TaxClassNfe.objects.filter(workshop=workshop).count(), 2)
+        self.assertEqual(TaxClassNfse.objects.filter(workshop=workshop).count(), 1)
+
     def test_sync_tax_classes_persists_remote_payload_locally(self) -> None:
         workshop = create_workshop(suffix=2)
         remote_payload = [
@@ -299,7 +315,10 @@ class TaxClassChoicesViewTests(TestCase):
             {"referencia": "REF-NFSE-1", "type": "nfse", "descricao": "Classe NFS-e", "status": "ativo", "tipo_emissao": "1", "codigo_servico": "73.66"},
         ]
 
-        with patch("apps.finance.views.emission.list_tax_classes", return_value=remote_like_payload) as list_mock:
+        with (
+            patch("apps.finance.views.emission.ensure_default_tax_classes"),
+            patch("apps.finance.views.emission.list_tax_classes", return_value=remote_like_payload) as list_mock,
+        ):
             choices_by_type = view._get_tax_class_choices_by_type()
 
         self.assertEqual(choices_by_type["nfe"], [("REF-NFE-1", "REF-NFE-1 - Classe NF-e")])

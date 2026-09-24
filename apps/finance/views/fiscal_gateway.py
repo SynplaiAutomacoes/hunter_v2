@@ -77,13 +77,13 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperationCard(
             value=EmissionLinkage.WORKORDER,
             label="Vinculada a uma O.S.",
-            description="Usa o fluxo atual com Ordem de Serviço, cliente e itens já registrados no sistema.",
+            description="Usa Ordem de Serviço, cliente e itens já registrados. O tipo de nota é escolhido no resumo da emissão.",
             icon="assignment",
         ),
         FiscalOperationCard(
             value=EmissionLinkage.STANDALONE,
             label="Emissão avulsa",
-            description="Emite sem Ordem de Serviço e sem cadastrar o destinatário como cliente.",
+            description="Emite sem Ordem de Serviço. Você pode usar um cliente cadastrado ou informar um destinatário avulso.",
             icon="person_add",
         ),
     )
@@ -151,6 +151,9 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         if self._is_legacy_wizard_request():
             return HttpResponseRedirect(self._normal_wizard_url(preserve_query=True))
+        # O.S.-linked emission skips the document step; old bookmarks with vinculo=workorder go straight to the wizard.
+        if self._selected_linkage() == EmissionLinkage.WORKORDER:
+            return HttpResponseRedirect(self._normal_wizard_url())
         return super().get(request, *args, **kwargs)
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:

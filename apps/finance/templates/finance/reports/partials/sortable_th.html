@@ -1,0 +1,6 @@
+<th {% if column.aria_sort != 'none' %}aria-sort="{{ column.aria_sort }}"{% endif %} class="{% if column.align %}{{ column.align }}{% endif %}">
+    <a href="{{ column.url }}" class="inline-flex items-center gap-1 hover:text-base-content/80" aria-label="Ordenar por {{ column.label }}">
+        {{ column.label }}
+        <span class="material-icons text-sm" aria-hidden="true">{{ column.icon }}</span>
+    </a>
+</th>

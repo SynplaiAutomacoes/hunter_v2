@@ -46,6 +46,11 @@ PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 TAX_CLASS_DEBUG_LOGS = os.getenv("TAX_CLASS_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 
+# Notifications System Config
+SYSTEM_ADMIN_USERNAMES = [u.strip() for u in os.getenv("SYSTEM_ADMIN_USERNAMES", "").split(",") if u.strip()]
+NOTIFICATIONS_DROPDOWN_LIMIT = int(os.getenv("NOTIFICATIONS_DROPDOWN_LIMIT", "5"))
+NOTIFICATIONS_AUTO_CAPTURE_MESSAGES = os.getenv("NOTIFICATIONS_AUTO_CAPTURE_MESSAGES", "1").lower() in ("1", "true", "yes")
+
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "hunter-web")
@@ -82,6 +87,14 @@ SYNPLAISIGN_MASTER_KEY = os.getenv("SYNPLAISIGN_MASTER_KEY", "")
 # Deprecated global key — prefer per-workshop keys created via SYNPLAISIGN_MASTER_KEY.
 SYNPLAISIGN_API_KEY = os.getenv("SYNPLAISIGN_API_KEY", "")
 SYNPLAISIGN_WEBHOOK_SECRET = os.getenv("SYNPLAISIGN_WEBHOOK_SECRET", "")
+
+# Stripe Billing
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_ID_BASIC = os.getenv("STRIPE_PRICE_ID_BASIC", "")
+STRIPE_PRICE_ID_FULL = os.getenv("STRIPE_PRICE_ID_FULL", "")
+STRIPE_PAST_DUE_GRACE_DAYS = int(os.getenv("STRIPE_PAST_DUE_GRACE_DAYS", "3"))
 
 # Legacy SuperSign settings kept for reference during cutover cleanup.
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
@@ -161,6 +174,8 @@ INSTALLED_APPS = [
     "apps.finance",
     "apps.messaging",
     "apps.terms",
+    "apps.notifications",
+    "apps.billing",
 ]
 
 MIDDLEWARE = [
@@ -174,12 +189,14 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "apps.notifications.infrastructure.middleware.MessagesNotificationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Dependencies
     "simple_history.middleware.HistoryRequestMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
     # Local
     "apps.core.presentation.middlewares.RequestPerformanceLoggingMiddleware",
+    "apps.billing.presentation.middlewares.SubscriptionAccessMiddleware",
     "apps.core.presentation.middlewares.RequireFirstWorkshopMiddleware",
 ]
 

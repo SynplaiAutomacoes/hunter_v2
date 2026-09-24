@@ -319,6 +319,7 @@ def _build_nfe_preview_html(
     selected_slider: int,
     discount_type_override: str = "",
     discount_value_override: Decimal | None = None,
+    editable_ncm: bool = True,
 ) -> tuple[str, str]:
     warnings: list[str] = []
     rows, allocation = build_nfe_preview_rows(workorder=workorder, slider_override=selected_slider)
@@ -344,18 +345,30 @@ def _build_nfe_preview_html(
 
     warning_html = "".join(f"<div class='alert alert-warning'>{escape(message)}</div>" for message in warnings)
 
-    rows_html = "".join(
-        f"""
-        <tr class="border-b border-base-300/60">
-            <td class="py-2">{escape(str(row["description"]))}</td>
-            <td class="py-2">{escape(str(row.get("ncm") or "-"))}</td>
-            <td class="py-2 text-center">{row["quantity"]}</td>
-            <td class="py-2 text-right">{format_money(row.get("target_unit_value", 0))}</td>
-            <td class="py-2 text-right font-semibold">{format_money(row["target_total"])}</td>
-        </tr>
-        """
-        for row in rows
-    )
+    rows_html_parts: list[str] = []
+    for row in rows:
+        product_id = row.get("product_id")
+        ncm_value = escape(str(row.get("ncm") or ""))
+        if editable_ncm and product_id:
+            ncm_cell = (
+                f'<input type="text" name="ncm_product_{product_id}" value="{ncm_value}" '
+                f'class="input input-bordered input-sm w-28 font-mono" maxlength="10" '
+                f'inputmode="numeric" placeholder="00000000" aria-label="NCM">'
+            )
+        else:
+            ncm_cell = escape(str(row.get("ncm") or "-"))
+        rows_html_parts.append(
+            f"""
+            <tr class="border-b border-base-300/60">
+                <td class="py-2">{escape(str(row["description"]))}</td>
+                <td class="py-2">{ncm_cell}</td>
+                <td class="py-2 text-center">{row["quantity"]}</td>
+                <td class="py-2 text-right">{format_money(row.get("target_unit_value", 0))}</td>
+                <td class="py-2 text-right font-semibold">{format_money(row["target_total"])}</td>
+            </tr>
+            """
+        )
+    rows_html = "".join(rows_html_parts)
 
     if not rows_html:
         rows_html = """
@@ -387,6 +400,98 @@ def _build_nfe_preview_html(
         </div>
     """
     return warning_html, preview_html
+
+
+def _build_standalone_nfe_lines_html(lines: list[dict[str, object]]) -> str:
+    if not lines:
+        return (
+            "<div class='rounded-2xl border border-base-300 bg-base-100 p-4 text-center text-base-content/60'>"
+            "Nenhum produto adicionado para esta emissão."
+            "</div>"
+        )
+
+    rows: list[str] = []
+    for index, line in enumerate(lines):
+        description = escape(str(line.get("description") or ""))
+        ncm_value = escape(str(line.get("ncm") or ""))
+        product_id = line.get("product_id")
+        if product_id:
+            input_name = f"ncm_product_{product_id}"
+        else:
+            input_name = f"ncm_line_{index}"
+        rows.append(
+            f"""
+            <tr class="border-b border-base-300/60">
+                <td class="py-2">{description}</td>
+                <td class="py-2">
+                    <input type="text" name="{input_name}" value="{ncm_value}"
+                           class="input input-bordered input-sm w-28 font-mono" maxlength="10"
+                           inputmode="numeric" placeholder="00000000" aria-label="NCM">
+                </td>
+                <td class="py-2 text-center">{escape(str(line.get("quantity") or ""))}</td>
+                <td class="py-2 text-right">{escape(str(line.get("unit_value") or ""))}</td>
+                <td class="py-2 text-right font-semibold">{escape(str(line.get("total_value") or ""))}</td>
+            </tr>
+            """
+        )
+
+    return f"""
+        <div class="overflow-x-auto rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
+            <table class="table table-zebra">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th>NCM</th>
+                        <th class="text-center">Qtd</th>
+                        <th class="text-right">Valor Unitario</th>
+                        <th class="text-right">Valor Total</th>
+                    </tr>
+                </thead>
+                <tbody>{''.join(rows)}</tbody>
+            </table>
+        </div>
+    """
+
+
+def _build_tax_class_cfop_block(*, tax_class_cfop_map: dict[str, str], selected_tax_class: str) -> str:
+    import json
+
+    map_json = json.dumps(tax_class_cfop_map, ensure_ascii=True)
+    initial_cfop = escape(tax_class_cfop_map.get(selected_tax_class, "—") or "—")
+    tax_class_url = reverse("finance:tax_class_list")
+    return f"""
+        <script type="application/json" id="tax-class-cfop-map">{map_json}</script>
+        <div
+            class="rounded-2xl border border-base-300 bg-base-200/40 p-4"
+            x-data="{{
+                cfopMap: {{}},
+                selected: '{escape(selected_tax_class)}',
+                init() {{
+                    const el = document.getElementById('tax-class-cfop-map');
+                    this.cfopMap = el ? JSON.parse(el.textContent) : {{}};
+                    const select = this.$root.closest('form')?.querySelector('[name=tax_class]') || document.querySelector('[name=tax_class]');
+                    if (select) {{
+                        this.selected = select.value || '';
+                        select.addEventListener('change', () => {{ this.selected = select.value || ''; }});
+                    }}
+                }},
+                get cfopDisplay() {{
+                    return this.cfopMap[this.selected] || '—';
+                }}
+            }}"
+        >
+            <div class="flex items-center gap-2">
+                <p class="text-sm font-semibold text-base-content">CFOP</p>
+                <span class="tooltip tooltip-left before:max-w-xs before:whitespace-normal before:text-left z-30" data-tip="Para configurar o CFOP, edite a classe de imposto.">
+                    <a href="{tax_class_url}" class="inline-flex text-base-content/60 hover:text-primary" title="Para configurar o CFOP, edite a classe de imposto.">
+                        <span class="material-icons text-base">info</span>
+                    </a>
+                </span>
+            </div>
+            <p class="mt-1 font-mono text-base text-base-content" x-text="cfopDisplay">{initial_cfop}</p>
+            <p class="mt-1 text-xs text-base-content/60">Somente leitura. O CFOP vem dos cenários ICMS da classe selecionada.</p>
+        </div>
+    """
 
 
 def _build_value_card(label: str, subtotal: str, discount: str, total: str) -> str:
@@ -989,7 +1094,7 @@ class EmissionStep5Form(CoreForm):
 
 
 class EmissionNfeConfigForm(CoreForm):
-    tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
+    tax_class = forms.ChoiceField(label="Selecione a classe de imposto correta", choices=[])
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
 
     def __init__(self, *args, **kwargs):
@@ -1000,6 +1105,8 @@ class EmissionNfeConfigForm(CoreForm):
         discount_value_override = kwargs.pop("discount_value_override", None)
         if discount_value_override is not None and not isinstance(discount_value_override, Decimal):
             discount_value_override = Decimal(str(getattr(discount_value_override, "amount", discount_value_override) or 0))
+        standalone_nfe_lines = list(kwargs.pop("standalone_nfe_lines", []) or [])
+        tax_class_cfop_map = dict(kwargs.pop("tax_class_cfop_map", {}) or {})
         super().__init__(*args, **kwargs)
         configure_nfe_transport_form(
             form=self,
@@ -1007,12 +1114,12 @@ class EmissionNfeConfigForm(CoreForm):
             freight_mode=self.initial.get("freight_mode", 9),
         )
 
-        dropdown_choices = [("", "Selecione a classe de imposto")]
+        dropdown_choices = [("", "Selecione a classe de imposto correta")]
         dropdown_choices.extend(tax_class_choices)
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na Nota Fiscal de Produto."
+        tax_class_field.help_text = "Configure a classe uma vez e reutilize sempre que precisar emitir."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
         additional_information_field = self.fields["additional_information"]
@@ -1021,6 +1128,7 @@ class EmissionNfeConfigForm(CoreForm):
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs and not self.is_bound:
             self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
+            current_tax_class = str(self.initial["tax_class"])
 
         warning_html = ""
         preview_html = ""
@@ -1031,18 +1139,37 @@ class EmissionNfeConfigForm(CoreForm):
                 discount_type_override=discount_type_override,
                 discount_value_override=discount_value_override,
             )
+        elif standalone_nfe_lines:
+            preview_html = _build_standalone_nfe_lines_html(standalone_nfe_lines)
+
+        cfop_html = _build_tax_class_cfop_block(tax_class_cfop_map=tax_class_cfop_map, selected_tax_class=current_tax_class)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Produto</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serão enviados na Nota Fiscal de Produto e selecione a classe de imposto.</p>"),
-                Field("tax_class"),
+                HTML(
+                    "<p class='text-base-content/70 mb-4'>"
+                    "Escolha a classe de imposto, confira o CFOP e ajuste o NCM dos produtos se necessário."
+                    "</p>"
+                ),
+                Div(
+                    HTML(
+                        "<div class='rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3'>"
+                        "<p class='text-sm font-semibold text-primary'>Impostos</p>"
+                    ),
+                    Field("tax_class"),
+                    HTML(cfop_html),
+                    HTML("</div>"),
+                    css_class="space-y-3",
+                ),
+                HTML(warning_html),
+                HTML("<div class='pt-2'><p class='text-sm font-semibold mb-2'>Produtos</p></div>"),
+                HTML(preview_html),
+                HTML("<div class='divider'>Detalhes adicionais</div>"),
                 Field("additional_information"),
                 build_nfe_transport_form_layout(),
-                HTML(warning_html),
-                HTML(preview_html),
                 css_class="space-y-4",
             )
         )
@@ -1067,7 +1194,7 @@ class EmissionNfeConfigForm(CoreForm):
 class EmissionNfseConfigForm(CoreForm):
     CONSUMIDOR_FINAL_CHOICES = ((True, "Sim"), (False, "Não"))
 
-    tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
+    tax_class = forms.ChoiceField(label="Selecione a classe de imposto correta", choices=[])
     codigo_nbs = forms.CharField(
         label="Código NBS",
         required=False,
@@ -1095,12 +1222,12 @@ class EmissionNfseConfigForm(CoreForm):
             discount_value_override = Decimal(str(getattr(discount_value_override, "amount", discount_value_override) or 0))
         super().__init__(*args, **kwargs)
 
-        dropdown_choices = [("", "Selecione a classe de imposto")]
+        dropdown_choices = [("", "Selecione a classe de imposto correta")]
         dropdown_choices.extend(tax_class_choices)
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe fiscal que sera aplicada ao valor total da Nota Fiscal de Serviço."
+        tax_class_field.help_text = "Configure a classe uma vez e reutilize sempre que precisar emitir."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
@@ -1135,20 +1262,27 @@ class EmissionNfseConfigForm(CoreForm):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Serviço</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os serviços que compõem a Nota Fiscal de Serviço, escolha a classe fiscal e revise a descrição.</p>"),
-                Div(
-                    Field("tax_class", wrapper_class="col-span-12"),
-                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                HTML(
+                    "<p class='text-base-content/70 mb-4'>"
+                    "Escolha a classe de imposto e revise a descrição dos serviços."
+                    "</p>"
                 ),
                 Div(
-                    Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("consumidor_final", wrapper_class="col-span-12 lg:col-span-6"),
-                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                    HTML(
+                        "<div class='rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3'>"
+                        "<p class='text-sm font-semibold text-primary'>Impostos</p>"
+                    ),
+                    Field("tax_class"),
+                    Field("codigo_nbs"),
+                    Field("consumidor_final"),
+                    HTML("</div>"),
+                    css_class="space-y-3",
                 ),
                 Field("service_description"),
-                Field("additional_information"),
                 HTML(warning_html),
                 HTML(preview_html),
+                HTML("<div class='divider'>Detalhes adicionais</div>"),
+                Field("additional_information"),
                 css_class="space-y-4",
             )
         )

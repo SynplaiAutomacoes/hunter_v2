@@ -747,8 +747,7 @@ class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, V
         collaborator = get_object_or_404(WorkshopCollaborator, pk=pk, workshop=self.workshop)
         payroll: CollaboratorPayroll = get_object_or_404(CollaboratorPayroll.objects.select_related("financial_movement"), pk=payroll_id, collaborator=collaborator)
 
-        if payroll.financial_movement is not None:
-            mark_payroll_as_paid(payroll=payroll)
+        mark_payroll_as_paid(payroll=payroll)
 
         query_params = self.request.POST.copy()
         query_params.pop("csrfmiddlewaretoken", None)

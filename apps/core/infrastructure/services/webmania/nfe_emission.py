@@ -967,28 +967,32 @@ def build_nfe_preview_rows(
         persisted_slider=persisted_slider,
         slider_override=slider_override,
     )
-    lines = [
-        preview_line
-        for line in snapshot.product_lines
-        if not line.is_customer_supplied
-        and (preview_line := _build_snapshot_preview_product_line(line)) is not None
-    ]
+    eligible_lines = [line for line in snapshot.product_lines if not line.is_customer_supplied]
+    preview_pairs: list[tuple[Any, ProductEmissionLine]] = []
+    for snapshot_line in eligible_lines:
+        preview_line = _build_snapshot_preview_product_line(snapshot_line)
+        if preview_line is not None:
+            preview_pairs.append((snapshot_line, preview_line))
+
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
         persisted_slider=persisted_slider,
         slider_override=slider_override,
     )
 
+    lines = [pair[1] for pair in preview_pairs]
     target_totals = distribute_total_proportionally(base_values=[line.base_total for line in lines], target_total=allocation.products_target) if lines and allocation.products_target > 0 else [Decimal("0.00") for _ in lines]
 
     preview_rows: list[dict[str, Any]] = []
-    for line, target_total in zip(lines, target_totals, strict=False):
+    for (snapshot_line, line), target_total in zip(preview_pairs, target_totals, strict=False):
         target_unit_value = (target_total / Decimal(line.quantity)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if line.quantity > 0 else Decimal("0.00")
+        product = getattr(snapshot_line, "source_object", None)
         preview_rows.append(
             {
                 "description": line.description,
                 "code": line.code,
                 "ncm": line.ncm,
+                "product_id": getattr(product, "pk", None),
                 "quantity": line.quantity,
                 "base_total": line.base_total,
                 "target_unit_value": target_unit_value,

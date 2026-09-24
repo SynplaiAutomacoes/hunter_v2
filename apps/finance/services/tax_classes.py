@@ -811,3 +811,123 @@ def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[
     TaxClassNfse.objects.filter(workshop=workshop, reference__in=references_to_delete).delete()
     _mark_initial_sync_done(workshop=workshop)
     return [item for item in data if isinstance(item, dict)]
+
+
+DEFAULT_TAX_CLASS_SPECS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "saida_produto",
+        "kind": "nfe",
+        "description": "Saída de produto",
+        "local_reference": "LOCAL-SAIDA-PRODUTO",
+        "payload": {
+            "descricao": "Saída de produto",
+            "icms": [
+                {"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "5102", "situacao_tributaria": "102"},
+                {"tipo_tributacao": "simples_nacional", "cenario": "saida_fora_estado", "tipo_pessoa": "fisica", "codigo_cfop": "6102", "situacao_tributaria": "102"},
+                {"tipo_tributacao": "simples_nacional", "cenario": "saida_dentro_estado", "tipo_pessoa": "juridica", "codigo_cfop": "5102", "situacao_tributaria": "102"},
+                {"tipo_tributacao": "simples_nacional", "cenario": "saida_fora_estado", "tipo_pessoa": "juridica", "codigo_cfop": "6102", "situacao_tributaria": "102"},
+            ],
+            "ipi": [
+                {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "codigo_enquadramento": "999", "aliquota": "0.00"},
+                {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "codigo_enquadramento": "999", "aliquota": "0.00"},
+            ],
+            "pis": [
+                {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "aliquota": "0.00"},
+                {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "aliquota": "0.00"},
+            ],
+            "cofins": [
+                {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "aliquota": "0.00"},
+                {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "aliquota": "0.00"},
+            ],
+        },
+    },
+    {
+        "key": "servico",
+        "kind": "nfse",
+        "description": "Serviço",
+        "local_reference": "LOCAL-SERVICO",
+        "payload": {
+            "descricao": "Serviço",
+            "tipo": "nfse",
+            "type": "nfse",
+            "tipo_emissao": "1",
+            "codigo_servico": "01.05",
+            "natureza_operacao": "1",
+            "exigibilidade_iss": "1",
+            "iss_retido": "2",
+        },
+    },
+    {
+        "key": "devolucao",
+        "kind": "nfe",
+        "description": "Devolução",
+        "local_reference": "LOCAL-DEVOLUCAO",
+        "payload": {
+            "descricao": "Devolução",
+            "icms": [
+                {"tipo_tributacao": "simples_nacional", "cenario": "entrada_dentro_estado", "tipo_pessoa": "fisica", "codigo_cfop": "1202", "situacao_tributaria": "102"},
+                {"tipo_tributacao": "simples_nacional", "cenario": "entrada_fora_estado", "tipo_pessoa": "fisica", "codigo_cfop": "2202", "situacao_tributaria": "102"},
+                {"tipo_tributacao": "simples_nacional", "cenario": "entrada_dentro_estado", "tipo_pessoa": "juridica", "codigo_cfop": "1202", "situacao_tributaria": "102"},
+                {"tipo_tributacao": "simples_nacional", "cenario": "entrada_fora_estado", "tipo_pessoa": "juridica", "codigo_cfop": "2202", "situacao_tributaria": "102"},
+            ],
+            "ipi": [
+                {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "codigo_enquadramento": "999", "aliquota": "0.00"},
+                {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "codigo_enquadramento": "999", "aliquota": "0.00"},
+            ],
+            "pis": [
+                {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "aliquota": "0.00"},
+                {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "aliquota": "0.00"},
+            ],
+            "cofins": [
+                {"cenario": "padrao", "tipo_pessoa": "fisica", "situacao_tributaria": "99", "aliquota": "0.00"},
+                {"cenario": "padrao", "tipo_pessoa": "juridica", "situacao_tributaria": "99", "aliquota": "0.00"},
+            ],
+        },
+    },
+)
+
+
+def _description_matches(*, existing: str, expected: str) -> bool:
+    return existing.casefold().strip() == expected.casefold().strip()
+
+
+def ensure_default_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
+    """Idempotently ensure common starter tax classes exist for the workshop."""
+    existing = _list_local_tax_classes(workshop=workshop)
+    created_or_existing: list[dict[str, Any]] = list(existing)
+
+    for spec in DEFAULT_TAX_CLASS_SPECS:
+        description = str(spec["description"])
+        kind = str(spec["kind"])
+        already_present = False
+        for item in existing:
+            item_description = str(item.get("descricao") or "").strip()
+            if not _description_matches(existing=item_description, expected=description):
+                continue
+            is_nfse = bool(item.get("tipo_emissao")) and bool(item.get("codigo_servico"))
+            if kind == "nfse" and is_nfse:
+                already_present = True
+                break
+            if kind == "nfe" and not is_nfse:
+                already_present = True
+                break
+        if already_present:
+            continue
+
+        payload = dict(spec["payload"])
+        payload["descricao"] = description
+        payload.setdefault("referencia", str(spec["local_reference"]))
+        payload.setdefault("status", "ativo")
+
+        try:
+            saved = save_tax_class(workshop=workshop, payload=payload)
+            created_or_existing.append(saved)
+        except TaxClassServiceError:
+            logger.info(
+                "Falling back to local default tax class",
+                extra={"workshop_id": getattr(workshop, "pk", None), "description": description},
+            )
+            saved = _upsert_local_tax_class(workshop=workshop, payload=payload)
+            created_or_existing.append(saved)
+
+    return _list_local_tax_classes(workshop=workshop)
