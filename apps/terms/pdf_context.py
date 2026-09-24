@@ -39,6 +39,17 @@ def _build_vehicle_display(vehicle) -> tuple[str, str]:
     return vehicle_display.upper(), plate.upper()
 
 
+def _format_cpf_or_cnpj(value: str | None) -> str:
+    if not value:
+        return ""
+    digits = "".join(filter(str.isdigit, str(value)))
+    if len(digits) == 11:
+        return f"{digits[:3]}.{digits[3:6]}.{digits[6:9]}-{digits[9:]}"
+    elif len(digits) == 14:
+        return f"{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:]}"
+    return str(value)
+
+
 def build_term_pdf_context(
     *,
     term_template: WorkshopTermTemplate | None = None,
@@ -61,6 +72,9 @@ def build_term_pdf_context(
 
     workshop_name = getattr(workshop, "nome_fantasia_display", None) or getattr(workshop, "name", "") or ""
     vehicle_display, vehicle_plate_display = _build_vehicle_display(vehicle)
+    customer_name = str(getattr(customer, "name", "") or "").strip()
+    raw_document = getattr(customer, "cpf_or_cnpj_formatted", None) or getattr(customer, "cpf_or_cnpj", "")
+    customer_cpf_cnpj = _format_cpf_or_cnpj(raw_document)
     generated_at = timezone.localtime()
 
     return {
@@ -75,6 +89,8 @@ def build_term_pdf_context(
         "workshop": workshop,
         "workshop_name": workshop_name,
         "customer": customer,
+        "customer_name": customer_name,
+        "customer_cpf_cnpj": customer_cpf_cnpj,
         "vehicle": vehicle,
         "vehicle_display": vehicle_display,
         "vehicle_plate_display": vehicle_plate_display,
