@@ -8,6 +8,7 @@ from typing import Any
 from djmoney.money import Money
 
 from apps.budget.pricing import (
+    _distribute_money_by_weights,
     _distribute_totals,
     _is_better_service_source,
     _is_better_source,
@@ -115,6 +116,8 @@ def _selected_product_merge_key(row: dict) -> tuple[object, ...]:
 
 
 def _selected_service_merge_key(row: dict) -> tuple[object, ...]:
+    if row.get("is_excluded_from_composition"):
+        return ("excluded_service", id(row))
     service_id = row.get("id")
     if service_id is None:
         return (None, str(row.get("description") or ""))
@@ -332,8 +335,17 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
         base_values=[raw_total for _, _, raw_total, _ in labor_entries],
         target_total=kit_line.allocated_labor_total,
     )
-    allocated_labor_costs = _distribute_totals(
-        base_values=[raw_cost for _, _, _, raw_cost in labor_entries],
+    cost_weights = [
+        raw_cost.amount if raw_cost.amount > 0 else (
+            Decimal(int(override.duration.total_seconds() * total_quantity)) if override.duration else Decimal(0)
+        )
+        for override, total_quantity, _, raw_cost in labor_entries
+    ]
+    if not any(weight > 0 for weight in cost_weights):
+        cost_weights = [Decimal(total_quantity) for _, total_quantity, _, _ in labor_entries]
+
+    allocated_labor_costs = _distribute_money_by_weights(
+        weights=cost_weights,
         target_total=kit_line.allocated_labor_cost,
     )
 
@@ -545,7 +557,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     continue
                 produtos.append(exploded)
             for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-                if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                is_excluded = bool(exploded.get("is_excluded_from_composition"))
+                if not is_excluded and winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                     continue
                 servicos.append(exploded)
         produtos, servicos = _merge_selected_pdf_rows(produtos=produtos, servicos=servicos)
