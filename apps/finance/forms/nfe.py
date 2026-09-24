@@ -6,16 +6,19 @@ from typing import Any, cast
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from djmoney.forms import MoneyField
+from djmoney.money import Money
 
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import SearchableSelectInput, TextareaInput
+from apps.core.presentation.widgets import MoneyInput, SearchableSelectInput, TextareaInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
     build_step5_pricing_panel_layout,
     build_step5_preview_oob_html,
     format_money,
+    parse_discount_value_override,
     resolve_initial_slider,
 )
 from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
@@ -39,9 +42,11 @@ class NfeRequestStep2Form(SharedEmissionCustomerReviewForm):
 
 
 class NfeRequestStep3Form(CoreModelForm):
+    discount_value_override = MoneyField(label="Desconto na nota (R$)", max_digits=14, decimal_places=2, required=False, widget=MoneyInput)
+
     class Meta:
         model = NfeRequest
-        fields = ["pricing_slider", "tax_class", "additional_information"]
+        fields = ["pricing_slider", "discount_value_override", "tax_class", "additional_information"]
         widgets = {
             "additional_information": TextareaInput(rows=4),
         }
@@ -79,6 +84,28 @@ class NfeRequestStep3Form(CoreModelForm):
             )
         )
 
+        discount_attrs = build_slider_widget_attrs(
+            preview_url=f"{preview_url}&preview=1" if preview_url else "",
+            include_selector="#nfe-form",
+            target_selector="#nfe-preview-block",
+            swap="none",
+            trigger="input changed delay:300ms",
+            sync_selector="#nfe-form:abort",
+        )
+        discount_attrs.pop("type", None)
+        discount_attrs.pop("min", None)
+        discount_attrs.pop("max", None)
+        discount_attrs.pop("step", None)
+        discount_attrs.pop("class", None)
+        self.fields["discount_value_override"].widget = MoneyInput(attrs=discount_attrs)
+
+        if not self.is_bound and "discount_value_override" not in self.initial:
+            existing_override = getattr(self.instance, "discount_value_override", None)
+            if existing_override is not None:
+                self.initial["discount_value_override"] = existing_override
+            elif self.instance and self.instance.workorder_id:
+                self.initial["discount_value_override"] = self.instance.workorder.resolved_discount_value
+
         tax_class_field = self.fields["tax_class"]
         dropdown_choices = [("", "Selecione a classe de imposto")]
         dropdown_choices.extend(self.tax_class_choices)
@@ -96,6 +123,12 @@ class NfeRequestStep3Form(CoreModelForm):
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs:
             self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
 
+        discount_override_amount = parse_discount_value_override(
+            raw_amount=self.data.get("discount_value_override_0") if self.is_bound else None,
+            initial_value=None if self.is_bound else self.initial.get("discount_value_override"),
+            workorder=getattr(self.instance, "workorder", None),
+        )
+
         rows: list[dict[str, Any]] = []
         total_products_formatted = format_money(0)
         total_services_formatted = format_money(0)
@@ -103,7 +136,11 @@ class NfeRequestStep3Form(CoreModelForm):
         panel_data = None
 
         if self.instance and self.instance.workorder_id:
-            panel_data = build_step5_pricing_panel_data(workorder=self.instance.workorder, selected_slider=selected_slider)
+            panel_data = build_step5_pricing_panel_data(
+                workorder=self.instance.workorder,
+                selected_slider=selected_slider,
+                discount_value_override=discount_override_amount,
+            )
             rows, allocation = build_nfe_preview_rows(
                 workorder=self.instance.workorder,
                 persisted_slider=getattr(self.instance, "pricing_slider", None),
@@ -180,7 +217,15 @@ class NfeRequestStep3Form(CoreModelForm):
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Conferir produtos e impostos</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Revise os produtos da OS e finalize a emissao da Nota Fiscal de Produto.</p>"),
-                build_step5_pricing_panel_layout(prefix="nfe", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#nfe-form") if panel_data is not None else HTML(""),
+                build_step5_pricing_panel_layout(
+                    prefix="nfe",
+                    panel_data=panel_data,
+                    slider_field_name="pricing_slider",
+                    form_selector="#nfe-form",
+                    discount_field_name="discount_value_override",
+                )
+                if panel_data is not None
+                else HTML(""),
                 Div(
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
@@ -198,6 +243,13 @@ class NfeRequestStep3Form(CoreModelForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_discount_value_override(self) -> Money:
+        discount_value = self.cleaned_data.get("discount_value_override")
+        if discount_value is None:
+            return Money(0, "BRL")
+        amount = max(getattr(discount_value, "amount", discount_value), 0)
+        return Money(amount, getattr(discount_value, "currency", None) or "BRL")
 
     def clean_additional_information(self) -> str:
         value = str(self.cleaned_data.get("additional_information") or "").strip()

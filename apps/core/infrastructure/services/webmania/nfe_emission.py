@@ -556,6 +556,10 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
     if workorder is None:
         raise NfeEmissionError("A emissao de Nota Fiscal exige uma OS ou itens avulsos.")
 
+    from apps.finance.services.emission_line_overrides import apply_line_overrides_to_workorder
+
+    apply_line_overrides_to_workorder(workorder=workorder, line_overrides=getattr(nfe_request, "line_overrides", None))
+
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
         persisted_slider=getattr(nfe_request, "pricing_slider", None),
