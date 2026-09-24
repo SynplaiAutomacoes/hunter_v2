@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from djmoney.models.fields import MoneyField
 
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.core.workorder_numbers import format_workorder_reference
@@ -283,6 +284,20 @@ class TaxClassNfse(TimeStampedModel):
     responsavel_retencao = models.CharField(verbose_name="Responsável retenção", max_length=10, blank=True, default="")
     codigo_nbs = models.CharField(verbose_name="Código NBS", max_length=9, blank=True, default="", help_text="Código NBS da classe NFS-e (Padrão Nacional: 9 dígitos).")
     codigo_cnae = models.CharField(verbose_name="Código CNAE", max_length=20, blank=True, default="")
+    cod_indicador_operacao = models.CharField(
+        verbose_name="Código indicador da operação",
+        max_length=6,
+        blank=True,
+        default="",
+        help_text="Obrigatório no Padrão Nacional (cIndOp). Ex.: 050101 para serviço sobre bem móvel no estabelecimento.",
+    )
+    finalidade = models.CharField(
+        verbose_name="Finalidade da NFS-e",
+        max_length=1,
+        blank=True,
+        default="",
+        help_text="Padrão Nacional: 0=Normal, 1=Substituta, 2=Complementar.",
+    )
 
     iss = models.DecimalField(verbose_name="Alíquota ISS", max_digits=7, decimal_places=2, null=True, blank=True)
     pis = models.DecimalField(verbose_name="Alíquota PIS", max_digits=7, decimal_places=2, null=True, blank=True)
@@ -474,6 +489,15 @@ class NfseRequest(TimeStampedModel):
         default="",
         help_text="Sobrescreve o tipo de desconto da OS apenas para esta emissao. Vazio usa o da OS.",
     )
+    discount_value_override = MoneyField(
+        verbose_name="Desconto (Emissao)",
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Sobrescreve o valor do desconto da OS apenas para esta emissao. Vazio usa o da OS.",
+    )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     codigo_nbs = models.CharField(
@@ -607,6 +631,15 @@ class NfeRequest(TimeStampedModel):
         blank=True,
         default="",
         help_text="Sobrescreve o tipo de desconto da OS apenas para esta emissao. Vazio usa o da OS.",
+    )
+    discount_value_override = MoneyField(
+        verbose_name="Desconto (Emissao)",
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Sobrescreve o valor do desconto da OS apenas para esta emissao. Vazio usa o da OS.",
     )
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")

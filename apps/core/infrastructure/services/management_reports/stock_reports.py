@@ -200,12 +200,16 @@ def build_produtos_mais_vendidos(*, workshop: Workshop, period: ReportPeriod) ->
 def build_curva_abc(*, workshop: Workshop, period: ReportPeriod) -> ManagementReport:
     sales_report = build_produtos_mais_vendidos(workshop=workshop, period=period)
     rows = list(sales_report.rows)
+    rows.sort(key=lambda r: (Decimal(str(r["faturamento"])), int(r["quantidade"])), reverse=True)
     total = sum((Decimal(str(r["faturamento"])) for r in rows), Decimal("0.00"))
     cumulative = Decimal("0.00")
     abc_rows: list[dict[str, Any]] = []
     for row in rows:
         fat = Decimal(str(row["faturamento"]))
-        share = (fat / total * Decimal("100")) if total else Decimal("0.00")
+        if not total:
+            abc_rows.append({**row, "participacao": Decimal("0.00"), "acumulado": Decimal("0.00"), "classe": "C"})
+            continue
+        share = fat / total * Decimal("100")
         cumulative += share
         if cumulative <= Decimal("80"):
             classe = "A"

@@ -45,7 +45,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperationCard(
             value=FiscalOperation.EMISSION,
             label="Nota Fiscal",
-            description="Emita NF-e ou NFS-e. Em seguida você escolhe se a emissão será vinculada a uma O.S. ou avulsa.",
+            description="Emita NF-e ou NFS-e. Escolha o vínculo; para O.S. o tipo de documento fica no resumo da emissão.",
             icon="receipt_long",
         ),
         FiscalOperationCard(
@@ -115,8 +115,12 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         return linkage if linkage in LINKAGE_VALUES else ""
 
     def _gateway_step(self) -> str:
-        if self._selected_linkage():
+        selected_linkage = self._selected_linkage()
+        # Workorder-linked emission skips the document step; tipo is chosen on the OS summary.
+        if selected_linkage == EmissionLinkage.STANDALONE:
             return GatewayStep.DOCUMENT
+        if selected_linkage == EmissionLinkage.WORKORDER:
+            return GatewayStep.LINKAGE
         if str(self.request.GET.get("etapa") or "").strip().lower() == GatewayStep.LINKAGE:
             return GatewayStep.LINKAGE
         # Backward-compatible query used by older links.
@@ -201,7 +205,8 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         if operation in DOCUMENT_OPERATIONS and gateway_step == GatewayStep.DOCUMENT:
             if linkage == EmissionLinkage.STANDALONE:
                 return HttpResponseRedirect(self._standalone_wizard_url(note_mode=note_document))
-            return HttpResponseRedirect(self._normal_wizard_url(note_mode=note_document))
+            # Defensive: workorder should not reach DOCUMENT, but land on OS wizard without tipo.
+            return HttpResponseRedirect(self._normal_wizard_url())
 
         if operation == FiscalOperation.RETURN:
             return HttpResponseRedirect(reverse("finance:purchase_return_create"))

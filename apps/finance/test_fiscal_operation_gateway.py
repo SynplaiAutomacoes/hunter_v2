@@ -147,6 +147,24 @@ class FiscalOperationGatewayTests(SimpleTestCase):
 
         self.assertRedirects(response, f"{reverse('finance:emission_normal')}?reset=1", fetch_redirect_response=False)
 
+    def test_document_step_workorder_post_falls_back_to_wizard_without_tipo(self) -> None:
+        request = self.factory.post(
+            "/finance/emissao/?etapa=document&vinculo=workorder",
+            {
+                "operation": FiscalOperation.EMISSION,
+                "linkage": EmissionLinkage.WORKORDER,
+                "note_document": NoteDocument.NFE,
+                "gateway_step": "document",
+            },
+        )
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        response = view.form_valid(form)
+
+        self.assertRedirects(response, f"{reverse('finance:emission_normal')}?reset=1", fetch_redirect_response=False)
+
     def test_nfse_standalone_redirects_to_avulsa_wizard(self) -> None:
         request = self.factory.post(
             "/finance/emissao/?etapa=document&vinculo=standalone",
@@ -179,11 +197,11 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("linkage", form.errors)
 
-    def test_document_operation_requires_note_type_on_third_step(self) -> None:
+    def test_document_operation_requires_note_type_on_standalone_document_step(self) -> None:
         form = FiscalOperationGatewayForm(
             {
                 "operation": FiscalOperation.EMISSION,
-                "linkage": EmissionLinkage.WORKORDER,
+                "linkage": EmissionLinkage.STANDALONE,
                 "gateway_step": "document",
             }
         )

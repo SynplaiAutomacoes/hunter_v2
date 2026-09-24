@@ -205,6 +205,11 @@ def resolve_nfe_note_amount(nfe_request: NfeRequest) -> Decimal | None:
             products_target=allocation.products_target,
             services_target=allocation.services_target,
             discount_type_override=str(getattr(nfe_request, "discount_type_override", "") or ""),
+            discount_value_override=(
+                Decimal(str(nfe_request.discount_value_override.amount))
+                if getattr(nfe_request, "discount_value_override", None) is not None
+                else None
+            ),
         )
         return _quantize_money(allocation.products_target - product_discount)
     except Exception:

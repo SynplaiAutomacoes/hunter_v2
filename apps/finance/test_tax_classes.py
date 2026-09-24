@@ -58,17 +58,40 @@ class NfseServiceCodeFormatTests(SimpleTestCase):
 
 
 class NfseTaxClassFormServiceCodeTests(SimpleTestCase):
-    def test_nfse_form_accepts_national_service_code(self) -> None:
+    def test_nfse_form_accepts_cod_indicador_operacao_choice(self) -> None:
         form = NfseTaxClassForm(
             data={
-                "descricao": "Classe nacional",
+                "descricao": "Classe com indicador",
                 "codigo_servico": "01.05.01",
                 "exigibilidade_iss": "1",
                 "iss_retido": "2",
+                "cod_indicador_operacao": "050101",
             }
         )
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.cleaned_data["codigo_servico"], "01.05.01")
+        self.assertEqual(form.cleaned_data["cod_indicador_operacao"], "050101")
+        self.assertEqual(form.build_payload()["cod_indicador_operacao"], "050101")
+
+    def test_nfse_form_rejects_unknown_cod_indicador_operacao(self) -> None:
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe com indicador invalido",
+                "codigo_servico": "01.05.01",
+                "exigibilidade_iss": "1",
+                "iss_retido": "2",
+                "cod_indicador_operacao": "999999",
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("cod_indicador_operacao", form.errors)
+
+    def test_nfse_form_cod_indicador_help_text_has_no_vendor_name(self) -> None:
+        form = NfseTaxClassForm()
+        help_text = str(form.fields["cod_indicador_operacao"].help_text).lower()
+        self.assertNotIn("webmania", help_text)
+        self.assertNotIn("planilha", help_text)
+        choice_values = {value for value, _label in form.fields["cod_indicador_operacao"].choices}
+        self.assertIn("050101", choice_values)
 
     def test_nfse_form_normalizes_six_digit_service_code(self) -> None:
         form = NfseTaxClassForm(
