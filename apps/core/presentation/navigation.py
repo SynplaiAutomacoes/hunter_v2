@@ -111,6 +111,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
         "label": "Gestão",
         "items": (
+            {"label": "Central de Relatórios", "view_name": "core:reports_hub"},
             {"label": "Gerenciar Oficinas", "view_name": "workshops:list"},
             {"label": "Gerenciar Permissões", "view_name": "iam:role_list"},
             {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},

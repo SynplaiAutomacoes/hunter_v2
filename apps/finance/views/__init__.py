@@ -7,7 +7,7 @@ from .fiscal_gateway import FiscalOperationGatewayView
 from .standalone_emission import StandaloneCustomerSearchView, StandaloneEmissionCreateView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .issued_documents_report import IssuedDocumentsReportExcelView, IssuedDocumentsReportPdfView
-from .commissions import CommissionReportPdfView, CommissionReportView
+from .commissions import CommissionReportExcelView, CommissionReportPdfView, CommissionReportView
 from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .payroll import (
@@ -90,6 +90,7 @@ __all__ = [
     "IssuedDocumentsReportPdfView",
     "CommissionReportView",
     "CommissionReportPdfView",
+    "CommissionReportExcelView",
     "NfeCreateRedirectView",
     "NfeCorrectionDownloadView",
     "NfeCorrectionIssueView",

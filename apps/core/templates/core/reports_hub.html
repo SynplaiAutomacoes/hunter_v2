@@ -1,0 +1,46 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="space-y-6">
+    <div>
+        <h1 class="text-3xl font-bold text-base-content">Central de Relatórios</h1>
+        <p class="text-base-content/70">Exporte PDF e Excel dos relatórios de gestão da oficina.</p>
+    </div>
+
+    {% for group in report_groups %}
+    <section class="space-y-3">
+        <h2 class="text-xl font-semibold text-base-content">{{ group.category }}</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {% for entry in group.entries %}
+            <a href="{% url 'core:management_report' %}?tipo={{ entry.key }}"
+               class="card bg-base-100 border border-base-300 shadow-sm hover:border-primary/40 hover:shadow-md transition">
+                <div class="card-body gap-2">
+                    <div class="flex items-start gap-3">
+                        <span class="material-icons text-primary">{{ entry.icon }}</span>
+                        <div>
+                            <h3 class="font-semibold text-base-content">{{ entry.title }}</h3>
+                            <p class="text-sm text-base-content/65">{{ entry.description }}</p>
+                        </div>
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+
+    <section class="card bg-base-100 border border-base-300 shadow-sm">
+        <div class="card-body gap-2">
+            <h2 class="card-title text-lg">Olhinhos do Dashboard</h2>
+            <p class="text-sm text-base-content/70">
+                Os indicadores financeiros do dashboard (carros no mês, total vendido, a receber, etc.) já possuem
+                detalhamento com exportação PDF e Excel pelo ícone de visualização em cada card.
+            </p>
+            <a href="{% url 'core:dashboard' %}" class="btn btn-sm btn-outline w-fit gap-2">
+                <span class="material-icons text-sm">dashboard</span>
+                Abrir Dashboard
+            </a>
+        </div>
+    </section>
+</div>
+{% endblock %}
