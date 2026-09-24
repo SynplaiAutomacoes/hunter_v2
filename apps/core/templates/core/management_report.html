@@ -1,4 +1,5 @@
 {% extends 'crud/page.html' %}
+{% load l10n %}
 
 {% block crud_content %}
 <div class="space-y-6">
@@ -25,10 +26,10 @@
     <form method="get" class="card bg-base-100 border border-base-300 shadow-sm">
         <div class="card-body gap-4">
             <input type="hidden" name="tipo" value="{{ report_key }}" />
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <label class="form-control">
-                    <span class="label-text">Mês</span>
-                    <select name="mes" class="select select-bordered">
+            <div class="grid grid-cols-1 items-end gap-3 md:grid-cols-4">
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-mes" class="min-h-5 text-sm leading-5 text-base-content/80">Mês</label>
+                    <select id="reports-filter-mes" name="mes" class="select select-bordered w-full">
                         <option value="1" {% if period.month == 1 %}selected{% endif %}>Janeiro</option>
                         <option value="2" {% if period.month == 2 %}selected{% endif %}>Fevereiro</option>
                         <option value="3" {% if period.month == 3 %}selected{% endif %}>Março</option>
@@ -42,19 +43,19 @@
                         <option value="11" {% if period.month == 11 %}selected{% endif %}>Novembro</option>
                         <option value="12" {% if period.month == 12 %}selected{% endif %}>Dezembro</option>
                     </select>
-                </label>
-                <label class="form-control">
-                    <span class="label-text">Ano</span>
-                    <input type="number" name="ano" value="{{ period.year }}" class="input input-bordered" min="2000" max="9999" />
-                </label>
-                <label class="form-control">
-                    <span class="label-text">Data inicial (opcional)</span>
-                    <input type="date" name="data_inicial" value="{{ request.GET.data_inicial }}" class="input input-bordered" />
-                </label>
-                <label class="form-control">
-                    <span class="label-text">Data final (opcional)</span>
-                    <input type="date" name="data_final" value="{{ request.GET.data_final }}" class="input input-bordered" />
-                </label>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-ano" class="min-h-5 text-sm leading-5 text-base-content/80">Ano</label>
+                    <input id="reports-filter-ano" type="number" name="ano" value="{{ period.year|unlocalize }}" class="input input-bordered w-full" min="2000" max="9999" />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-data-inicial" class="min-h-5 text-sm leading-5 text-base-content/80">Data inicial</label>
+                    <input id="reports-filter-data-inicial" type="date" name="data_inicial" value="{{ request.GET.data_inicial }}" class="input input-bordered w-full" />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-data-final" class="min-h-5 text-sm leading-5 text-base-content/80">Data final</label>
+                    <input id="reports-filter-data-final" type="date" name="data_final" value="{{ request.GET.data_final }}" class="input input-bordered w-full" />
+                </div>
             </div>
 
             {% if sort_options %}

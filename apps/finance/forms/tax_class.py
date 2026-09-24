@@ -13,6 +13,10 @@ from apps.core.infrastructure.services.webmania.emission import normalize_codigo
 from apps.core.presentation.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import TaxClassPreset
 from apps.core.presentation.forms import CoreForm, CoreModelForm
+from apps.finance.nfse_indicador_operacao import (
+    NFSE_COD_INDICADOR_OPERACAO_CHOICES,
+    normalize_nfse_cod_indicador_operacao,
+)
 from apps.finance.services.tax_classes import (
     NFSE_CODIGO_SERVICO_HELP_TEXT,
     NFSE_CODIGO_SERVICO_INVALID_FORMAT,
@@ -215,6 +219,19 @@ class NfseTaxClassForm(TaxClassFormBase):
     responsavel_retencao = forms.ChoiceField(label="Responsável pela retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SearchableSelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
     codigo_nbs = forms.CharField(label="Código NBS", required=False, help_text="Código NBS da classe NFS-e. Padrão Nacional: 9 dígitos.", widget=TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}))
     codigo_cnae = forms.CharField(label="Código CNAE", required=False, widget=TextInput())
+    cod_indicador_operacao = forms.ChoiceField(
+        label="Código indicador da operação",
+        required=False,
+        choices=NFSE_COD_INDICADOR_OPERACAO_CHOICES,
+        help_text="Obrigatório no Padrão Nacional. Para oficinas, o mais comum é 050101 (serviço sobre bem móvel no estabelecimento).",
+        widget=SearchableSelectInput(choices=NFSE_COD_INDICADOR_OPERACAO_CHOICES),
+    )
+    finalidade = forms.ChoiceField(
+        label="Finalidade (Padrão Nacional)",
+        required=False,
+        choices=(("", "—"), ("0", "0 - Normal"), ("1", "1 - Nota substituta"), ("2", "2 - Nota complementar")),
+        widget=SearchableSelectInput(choices=(("", "—"), ("0", "0 - Normal"), ("1", "1 - Nota substituta"), ("2", "2 - Nota complementar"))),
+    )
 
     iss = forms.DecimalField(label="Alíquota ISS", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
     pis = forms.DecimalField(label="Alíquota PIS", required=False, max_digits=7, decimal_places=2, widget=DecimalInput(decimal_places=2))
@@ -261,6 +278,8 @@ class NfseTaxClassForm(TaxClassFormBase):
             "responsavel_retencao",
             "codigo_nbs",
             "codigo_cnae",
+            "cod_indicador_operacao",
+            "finalidade",
             "iss",
             "pis",
             "cofins",
@@ -309,6 +328,12 @@ class NfseTaxClassForm(TaxClassFormBase):
             self.codigo_servico_suggestions = []
             self.codigo_nbs_suggestions = []
 
+        current_cod = normalize_nfse_cod_indicador_operacao(self.initial.get("cod_indicador_operacao"))
+        if current_cod and current_cod not in {value for value, _label in NFSE_COD_INDICADOR_OPERACAO_CHOICES}:
+            extended_choices = list(NFSE_COD_INDICADOR_OPERACAO_CHOICES) + [(current_cod, f"{current_cod} — (valor atual)")]
+            self.fields["cod_indicador_operacao"].choices = extended_choices
+            self.fields["cod_indicador_operacao"].widget = SearchableSelectInput(choices=extended_choices)
+
         if not self.is_bound:
             self.initial.setdefault("natureza_operacao", "1")
             self.initial.setdefault("exigibilidade_iss", "1")
@@ -347,8 +372,10 @@ class NfseTaxClassForm(TaxClassFormBase):
                     css_class="grid grid-cols-12 gap-4",
                 ),
                 Div(
-                    Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("codigo_cnae", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("codigo_cnae", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("cod_indicador_operacao", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("finalidade", wrapper_class="col-span-12 lg:col-span-3"),
                     css_class="grid grid-cols-12 gap-4 items-end",
                 ),
                 Div(
@@ -412,6 +439,9 @@ class NfseTaxClassForm(TaxClassFormBase):
         elif codigo_nbs:
             cleaned_data["codigo_nbs"] = codigo_nbs
 
+        cod_indicador = normalize_nfse_cod_indicador_operacao(cleaned_data.get("cod_indicador_operacao"))
+        cleaned_data["cod_indicador_operacao"] = cod_indicador
+
         has_service_tax_data = any(
             cleaned_data.get(field_name) not in (None, "")
             for field_name in (
@@ -453,6 +483,8 @@ class NfseTaxClassForm(TaxClassFormBase):
             "responsavel_retencao",
             "codigo_nbs",
             "codigo_cnae",
+            "cod_indicador_operacao",
+            "finalidade",
             "informacoes_fisco",
             "informacoes_complementares",
         )

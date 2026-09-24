@@ -161,6 +161,109 @@ def _is_tax_class_not_found_error(message: str) -> bool:
     return "nao encontrada" in normalized_message or "não encontrada" in normalized_message
 
 
+def _is_missing_cod_indicador_operacao_error(message: str) -> bool:
+    normalized_message = (message or "").strip().lower()
+    return "cod_indicador_operacao" in normalized_message
+
+
+def _should_retry_nfse_with_explicit_tax_data(message: str) -> bool:
+    return _is_tax_class_not_found_error(message) or _is_missing_cod_indicador_operacao_error(message)
+
+
+def _enrich_nfse_payload_with_tax_class(*, payload: dict[str, Any], tax_class_payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Copia campos do Padrão Nacional da classe de imposto para o servico,
+    mantendo classe_imposto. Necessario quando o provedor exige o campo no
+    body mesmo com referencia de classe (ex.: cod_indicador_operacao).
+    """
+    enriched = deepcopy(payload)
+    rps = enriched.get("rps")
+    if not isinstance(rps, list) or not rps:
+        return enriched
+    first_rps = rps[0]
+    if not isinstance(first_rps, dict):
+        return enriched
+
+    service_payload = first_rps.get("servico")
+    if not isinstance(service_payload, dict):
+        service_payload = {}
+        first_rps["servico"] = service_payload
+
+    service_fields = (
+        "codigo_servico",
+        "natureza_operacao",
+        "iss_retido",
+        "exigibilidade_iss",
+        "tributacao_iss",
+        "tipo_emissao",
+        "codigo_tributacao_municipio",
+        "tipo_imunidade",
+        "responsavel_retencao",
+        "codigo_cnae",
+        "finalidade",
+        "cod_indicador_operacao",
+        "codigo_nbs",
+        "cidade_local_prestacao",
+        "uf_local_prestacao",
+    )
+    for field_name in service_fields:
+        if _has_payload_value(service_payload.get(field_name)):
+            continue
+        value = tax_class_payload.get(field_name)
+        if _has_payload_value(value):
+            service_payload[field_name] = value
+
+    if not _has_payload_value(service_payload.get("finalidade")):
+        service_payload["finalidade"] = 0
+
+    if not _has_payload_value(service_payload.get("iss_retido")):
+        fallback_retencao_iss = tax_class_payload.get("retencao_iss")
+        if _has_payload_value(fallback_retencao_iss):
+            service_payload["iss_retido"] = fallback_retencao_iss
+
+    return enriched
+
+
+def _merge_local_nfse_tax_class_into_remote(*, nfse_request: NfseRequest, tax_class_payload: dict[str, Any]) -> dict[str, Any]:
+    """Preenche buracos do payload remoto com valores locais da TaxClassNfse."""
+    reference = str(nfse_request.tax_class or "").strip()
+    if not reference:
+        return tax_class_payload
+
+    from apps.finance.models.finance import TaxClassNfse
+
+    local = TaxClassNfse.objects.filter(workshop_id=nfse_request.workshop_id, reference=reference).first()
+    if local is None:
+        return tax_class_payload
+
+    merged = dict(tax_class_payload)
+    local_fields = (
+        "tipo_emissao",
+        "codigo_servico",
+        "codigo_tributacao_municipio",
+        "tributacao_iss",
+        "tipo_imunidade",
+        "retencao_iss",
+        "cst_pis_cofins",
+        "retencao_pis_cofins",
+        "natureza_operacao",
+        "exigibilidade_iss",
+        "iss_retido",
+        "responsavel_retencao",
+        "codigo_nbs",
+        "codigo_cnae",
+        "cod_indicador_operacao",
+        "finalidade",
+    )
+    for field_name in local_fields:
+        if _has_payload_value(merged.get(field_name)):
+            continue
+        value = getattr(local, field_name, None)
+        if _has_payload_value(value):
+            merged[field_name] = value
+    return merged
+
+
 def _is_nfse_tax_class(payload: dict[str, Any]) -> bool:
     tax_type = str(payload.get("tipo") or payload.get("type") or "").strip().lower()
     if tax_type in {"nfse", "nfs-e", "nsfe"}:
@@ -216,12 +319,15 @@ def _validate_tax_class_for_emission(*, nfse_request: NfseRequest, headers: dict
     if not _is_nfse_tax_class(matched_tax_class):
         raise NfseEmissionError("A classe de imposto selecionada não é do tipo Nota Fiscal de Serviço.")
 
+    matched_tax_class = _merge_local_nfse_tax_class_into_remote(nfse_request=nfse_request, tax_class_payload=matched_tax_class)
+
     _debug_print(
         "Classe de imposto validada para emissao",
         {
             "reference": reference,
             "tipo": matched_tax_class.get("tipo") or matched_tax_class.get("type"),
             "status": matched_tax_class.get("status"),
+            "cod_indicador_operacao": matched_tax_class.get("cod_indicador_operacao"),
         },
     )
     return matched_tax_class
@@ -428,6 +534,7 @@ def compute_service_discount_for_nfse(
     *,
     workorder: WorkOrder,
     discount_type_override: str = "",
+    discount_value_override: Decimal | None = None,
 ) -> Decimal:
     """
     Calcula o valor de desconto a ser aplicado nos servicos da NFS-e,
@@ -442,8 +549,13 @@ def compute_service_discount_for_nfse(
 
     Se discount_type_override for informado, usa ele no lugar do discount_type
     da WorkOrder (para sobrescrita especifica da emissao).
+    Se discount_value_override for informado, usa esse valor no lugar do
+    desconto resolvido da WorkOrder (apenas nesta emissao).
     """
-    total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
+    if discount_value_override is not None:
+        total_discount = _quantize_money(Decimal(str(discount_value_override)))
+    else:
+        total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
     if total_discount <= Decimal("0.00"):
         return Decimal("0.00")
 
@@ -498,6 +610,11 @@ def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: 
     service_discount = compute_service_discount_for_nfse(
         workorder=nfse_request.workorder,
         discount_type_override=str(getattr(nfse_request, "discount_type_override", "") or ""),
+        discount_value_override=(
+            Decimal(str(getattr(nfse_request, "discount_value_override").amount))
+            if getattr(nfse_request, "discount_value_override", None) is not None
+            else None
+        ),
     )
     net_amount = _quantize_money(gross_amount - service_discount)
 
@@ -613,6 +730,7 @@ def preview_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | No
 
     tax_class_payload = _validate_tax_class_for_emission(nfse_request=nfse_request, headers=headers)
     payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
+    payload = _enrich_nfse_payload_with_tax_class(payload=payload, tax_class_payload=tax_class_payload)
     payload["previa_danfe"] = True
 
     def _post_preview(current_payload: dict[str, Any]) -> dict[str, Any]:
@@ -640,12 +758,18 @@ def preview_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | No
 
     data = _post_preview(payload)
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
-    if error_message and _is_tax_class_not_found_error(error_message):
+    if error_message and _should_retry_nfse_with_explicit_tax_data(error_message):
         fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=payload, tax_class_payload=tax_class_payload)
         data = _post_preview(fallback_payload)
         error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
 
     if error_message:
+        if _is_missing_cod_indicador_operacao_error(error_message):
+            raise NfseEmissionError(
+                "Parâmetro obrigatório: cod_indicador_operacao. "
+                "Configure o Código indicador da operação na classe de imposto NFS-e "
+                "(Padrão Nacional; para oficinas o mais comum é 050101) e tente novamente."
+            )
         raise NfseEmissionError(error_message)
 
     preview_url = _extract_nfse_preview_url(data)
@@ -661,6 +785,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
 
     tax_class_payload = _validate_tax_class_for_emission(nfse_request=nfse_request, headers=headers)
     payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
+    payload = _enrich_nfse_payload_with_tax_class(payload=payload, tax_class_payload=tax_class_payload)
     payload["previa_danfe"] = True
 
     def _post_preview(current_payload: dict[str, Any]) -> requests.Response:
@@ -700,7 +825,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
             return None
 
         error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
-        if error_message and _is_tax_class_not_found_error(error_message):
+        if error_message and _should_retry_nfse_with_explicit_tax_data(error_message):
             fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=current_payload, tax_class_payload=tax_class_payload)
             fallback_response = _post_preview(fallback_payload)
             return _response_to_document(fallback_response, current_payload=fallback_payload)
@@ -764,6 +889,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
             raise NfseEmissionError(str(exc)) from exc
 
     payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
+    payload = _enrich_nfse_payload_with_tax_class(payload=payload, tax_class_payload=tax_class_payload)
 
     _debug_print(
         "Iniciando emissao de Nota Fiscal de Serviço",
@@ -818,7 +944,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
             error_message,
         )
 
-        if _is_tax_class_not_found_error(error_message):
+        if _should_retry_nfse_with_explicit_tax_data(error_message):
             fallback_payload = _build_fallback_payload_with_explicit_tax_data(payload=payload, tax_class_payload=tax_class_payload)
             _debug_print("Tentando emissao com impostos explicitos", fallback_payload)
             logger.info("nfse_emission_retry_with_explicit_tax_data", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk})
@@ -891,6 +1017,12 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
             )
             return fallback_data
 
+        if _is_missing_cod_indicador_operacao_error(error_message):
+            raise NfseEmissionError(
+                "Parâmetro obrigatório: cod_indicador_operacao. "
+                "Configure o Código indicador da operação na classe de imposto NFS-e "
+                "(Padrão Nacional; para oficinas o mais comum é 050101) e tente novamente."
+            )
         raise NfseEmissionError(error_message)
 
     if not data.get("modelo") and not data.get("uuid"):

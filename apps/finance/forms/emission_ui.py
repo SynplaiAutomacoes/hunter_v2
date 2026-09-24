@@ -109,14 +109,28 @@ def build_slider_widget_attrs(
     return attrs
 
 
-def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int) -> Step5PricingPanelData:
+def build_step5_pricing_panel_data(
+    *,
+    workorder: WorkOrder,
+    selected_slider: int,
+    discount_value_override: Money | Decimal | None = None,
+) -> Step5PricingPanelData:
     snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder, slider_override=selected_slider)
     pricing_data = workorder.calculate_pricing_methods() or {}
     zero_money = Money(0, "BRL")
 
     total_base_value = workorder.get_total_products_by_slider + workorder.get_total_services_by_slider
-    total_budget_value = workorder.total_budget_value
-    resolved_discount_value = total_base_value - total_budget_value
+    if discount_value_override is not None:
+        override_amount = Decimal(str(getattr(discount_value_override, "amount", discount_value_override) or Decimal("0.00")))
+        override_amount = max(override_amount, Decimal("0.00")).quantize(Decimal("0.01"))
+        resolved_discount_value = Money(override_amount, "BRL")
+        total_budget_value = Money(
+            max(Decimal(str(total_base_value.amount)) - override_amount, Decimal("0.00")).quantize(Decimal("0.01")),
+            "BRL",
+        )
+    else:
+        total_budget_value = workorder.total_budget_value
+        resolved_discount_value = total_base_value - total_budget_value
 
     sale_third_party_services = sum((line.adjusted_total for line in snapshot.service_lines if line.third_party), zero_money)
     sale_labor = sum((line.adjusted_total for line in snapshot.service_lines if not line.third_party), zero_money)
@@ -385,13 +399,59 @@ def build_note_mode_header_layout(*, field_name: str = "note_mode", availability
     )
 
 
-def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData, slider_field_name: str, form_selector: str, body_html: str, header: Any = None) -> Div:
+def build_step5_summary_layout(
+    *,
+    prefix: str,
+    panel_data: Step5PricingPanelData,
+    slider_field_name: str,
+    form_selector: str,
+    body_html: str,
+    header: Any = None,
+    discount_field_name: str | None = None,
+) -> Div:
     layout_children: list[Any] = [
         HTML(_build_step5_styles_html()),
         HTML(build_step5_slider_script_html(prefix=prefix, form_selector=form_selector, input_name=slider_field_name)),
     ]
     if header is not None:
         layout_children.append(header)
+
+    if discount_field_name:
+        discount_block = Div(
+            HTML('<h4 class="font-bold text-lg mb-2">Desconto na nota</h4>'),
+            HTML(
+                f"""
+                <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 space-y-3">
+                    <div class="flex justify-between text-sm font-semibold text-base-content/70">
+                        <span>Percentual</span>
+                        <span id="{prefix}-discount-pct-display">{panel_data.discount_percentage_display}</span>
+                    </div>
+                </div>
+                """
+            ),
+            Field(discount_field_name, label="Valor do desconto (R$)", help_text="Altera só o desconto desta emissão; a O.S. não é modificada.", wrapper_class="mt-3 mb-0"),
+            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+        )
+    else:
+        discount_block = Div(
+            HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
+            HTML(
+                f"""
+                <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 space-y-2">
+                    <div class="flex justify-between text-sm font-semibold text-base-content/70">
+                        <span>Percentual</span>
+                        <span id="{prefix}-discount-pct-display">{panel_data.discount_percentage_display}</span>
+                    </div>
+                    <div class="flex justify-between text-lg font-semibold">
+                        <span>Valor</span>
+                        <span id="{prefix}-discount-amount-display">{panel_data.discount_display}</span>
+                    </div>
+                </div>
+                """
+            ),
+            css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
+        )
+
     layout_children.append(
         Div(
             Div(
@@ -414,24 +474,7 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                         HTML('<p class="text-sm text-gray-500 font-semibold italic">Defina o valor que gostaria de emitir como NF de peça ou NF de serviço.</p>'),
                         css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                     ),
-                    Div(
-                        HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
-                        HTML(
-                            f"""
-                            <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 space-y-2">
-                                <div class="flex justify-between text-sm font-semibold text-base-content/70">
-                                    <span>Percentual</span>
-                                    <span>{panel_data.discount_percentage_display}</span>
-                                </div>
-                                <div class="flex justify-between text-lg font-semibold">
-                                    <span>Valor</span>
-                                    <span>{panel_data.discount_display}</span>
-                                </div>
-                            </div>
-                            """
-                        ),
-                        css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
-                    ),
+                    discount_block,
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 text-center border-b-1 border-gray-300">Valor Final</h4>'),
                         HTML('<h5 class="font-semibold text-lg mb-2 text-center">Valor do Orçamento com desconto aplicado:</h5>'),
@@ -443,8 +486,8 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                                     <span>{panel_data.total_base_value}</span>
                                 </div>
                                 <div class="flex justify-between text-xl font-semibold">
-                                    <span>Desconto ({panel_data.discount_percentage_display}):</span>
-                                    <span>{panel_data.discount_display}</span>
+                                    <span>Desconto (<span id="{prefix}-discount-pct-final">{panel_data.discount_percentage_display}</span>):</span>
+                                    <span id="{prefix}-discount-amount-display">{panel_data.discount_display}</span>
                                 </div>
                                 <div class="flex justify-between text-xl font-black">
                                     <span>Valor Final:</span>
@@ -477,6 +520,10 @@ def build_step5_preview_oob_html(*, prefix: str, panel_data: Step5PricingPanelDa
 
     return f"""
         {sale_spans_html}
+        <span id="{prefix}-discount-pct-display" hx-swap-oob="true">{panel_data.discount_percentage_display}</span>
+        <span id="{prefix}-discount-pct-final" hx-swap-oob="true">{panel_data.discount_percentage_display}</span>
+        <span id="{prefix}-discount-amount-display" hx-swap-oob="true">{panel_data.discount_display}</span>
+        <span id="{prefix}-valor-final-display" hx-swap-oob="true">{panel_data.total_budget_value}</span>
         <div id="{prefix}-warning-block" hx-swap-oob="true">{warning_html}</div>
         <div id="{prefix}-preview-block" hx-swap-oob="true">{preview_html}</div>
     """

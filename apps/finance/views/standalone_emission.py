@@ -232,6 +232,7 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         context["submit_button_label"] = self._submit_button_label(state=state, step_key=current_step_key)
         context["submit_button_intent"] = self._submit_button_intent(state=state, step_key=current_step_key)
         context["close_emission_url"] = f"{reverse('finance:standalone_emission')}?close=1"
+        context["reset_emission_url"] = f"{reverse('finance:standalone_emission')}?reset=1"
         context["note_mode"] = note_mode
         context["nfe_lines"] = list(state.get("nfe_lines") or [])
         context["nfse_lines"] = list(state.get("nfse_lines") or [])

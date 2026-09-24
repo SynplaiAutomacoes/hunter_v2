@@ -96,6 +96,11 @@ def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
     service_discount = compute_service_discount_for_nfse(
         workorder=nfse_request.workorder,
         discount_type_override=str(getattr(nfse_request, "discount_type_override", "") or ""),
+        discount_value_override=(
+            Decimal(str(nfse_request.discount_value_override.amount))
+            if getattr(nfse_request, "discount_value_override", None) is not None
+            else None
+        ),
     )
     net_amount = (gross_amount - service_discount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
