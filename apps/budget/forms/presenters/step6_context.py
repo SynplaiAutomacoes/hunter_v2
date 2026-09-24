@@ -1,5 +1,4 @@
 # ruff: noqa: F403,F405
-from apps.budget.forms.shared import _build_excluded_services_banner_html
 from apps.budget.forms.steps.common import *
 from apps.budget.review_totals import build_step6_table_totals
 from dataclasses import dataclass
@@ -386,11 +385,9 @@ def build_step6_context(budget, form: Any) -> Step6ReviewContext:
 
     products_totals = table_totals["products"]
     services_totals = table_totals["services"]
-    excluded_services_banner_html = _build_excluded_services_banner_html(budget)
 
     return Step6ReviewContext(
         budget=budget,
-        excluded_services_banner_html=excluded_services_banner_html,
         status_label=status_label,
         status_class=status_class,
         is_signature_resend=is_signature_resend,

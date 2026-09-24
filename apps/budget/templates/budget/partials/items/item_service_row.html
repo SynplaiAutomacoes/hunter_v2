@@ -1,6 +1,6 @@
 {% load l10n %}
 <tr id="budget-item-{{ item.id|unlocalize }}"
-    class="{% if item.is_local and not budget.is_status_locked %}bg-warning/20{% endif %}"
+    class="{% if is_excluded_from_composition or item.is_excluded_from_composition %}bg-amber-100/70 border-l-4 border-amber-500 text-amber-950{% elif item.is_local and not budget.is_status_locked %}bg-warning/20{% endif %}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     {% if not step6 %}
     <td class="budget-step4-select-col text-center">
@@ -18,6 +18,11 @@
         <div class="flex flex-col gap-1 min-w-0">
             <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
             <div class="flex flex-wrap items-center gap-1">
+            {% if is_excluded_from_composition or item.is_excluded_from_composition %}
+                <span class="badge bg-amber-200/90 text-amber-900 border-amber-400 text-xs font-semibold gap-1 shrink-0">
+                    <span class="material-icons text-xs">visibility_off</span> Item oculto, mas mantido o valor
+                </span>
+            {% endif %}
             {% if item.item_benefit_type == "warranty" %}
                 <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
             {% elif item.item_benefit_type == "courtesy" %}
@@ -61,11 +66,11 @@
     </td>
     <td class="text-right">{{ item.service_shipping }}</td>
     <td class="text-center">{{ duration_display|default:item.duration_display }}</td>
-    <td class="font-bold text-right" title="Custo + Venda">
+    <td class="font-bold text-right">
         {% if step6 %}
-            {{ service_display_total|default:slider_total_price }}
+            {{ slider_total_price }}
         {% else %}
-            {{ service_display_total|default:item.display_total_price }}
+            {{ item.display_total_price }}
         {% endif %}
     </td>
     {% if not step6 %}

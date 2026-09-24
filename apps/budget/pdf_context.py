@@ -313,8 +313,6 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
     third_party_entries: list[tuple[Any, int]] = []
 
     for override in kit_item._iter_frozen_kit_service_overrides():
-        if getattr(override, "excluded_from_composition", False):
-            continue
         total_quantity = int(override.quantity or 0) * int(kit_quantity or 0)
         if total_quantity <= 0:
             continue
@@ -366,6 +364,7 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
             "item_benefit_type": kit_item.item_benefit_type,
             "shipping": service_shipping,
             "is_third_party": False,
+            "is_excluded_from_composition": bool(getattr(override, "excluded_from_composition", False)),
         }
         if servico["item_benefit_type"] != "normal":
             servico["profit_value"] = -servico["service_mechanic_cost_price"]
