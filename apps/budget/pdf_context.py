@@ -411,6 +411,7 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
                 "item_benefit_type": kit_item.item_benefit_type,
                 "shipping": service_shipping,
                 "is_third_party": True,
+                "is_excluded_from_composition": bool(getattr(override, "excluded_from_composition", False)),
             }
         )
 

@@ -198,7 +198,8 @@ def _render_budget_items_rows(budget, step6=False):
                     )
 
                 for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-                    if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                    is_excluded = bool(exploded.get("is_excluded_from_composition"))
+                    if not is_excluded and winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
                     rows["service"] += _render_budget_item_row(
@@ -212,7 +213,7 @@ def _render_budget_items_rows(budget, step6=False):
                             "slider_total_price": exploded.get("total_price"),
                             "duration_display": exploded.get("duration_display"),
                             "service_mechanic_cost": component.mechanic_cost,
-                            "is_excluded_from_composition": bool(exploded.get("is_excluded_from_composition") or getattr(component, "is_excluded_from_composition", False)),
+                            "is_excluded_from_composition": is_excluded or bool(getattr(component, "is_excluded_from_composition", False)),
                         },
                     )
 
@@ -285,7 +286,8 @@ def _render_budget_items_rows(budget, step6=False):
                     )
 
                 for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-                    if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                    is_excluded = bool(exploded.get("is_excluded_from_composition"))
+                    if not is_excluded and winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_step4_kit_service_item(kit_item=kit_item, exploded=exploded)
                     rows["service"] += _render_budget_item_row(
@@ -298,7 +300,7 @@ def _render_budget_items_rows(budget, step6=False):
                             "is_kit_component": True,
                             "duration_display": exploded.get("duration_display") or component.duration_display,
                             "service_mechanic_cost": _money_or_zero(exploded.get("service_mechanic_cost_price")),
-                            "is_excluded_from_composition": bool(exploded.get("is_excluded_from_composition") or getattr(component, "is_excluded_from_composition", False)),
+                            "is_excluded_from_composition": is_excluded or bool(getattr(component, "is_excluded_from_composition", False)),
                         },
                     )
 

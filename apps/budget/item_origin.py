@@ -279,6 +279,7 @@ def build_kit_component_service_item_from_exploded(*, kit_item: Any, row: dict[s
         display_total_price=row.get("total_price") or zero_money(),
         total_price=row.get("total_price") or zero_money(),
         mechanic_cost=mechanic_cost,
+        is_excluded_from_composition=bool(row.get("is_excluded_from_composition")),
         show_kit_duplicate_warning=False,
         is_kit_component=True,
     )

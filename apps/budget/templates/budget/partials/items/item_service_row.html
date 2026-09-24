@@ -1,6 +1,6 @@
 {% load l10n %}
 <tr id="budget-item-{{ item.id|unlocalize }}"
-    class="{% if is_excluded_from_composition or item.is_excluded_from_composition %}bg-amber-100/70 border-l-4 border-amber-500 text-amber-950{% elif item.is_local and not budget.is_status_locked %}bg-warning/20{% endif %}"
+    class="{% if is_excluded_from_composition or item.is_excluded_from_composition %}bg-warning/20 border-l-4 border-warning text-amber-950{% elif item.is_local and not budget.is_status_locked %}bg-warning/20{% endif %}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     {% if not step6 %}
     <td class="budget-step4-select-col text-center">
@@ -19,7 +19,7 @@
             <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
             <div class="flex flex-wrap items-center gap-1">
             {% if is_excluded_from_composition or item.is_excluded_from_composition %}
-                <span class="badge bg-amber-200/90 text-amber-900 border-amber-400 text-xs font-semibold gap-1 shrink-0">
+                <span class="badge badge-warning text-xs font-semibold gap-1 shrink-0">
                     <span class="material-icons text-xs">visibility_off</span> Item oculto, mas mantido o valor
                 </span>
             {% endif %}

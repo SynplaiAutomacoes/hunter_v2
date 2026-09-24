@@ -8,7 +8,6 @@ from typing import Any
 @dataclass
 class Step6ReviewContext:
     budget: "Budget"
-    excluded_services_banner_html: str
     status_label: str
     status_class: str
     is_signature_resend: bool
