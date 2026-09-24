@@ -288,7 +288,7 @@ def build_vendas_modalidade(*, workshop: Workshop, period: ReportPeriod) -> Mana
         )
         .select_related("payment_method", "workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle")
         .annotate(payment_total=payment_expr)
-        .order_by("payment_method__name", "-due_date")
+        .order_by("payment_method__description", "-due_date")
     )
     rows: list[dict[str, Any]] = []
     for payment in payments:

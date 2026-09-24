@@ -38,7 +38,7 @@ REPORT_CATALOG: tuple[ReportCatalogEntry, ...] = (
     ReportCatalogEntry(
         key="mecanicos_retrabalho",
         title="Mecânicos que mais geram retrabalhos",
-        description="Ranking de prejuízo por garantia/cortesia (fórmulas de comissão).",
+        description="Ranking de O.S. de garantia/cortesia por falha de mão de obra ou falha de mão de obra e peça.",
         category="Performance",
         icon="engineering",
     ),

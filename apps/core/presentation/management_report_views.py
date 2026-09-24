@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from typing import Any
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.urls import reverse
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import TemplateView
 
 from apps.core.infrastructure.pdf.renderer import build_excel_http_response, build_pdf_http_response
@@ -100,6 +103,7 @@ class ManagementReportView(LoginRequiredMixin, WorkshopScopedMixin, ManagementRe
         return context
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
 class ManagementReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, ManagementReportDataMixin, View):
     workshop_permission_app_label = "workshops"
     workshop_permission_model = "workshop"

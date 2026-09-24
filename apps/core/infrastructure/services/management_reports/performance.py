@@ -6,18 +6,25 @@ from typing import Any
 from django.db.models import Q
 
 from apps.budget.models import Budget, BudgetStatus
-from apps.collaborators.models import CollaboratorCommissionEntry
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_budget_for_dashboard_pricing,
+)
 from apps.core.infrastructure.services.management_reports.period import ReportPeriod
 from apps.core.infrastructure.services.management_reports.types import ManagementReport, ReportColumnDef
 from apps.core.workorder_numbers import resolve_budget_workorder_number, resolve_workorder_number
-from apps.finance.services.payroll_commission_history import (
-    BOTH_REASON_TYPES,
-    LABOR_ONLY_REASON_TYPES,
-    PRODUCT_COMMISSION_ORIGINS,
-    SERVICE_COMMISSION_ORIGINS,
-)
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderCourtesyReasonType, WorkOrderStatus
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
+
+
+RETRABALHO_REASON_TYPES = frozenset(
+    {
+        WorkOrderCourtesyReasonType.LABOR_FAILURE,
+        WorkOrderCourtesyReasonType.BOTH,
+    }
+)
 
 
 def _money_amount(value: object) -> Decimal:
@@ -42,7 +49,21 @@ def _workshop_name(workshop: Workshop) -> str:
     return workshop.pdf_name or workshop.name or "-"
 
 
+def _workorder_cost_loss(workorder: WorkOrder, *, reason_type: str | None) -> Decimal:
+    """Workshop loss on a warranty/courtesy OS: labor costs, or labor+parts when reason is both."""
+    service_cost = _money_amount(getattr(workorder, "total_costs_services_value", None))
+    third_party_cost = _money_amount(getattr(workorder, "total_third_party_services_cost", None))
+    product_cost = _money_amount(getattr(workorder, "total_costs_products_value", None))
+    labor_cost = service_cost + third_party_cost
+    if reason_type == WorkOrderCourtesyReasonType.BOTH:
+        return labor_cost + product_cost
+    return labor_cost
+
+
 def build_rentabilidade_acumulada(*, workshop: Workshop, period: ReportPeriod) -> ManagementReport:
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=period.month, year=period.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+
     qs = (
         WorkOrder.objects.filter(
             workshop=workshop,
@@ -53,15 +74,18 @@ def build_rentabilidade_acumulada(*, workshop: Workshop, period: ReportPeriod) -
             budget_id__isnull=False,
         )
         .exclude(budget_type__in=["warranty", "courtesy"])
-        .select_related("budget", "budget__customer", "budget__vehicle")
+        .select_related("budget", "budget__customer", "budget__vehicle", "budget__workshop")
+        .prefetch_related(budget_items_with_kit_prefetch(lookup="budget__items"))
         .order_by("-delivered_at", "-pk")
     )
     rows: list[dict[str, Any]] = []
     for wo in qs:
         budget = wo.budget
         plate, model = _vehicle_fields(getattr(budget, "vehicle", None) if budget else None)
+        if budget is not None:
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
         rentability = getattr(budget, "rentability", None) if budget else None
-        gross = _money_amount(getattr(wo, "stored_total_amount", None) or getattr(wo, "total_budget_value", None))
+        gross = _money_amount(getattr(wo, "stored_total_amount", None))
         rows.append(
             {
                 "os": resolve_workorder_number(wo),
@@ -228,8 +252,7 @@ def build_taxa_aprovacao(*, workshop: Workshop, period: ReportPeriod) -> Managem
 
 
 def build_mecanicos_retrabalho(*, workshop: Workshop, period: ReportPeriod, sort_by: str = "perda") -> ManagementReport:
-    """Rank mechanics by warranty/courtesy labor rework loss using commission clawback formulas."""
-    reason_types = LABOR_ONLY_REASON_TYPES | BOTH_REASON_TYPES
+    """Rank mechanics by warranty/courtesy OS caused by labor failure or both (labor + parts)."""
     benefit_wos = list(
         WorkOrder.objects.filter(
             workshop=workshop,
@@ -237,23 +260,12 @@ def build_mecanicos_retrabalho(*, workshop: Workshop, period: ReportPeriod, sort
             status=WorkOrderStatus.APPROVED,
             delivered_at__month=period.month,
             delivered_at__year=period.year,
-            courtesy_reason_type__in=reason_types,
+            courtesy_reason_type__in=RETRABALHO_REASON_TYPES,
         )
         .select_related("previous_mechanic", "warranty_origin", "budget", "budget__vehicle")
         .prefetch_related("warranty_origin__collaborators")
     )
 
-    origin_ids = [wo.warranty_origin_id for wo in benefit_wos if wo.warranty_origin_id]
-    origin_entries = list(
-        CollaboratorCommissionEntry.objects.filter(workorder_id__in=origin_ids).select_related("collaborator")
-    )
-    entries_by_wo: dict[int, list[CollaboratorCommissionEntry]] = {}
-    for entry in origin_entries:
-        if entry.workorder_id is None:
-            continue
-        entries_by_wo.setdefault(entry.workorder_id, []).append(entry)
-
-    allowed_origins = SERVICE_COMMISSION_ORIGINS | PRODUCT_COMMISSION_ORIGINS
     aggregates: dict[int, dict[str, Any]] = {}
 
     for benefit in benefit_wos:
@@ -263,24 +275,7 @@ def build_mecanicos_retrabalho(*, workshop: Workshop, period: ReportPeriod, sort
         if mechanic is None:
             continue
 
-        loss = Decimal("0.00")
-        if benefit.warranty_origin_id:
-            scoped = [
-                entry
-                for entry in entries_by_wo.get(benefit.warranty_origin_id, [])
-                if entry.collaborator_id == mechanic.pk
-                and (
-                    getattr(entry, "commission_origin", None) in allowed_origins
-                    or entry.origin == CollaboratorCommissionEntry.Origin.MANUAL
-                )
-            ]
-            if benefit.courtesy_reason_type in LABOR_ONLY_REASON_TYPES:
-                scoped = [
-                    e
-                    for e in scoped
-                    if getattr(e, "commission_origin", None) in SERVICE_COMMISSION_ORIGINS
-                ] or scoped
-            loss = sum((_money_amount(e.commission_amount) for e in scoped), Decimal("0.00"))
+        loss = _workorder_cost_loss(benefit, reason_type=benefit.courtesy_reason_type)
 
         if mechanic.pk not in aggregates:
             aggregates[mechanic.pk] = {
