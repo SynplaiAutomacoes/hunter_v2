@@ -61,11 +61,11 @@
     </td>
     <td class="text-right">{{ item.service_shipping }}</td>
     <td class="text-center">{{ duration_display|default:item.duration_display }}</td>
-    <td class="font-bold text-right">
+    <td class="font-bold text-right" title="Custo + Venda">
         {% if step6 %}
-            {{ slider_total_price }}
+            {{ service_display_total|default:slider_total_price }}
         {% else %}
-            {{ item.display_total_price }}
+            {{ service_display_total|default:item.display_total_price }}
         {% endif %}
     </td>
     {% if not step6 %}

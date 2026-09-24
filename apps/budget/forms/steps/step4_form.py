@@ -4,6 +4,7 @@ from apps.budget.review_totals import build_step4_table_totals
 from apps.core.templatetags.format_tags import money_br
 from .base import BudgetStepBaseForm
 from .common import *
+from ..shared import _build_excluded_services_banner_html
 
 
 class BudgetStep4Form(BudgetStepBaseForm):
@@ -16,6 +17,7 @@ class BudgetStep4Form(BudgetStepBaseForm):
         super().__init__(*args, **kwargs)
 
         budget = _get_budget_with_prefetched_items(self.instance)
+        excluded_services_banner_html = _build_excluded_services_banner_html(budget)
         rows = _render_budget_items_rows(budget, step6=False)
         products_html = rows["product"]
         services_html = rows["service"]
@@ -187,6 +189,7 @@ class BudgetStep4Form(BudgetStepBaseForm):
                         ),
                         Div(
                             HTML(f"""
+                                {excluded_services_banner_html}
                                 <div class="rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
                                     <div class="overflow-x-auto">
                                         <table class="table table-sm table-zebra w-full budget-step4-table">

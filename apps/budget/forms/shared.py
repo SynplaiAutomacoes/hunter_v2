@@ -1,6 +1,7 @@
 from django import forms
 from django.template.loader import render_to_string
 from djmoney.money import Money
+from django.utils.html import escape
 
 from apps.catalog.product_issues import annotate_product_issues
 from apps.budget.item_origin import (
@@ -15,6 +16,7 @@ from apps.budget.pdf_context import _explode_kit_product_rows, _explode_kit_serv
 from apps.budget.pricing import kit_component_winning_item_ids, zero_money
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.budget.service_display_totals import service_line_display_total
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
 
 MAX_BUDGET_IMAGES = 10
@@ -160,6 +162,10 @@ def _render_budget_items_rows(budget, step6=False):
                 )
 
             for line in review_display.direct_services:
+                slider_total_price = line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price
+                mechanic_cost_total = calculate_mechanic_service_cost(budget=budget_for_render, duration=line.item.duration, quantity=line.item.quantity, fallback_cost=line.item.service_cost_price)
+                sale_total = slider_total_price
+                service_display_total = service_line_display_total(cost_total=mechanic_cost_total, sale_total=sale_total, item=line.item)
                 rows["service"] += _render_budget_item_row(
                     template_name="budget/partials/items/item_service_row.html",
                     item=line.item,
@@ -169,9 +175,10 @@ def _render_budget_items_rows(budget, step6=False):
                     extra={
                         "show_kit_duplicate_warning": False if is_locked else bool((line.item.service_id and line.item.service_id in kit_service_ids) and not line.item.is_local),
                         "slider_price": line.unit_price,
-                        "slider_total_price": (line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price),
+                        "slider_total_price": slider_total_price,
                         "duration_display": line.duration_display,
-                        "service_mechanic_cost": calculate_mechanic_service_cost(budget=budget_for_render, duration=line.item.duration, fallback_cost=line.item.service_cost_price),
+                        "service_mechanic_cost": mechanic_cost_total,
+                        "service_display_total": service_display_total,
                     },
                 )
 
@@ -200,6 +207,9 @@ def _render_budget_items_rows(budget, step6=False):
                     if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
+                    cost_total = component.mechanic_cost
+                    sale_total = component.display_total_price - component.service_shipping
+                    service_display_total = service_line_display_total(cost_total=cost_total, sale_total=sale_total, item=component)
                     rows["service"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_service_row.html",
                         item=component,
@@ -210,7 +220,8 @@ def _render_budget_items_rows(budget, step6=False):
                             "slider_price": exploded.get("unit_price"),
                             "slider_total_price": exploded.get("total_price"),
                             "duration_display": exploded.get("duration_display"),
-                            "service_mechanic_cost": component.mechanic_cost,
+                            "service_mechanic_cost": cost_total,
+                            "service_display_total": service_display_total,
                         },
                     )
 
@@ -248,6 +259,14 @@ def _render_budget_items_rows(budget, step6=False):
                         },
                     )
                 elif item_type == "service":
+                    mechanic_cost_total = calculate_mechanic_service_cost(
+                        budget=budget_for_render,
+                        duration=item.duration,
+                        quantity=item.quantity,
+                        fallback_cost=item.service_cost_price,
+                    )
+                    sale_total = item.display_total_price
+                    service_display_total = service_line_display_total(cost_total=mechanic_cost_total, sale_total=sale_total, item=item)
                     rows["service"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_service_row.html",
                         item=item,
@@ -256,11 +275,8 @@ def _render_budget_items_rows(budget, step6=False):
                         origin_badge=avulso_badge,
                         extra={
                             "show_kit_duplicate_warning": False if is_locked else bool((item.service_id and item.service_id in kit_service_ids) and not item.is_local),
-                            "service_mechanic_cost": calculate_mechanic_service_cost(
-                                budget=budget_for_render,
-                                duration=item.duration,
-                                fallback_cost=item.service_cost_price,
-                            ),
+                            "service_mechanic_cost": mechanic_cost_total,
+                            "service_display_total": service_display_total,
                         },
                     )
 
@@ -286,6 +302,9 @@ def _render_budget_items_rows(budget, step6=False):
                     if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                         continue
                     component = build_step4_kit_service_item(kit_item=kit_item, exploded=exploded)
+                    cost_total = _money_or_zero(exploded.get("service_mechanic_cost_price"))
+                    sale_total = component.display_total_price
+                    service_display_total = service_line_display_total(cost_total=cost_total, sale_total=sale_total, item=component)
                     rows["service"] += _render_budget_item_row(
                         template_name="budget/partials/items/item_service_row.html",
                         item=component,
@@ -295,7 +314,8 @@ def _render_budget_items_rows(budget, step6=False):
                         extra={
                             "is_kit_component": True,
                             "duration_display": exploded.get("duration_display") or component.duration_display,
-                            "service_mechanic_cost": _money_or_zero(exploded.get("service_mechanic_cost_price")),
+                            "service_mechanic_cost": cost_total,
+                            "service_display_total": service_display_total,
                         },
                     )
 
@@ -330,3 +350,73 @@ def _validate_uploaded_files(files):
         if file_size > MAX_IMAGE_SIZE_BYTES:
             size_mb = file_size / 1024 / 1024
             raise forms.ValidationError(f"Arquivo '{file_name}' excede o tamanho máximo de 10MB ({size_mb:.2f}MB).")
+
+def _build_excluded_services_banner_html(budget) -> str:
+    """
+    Constrói o banner visual com os serviços de kits ocultos por duplicidade
+    (com a regra de 'Manter Valor').
+    """
+    from apps.core.templatetags.format_tags import money_br
+
+    if not budget or not budget.pk:
+        return ""
+
+    excluded_by_kit: dict[str, list[tuple[str, str]]] = {}
+    for item in budget._iter_items():
+        if not getattr(item, "kit_id", None):
+            continue
+        kit_name = getattr(getattr(item, "kit", None), "name", None) or "Kit desconhecido"
+        item_quantity = int(getattr(item, "quantity", 0) or 0)
+        for override in item._iter_frozen_kit_service_overrides():
+            if not getattr(override, "excluded_from_composition", False):
+                continue
+            per_kit_qty = int(getattr(override, "quantity", 0) or 0)
+            if per_kit_qty <= 0:
+                continue
+            service = override.service
+            service_name = getattr(service, "name", None) or "Serviço desconhecido"
+            unit_price = override.service_selling_price or zero_money()
+            total = unit_price * per_kit_qty * item_quantity
+            excluded_by_kit.setdefault(kit_name, []).append((service_name, money_br(total)))
+
+    if not excluded_by_kit:
+        return ""
+
+    rows_html = ""
+    for kit_name, services in excluded_by_kit.items():
+        services_list = "".join(
+            f"<li class='py-1 border-b border-amber-200/40 last:border-0'>"
+            f"<span class='font-medium'>{escape(svc)}</span>"
+            f"<span class='ml-2 text-amber-900/70 font-semibold'>{total}</span></li>"
+            for svc, total in services
+        )
+        rows_html += (
+            f"<div class='mb-2'>"
+            f"<p class='text-sm font-semibold text-amber-800 mb-1'>"
+            f"<span class='material-icons text-xs align-middle mr-1'>category</span>"
+            f"{escape(kit_name)}</p>"
+            f"<ul class='pl-4 text-sm text-amber-800'>{services_list}</ul></div>"
+        )
+
+    toggle_id = "excluded-services-details"
+    banner = (
+        f"<div class='mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3'>"
+        f"<div class='flex items-start gap-2'>"
+        f"<span class='material-icons text-amber-500 mt-0.5 text-lg'>info</span>"
+        f"<div class='flex-1'>"
+        f"<p class='text-sm font-semibold text-amber-800'>"
+        f"Serviços ocultos com valor retido (Manter Valor)"
+        f"</p>"
+        f"<p class='text-xs text-amber-700 mt-0.5'>"
+        f"Os serviços abaixo foram ocultados por duplicidade entre kits, mas seus valores de venda "
+        f"foram distribuídos entre os demais serviços visíveis do mesmo kit."
+        f"</p>"
+        f"<button type='button' "
+        f"class='text-xs text-amber-700 underline mt-1 hover:text-amber-900' "
+        f"onclick=\"document.getElementById('{toggle_id}').classList.toggle('hidden')\">"
+        f"Exibir / Ocultar detalhes"
+        f"</button>"
+        f"<div id='{toggle_id}' class='hidden mt-3'>{rows_html}</div>"
+        f"</div></div></div>"
+    )
+    return banner
