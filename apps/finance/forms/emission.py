@@ -25,6 +25,7 @@ from apps.finance.forms.emission_ui import (
     build_step5_summary_layout,
     clamp_slider_value,
     format_money,
+    parse_discount_value_override,
 )
 from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
@@ -45,21 +46,7 @@ def _parse_discount_value_override(
     initial_value: object = None,
     workorder: WorkOrder | None = None,
 ) -> Money:
-    if raw_amount not in (None, ""):
-        try:
-            amount = Decimal(str(raw_amount).replace(",", ".")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            return Money(max(amount, Decimal("0.00")), "BRL")
-        except Exception:
-            pass
-
-    if initial_value is not None:
-        amount = Decimal(str(getattr(initial_value, "amount", initial_value) or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        return Money(max(amount, Decimal("0.00")), "BRL")
-
-    if workorder is not None:
-        return Money(Decimal(str(workorder.resolved_discount_value.amount)), "BRL")
-
-    return Money(Decimal("0.00"), "BRL")
+    return parse_discount_value_override(raw_amount=raw_amount, initial_value=initial_value, workorder=workorder)
 
 
 def _build_modal_action_button(*, label: str, icon: str, url: str) -> str:
@@ -91,7 +78,11 @@ def _format_duration_value(duration: timedelta | None) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _build_step3_rows(*, workorder: WorkOrder, line_overrides: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from apps.finance.services.emission_line_overrides import apply_line_overrides_to_workorder
+
+    apply_line_overrides_to_workorder(workorder=workorder, line_overrides=line_overrides)
+
     product_rows: list[dict[str, Any]] = []
     service_rows: list[dict[str, Any]] = []
 
@@ -647,6 +638,7 @@ class EmissionStep2Form(CoreForm):
 class EmissionStep3Form(CoreForm):
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
+        line_overrides = kwargs.pop("line_overrides", None)
         super().__init__(*args, **kwargs)
 
         products_html = ""
@@ -655,7 +647,7 @@ class EmissionStep3Form(CoreForm):
         total_services = format_money(0)
 
         if workorder is not None:
-            product_rows, service_rows = _build_step3_rows(workorder=workorder)
+            product_rows, service_rows = _build_step3_rows(workorder=workorder, line_overrides=line_overrides)
 
             total_products = format_money(sum((row["total"] for row in product_rows), Money(0, "BRL")))
             total_services = format_money(sum((row["total"] for row in service_rows), Money(0, "BRL")))

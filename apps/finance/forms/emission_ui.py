@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 from crispy_forms.layout import Div, Field, HTML
@@ -33,6 +33,29 @@ class Step5PricingPanelData:
     discount_percentage_display: str
     total_base_value: Money
     total_budget_value: Money
+
+
+def parse_discount_value_override(
+    *,
+    raw_amount: object = None,
+    initial_value: object = None,
+    workorder: WorkOrder | None = None,
+) -> Money:
+    if raw_amount not in (None, ""):
+        try:
+            amount = Decimal(str(raw_amount).replace(",", ".")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            return Money(max(amount, Decimal("0.00")), "BRL")
+        except Exception:
+            pass
+
+    if initial_value is not None:
+        amount = Decimal(str(getattr(initial_value, "amount", initial_value) or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return Money(max(amount, Decimal("0.00")), "BRL")
+
+    if workorder is not None:
+        return Money(Decimal(str(workorder.resolved_discount_value.amount)), "BRL")
+
+    return Money(Decimal("0.00"), "BRL")
 
 
 def format_money(value: Any) -> str:
@@ -211,8 +234,15 @@ def _build_sale_labor_span(*, prefix: str, panel_data: Step5PricingPanelData, oo
     '''
 
 
-def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPanelData, slider_field_name: str, form_selector: str) -> Div:
-    return Div(
+def build_step5_pricing_panel_layout(
+    *,
+    prefix: str,
+    panel_data: Step5PricingPanelData,
+    slider_field_name: str,
+    form_selector: str,
+    discount_field_name: str | None = None,
+) -> Div:
+    layout_children: list[Any] = [
         HTML(_build_step5_styles_html()),
         HTML(build_step5_slider_script_html(prefix=prefix, form_selector=form_selector, input_name=slider_field_name)),
         Div(
@@ -333,15 +363,16 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                             <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 space-y-2">
                                 <div class="flex justify-between text-sm font-semibold text-base-content/70">
                                     <span>Percentual</span>
-                                    <span>{panel_data.discount_percentage_display}</span>
+                                    <span id="{prefix}-discount-pct-display">{panel_data.discount_percentage_display}</span>
                                 </div>
                                 <div class="flex justify-between text-lg font-semibold">
                                     <span>Valor</span>
-                                    <span>{panel_data.discount_display}</span>
+                                    <span id="{prefix}-discount-amount-display">{panel_data.discount_display}</span>
                                 </div>
                             </div>
                             """
                         ),
+                        *([Field(discount_field_name, label="Valor do desconto (R$)", help_text="Altera só o desconto desta emissão; a O.S. não é modificada.", wrapper_class="mt-3 mb-0")] if discount_field_name else []),
                         css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                     ),
                     Div(
@@ -373,7 +404,8 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
             ),
             css_class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch",
         ),
-    )
+    ]
+    return Div(*layout_children)
 
 
 def build_note_mode_header_layout(*, field_name: str = "note_mode", availability_message: str = "") -> Any:

@@ -597,6 +597,10 @@ def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: 
     if getattr(nfse_request, "workorder_id", None) is None:
         raise NfseEmissionError("A emissao de Nota Fiscal de Servico exige uma OS ou itens avulsos.")
 
+    from apps.finance.services.emission_line_overrides import apply_line_overrides_to_workorder
+
+    apply_line_overrides_to_workorder(workorder=nfse_request.workorder, line_overrides=getattr(nfse_request, "line_overrides", None))
+
     allocation = build_slider_allocation_for_workorder(
         workorder=nfse_request.workorder,
         persisted_slider=getattr(nfse_request, "pricing_slider", None),
