@@ -51,6 +51,7 @@ def configure_budget_step6_form(form):
 
     status_label = ctx.status_label
     status_class = ctx.status_class
+    excluded_services_banner_html = ctx.excluded_services_banner_html
     is_signature_resend = ctx.is_signature_resend
     signature_button_label = ctx.signature_button_label
     signature_blocked_json = ctx.signature_blocked_json
@@ -210,6 +211,7 @@ def configure_budget_step6_form(form):
                 Div(
                     HTML('<h3 class="text-xl font-semibold text-gray-700 mb-4">Serviços Selecionados</h3>'),
                     HTML(f"""
+                            {excluded_services_banner_html}
                             <div class="mb-10 rounded-lg shadow-md shadow-gray-300/50 overflow-hidden">
                                 <div class="overflow-x-auto">
                                     <table class="table table-zebra table-fixed w-full budget-step6-table">
