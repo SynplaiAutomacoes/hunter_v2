@@ -57,3 +57,21 @@ class ReportsHubTests(TestCase):
         context = view.get_context_data()
 
         self.assertEqual(len(context["report_groups"]), 5)
+
+    def test_reports_hub_does_not_render_dashboard_olhinhos_card(self) -> None:
+        workshop, user = create_workshop_with_member(suffix=2)
+        self.client.force_login(user)
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+
+        response = self.client.get(reverse("core:reports_hub"))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn("Olhinhos do Dashboard", content)
+
+    def test_mecanicos_retrabalho_catalog_description_has_no_commission(self) -> None:
+        groups = group_catalog_by_category()
+        entry = next(e for group in groups for e in group["entries"] if e.key == "mecanicos_retrabalho")  # type: ignore[index]
+        self.assertNotIn("comiss", entry.description.lower())
+        self.assertIn("mão de obra", entry.description.lower())

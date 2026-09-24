@@ -28,19 +28,5 @@
         </div>
     </section>
     {% endfor %}
-
-    <section class="card bg-base-100 border border-base-300 shadow-sm">
-        <div class="card-body gap-2">
-            <h2 class="card-title text-lg">Olhinhos do Dashboard</h2>
-            <p class="text-sm text-base-content/70">
-                Os indicadores financeiros do dashboard (carros no mês, total vendido, a receber, etc.) já possuem
-                detalhamento com exportação PDF e Excel pelo ícone de visualização em cada card.
-            </p>
-            <a href="{% url 'core:dashboard' %}" class="btn btn-sm btn-outline w-fit gap-2">
-                <span class="material-icons text-sm">dashboard</span>
-                Abrir Dashboard
-            </a>
-        </div>
-    </section>
 </div>
 {% endblock %}

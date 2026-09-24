@@ -92,7 +92,7 @@ MANAGEMENT_REPORT_CATALOG: tuple[ManagementReportCatalogEntry, ...] = (
     ManagementReportCatalogEntry(
         id="mecanicos_retrabalho",
         title="Mecânicos com retrabalho",
-        description="Ranking de retrabalho por colaborador.",
+        description="Ranking de O.S. de garantia/cortesia por falha de mão de obra ou ambas.",
         category="performance",
         view_name="core:management_report",
         query_hints={"tipo": "mecanicos_retrabalho"},

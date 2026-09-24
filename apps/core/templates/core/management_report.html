@@ -106,7 +106,7 @@
             <thead>
                 <tr>
                     {% for col in columns %}
-                    <th class="{% if col.align == 'right' %}text-right{% endif %}">{{ col.label }}</th>
+                    <th class="{% if col.align == 'right' %}text-right whitespace-nowrap{% endif %}">{{ col.label }}</th>
                     {% endfor %}
                 </tr>
             </thead>
@@ -114,7 +114,7 @@
                 {% for row in table_rows %}
                 <tr>
                     {% for cell in row %}
-                    <td class="{% if cell.align == 'right' %}text-right tabular-nums{% endif %}">{{ cell.display }}</td>
+                    <td class="{% if cell.align == 'right' %}text-right tabular-nums whitespace-nowrap{% endif %}">{{ cell.display }}</td>
                     {% endfor %}
                 </tr>
                 {% empty %}
@@ -129,11 +129,49 @@
             <tfoot>
                 <tr class="font-semibold bg-base-200/60">
                     <td colspan="{{ columns|length|add:'-1' }}">{{ total_label }}</td>
-                    <td class="text-right">{{ total_value_display }}</td>
+                    <td class="text-right tabular-nums whitespace-nowrap">{{ total_value_display }}</td>
                 </tr>
             </tfoot>
             {% endif %}
         </table>
     </div>
 </div>
+
+<dialog id="managementReportPdfModal"
+        class="modal"
+        x-data="{ url: '', downloadUrl: '', title: 'Relatório' }"
+        @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Relatório'; $el.showModal()">
+    <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+        <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+            <h3 class="flex items-center gap-2 text-xl font-bold">
+                <span class="material-icons">description</span>
+                <span x-text="title"></span>
+            </h3>
+            <div class="flex gap-2">
+                <button type="button"
+                        class="btn btn-sm btn-primary"
+                        onclick="const frame = document.querySelector('#managementReportPdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }">
+                    Imprimir
+                </button>
+                <button type="button"
+                        class="btn btn-sm btn-success"
+                        x-show="downloadUrl"
+                        @click="window.open(downloadUrl, '_blank')">
+                    Baixar PDF
+                </button>
+                <button type="button" class="btn btn-sm" onclick="document.getElementById('managementReportPdfModal').close()">
+                    Fechar
+                </button>
+            </div>
+        </div>
+        <div class="flex-1 bg-gray-100">
+            <template x-if="url">
+                <iframe :src="url" class="h-full w-full" frameborder="0"></iframe>
+            </template>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+    </form>
+</dialog>
 {% endblock %}
