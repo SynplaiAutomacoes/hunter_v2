@@ -509,8 +509,10 @@ class NfseRequest(TimeStampedModel):
     )
     consumidor_final = models.BooleanField(
         verbose_name="Consumidor final",
-        default=True,
-        help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional). Deixe em branco para não enviar.",
     )
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
     line_overrides = models.JSONField(

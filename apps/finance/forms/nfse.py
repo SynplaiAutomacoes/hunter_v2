@@ -86,15 +86,16 @@ class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
 
 
 class NfseRequestStep3Form(CoreModelForm):
-    CONSUMIDOR_FINAL_CHOICES = ((True, "Sim"), (False, "Não"))
+    CONSUMIDOR_FINAL_CHOICES = (("", "—"), (True, "Sim"), (False, "Não"))
 
     consumidor_final = forms.TypedChoiceField(
         label="Consumidor final?",
-        required=True,
-        coerce=lambda value: str(value).lower() in {"true", "1"},
+        required=False,
+        empty_value=None,
+        coerce=lambda value: None if value in ("", None) else str(value).lower() in {"true", "1"},
         choices=CONSUMIDOR_FINAL_CHOICES,
         widget=SearchableSelectInput(choices=CONSUMIDOR_FINAL_CHOICES),
-        help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
+        help_text="Opcional. Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
     )
     discount_value_override = MoneyField(label="Desconto na nota (R$)", max_digits=14, decimal_places=2, required=False, widget=MoneyInput)
 
@@ -170,7 +171,7 @@ class NfseRequestStep3Form(CoreModelForm):
         codigo_nbs_field.help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
 
         if not self.is_bound and "consumidor_final" not in self.initial:
-            self.initial["consumidor_final"] = getattr(self.instance, "consumidor_final", True)
+            self.initial["consumidor_final"] = getattr(self.instance, "consumidor_final", None)
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
         current_tax_class = str(current_tax_class_source or "").strip()

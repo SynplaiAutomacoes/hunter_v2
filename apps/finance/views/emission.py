@@ -55,18 +55,22 @@ def _normalize_note_mode(value: object) -> str:
 
 
 def _empty_nfse_config() -> dict[str, object]:
-    return {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": "", "consumidor_final": True}
+    return {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": "", "consumidor_final": None}
 
 
-def _coerce_consumidor_final(value: object) -> bool:
+def _coerce_consumidor_final(value: object) -> bool | None:
+    if value is None:
+        return None
     if isinstance(value, bool):
         return value
-    normalized = str(value or "").strip().lower()
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return None
     if normalized in {"false", "0", "nao", "não", "no"}:
         return False
     if normalized in {"true", "1", "sim", "yes"}:
         return True
-    return True
+    return None
 
 
 def bind_emission_request_view(*, request, workshop) -> EmissionRequestCreateView:
@@ -1101,7 +1105,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 "service_description": form.cleaned_data["service_description"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
                 "codigo_nbs": form.cleaned_data.get("codigo_nbs", ""),
-                "consumidor_final": bool(form.cleaned_data.get("consumidor_final", True)),
+                "consumidor_final": _coerce_consumidor_final(form.cleaned_data.get("consumidor_final")),
             }
             self._write_state(state)
             if self.request.POST.get("intent") == "preview":
