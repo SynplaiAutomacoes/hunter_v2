@@ -4,6 +4,10 @@
     {% if pricing_slider is not None %}
     <input type="hidden" name="pricing_slider" value="{{ pricing_slider }}">
     {% endif %}
+    {% if discount_value_override is not None %}
+    <input type="hidden" name="discount_value_override_0" value="{{ discount_value_override }}">
+    <input type="hidden" name="discount_value_override_1" value="BRL">
+    {% endif %}
 
     <div class="modal-box max-w-2xl">
         <button type="button"

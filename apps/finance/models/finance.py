@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from djmoney.models.fields import MoneyField
 
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.core.workorder_numbers import format_workorder_reference
@@ -283,6 +284,20 @@ class TaxClassNfse(TimeStampedModel):
     responsavel_retencao = models.CharField(verbose_name="Responsável retenção", max_length=10, blank=True, default="")
     codigo_nbs = models.CharField(verbose_name="Código NBS", max_length=9, blank=True, default="", help_text="Código NBS da classe NFS-e (Padrão Nacional: 9 dígitos).")
     codigo_cnae = models.CharField(verbose_name="Código CNAE", max_length=20, blank=True, default="")
+    cod_indicador_operacao = models.CharField(
+        verbose_name="Código indicador da operação",
+        max_length=6,
+        blank=True,
+        default="",
+        help_text="Obrigatório no Padrão Nacional (cIndOp). Ex.: 050101 para serviço sobre bem móvel no estabelecimento.",
+    )
+    finalidade = models.CharField(
+        verbose_name="Finalidade da NFS-e",
+        max_length=1,
+        blank=True,
+        default="",
+        help_text="Padrão Nacional: 0=Normal, 1=Substituta, 2=Complementar.",
+    )
 
     iss = models.DecimalField(verbose_name="Alíquota ISS", max_digits=7, decimal_places=2, null=True, blank=True)
     pis = models.DecimalField(verbose_name="Alíquota PIS", max_digits=7, decimal_places=2, null=True, blank=True)
@@ -474,6 +489,15 @@ class NfseRequest(TimeStampedModel):
         default="",
         help_text="Sobrescreve o tipo de desconto da OS apenas para esta emissao. Vazio usa o da OS.",
     )
+    discount_value_override = MoneyField(
+        verbose_name="Desconto (Emissao)",
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Sobrescreve o valor do desconto da OS apenas para esta emissao. Vazio usa o da OS.",
+    )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     codigo_nbs = models.CharField(
@@ -489,8 +513,23 @@ class NfseRequest(TimeStampedModel):
         help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
     )
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
+    line_overrides = models.JSONField(
+        verbose_name="Overrides de itens (emissão)",
+        blank=True,
+        default=dict,
+        help_text="Alterações de itens/componentes aplicadas só nesta emissão, sem gravar na O.S.",
+    )
     reserved_rps_number = models.PositiveIntegerField(verbose_name="RPS reservado", null=True, blank=True)
     reserved_rps_series = models.CharField(verbose_name="Série RPS reservada", max_length=20, blank=True, default="")
+    soft_deleted_at = models.DateTimeField(verbose_name="Apagado em", null=True, blank=True, db_index=True)
+    soft_deleted_by = models.ForeignKey(
+        "accounts.User",
+        verbose_name="Apagado por",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="soft_deleted_nfse_requests",
+    )
 
     def save(self, *args, **kwargs):
         if self.pk is None and self.pricing_slider is None:
@@ -608,16 +647,40 @@ class NfeRequest(TimeStampedModel):
         default="",
         help_text="Sobrescreve o tipo de desconto da OS apenas para esta emissao. Vazio usa o da OS.",
     )
+    discount_value_override = MoneyField(
+        verbose_name="Desconto (Emissao)",
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Sobrescreve o valor do desconto da OS apenas para esta emissao. Vazio usa o da OS.",
+    )
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
     freight_mode = models.PositiveSmallIntegerField(verbose_name="Modalidade de frete", choices=NfeFreightMode.choices, default=NfeFreightMode.NO_TRANSPORT)
     transport_snapshot = models.JSONField(verbose_name="Snapshot de transporte", blank=True, default=dict)
+    line_overrides = models.JSONField(
+        verbose_name="Overrides de itens (emissão)",
+        blank=True,
+        default=dict,
+        help_text="Alterações de itens/componentes aplicadas só nesta emissão, sem gravar na O.S.",
+    )
     reserved_number = models.PositiveIntegerField(verbose_name="Número reservado", null=True, blank=True)
     reserved_series = models.PositiveIntegerField(verbose_name="Série reservada", null=True, blank=True)
     invalidation_reason = models.TextField(verbose_name="Motivo da inutilização", blank=True, default="")
     invalidation_xml_url = models.URLField(verbose_name="XML da inutilização", blank=True, default="")
     invalidation_log_payload = models.JSONField(verbose_name="Log da inutilização", blank=True, default=dict)
     invalidated_at = models.DateTimeField(verbose_name="Data da inutilização", null=True, blank=True)
+    soft_deleted_at = models.DateTimeField(verbose_name="Apagado em", null=True, blank=True, db_index=True)
+    soft_deleted_by = models.ForeignKey(
+        "accounts.User",
+        verbose_name="Apagado por",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="soft_deleted_nfe_requests",
+    )
 
     def save(self, *args, **kwargs):
         if self.pk is None and self.pricing_slider is None:
