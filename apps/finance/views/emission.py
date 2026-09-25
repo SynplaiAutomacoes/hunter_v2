@@ -226,6 +226,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfse_config"] = _empty_nfse_config()
         else:
             state["nfse_config"] = {**_empty_nfse_config(), **state["nfse_config"]}
+            # Legacy sessions used consumidor_final=True as empty-config default.
+            if state.get("nfse_config_version", 1) < 2:
+                if state["nfse_config"].get("consumidor_final") is True:
+                    state["nfse_config"]["consumidor_final"] = None
+                state["nfse_config_version"] = 2
+                self._write_state(state)
 
         if not isinstance(state.get("line_overrides"), dict):
             state["line_overrides"] = {}

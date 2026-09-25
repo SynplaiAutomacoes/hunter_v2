@@ -99,6 +99,16 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         if isinstance(stored_state, dict):
             state.update(stored_state)
 
+        if not isinstance(state.get("nfse_config"), dict):
+            state["nfse_config"] = dict(default_standalone_state()["nfse_config"])
+        else:
+            state["nfse_config"] = {**default_standalone_state()["nfse_config"], **state["nfse_config"]}
+            if state.get("nfse_config_version", 1) < 2:
+                if state["nfse_config"].get("consumidor_final") is True:
+                    state["nfse_config"]["consumidor_final"] = None
+                state["nfse_config_version"] = 2
+                self._write_state(state)
+
         state["note_mode"] = normalize_note_mode(state.get("note_mode"))
         state["nfe_done"] = bool(state.get("nfe_done"))
         state["nfse_done"] = bool(state.get("nfse_done"))
