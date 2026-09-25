@@ -11,7 +11,7 @@ from djmoney.money import Money
 from apps.budget.models import BudgetType
 from apps.collaborators.test_commissions import create_workshop, create_workorder
 from apps.finance.forms.nfe import NfeRequestStep3Form
-from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseRequestStatus
+from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
 from apps.finance.services.emission_line_overrides import (
     apply_line_overrides_to_workorder,
     serialize_item_override_from_cleaned_data,
@@ -22,9 +22,10 @@ from apps.finance.services.fiscal_request_soft_delete import (
     is_nfe_request_soft_deletable,
     is_nfse_request_soft_deletable,
     soft_delete_nfe_request,
+    soft_delete_nfse_request,
 )
 from apps.finance.services.workorder_emission import get_workorder_emission_ui_state
-from apps.workorder.models import WorkOrderItem, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderStatus
 
 
 def _money(amount: str) -> Money:
@@ -155,6 +156,31 @@ class FiscalRequestSoftDeletePersistenceTests(TestCase):
         assert ui_state is not None
         self.assertFalse(ui_state.has_nfe)
         self.assertEqual(ui_state.mode, "emit")
+
+    def test_soft_deleted_request_keeps_workorder_in_emission_dropdown(self) -> None:
+        from django.db.models import Exists, OuterRef
+
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+        )
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            status=NfseRequestStatus.CHECKING_SERVICES,
+        )
+        soft_delete_nfe_request(nfe_request=nfe_request)
+        soft_delete_nfse_request(nfse_request=nfse_request)
+
+        nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"), soft_deleted_at__isnull=True)
+        nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"), soft_deleted_at__isnull=True)
+        queryset = (
+            WorkOrder.objects.filter(workshop=self.workshop, status=WorkOrderStatus.APPROVED)
+            .annotate(has_nfe=Exists(nfe_exists), has_nfse=Exists(nfse_exists))
+            .exclude(has_nfe=True, has_nfse=True)
+        )
+        self.assertIn(self.workorder, queryset)
 
     def test_soft_delete_rejects_request_with_remote_item(self) -> None:
         nfe_request = NfeRequest.objects.create(
