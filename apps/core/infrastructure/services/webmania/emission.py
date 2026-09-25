@@ -33,7 +33,7 @@ from apps.core.infrastructure.services.webmania.webmania_auth import (
 )
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
-from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_request
+from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_failure, log_webmania_emission_request
 
 
 logger = logging.getLogger(__name__)
@@ -230,7 +230,7 @@ def _post_nfse_payload_once(
     action: str = "emit",
 ) -> tuple[dict[str, Any] | None, str]:
     """POST once. Returns (data, error_message). error_message set on HTTP or business failure."""
-    log_webmania_emission_request(kind="nfse", action=action, url=emit_url, payload=payload)
+    log_webmania_emission_request(kind="nfse", action=action, url=emit_url, payload=payload, headers=headers)
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=timeout)
     except requests.RequestException as exc:
@@ -295,8 +295,10 @@ def _post_nfse_payload_with_tax_class_fallback(
         )
 
     if error_message:
+        log_webmania_emission_failure(kind="nfse", action=action, reason=error_message)
         _raise_friendly_nfse_tax_error(error_message)
     if data is None:
+        log_webmania_emission_failure(kind="nfse", action=action, reason="Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
         raise NfseEmissionError("Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
     return data
 
@@ -903,6 +905,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
             action=action,
             url=emit_url,
             payload=active_payload,
+            headers=headers,
             nfse_request_id=getattr(nfse_request, "pk", None),
         )
         try:
@@ -926,6 +929,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
                 )
                 _debug_print("Tentando previa PDF com impostos explicitos apos erro de classe", error_message)
                 return _post_preview()
+            log_webmania_emission_failure(kind="nfse", action=action, reason=error_message, nfse_request_id=getattr(nfse_request, "pk", None))
             raise NfseEmissionError(error_message) from exc
         return response
 

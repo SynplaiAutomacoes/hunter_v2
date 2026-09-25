@@ -17,6 +17,7 @@ from django.views import View
 from django.views.generic import DetailView, ListView
 
 from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.services.webmania.webmania_logging import emission_failure_log_extra
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.infrastructure.services.webmania.emission import compute_service_discount_for_nfse
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
@@ -460,7 +461,10 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
             )
             return True
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NFS-e", extra={"nfse_request_id": self.object.pk})
+            logger.exception(
+                "Falha ao emitir NFS-e",
+                extra=emission_failure_log_extra(exc, nfse_request_id=self.object.pk),
+            )
             messages.error(self.request, str(exc))
             return False
 

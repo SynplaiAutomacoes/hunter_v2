@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.http import HttpRequest
-
 from apps.core.domain.contracts.fiscal import (
     DownloadedDocument,
     FiscalServiceError,
     IFiscalService,
 )
 from apps.core.infrastructure.services.fiscal.config import WebmaniaConfig
+from apps.core.infrastructure.services.webmania.webmania_logging import get_webmania_emission_request_log_attrs
 
 
 class WebmaniaFiscalService(IFiscalService):
@@ -27,7 +26,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return emit_nfe_request(nfe_request=nfe_request, request=request, slider_override=slider_override)
         except NfeEmissionError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            raise FiscalServiceError(str(exc), log_extra=get_webmania_emission_request_log_attrs()) from exc
 
     def sync_nfe_emission_response(self, *, nfe_request, response_payload: dict[str, Any]) -> None:
         from apps.core.infrastructure.services.webmania.nfe_emission import sync_nfe_emission_response
@@ -77,7 +76,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return emit_nfse_request(nfse_request=nfse_request, request=request, slider_override=slider_override)
         except NfseEmissionError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            raise FiscalServiceError(str(exc), log_extra=get_webmania_emission_request_log_attrs()) from exc
 
     def sync_nfse_emission_response(self, *, nfse_request, response_payload: dict[str, Any]) -> None:
         from apps.core.infrastructure.services.webmania.emission import sync_emission_response
