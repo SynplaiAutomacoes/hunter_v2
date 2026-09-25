@@ -604,8 +604,14 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     total_products_effective_cost_value = sum(
         (line["product_cost_price"] for line in produtos if not line.get("is_customer_supplied", False)),
         Money(0, "BRL"),
+    ) + sum(
+        (_pdf_row_shipping(line) for line in produtos if not line.get("is_customer_supplied", False)),
+        Money(0, "BRL"),
     )
-    total_services_effective_cost_value = total_services_mechanic_cost_value
+    total_services_effective_cost_value = total_services_mechanic_cost_value + sum(
+        (_pdf_row_shipping(line) for line in servicos),
+        Money(0, "BRL"),
+    )
     soma_markup = budget.get_mlo
 
     benefit_total = Money(0, "BRL")
