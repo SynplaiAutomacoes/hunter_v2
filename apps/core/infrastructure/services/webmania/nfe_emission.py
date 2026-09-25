@@ -25,6 +25,7 @@ from apps.core.infrastructure.services.webmania.webmania_auth import (
 )
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_request
 from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfe_status
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
@@ -677,6 +678,13 @@ def preview_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None 
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
     payload["previa_danfe"] = True
 
+    log_webmania_emission_request(
+        kind="nfe",
+        action="preview",
+        url=emit_url,
+        payload=payload,
+        nfe_request_id=getattr(nfe_request, "pk", None),
+    )
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
@@ -712,6 +720,13 @@ def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpReque
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
     payload["previa_danfe"] = True
 
+    log_webmania_emission_request(
+        kind="nfe",
+        action="preview_download",
+        url=emit_url,
+        payload=payload,
+        nfe_request_id=getattr(nfe_request, "pk", None),
+    )
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=60)
         response.raise_for_status()
@@ -768,6 +783,14 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
             "workshop_id": nfe_request.workshop_id,
             "emit_url": emit_url,
         },
+    )
+    log_webmania_emission_request(
+        kind="nfe",
+        action="emit",
+        url=emit_url,
+        payload=payload,
+        nfe_request_id=nfe_request.pk,
+        workshop_id=nfe_request.workshop_id,
     )
 
     try:
