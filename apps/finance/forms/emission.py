@@ -508,8 +508,8 @@ class EmissionStep1Form(CoreForm):
 
         queryset = WorkOrder.objects.none()
         if workshop is not None:
-            nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"))
-            nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"))
+            nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"), soft_deleted_at__isnull=True)
+            nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"), soft_deleted_at__isnull=True)
 
             queryset = (
                 WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED)
@@ -542,8 +542,8 @@ class EmissionStep1Form(CoreForm):
 
         warning_html = ""
         if workorder is not None:
-            has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
-            has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+            has_nfe = NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True).exists()
+            has_nfse = NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True).exists()
             if has_nfe and not has_nfse:
                 warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.</div>"
             elif has_nfse and not has_nfe:

@@ -111,8 +111,16 @@ class EmissionCheckWorkorderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if workorder is None:
             return HttpResponse("")
 
-        has_nfe = NfeRequest.objects.filter(workorder=workorder).exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED)).exists()
-        has_nfse = NfseRequest.objects.filter(workorder=workorder).exclude(status=NfseRequestStatus.CANCELED).exists()
+        has_nfe = (
+            NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED))
+            .exists()
+        )
+        has_nfse = (
+            NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status=NfseRequestStatus.CANCELED)
+            .exists()
+        )
 
         if has_nfe and not has_nfse:
             return HttpResponse(
@@ -363,8 +371,16 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         else:
             return set(), "Não há saldo de produtos ou serviços para emitir nota com a configuração atual."
 
-        has_nfe = NfeRequest.objects.filter(workorder=workorder).exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED)).exists()
-        has_nfse = NfseRequest.objects.filter(workorder=workorder).exclude(status=NfseRequestStatus.CANCELED).exists()
+        has_nfe = (
+            NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED))
+            .exists()
+        )
+        has_nfse = (
+            NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status=NfseRequestStatus.CANCELED)
+            .exists()
+        )
 
         emission_modes = {"nfe", "nfse", "both"}
         emission_messages = []
@@ -1093,8 +1109,16 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             messages.error(self.request, "Selecione uma ordem de serviço válida antes de emitir a nota.")
             return self._redirect_to_step(1)
 
-        has_nfe = NfeRequest.objects.filter(workorder=workorder).exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED)).exists()
-        has_nfse = NfseRequest.objects.filter(workorder=workorder).exclude(status=NfseRequestStatus.CANCELED).exists()
+        has_nfe = (
+            NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED))
+            .exists()
+        )
+        has_nfse = (
+            NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status=NfseRequestStatus.CANCELED)
+            .exists()
+        )
         if has_nfe and has_nfse:
             messages.error(self.request, "Esta OS já possui ambas as notas fiscais emitidas.")
             return self._redirect_to_step(1)
