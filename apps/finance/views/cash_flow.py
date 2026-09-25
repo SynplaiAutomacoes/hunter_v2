@@ -10,6 +10,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.http import HttpResponse
 from django.urls import reverse
+from django.utils.decorators import method_decorator
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import TemplateView, View
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -658,6 +660,7 @@ class CashFlowReportModalView(CashFlowView):
         return context
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
 class CashFlowReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = FinancialMovement
     workshop_permission_codename = "view_financialmovement"

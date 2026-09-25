@@ -450,6 +450,7 @@ class StockReportPdfPreviewView(LoginRequiredMixin, StockReportDataMixin, Worksh
         return render(request, render_request.template_name, render_request.context)
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
 class StockReportPdfView(LoginRequiredMixin, StockReportDataMixin, WorkshopScopedMixin, View):
     model = StockProduct
     workshop_permission_codename = "view_stockproduct"

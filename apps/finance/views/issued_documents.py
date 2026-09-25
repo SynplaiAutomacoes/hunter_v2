@@ -196,7 +196,9 @@ class IssuedDocumentsFilterMixin:
         return normalized or "documento"
 
     def _build_nfe_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
-        qs = NfeRequest.objects.filter(workshop=self.workshop)
+        from apps.finance.services.fiscal_request_soft_delete import active_nfe_requests, annotate_nfe_soft_deletable
+
+        qs = active_nfe_requests(queryset=NfeRequest.objects.filter(workshop=self.workshop))
         if start_date and end_date:
             qs = qs.filter(criado_em__date__range=(start_date, end_date))
         if search_raw:
@@ -211,10 +213,14 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(reserved_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 
-        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
+        return annotate_nfe_soft_deletable(
+            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
+        )
 
     def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
-        qs = NfseRequest.objects.filter(workshop=self.workshop)
+        from apps.finance.services.fiscal_request_soft_delete import active_nfse_requests, annotate_nfse_soft_deletable
+
+        qs = active_nfse_requests(queryset=NfseRequest.objects.filter(workshop=self.workshop))
         if start_date and end_date:
             qs = qs.filter(criado_em__date__range=(start_date, end_date))
         if search_raw:
@@ -230,7 +236,9 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(reserved_rps_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
 
-        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
+        return annotate_nfse_soft_deletable(
+            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
+        )
 
     def _build_purchase_return_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
         qs = PurchaseReturnRequest.objects.filter(workshop=self.workshop)
@@ -302,12 +310,15 @@ class IssuedDocumentsFilterMixin:
         return append_query_params(url=reverse("finance:issued_documents_list"), params=params)
 
     def _build_nfe_row(self, request_obj: NfeRequest, *, state: dict[str, Any]) -> dict[str, Any]:
+        from apps.finance.services.fiscal_request_soft_delete import is_soft_deletable_from_row
+
         latest_item = self._get_latest_prefetched_item(request_obj)
         available_documents = self._build_available_document_labels(note_type="nfe", item=latest_item)
         latest_series = str(getattr(latest_item, "series", "") or "").strip() if latest_item is not None else ""
         series_value = latest_series or (str(request_obj.reserved_series) if request_obj.reserved_series is not None else "-")
         has_xml = self._item_has_document_group(note_type="nfe", item=latest_item, document_group="xml")
         has_pdf = self._item_has_document_group(note_type="nfe", item=latest_item, document_group="pdfs")
+        can_soft_delete = is_soft_deletable_from_row(kind="nfe", request_obj=request_obj)
 
         return {
             "note_type": "nfe",
@@ -328,9 +339,13 @@ class IssuedDocumentsFilterMixin:
             "detail_url": self._build_detail_url(view_name="finance:nfe_detail", pk=request_obj.pk, state=state),
             "selection_url": self._build_selection_url(state=state, pk=request_obj.pk) if state["fiscal_operation"] else "",
             "action_label": "Selecionar esta NF-e" if state["fiscal_operation"] else "Abrir",
+            "can_soft_delete": can_soft_delete,
+            "soft_delete_url": reverse("finance:nfe_soft_delete", kwargs={"pk": request_obj.pk}) if can_soft_delete else "",
         }
 
     def _build_nfse_row(self, request_obj: NfseRequest, *, state: dict[str, Any]) -> dict[str, Any]:
+        from apps.finance.services.fiscal_request_soft_delete import is_soft_deletable_from_row
+
         latest_item = self._get_latest_prefetched_item(request_obj)
         available_documents = self._build_available_document_labels(note_type="nfse", item=latest_item)
         note_number = str(getattr(latest_item, "number", "") or "").strip() if latest_item is not None else ""
@@ -343,6 +358,7 @@ class IssuedDocumentsFilterMixin:
             reference_parts.append(f"Serie {rps_series}")
         has_xml = self._item_has_document_group(note_type="nfse", item=latest_item, document_group="xml")
         has_pdf = self._item_has_document_group(note_type="nfse", item=latest_item, document_group="pdfs")
+        can_soft_delete = is_soft_deletable_from_row(kind="nfse", request_obj=request_obj)
 
         return {
             "note_type": "nfse",
@@ -362,6 +378,8 @@ class IssuedDocumentsFilterMixin:
             "available_documents": available_documents,
             "detail_url": self._build_detail_url(view_name="finance:nfse_detail", pk=request_obj.pk, state=state),
             "action_label": "Abrir",
+            "can_soft_delete": can_soft_delete,
+            "soft_delete_url": reverse("finance:nfse_soft_delete", kwargs={"pk": request_obj.pk}) if can_soft_delete else "",
         }
 
     def _build_purchase_return_row(self, request_obj: PurchaseReturnRequest) -> dict[str, Any]:

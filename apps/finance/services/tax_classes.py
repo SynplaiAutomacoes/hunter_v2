@@ -25,6 +25,7 @@ from apps.core.infrastructure.services.webmania.webmania_auth import (
     should_use_global_webmania_auth,
 )
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.finance.nfse_indicador_operacao import normalize_nfse_cod_indicador_operacao
 from apps.workshops.models.workshops import Workshop
 
 
@@ -514,6 +515,8 @@ def _serialize_nfse_tax_class(tax_class: TaxClassNfse) -> dict[str, Any]:
         "responsavel_retencao",
         "codigo_nbs",
         "codigo_cnae",
+        "cod_indicador_operacao",
+        "finalidade",
     )
     for field_name in text_fields:
         value = _clean_string(getattr(tax_class, field_name))
@@ -614,6 +617,8 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
             "responsavel_retencao": _clean_string(payload.get("responsavel_retencao")),
             "codigo_nbs": _digits_only(payload.get("codigo_nbs")),
             "codigo_cnae": _clean_string(payload.get("codigo_cnae")),
+            "cod_indicador_operacao": normalize_nfse_cod_indicador_operacao(payload.get("cod_indicador_operacao")),
+            "finalidade": _clean_string(payload.get("finalidade"))[:1],
             "iss": _to_decimal(payload.get("iss")),
             "pis": _to_decimal(payload.get("pis")),
             "cofins": _to_decimal(payload.get("cofins")),

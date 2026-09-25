@@ -108,6 +108,7 @@ def compute_product_discount_for_nfe(
     products_target: Decimal,
     services_target: Decimal,
     discount_type_override: str = "",
+    discount_value_override: Decimal | None = None,
 ) -> Decimal:
     """
     Calcula o valor de desconto a ser aplicado nos produtos da NF-e,
@@ -122,8 +123,13 @@ def compute_product_discount_for_nfe(
 
     Se discount_type_override for informado, usa ele no lugar do discount_type
     da WorkOrder (para sobrescrita especifica da emissao).
+    Se discount_value_override for informado, usa esse valor no lugar do
+    desconto resolvido da WorkOrder (apenas nesta emissao).
     """
-    total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
+    if discount_value_override is not None:
+        total_discount = _quantize_money(Decimal(str(discount_value_override)))
+    else:
+        total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
     if total_discount <= Decimal("0.00"):
         return Decimal("0.00")
 
@@ -550,6 +556,10 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
     if workorder is None:
         raise NfeEmissionError("A emissao de Nota Fiscal exige uma OS ou itens avulsos.")
 
+    from apps.finance.services.emission_line_overrides import apply_line_overrides_to_workorder
+
+    apply_line_overrides_to_workorder(workorder=workorder, line_overrides=getattr(nfe_request, "line_overrides", None))
+
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
         persisted_slider=getattr(nfe_request, "pricing_slider", None),
@@ -570,11 +580,13 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
 
     # Calcula o desconto proporcional para produtos conforme o discount_type da WorkOrder
     # (usado apenas no pedido.desconto; os valores unitários dos produtos permanecem brutos)
+    override_amount = getattr(nfe_request, "discount_value_override", None)
     product_discount = compute_product_discount_for_nfe(
         workorder=workorder,
         products_target=allocation.products_target,
         services_target=allocation.services_target,
         discount_type_override=str(getattr(nfe_request, "discount_type_override", "") or ""),
+        discount_value_override=Decimal(str(override_amount.amount)) if override_amount is not None else None,
     )
 
     products_payload: list[dict[str, Any]] = []
