@@ -67,6 +67,14 @@ def emission_failure_log_extra(exc: BaseException | None = None, **extra: Any) -
     return attrs
 
 
+def _request_log_message_parts(attrs: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(attrs.get("webmania_request_url") or ""),
+        str(attrs.get("webmania_request_headers") or ""),
+        str(attrs.get("webmania_request_body") or ""),
+    )
+
+
 def log_webmania_emission_request(
     *,
     kind: str,
@@ -77,8 +85,8 @@ def log_webmania_emission_request(
     **extra: Any,
 ) -> None:
     """
-    Remember + optionally INFO-log the full JSON body sent to Webmania.
-    Headers are stored redacted for later failure logs.
+    Remember + ERROR-log the outbound Webmania JSON (same shape as failure logs).
+    Headers are redacted. Disable with WEBMANIA_EMISSION_REQUEST_LOGS=0.
     """
     attrs = remember_webmania_emission_request(
         kind=kind,
@@ -90,33 +98,50 @@ def log_webmania_emission_request(
     if not webmania_emission_request_logs_enabled():
         return
 
+    request_url, request_headers, request_body = _request_log_message_parts(attrs)
     extras = {key: value for key, value in extra.items() if value is not None}
-    logger.info(
-        "webmania_emission_request kind=%s action=%s url=%s headers=%s payload=%s",
+    # ERROR (not INFO): same visibility as failure logs in Grafana/aggregators that filter by level.
+    logger.error(
+        "webmania_emission_request kind=%s action=%s request_url=%s request_headers=%s request_body=%s",
         kind,
         action,
-        url,
-        attrs["webmania_request_headers"],
-        attrs["webmania_request_body"],
+        request_url,
+        request_headers,
+        request_body,
         extra={**attrs, **extras},
     )
 
 
 def log_webmania_emission_failure(*, kind: str, action: str, reason: str, **extra: Any) -> None:
-    """Always emit an ERROR with the last request body/headers for Grafana debugging."""
+    """Always ERROR-log with the request body/headers that caused the failure (any error type)."""
     attrs = emission_failure_log_extra(**extra)
+    request_url, request_headers, request_body = _request_log_message_parts(attrs)
     logger.error(
         "webmania_emission_failed kind=%s action=%s reason=%s request_url=%s request_headers=%s request_body=%s",
         kind,
         action,
         reason,
-        attrs.get("webmania_request_url", ""),
-        attrs.get("webmania_request_headers", ""),
-        attrs.get("webmania_request_body", ""),
+        request_url,
+        request_headers,
+        request_body,
         extra={
             "webmania_kind": kind,
             "webmania_action": action,
             "webmania_failure_reason": reason,
             **attrs,
         },
+    )
+
+
+def log_emission_view_failure(logger_: logging.Logger, message: str, exc: BaseException, **extra: Any) -> None:
+    """View-layer exception log with request_url/headers/body always in the message text."""
+    attrs = emission_failure_log_extra(exc, **extra)
+    request_url, request_headers, request_body = _request_log_message_parts(attrs)
+    logger_.exception(
+        "%s request_url=%s request_headers=%s request_body=%s",
+        message,
+        request_url,
+        request_headers,
+        request_body,
+        extra=attrs,
     )

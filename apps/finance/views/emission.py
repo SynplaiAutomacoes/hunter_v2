@@ -28,7 +28,7 @@ from apps.finance.forms import (
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
-from apps.core.infrastructure.services.webmania.webmania_logging import emission_failure_log_extra
+from apps.core.infrastructure.services.webmania.webmania_logging import log_emission_view_failure
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
@@ -901,9 +901,11 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             self._write_state(state)
             return True, None
         except FiscalServiceError as exc:
-            logger.exception(
+            log_emission_view_failure(
+                logger,
                 "Falha ao emitir NF-e pelo fluxo unificado",
-                extra=emission_failure_log_extra(exc, nfe_request_id=getattr(nfe_request, "pk", None)),
+                exc,
+                nfe_request_id=getattr(nfe_request, "pk", None),
             )
             state["nfe_done"] = False
             state["nfe_request_id"] = nfe_request.pk
@@ -932,9 +934,11 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             self._write_state(state)
             return True, None
         except FiscalServiceError as exc:
-            logger.exception(
+            log_emission_view_failure(
+                logger,
                 "Falha ao emitir NFS-e pelo fluxo unificado",
-                extra=emission_failure_log_extra(exc, nfse_request_id=getattr(nfse_request, "pk", None)),
+                exc,
+                nfse_request_id=getattr(nfse_request, "pk", None),
             )
             state["nfse_done"] = False
             state["nfse_request_id"] = nfse_request.pk
