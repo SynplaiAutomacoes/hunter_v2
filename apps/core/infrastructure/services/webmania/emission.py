@@ -345,8 +345,9 @@ def _enrich_nfse_payload_with_tax_class(*, payload: dict[str, Any], tax_class_pa
         if _has_payload_value(value):
             service_payload[field_name] = value
 
+    # Empty finalidade must not be sent (omit the key entirely).
     if not _has_payload_value(service_payload.get("finalidade")):
-        service_payload["finalidade"] = 0
+        service_payload.pop("finalidade", None)
 
     iss_retido = _coerce_nfse_flag_int(service_payload.get("iss_retido"))
     if iss_retido is not None:
@@ -511,6 +512,9 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
         value = tax_class_payload.get(field_name)
         if _has_payload_value(value):
             service_payload[field_name] = value
+
+    if not _has_payload_value(service_payload.get("finalidade")):
+        service_payload.pop("finalidade", None)
 
     iss_retido = _coerce_nfse_flag_int(service_payload.get("iss_retido"))
     if iss_retido is not None:
