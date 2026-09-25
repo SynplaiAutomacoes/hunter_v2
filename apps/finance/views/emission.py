@@ -257,6 +257,14 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         self.request.session.pop(self._session_key(), None)
         self.request.session.modified = True
 
+    def _soft_delete_session_drafts(self) -> None:
+        from apps.finance.services.fiscal_request_soft_delete import soft_delete_wizard_draft_requests
+
+        stored_state = self.request.session.get(self._session_key(), {})
+        if not isinstance(stored_state, dict):
+            return
+        soft_delete_wizard_draft_requests(workshop=self.workshop, state=stored_state, user=self.request.user)
+
     def _build_created_request_actions(self, *, state: dict[str, Any]) -> list[dict[str, str]]:
         actions: list[dict[str, str]] = []
         nfe_request_id = state.get("nfe_request_id")
@@ -1203,6 +1211,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return self._close_wizard()
 
         if request.GET.get("reset") == "1":
+            self._soft_delete_session_drafts()
             self._clear_state()
 
         seeded_redirect = self._seed_state_from_workorder_query()
