@@ -39,7 +39,7 @@ from apps.finance.views.ncm_validation import (
     store_invalid_ncm_modal_context,
 )
 from apps.workorder.forms import WorkOrderItemEditForm
-from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderItem, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -111,8 +111,16 @@ class EmissionCheckWorkorderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if workorder is None:
             return HttpResponse("")
 
-        has_nfe = NfeRequest.objects.filter(workorder=workorder).exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED)).exists()
-        has_nfse = NfseRequest.objects.filter(workorder=workorder).exclude(status=NfseRequestStatus.CANCELED).exists()
+        has_nfe = (
+            NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED))
+            .exists()
+        )
+        has_nfse = (
+            NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status=NfseRequestStatus.CANCELED)
+            .exists()
+        )
 
         if has_nfe and not has_nfse:
             return HttpResponse(
@@ -190,6 +198,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "workorder_id": None,
             "pricing_slider": None,
             "discount_type_override": "",
+            "discount_value_override": None,
+            "line_overrides": {},
             "note_mode": "",
             "nfe_config": self._empty_nfe_config(),
             "nfse_config": _empty_nfse_config(),
@@ -211,6 +221,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfse_config"] = _empty_nfse_config()
         else:
             state["nfse_config"] = {**_empty_nfse_config(), **state["nfse_config"]}
+
+        if not isinstance(state.get("line_overrides"), dict):
+            state["line_overrides"] = {}
 
         state["note_mode"] = _normalize_note_mode(state.get("note_mode"))
         state["nfe_done"] = bool(state.get("nfe_done"))
@@ -242,6 +255,14 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     def _clear_state(self) -> None:
         self.request.session.pop(self._session_key(), None)
         self.request.session.modified = True
+
+    def _soft_delete_session_drafts(self) -> None:
+        from apps.finance.services.fiscal_request_soft_delete import soft_delete_wizard_draft_requests
+
+        stored_state = self.request.session.get(self._session_key(), {})
+        if not isinstance(stored_state, dict):
+            return
+        soft_delete_wizard_draft_requests(workshop=self.workshop, state=stored_state, user=self.request.user)
 
     def _build_created_request_actions(self, *, state: dict[str, Any]) -> list[dict[str, str]]:
         actions: list[dict[str, str]] = []
@@ -283,16 +304,22 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         return redirect(redirect_url)
 
     def _selected_workorder(self, state: dict[str, Any] | None = None) -> WorkOrder | None:
+        from apps.finance.services.emission_line_overrides import apply_line_overrides_to_workorder
+
         resolved_state = state or self._load_state()
         workorder_id = resolved_state.get("workorder_id")
         if not workorder_id:
             return None
-        return (
+        workorder = (
             WorkOrder.objects.select_related("budget", "budget__customer", "budget__vehicle")
             .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
             .filter(pk=workorder_id, workshop=self.workshop)
             .first()
         )
+        if workorder is None:
+            return None
+        apply_line_overrides_to_workorder(workorder=workorder, line_overrides=resolved_state.get("line_overrides"))
+        return workorder
 
     def _get_step_config(self, *, step_number: int | None = None, state: dict[str, Any] | None = None) -> dict[str, Any]:
         resolved_state = state or self._load_state()
@@ -352,8 +379,16 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         else:
             return set(), "Não há saldo de produtos ou serviços para emitir nota com a configuração atual."
 
-        has_nfe = NfeRequest.objects.filter(workorder=workorder).exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED)).exists()
-        has_nfse = NfseRequest.objects.filter(workorder=workorder).exclude(status=NfseRequestStatus.CANCELED).exists()
+        has_nfe = (
+            NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED))
+            .exists()
+        )
+        has_nfse = (
+            NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status=NfseRequestStatus.CANCELED)
+            .exists()
+        )
 
         emission_modes = {"nfe", "nfse", "both"}
         emission_messages = []
@@ -389,27 +424,20 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     def _detect_discount_type_mismatch(*, workorder: WorkOrder, note_mode: str) -> tuple[bool, str]:
         """
         Returns (has_mismatch, suggested_override) when the workorder discount_type
-        does not align with the note_mode selected for emission.
+        does not align with emitting both notes.
+
+        Single-note emission always applies the full discount to that note, so no
+        mismatch modal is needed for note_mode nfe/nfse.
         """
+        if note_mode != "both":
+            return False, ""
+
         if Decimal(str(workorder.resolved_discount_value.amount)) <= Decimal("0.00"):
             return False, ""
 
         discount_type = workorder.discount_type
-
-        if note_mode == "both":
-            if discount_type in (WorkOrderDiscountType.PRODUCTS, WorkOrderDiscountType.SERVICES):
-                return True, "both"
-            return False, ""
-
-        if discount_type == WorkOrderDiscountType.BOTH:
-            return True, "products" if note_mode == "nfe" else "services"
-
-        if discount_type == WorkOrderDiscountType.PRODUCTS and note_mode == "nfse":
-            return True, "services"
-
-        if discount_type == WorkOrderDiscountType.SERVICES and note_mode == "nfe":
-            return True, "products"
-
+        if discount_type in (WorkOrderDiscountType.PRODUCTS, WorkOrderDiscountType.SERVICES):
+            return True, "both"
         return False, ""
 
     @staticmethod
@@ -464,11 +492,19 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         current_split = self._compute_discount_split(workorder=workorder)
         suggested_split = self._compute_discount_split(workorder=workorder, discount_type_override=suggested_override)
+        state = self._load_state()
+        discount_override = state.get("discount_value_override")
+        if discount_override in (None, ""):
+            discount_override = str(Decimal(str(workorder.resolved_discount_value.amount)).quantize(Decimal("0.01")))
+        post_discount = self.request.POST.get("discount_value_override_0")
+        if post_discount not in (None, ""):
+            discount_override = str(post_discount).replace(",", ".")
 
         context = {
             "current_step": self._current_step(),
             "note_mode": note_mode,
-            "pricing_slider": self._selected_slider(state=self._load_state(), workorder=workorder),
+            "pricing_slider": self._selected_slider(state=state, workorder=workorder),
+            "discount_value_override": discount_override,
             "form_action": form_action,
             "use_htmx": bool(getattr(self.request, "htmx", False)),
             "message": message,
@@ -506,6 +542,13 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 else:
                     preferred_mode = ""
             initial["note_mode"] = preferred_mode or "nfe"
+            override_raw = state.get("discount_value_override")
+            if override_raw is not None and override_raw != "":
+                initial["discount_value_override"] = Money(Decimal(str(override_raw)), "BRL")
+            elif workorder is not None:
+                initial["discount_value_override"] = workorder.resolved_discount_value
+            else:
+                initial["discount_value_override"] = Money(Decimal("0.00"), "BRL")
 
         if step_key == "nfe_config":
             initial.update(state.get("nfe_config") or {})
@@ -563,6 +606,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 kwargs["workorder"] = selected_wo
         elif step_key in {"customer", "items"}:
             kwargs["workorder"] = workorder
+            if step_key == "items":
+                kwargs["line_overrides"] = state.get("line_overrides") or {}
         elif step_key == "summary":
             kwargs["workorder"] = workorder
             kwargs["note_mode_choices"] = EMISSION_NOTE_MODE_CHOICES
@@ -577,14 +622,25 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfe"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
-            kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
+            kwargs["discount_type_override"] = self._resolved_discount_type_override(state=state)
+            kwargs["discount_value_override"] = state.get("discount_value_override")
         elif step_key == "nfse_config":
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfse"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
-            kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
+            kwargs["discount_type_override"] = self._resolved_discount_type_override(state=state)
+            kwargs["discount_value_override"] = state.get("discount_value_override")
 
         return kwargs
+
+    @staticmethod
+    def _resolved_discount_type_override(*, state: dict[str, Any]) -> str:
+        from apps.finance.services.emission_discount import resolve_emission_discount_type_override
+
+        return resolve_emission_discount_type_override(
+            note_mode=str(state.get("note_mode") or ""),
+            explicit_override=str(state.get("discount_type_override") or ""),
+        )
 
     def _submit_button_label(self, *, state: dict[str, Any], step_key: str) -> str:
         if step_key in {"workorder", "customer", "items", "summary"}:
@@ -628,6 +684,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         context["wizard_state"] = state
         context["selected_workorder"] = self._selected_workorder(state)
         context["close_emission_url"] = f"{reverse('finance:emission_normal')}?close=1"
+        context["reset_emission_url"] = f"{reverse('finance:emission_normal')}?reset=1"
         context["created_request_actions"] = self._build_created_request_actions(state=state)
         context["ncm_invalid_modal"] = pop_invalid_ncm_modal_context(request=self.request)
         return context
@@ -721,8 +778,10 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             self._write_state(state)
             return self._redirect_to_step(self._get_step_number(step_key="summary", state=state) or 4)
 
+        from apps.finance.services.emission_discount import resolve_emission_discount_type_override
+
         override_from_post = self.request.POST.get("discount_type_override")
-        if override_from_post is None:
+        if selected_mode == "both" and override_from_post is None:
             has_mismatch, suggested_override = self._detect_discount_type_mismatch(workorder=workorder, note_mode=selected_mode)
             if has_mismatch:
                 state["note_mode"] = selected_mode
@@ -734,14 +793,19 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                     form_action=form_action,
                 )
 
-        state["discount_type_override"] = override_from_post if override_from_post is not None else ""
+        explicit_override = override_from_post if override_from_post is not None else ""
+        state["discount_type_override"] = resolve_emission_discount_type_override(
+            note_mode=selected_mode,
+            explicit_override=explicit_override,
+        )
+        discount_money = form.cleaned_data.get("discount_value_override")
+        if discount_money is not None:
+            state["discount_value_override"] = str(Decimal(str(discount_money.amount)).quantize(Decimal("0.01")))
         previous_mode = str(state.get("note_mode") or "")
         if selected_mode != previous_mode:
             self._clear_submission_progress(state)
-            if selected_mode == "nfe":
-                state["nfse_config"] = _empty_nfse_config()
-            elif selected_mode == "nfse":
-                state["nfe_config"] = self._empty_nfe_config()
+            state["nfe_config"] = self._empty_nfe_config()
+            state["nfse_config"] = _empty_nfse_config()
         state["note_mode"] = selected_mode
         next_key = "nfe_config" if selected_mode in {"nfe", "both"} else "nfse_config"
         next_step = self._set_current_step(state=state, step_key=next_key)
@@ -765,7 +829,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfe_request.freight_mode = int((state.get("nfe_config") or {}).get("freight_mode") or 9)
         nfe_request.transport_snapshot = dict((state.get("nfe_config") or {}).get("transport_snapshot") or {})
         nfe_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
-        nfe_request.discount_type_override = str(state.get("discount_type_override") or "")
+        nfe_request.discount_type_override = self._resolved_discount_type_override(state=state)
+        override_raw = state.get("discount_value_override")
+        nfe_request.discount_value_override = Money(Decimal(str(override_raw)), "BRL") if override_raw not in (None, "") else None
+        from apps.finance.services.emission_line_overrides import copy_line_overrides
+
+        nfe_request.line_overrides = copy_line_overrides(state.get("line_overrides"))
         nfe_request.save()
 
         state["nfe_request_id"] = nfe_request.pk
@@ -790,7 +859,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request.codigo_nbs = str((state.get("nfse_config") or {}).get("codigo_nbs") or "")
         nfse_request.consumidor_final = _coerce_consumidor_final((state.get("nfse_config") or {}).get("consumidor_final"))
         nfse_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
-        nfse_request.discount_type_override = str(state.get("discount_type_override") or "")
+        nfse_request.discount_type_override = self._resolved_discount_type_override(state=state)
+        override_raw = state.get("discount_value_override")
+        nfse_request.discount_value_override = Money(Decimal(str(override_raw)), "BRL") if override_raw not in (None, "") else None
+        from apps.finance.services.emission_line_overrides import copy_line_overrides
+
+        nfse_request.line_overrides = copy_line_overrides(state.get("line_overrides"))
         nfse_request.save()
 
         state["nfse_request_id"] = nfse_request.pk
@@ -949,8 +1023,16 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         if current_step_key == "workorder":
             workorder = form.cleaned_data["workorder"]
-            has_nfe = NfeRequest.objects.filter(workorder=workorder).exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED)).exists()
-            has_nfse = NfseRequest.objects.filter(workorder=workorder).exclude(status=NfseRequestStatus.CANCELED).exists()
+            has_nfe = (
+                NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+                .exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED))
+                .exists()
+            )
+            has_nfse = (
+                NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+                .exclude(status=NfseRequestStatus.CANCELED)
+                .exists()
+            )
             if has_nfe and not has_nfse:
                 messages.warning(self.request, "Esta OS ja possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Servico sera processada nesta emissao.")
             elif has_nfse and not has_nfe:
@@ -961,6 +1043,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                         "workorder_id": workorder.pk,
                         "pricing_slider": None,
                         "discount_type_override": "",
+                        "discount_value_override": None,
+                        "line_overrides": {},
                         "note_mode": _normalize_note_mode(self.request.GET.get("tipo")),
                         "nfe_config": self._empty_nfe_config(),
                         "nfse_config": _empty_nfse_config(),
@@ -1041,8 +1125,16 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             messages.error(self.request, "Selecione uma ordem de serviço válida antes de emitir a nota.")
             return self._redirect_to_step(1)
 
-        has_nfe = NfeRequest.objects.filter(workorder=workorder).exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED)).exists()
-        has_nfse = NfseRequest.objects.filter(workorder=workorder).exclude(status=NfseRequestStatus.CANCELED).exists()
+        has_nfe = (
+            NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status__in=(NfeRequestStatus.CANCELED, NfeRequestStatus.INVALIDATED))
+            .exists()
+        )
+        has_nfse = (
+            NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True)
+            .exclude(status=NfseRequestStatus.CANCELED)
+            .exists()
+        )
         if has_nfe and has_nfse:
             messages.error(self.request, "Esta OS já possui ambas as notas fiscais emitidas.")
             return self._redirect_to_step(1)
@@ -1058,6 +1150,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 "workorder_id": workorder.pk,
                 "pricing_slider": None,
                 "discount_type_override": "",
+                "discount_value_override": None,
                 "note_mode": _normalize_note_mode(self.request.GET.get("tipo") or self.request.GET.get("note_mode")),
                 "nfe_config": {"tax_class": "", "additional_information": ""},
                 "nfse_config": _empty_nfse_config(),
@@ -1073,6 +1166,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             return self._close_wizard()
 
         if request.GET.get("reset") == "1":
+            self._soft_delete_session_drafts()
             self._clear_state()
 
         seeded_redirect = self._seed_state_from_workorder_query()
@@ -1120,11 +1214,32 @@ class EmissionWorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, V
     workshop_permission_model = "workorder"
     workshop_permission_codename = "change_workorder"
 
+    def _session_key(self) -> str:
+        return f"finance.emission_wizard:{getattr(self.workshop, 'pk', '-')}:{getattr(self.request.user, 'pk', '-')}"
+
+    def _load_line_overrides(self) -> dict:
+        from apps.finance.services.emission_line_overrides import normalize_line_overrides
+
+        stored_state = self.request.session.get(self._session_key(), {})
+        if not isinstance(stored_state, dict):
+            return {}
+        return normalize_line_overrides(stored_state.get("line_overrides"))
+
+    def _save_line_overrides(self, line_overrides: dict) -> None:
+        from apps.finance.services.emission_line_overrides import normalize_line_overrides
+
+        session_key = self._session_key()
+        stored_state = self.request.session.get(session_key, {})
+        if not isinstance(stored_state, dict):
+            stored_state = {}
+        stored_state["line_overrides"] = normalize_line_overrides(line_overrides)
+        self.request.session[session_key] = stored_state
+        self.request.session.modified = True
+
     def _get_workorder(self, workorder_pk: int) -> WorkOrder:
         return get_object_or_404(WorkOrder, pk=workorder_pk, workshop=self.workshop)
 
-    @staticmethod
-    def _render_modal(*, request, workorder: WorkOrder, item: WorkOrderItem, form: WorkOrderItemEditForm) -> HttpResponse:
+    def _render_modal(self, *, request, workorder: WorkOrder, item: WorkOrderItem, form: WorkOrderItemEditForm) -> HttpResponse:
         return render(
             request,
             "finance/partials/modal_edit_workorder_item.html",
@@ -1136,17 +1251,32 @@ class EmissionWorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, V
         )
 
     def get(self, request, workorder_pk: int, item_id: int):
+        from apps.finance.services.emission_line_overrides import build_item_form_initial
+
         workorder = self._get_workorder(workorder_pk)
         item = get_object_or_404(WorkOrderItem, pk=item_id, workorder=workorder, workshop=self.workshop)
-        form = WorkOrderItemEditForm(instance=item)
+        form = WorkOrderItemEditForm(
+            instance=item,
+            initial=build_item_form_initial(item=item, line_overrides=self._load_line_overrides()),
+        )
         return self._render_modal(request=request, workorder=workorder, item=item, form=form)
 
     def post(self, request, workorder_pk: int, item_id: int):
+        from apps.finance.services.emission_line_overrides import (
+            serialize_item_override_from_cleaned_data,
+            upsert_item_override,
+        )
+
         workorder = self._get_workorder(workorder_pk)
         item = get_object_or_404(WorkOrderItem, pk=item_id, workorder=workorder, workshop=self.workshop)
         form = WorkOrderItemEditForm(request.POST, instance=item)
         if form.is_valid():
-            form.save()
+            line_overrides = upsert_item_override(
+                line_overrides=self._load_line_overrides(),
+                item_id=item.pk,
+                override=serialize_item_override_from_cleaned_data(form.cleaned_data),
+            )
+            self._save_line_overrides(line_overrides)
             response = HttpResponse(status=204)
             response["HX-Trigger"] = "financeEmissionWorkorderItemSaved"
             return response
@@ -1158,6 +1288,28 @@ class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScoped
     workshop_permission_app_label = "workorder"
     workshop_permission_model = "workorder"
     workshop_permission_codename = "change_workorder"
+
+    def _session_key(self) -> str:
+        return f"finance.emission_wizard:{getattr(self.workshop, 'pk', '-')}:{getattr(self.request.user, 'pk', '-')}"
+
+    def _load_line_overrides(self) -> dict:
+        from apps.finance.services.emission_line_overrides import normalize_line_overrides
+
+        stored_state = self.request.session.get(self._session_key(), {})
+        if not isinstance(stored_state, dict):
+            return {}
+        return normalize_line_overrides(stored_state.get("line_overrides"))
+
+    def _save_line_overrides(self, line_overrides: dict) -> None:
+        from apps.finance.services.emission_line_overrides import normalize_line_overrides
+
+        session_key = self._session_key()
+        stored_state = self.request.session.get(session_key, {})
+        if not isinstance(stored_state, dict):
+            stored_state = {}
+        stored_state["line_overrides"] = normalize_line_overrides(line_overrides)
+        self.request.session[session_key] = stored_state
+        self.request.session.modified = True
 
     def _get_workorder_item(self, *, workorder_pk: int, item_id: int) -> WorkOrderItem:
         workorder = get_object_or_404(WorkOrder, pk=workorder_pk, workshop=self.workshop)
@@ -1188,20 +1340,28 @@ class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScoped
         )
 
     def get(self, request, workorder_pk: int, item_id: int, component_type: str, component_id: int):
+        from apps.finance.services.emission_line_overrides import build_kit_product_form_initial, build_kit_service_form_initial
+
         workorder_item = self._get_workorder_item(workorder_pk=workorder_pk, item_id=item_id)
         parent_quantity = int(workorder_item.quantity or 1)
         product_overrides, service_overrides = workorder_item._get_kit_override_maps()
+        line_overrides = self._load_line_overrides()
 
         if component_type == "product":
             kit_product = get_object_or_404(workorder_item.kit.kit_products.select_related("product"), product_id=component_id)
             override = product_overrides.get(component_id)
             form = EmissionKitProductComponentForm(
-                initial={
-                    "quantity": override.quantity if override else kit_product.quantity,
-                    "cost": override.product_cost_price if override else kit_product.product.cost_price,
-                    "price": override.product_selling_price if override else kit_product.product.selling_price,
-                    "shipping": override.shipping if override else Money(0, "BRL"),
-                },
+                initial=build_kit_product_form_initial(
+                    item=workorder_item,
+                    component_id=component_id,
+                    line_overrides=line_overrides,
+                    fallback={
+                        "quantity": override.quantity if override else kit_product.quantity,
+                        "cost": override.product_cost_price if override else kit_product.product.cost_price,
+                        "price": override.product_selling_price if override else kit_product.product.selling_price,
+                        "shipping": override.shipping if override else Money(0, "BRL"),
+                    },
+                ),
                 parent_quantity=parent_quantity,
             )
             return self._render_modal(request=request, workorder_item=workorder_item, form=form, component_name=str(kit_product.product.name), component_kind="product")
@@ -1209,17 +1369,28 @@ class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScoped
         kit_service = get_object_or_404(workorder_item.kit.kit_services.select_related("service"), service_id=component_id)
         override = service_overrides.get(component_id)
         form = EmissionKitServiceComponentForm(
-            initial={
-                "quantity": override.quantity if override else kit_service.quantity,
-                "cost": override.service_cost_price if override else (kit_service.service.suggested_cost or Money(0, "BRL")),
-                "price": override.service_selling_price if override else kit_service.resolved_selling_price,
-                "duration": override.duration if override and override.duration else kit_service.service.duration,
-            },
+            initial=build_kit_service_form_initial(
+                item=workorder_item,
+                component_id=component_id,
+                line_overrides=line_overrides,
+                fallback={
+                    "quantity": override.quantity if override else kit_service.quantity,
+                    "cost": override.service_cost_price if override else (kit_service.service.suggested_cost or Money(0, "BRL")),
+                    "price": override.service_selling_price if override else kit_service.resolved_selling_price,
+                    "duration": override.duration if override and override.duration else kit_service.service.duration,
+                },
+            ),
             parent_quantity=parent_quantity,
         )
         return self._render_modal(request=request, workorder_item=workorder_item, form=form, component_name=str(kit_service.service.name), component_kind="service")
 
     def post(self, request, workorder_pk: int, item_id: int, component_type: str, component_id: int):
+        from apps.finance.services.emission_line_overrides import (
+            serialize_kit_product_override_from_cleaned_data,
+            serialize_kit_service_override_from_cleaned_data,
+            upsert_kit_component_override,
+        )
+
         workorder_item = self._get_workorder_item(workorder_pk=workorder_pk, item_id=item_id)
         parent_quantity = int(workorder_item.quantity or 1)
 
@@ -1227,17 +1398,14 @@ class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScoped
             kit_product = get_object_or_404(workorder_item.kit.kit_products.select_related("product"), product_id=component_id)
             form = EmissionKitProductComponentForm(request.POST, parent_quantity=parent_quantity)
             if form.is_valid():
-                WorkOrderKitItemOverride.objects.update_or_create(
-                    workshop=self.workshop,
-                    workorder_item=workorder_item,
-                    product=kit_product.product,
-                    defaults={
-                        "quantity": int(form.cleaned_data.get("quantity") or 0),
-                        "product_cost_price": form.cleaned_data.get("cost") or Money(0, "BRL"),
-                        "product_selling_price": form.cleaned_data.get("price") or Money(0, "BRL"),
-                        "shipping": form.cleaned_data.get("shipping") or Money(0, "BRL"),
-                    },
+                line_overrides = upsert_kit_component_override(
+                    line_overrides=self._load_line_overrides(),
+                    item_id=workorder_item.pk,
+                    component_type="product",
+                    component_id=component_id,
+                    override=serialize_kit_product_override_from_cleaned_data(form.cleaned_data),
                 )
+                self._save_line_overrides(line_overrides)
                 response = HttpResponse(status=204)
                 response["HX-Trigger"] = "financeEmissionWorkorderItemSaved"
                 return response
@@ -1247,17 +1415,14 @@ class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScoped
         kit_service = get_object_or_404(workorder_item.kit.kit_services.select_related("service"), service_id=component_id)
         form = EmissionKitServiceComponentForm(request.POST, parent_quantity=parent_quantity)
         if form.is_valid():
-            WorkOrderKitItemOverride.objects.update_or_create(
-                workshop=self.workshop,
-                workorder_item=workorder_item,
-                service=kit_service.service,
-                defaults={
-                    "quantity": int(form.cleaned_data.get("quantity") or 0),
-                    "service_cost_price": form.cleaned_data.get("cost") or Money(0, "BRL"),
-                    "service_selling_price": form.cleaned_data.get("price") or Money(0, "BRL"),
-                    "duration": form.cleaned_data.get("duration"),
-                },
+            line_overrides = upsert_kit_component_override(
+                line_overrides=self._load_line_overrides(),
+                item_id=workorder_item.pk,
+                component_type="service",
+                component_id=component_id,
+                override=serialize_kit_service_override_from_cleaned_data(form.cleaned_data),
             )
+            self._save_line_overrides(line_overrides)
             response = HttpResponse(status=204)
             response["HX-Trigger"] = "financeEmissionWorkorderItemSaved"
             return response

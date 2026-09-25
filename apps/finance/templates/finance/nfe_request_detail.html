@@ -18,6 +18,18 @@
             Reconsultar status
         </button>
     </form>
+    {% if can_soft_delete %}
+        <button
+            type="button"
+            class="btn btn-sm btn-error btn-outline gap-2"
+            hx-get="{% url 'finance:nfe_soft_delete' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+        >
+            <span class="material-icons text-sm">delete</span>
+            Apagar
+        </button>
+    {% endif %}
     {% if can_invalidate %}
         <button type="button" class="btn btn-sm btn-warning gap-2" onclick="invalidate_nfe_modal.showModal()">
             <span class="material-icons text-sm">block</span>
@@ -382,4 +394,5 @@
             </div>
         </dialog>
     {% endif %}
+    <div id="modal-container"></div>
 {% endblock %}
