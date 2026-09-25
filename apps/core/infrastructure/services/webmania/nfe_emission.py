@@ -15,7 +15,7 @@ from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 from apps.finance.services.fiscal_recipient import FiscalRecipient, resolve_fiscal_recipient_for_nfe_request
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
-from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
+from apps.core.infrastructure.services.webmania.emission import _omit_empty_json_values, build_webmania_webhook_url
 from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
 from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
@@ -641,6 +641,11 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
 
     _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
     _apply_transport_to_nfe_payload(payload=payload, nfe_request=nfe_request)
+
+    pruned = _omit_empty_json_values(payload)
+    if not isinstance(pruned, dict):
+        pruned = {}
+    payload = pruned
 
     logger.info(
         "nfe_payload_built nfe_request_id=%s workshop_id=%s workorder_id=%s slider=%s products_target=%s services_target=%s product_discount=%s discount_type=%s",

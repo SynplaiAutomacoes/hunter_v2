@@ -1057,7 +1057,7 @@ class EmissionNfeConfigForm(CoreForm):
 
 
 class EmissionNfseConfigForm(CoreForm):
-    CONSUMIDOR_FINAL_CHOICES = ((True, "Sim"), (False, "Não"))
+    CONSUMIDOR_FINAL_CHOICES = (("", "—"), (True, "Sim"), (False, "Não"))
 
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     codigo_nbs = forms.CharField(
@@ -1067,12 +1067,12 @@ class EmissionNfseConfigForm(CoreForm):
     )
     consumidor_final = forms.TypedChoiceField(
         label="Consumidor final?",
-        required=True,
-        initial=True,
-        coerce=lambda value: str(value).lower() in {"true", "1"},
+        required=False,
+        empty_value=None,
+        coerce=lambda value: None if value in ("", None) else str(value).lower() in {"true", "1"},
         choices=CONSUMIDOR_FINAL_CHOICES,
         widget=SearchableSelectInput(choices=CONSUMIDOR_FINAL_CHOICES),
-        help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
+        help_text="Opcional. Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
     )
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
@@ -1101,7 +1101,7 @@ class EmissionNfseConfigForm(CoreForm):
 
         self.fields["codigo_nbs"].help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
         if not self.is_bound and "consumidor_final" not in self.initial:
-            self.initial["consumidor_final"] = True
+            self.initial["consumidor_final"] = None
 
         default_service_description = "Prestacao de servico"
         if workorder is not None:
