@@ -108,6 +108,32 @@ def soft_delete_fiscal_request(*, kind: FiscalRequestKind, request_obj: NfeReque
     return soft_delete_nfse_request(nfse_request=request_obj, user=user)  # type: ignore[arg-type]
 
 
+def soft_delete_wizard_draft_requests(*, workshop, state: dict, user=None) -> list[NfeRequest | NfseRequest]:
+    """Soft-delete pre-emit drafts referenced by an emission wizard session.
+
+    Used when the user restarts emission before sending to Webmania, so orphan
+    drafts do not remain in Central de Notas or block the OS emission dropdown.
+    Already-emitted / reserved / remote-synced requests are left untouched.
+    """
+    deleted: list[NfeRequest | NfseRequest] = []
+    if not isinstance(state, dict):
+        return deleted
+
+    nfe_request_id = state.get("nfe_request_id")
+    if nfe_request_id:
+        nfe_request = NfeRequest.objects.filter(pk=nfe_request_id, workshop=workshop).first()
+        if nfe_request is not None and is_nfe_request_soft_deletable(nfe_request=nfe_request):
+            deleted.append(soft_delete_nfe_request(nfe_request=nfe_request, user=user))
+
+    nfse_request_id = state.get("nfse_request_id")
+    if nfse_request_id:
+        nfse_request = NfseRequest.objects.filter(pk=nfse_request_id, workshop=workshop).first()
+        if nfse_request is not None and is_nfse_request_soft_deletable(nfse_request=nfse_request):
+            deleted.append(soft_delete_nfse_request(nfse_request=nfse_request, user=user))
+
+    return deleted
+
+
 def is_soft_deletable_from_row(*, kind: FiscalRequestKind, request_obj: NfeRequest | NfseRequest) -> bool:
     """Prefer annotated `_has_remote_item` when present to avoid N+1 queries on list rows."""
     has_remote = getattr(request_obj, "_has_remote_item", None)

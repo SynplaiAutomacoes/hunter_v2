@@ -197,6 +197,112 @@ class FiscalRequestSoftDeletePersistenceTests(TestCase):
         with self.assertRaises(FiscalRequestSoftDeleteError):
             soft_delete_nfe_request(nfe_request=nfe_request)
 
+    def test_soft_delete_wizard_drafts_removes_pre_emit_requests(self) -> None:
+        from apps.finance.services.fiscal_request_soft_delete import soft_delete_wizard_draft_requests
+
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+        )
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            status=NfseRequestStatus.CHECKING_SERVICES,
+        )
+        processing = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            status=NfeRequestStatus.PROCESSING,
+        )
+
+        deleted = soft_delete_wizard_draft_requests(
+            workshop=self.workshop,
+            state={
+                "nfe_request_id": nfe_request.pk,
+                "nfse_request_id": nfse_request.pk,
+            },
+        )
+        # processing id not in state — leave alone; also verify processing would be skipped
+        soft_delete_wizard_draft_requests(
+            workshop=self.workshop,
+            state={"nfe_request_id": processing.pk},
+        )
+
+        nfe_request.refresh_from_db()
+        nfse_request.refresh_from_db()
+        processing.refresh_from_db()
+        self.assertEqual(len(deleted), 2)
+        self.assertIsNotNone(nfe_request.soft_deleted_at)
+        self.assertIsNotNone(nfse_request.soft_deleted_at)
+        self.assertIsNone(processing.soft_deleted_at)
+
+
+class EmissionWizardResetSoftDeletesDraftsTests(TestCase):
+    def setUp(self) -> None:
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from django.contrib.sessions.backends.db import SessionStore
+        from django.test import RequestFactory
+
+        from apps.finance.views.emission import EmissionRequestCreateView
+
+        self.factory = RequestFactory()
+        self.workshop = create_workshop(suffix=403)
+        self.workorder = create_workorder(workshop=self.workshop, budget_type=BudgetType.SALE, status=WorkOrderStatus.APPROVED)
+        self.EmissionRequestCreateView = EmissionRequestCreateView
+        self.SessionStore = SessionStore
+        self.FallbackStorage = FallbackStorage
+
+    def test_reset_soft_deletes_session_drafts_and_frees_workorder(self) -> None:
+        from django.db.models import Exists, OuterRef
+
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            status=NfeRequestStatus.CHECKING_PRODUCTS,
+        )
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            status=NfseRequestStatus.CHECKING_SERVICES,
+        )
+
+        request = self.factory.get("/finance/emissao/normal/?reset=1")
+        request.user = None
+        request.session = self.SessionStore()
+        setattr(request, "_messages", self.FallbackStorage(request))
+
+        view = self.EmissionRequestCreateView()
+        view.request = request
+        view.workshop = self.workshop
+        request.session[view._session_key()] = {
+            "current_step": 5,
+            "max_reached_step": 5,
+            "workorder_id": self.workorder.pk,
+            "nfe_request_id": nfe_request.pk,
+            "nfse_request_id": nfse_request.pk,
+            "nfe_done": False,
+            "nfse_done": False,
+        }
+
+        response = view.get(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(view._session_key(), request.session)
+
+        nfe_request.refresh_from_db()
+        nfse_request.refresh_from_db()
+        self.assertIsNotNone(nfe_request.soft_deleted_at)
+        self.assertIsNotNone(nfse_request.soft_deleted_at)
+
+        nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"), soft_deleted_at__isnull=True)
+        nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"), soft_deleted_at__isnull=True)
+        queryset = (
+            WorkOrder.objects.filter(workshop=self.workshop, status=WorkOrderStatus.APPROVED)
+            .annotate(has_nfe=Exists(nfe_exists), has_nfse=Exists(nfse_exists))
+            .exclude(has_nfe=True, has_nfse=True)
+        )
+        self.assertIn(self.workorder, queryset)
+
 
 class EmissionItemOverrideIsolationTests(TestCase):
     def setUp(self) -> None:
