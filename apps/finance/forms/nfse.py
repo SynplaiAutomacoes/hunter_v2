@@ -29,6 +29,15 @@ from apps.finance.services.pricing import build_nfse_service_preview_rows, build
 from apps.workorder.models import WorkOrder
 
 
+def consumidor_final_widget_value(value: object) -> str:
+    """Normalize stored/bool values to searchable-select choice keys (empty by default)."""
+    if value is True or str(value).strip().lower() in {"true", "1", "sim"}:
+        return "true"
+    if value is False or str(value).strip().lower() in {"false", "0", "nao", "não", "no"}:
+        return "false"
+    return ""
+
+
 def clean_required_codigo_nbs(value: object) -> str:
     digits = normalize_codigo_nbs(value)
     if len(digits) != 9:
@@ -86,13 +95,13 @@ class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
 
 
 class NfseRequestStep3Form(CoreModelForm):
-    CONSUMIDOR_FINAL_CHOICES = (("", "—"), (True, "Sim"), (False, "Não"))
+    CONSUMIDOR_FINAL_CHOICES = (("", "—"), ("true", "Sim"), ("false", "Não"))
 
     consumidor_final = forms.TypedChoiceField(
         label="Consumidor final?",
         required=False,
         empty_value=None,
-        coerce=lambda value: None if value in ("", None) else str(value).lower() in {"true", "1"},
+        coerce=lambda value: None if value in ("", None) else str(value).strip().lower() in {"true", "1", "sim"},
         choices=CONSUMIDOR_FINAL_CHOICES,
         widget=SearchableSelectInput(choices=CONSUMIDOR_FINAL_CHOICES),
         help_text="Opcional. Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
@@ -170,8 +179,10 @@ class NfseRequestStep3Form(CoreModelForm):
         codigo_nbs_field.required = False
         codigo_nbs_field.help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
 
-        if not self.is_bound and "consumidor_final" not in self.initial:
-            self.initial["consumidor_final"] = getattr(self.instance, "consumidor_final", None)
+        if not self.is_bound:
+            self.initial["consumidor_final"] = consumidor_final_widget_value(
+                self.initial.get("consumidor_final", getattr(self.instance, "consumidor_final", None))
+            )
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
         current_tax_class = str(current_tax_class_source or "").strip()

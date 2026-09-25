@@ -57,7 +57,7 @@ class EmissionNfseConfigFormCodigoNbsTests(SimpleTestCase):
             "tax_class": "REF1",
             "service_description": "Prestação de serviço",
             "codigo_nbs": "115021000",
-            "consumidor_final": True,
+            "consumidor_final": "true",
             **overrides,
         }
         return EmissionNfseConfigForm(data=data, tax_class_choices=[("REF1", "Classe 1")])
@@ -73,12 +73,12 @@ class EmissionNfseConfigFormCodigoNbsTests(SimpleTestCase):
         self.assertEqual(form.cleaned_data["codigo_nbs"], "")
 
     def test_consumidor_final_sim_is_true(self) -> None:
-        form = self._form(consumidor_final=True)
+        form = self._form(consumidor_final="true")
         self.assertTrue(form.is_valid(), form.errors)
         self.assertIs(form.cleaned_data["consumidor_final"], True)
 
     def test_consumidor_final_nao_is_false(self) -> None:
-        form = self._form(consumidor_final=False)
+        form = self._form(consumidor_final="false")
         self.assertTrue(form.is_valid(), form.errors)
         self.assertIs(form.cleaned_data["consumidor_final"], False)
 
@@ -86,6 +86,10 @@ class EmissionNfseConfigFormCodigoNbsTests(SimpleTestCase):
         form = self._form(consumidor_final="")
         self.assertTrue(form.is_valid(), form.errors)
         self.assertIsNone(form.cleaned_data["consumidor_final"])
+
+    def test_consumidor_final_default_initial_is_empty(self) -> None:
+        form = EmissionNfseConfigForm(tax_class_choices=[("REF1", "Classe 1")])
+        self.assertEqual(form.initial.get("consumidor_final"), "")
 
 
 class BuildNfsePayloadCodigoNbsTests(SimpleTestCase):

@@ -31,12 +31,12 @@ class BuildPreviewHiddenFieldsTests(SimpleTestCase):
                 cleaned_data={"consumidor_final": True, "other_flag": False, "tax_class": "REF1"}
             )
         }
-        self.assertEqual(fields["consumidor_final"], "True")
-        self.assertEqual(fields["other_flag"], "False")
+        self.assertEqual(fields["consumidor_final"], "true")
+        self.assertEqual(fields["other_flag"], "false")
         self.assertEqual(fields["tax_class"], "REF1")
 
     def test_consumidor_final_hidden_values_round_trip_step3_form(self) -> None:
-        for raw_value, expected in (("True", True), ("False", False)):
+        for raw_value, expected in (("true", True), ("false", False)):
             form = NfseRequestStep3Form(
                 data={
                     "tax_class": "REF1",
