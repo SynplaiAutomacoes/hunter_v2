@@ -20,7 +20,7 @@
         <button
             type="button"
             class="btn btn-sm btn-error btn-outline gap-2"
-            hx-get="{% url 'finance:nfse_soft_delete' pk=nfse_request.pk %}"
+            hx-get="{% url 'finance:nfse_soft_delete' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}"
             hx-target="#modal-container"
             hx-swap="innerHTML"
         >

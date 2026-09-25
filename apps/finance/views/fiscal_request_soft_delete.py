@@ -17,8 +17,25 @@ from apps.finance.services.fiscal_request_soft_delete import (
     soft_delete_nfe_request,
     soft_delete_nfse_request,
 )
-from apps.finance.views.navigation import build_issued_documents_list_url
+from apps.finance.views.navigation import append_query_params, build_issued_documents_back_url, build_issued_documents_list_url
 from apps.workshops.mixin import WorkshopScopedMixin
+
+
+def _is_on_issued_documents_list(request) -> bool:
+    current_url = str(request.headers.get("HX-Current-URL") or request.META.get("HTTP_REFERER") or "")
+    return "/notas-emitidas/" in current_url
+
+
+def _soft_delete_return_url(*, request) -> str:
+    """Preserve Central de Notas filters; never force note type from the deleted draft."""
+    return build_issued_documents_back_url(
+        query_params=request.GET,
+        fallback_url=build_issued_documents_list_url(),
+    )
+
+
+def _soft_delete_post_url(*, view_name: str, pk: int, request) -> str:
+    return append_query_params(url=reverse(view_name, kwargs={"pk": pk}), params=request.GET)
 
 
 class NfeRequestSoftDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -41,7 +58,7 @@ class NfeRequestSoftDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
             {
                 "note_type_label": "Nota Fiscal de Produto",
                 "request_obj": nfe_request,
-                "post_url": reverse("finance:nfe_soft_delete", kwargs={"pk": nfe_request.pk}),
+                "post_url": _soft_delete_post_url(view_name="finance:nfe_soft_delete", pk=nfe_request.pk, request=request),
             },
         )
 
@@ -58,11 +75,13 @@ class NfeRequestSoftDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return redirect(reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
 
         messages.success(request, "Rascunho de Nota Fiscal de Produto apagado.")
-        redirect_url = build_issued_documents_list_url(note_type="nfe")
+        redirect_url = _soft_delete_return_url(request=request)
         if getattr(request, "htmx", False):
             response = HttpResponse(status=204)
             response["HX-Trigger"] = "issued-documents-refresh"
-            response["HX-Redirect"] = redirect_url
+            # Stay on the Central list URL (keeps current filters). Redirect only when leaving a detail page.
+            if not _is_on_issued_documents_list(request):
+                response["HX-Redirect"] = redirect_url
             return response
         return redirect(redirect_url)
 
@@ -87,7 +106,7 @@ class NfseRequestSoftDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
             {
                 "note_type_label": "Nota Fiscal de Serviço",
                 "request_obj": nfse_request,
-                "post_url": reverse("finance:nfse_soft_delete", kwargs={"pk": nfse_request.pk}),
+                "post_url": _soft_delete_post_url(view_name="finance:nfse_soft_delete", pk=nfse_request.pk, request=request),
             },
         )
 
@@ -104,10 +123,11 @@ class NfseRequestSoftDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return redirect(reverse("finance:nfse_detail", kwargs={"pk": nfse_request.pk}))
 
         messages.success(request, "Rascunho de Nota Fiscal de Serviço apagado.")
-        redirect_url = build_issued_documents_list_url(note_type="nfse")
+        redirect_url = _soft_delete_return_url(request=request)
         if getattr(request, "htmx", False):
             response = HttpResponse(status=204)
             response["HX-Trigger"] = "issued-documents-refresh"
-            response["HX-Redirect"] = redirect_url
+            if not _is_on_issued_documents_list(request):
+                response["HX-Redirect"] = redirect_url
             return response
         return redirect(redirect_url)
