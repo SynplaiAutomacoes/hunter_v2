@@ -19,6 +19,7 @@ from apps.finance.services.tax_classes import (
     is_valid_nfse_service_code,
     list_tax_classes,
     map_nfse_codigo_servico_api_error,
+    normalize_tax_class_payload_for_api,
     sync_tax_classes,
 )
 from apps.finance.views.emission import EmissionRequestCreateView
@@ -56,6 +57,52 @@ class NfseServiceCodeFormatTests(SimpleTestCase):
         self.assertEqual(mapped, NFSE_CODIGO_SERVICO_NATIONAL_LENGTH_ERROR)
         self.assertIsNone(map_nfse_codigo_servico_api_error("Falha generica de autenticacao"))
 
+    def test_normalize_api_payload_strips_metadata_and_abrasf_on_nacional(self) -> None:
+        payload = normalize_tax_class_payload_for_api(
+            {
+                "referencia": "REF900241836",
+                "descricao": "Classe nacional",
+                "tipo": "nfse",
+                "type": "nfse",
+                "status": "ativo",
+                "data": "2026-01-01 00:00:00",
+                "updated_date": "2026-01-02 00:00:00",
+                "tipo_emissao": "1",
+                "codigo_servico": "010501",
+                "retencao_iss": "1",
+                "cod_indicador_operacao": "050101",
+                "iss_retido": "2",
+                "exigibilidade_iss": "1",
+                "natureza_operacao": "1",
+                "responsavel_retencao": "1",
+            }
+        )
+        self.assertEqual(payload["codigo_servico"], "01.05.01")
+        self.assertEqual(payload["retencao_iss"], "1")
+        self.assertEqual(payload["cod_indicador_operacao"], "050101")
+        self.assertNotIn("status", payload)
+        self.assertNotIn("data", payload)
+        self.assertNotIn("updated_date", payload)
+        self.assertNotIn("type", payload)
+        self.assertNotIn("iss_retido", payload)
+        self.assertNotIn("exigibilidade_iss", payload)
+        self.assertNotIn("natureza_operacao", payload)
+        self.assertNotIn("responsavel_retencao", payload)
+
+    def test_normalize_api_payload_strips_nacional_retention_on_abrasf(self) -> None:
+        payload = normalize_tax_class_payload_for_api(
+            {
+                "descricao": "Classe abrasf",
+                "tipo": "nfse",
+                "codigo_servico": "14.01",
+                "iss_retido": "2",
+                "exigibilidade_iss": "1",
+                "retencao_iss": "1",
+            }
+        )
+        self.assertEqual(payload["iss_retido"], "2")
+        self.assertNotIn("retencao_iss", payload)
+
 
 class NfseTaxClassFormServiceCodeTests(SimpleTestCase):
     def test_nfse_form_accepts_cod_indicador_operacao_choice(self) -> None:
@@ -71,6 +118,43 @@ class NfseTaxClassFormServiceCodeTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["cod_indicador_operacao"], "050101")
         self.assertEqual(form.build_payload()["cod_indicador_operacao"], "050101")
+
+    def test_nfse_nacional_update_payload_drops_base_metadata_and_abrasf_defaults(self) -> None:
+        import json
+
+        base_payload = {
+            "referencia": "REF900241836",
+            "descricao": "Classe antiga",
+            "tipo": "nfse",
+            "type": "nfse",
+            "status": "ativo",
+            "data": "2026-01-01 00:00:00",
+            "updated_date": "2026-01-02 00:00:00",
+            "tipo_emissao": "1",
+            "codigo_servico": "01.05.01",
+            "retencao_iss": "1",
+            "iss_retido": "2",
+            "exigibilidade_iss": "1",
+        }
+        form = NfseTaxClassForm(
+            data={
+                "descricao": "Classe nacional atualizada",
+                "codigo_servico": "01.05.01",
+                "tipo_emissao": "1",
+                "retencao_iss": "1",
+                "cod_indicador_operacao": "050101",
+                "finalidade": "0",
+                "base_payload_json": json.dumps(base_payload),
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        payload = form.build_payload()
+        self.assertEqual(payload["cod_indicador_operacao"], "050101")
+        self.assertEqual(payload["retencao_iss"], "1")
+        self.assertNotIn("status", payload)
+        self.assertNotIn("updated_date", payload)
+        self.assertNotIn("iss_retido", payload)
+        self.assertNotIn("exigibilidade_iss", payload)
 
     def test_nfse_form_rejects_unknown_cod_indicador_operacao(self) -> None:
         form = NfseTaxClassForm(
@@ -92,6 +176,25 @@ class NfseTaxClassFormServiceCodeTests(SimpleTestCase):
         self.assertNotIn("planilha", help_text)
         choice_values = {value for value, _label in form.fields["cod_indicador_operacao"].choices}
         self.assertIn("050101", choice_values)
+        self.assertIn("iss retido", str(form.fields["responsavel_retencao"].help_text).lower())
+        self.assertIn("padrão nacional", str(form.fields["responsavel_retencao"].help_text).lower())
+
+        def _collect_layout_text(node) -> str:
+            parts: list[str] = []
+            html = getattr(node, "html", None)
+            if html:
+                parts.append(str(html))
+            css = getattr(node, "css_class", None)
+            if css:
+                parts.append(str(css))
+            for child in getattr(node, "fields", []) or []:
+                parts.append(_collect_layout_text(child))
+            return " ".join(parts)
+
+        layout_blob = _collect_layout_text(form.helper.layout)
+        self.assertIn("Padrão Nacional", layout_blob)
+        self.assertIn("Provedor ABRASF", layout_blob)
+        self.assertNotIn("items-end", layout_blob)
 
     def test_nfse_form_normalizes_six_digit_service_code(self) -> None:
         form = NfseTaxClassForm(

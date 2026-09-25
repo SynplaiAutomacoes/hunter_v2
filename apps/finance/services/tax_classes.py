@@ -236,12 +236,62 @@ def map_nfse_codigo_servico_api_error(message: object) -> str | None:
     return None
 
 
+# Fields returned by GET/local serialize that must not be resent on create/update.
+# Webmania replaces the whole class when `referencia` is sent; leftover list metadata
+# and mixed ABRASF/Nacional keys have left classes listable but unusable on emit.
+_TAX_CLASS_API_METADATA_KEYS = (
+    "status",
+    "data",
+    "updated_date",
+    "message",
+    "msg",
+    "error",
+    "type",
+)
+_NFSE_ABRASF_ONLY_KEYS = (
+    "natureza_operacao",
+    "exigibilidade_iss",
+    "iss_retido",
+    "responsavel_retencao",
+)
+_NFSE_NACIONAL_RETENTION_KEY = "retencao_iss"
+
+
+def _looks_like_nfse_padrao_nacional(payload: dict[str, Any]) -> bool:
+    if any(_clean_string(payload.get(field_name)) for field_name in ("tipo_emissao", "tributacao_iss", "cod_indicador_operacao")):
+        return True
+    if len(_digits_only(payload.get("codigo_servico"))) == 6:
+        return True
+    # retencao_iss is Nacional-only; if ABRASF keys are also present, prefer ABRASF cleanup.
+    if _clean_string(payload.get("retencao_iss")) and not any(
+        _clean_string(payload.get(field_name)) for field_name in ("iss_retido", "exigibilidade_iss", "natureza_operacao")
+    ):
+        return True
+    return False
+
+
+def normalize_tax_class_payload_for_api(payload: dict[str, Any]) -> dict[str, Any]:
+    """Public wrapper: strip list metadata and conflicting NFS-e provider fields before POST."""
+    return _normalize_payload_for_api(payload)
+
+
 def _normalize_payload_for_api(payload: dict[str, Any]) -> dict[str, Any]:
     normalized_payload = dict(payload)
+    for key in _TAX_CLASS_API_METADATA_KEYS:
+        normalized_payload.pop(key, None)
+
     if _looks_like_nfse(normalized_payload):
         service_code = normalized_payload.get("codigo_servico")
         if service_code not in (None, ""):
             normalized_payload["codigo_servico"] = format_nfse_service_code_for_api(service_code)
+
+        # Replace semantics: keep only the provider family that matches the class.
+        if _looks_like_nfse_padrao_nacional(normalized_payload):
+            for key in _NFSE_ABRASF_ONLY_KEYS:
+                normalized_payload.pop(key, None)
+        else:
+            normalized_payload.pop(_NFSE_NACIONAL_RETENTION_KEY, None)
+
     return normalized_payload
 
 
@@ -608,12 +658,14 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
             "codigo_tributacao_municipio": _clean_string(payload.get("codigo_tributacao_municipio")),
             "tributacao_iss": _clean_string(payload.get("tributacao_iss")),
             "tipo_imunidade": _clean_string(payload.get("tipo_imunidade")),
-            "retencao_iss": _clean_string(payload.get("retencao_iss") or payload.get("iss_retido")),
+            # Nacional (retencao_iss 1/2/3) and ABRASF (iss_retido 1/2) use different enums —
+            # never copy one into the other.
+            "retencao_iss": _clean_string(payload.get("retencao_iss")),
             "cst_pis_cofins": _clean_string(payload.get("cst_pis_cofins")),
             "retencao_pis_cofins": _clean_string(payload.get("retencao_pis_cofins")),
             "natureza_operacao": _clean_string(payload.get("natureza_operacao")),
             "exigibilidade_iss": _clean_string(payload.get("exigibilidade_iss")),
-            "iss_retido": _clean_string(payload.get("iss_retido") or payload.get("retencao_iss")),
+            "iss_retido": _clean_string(payload.get("iss_retido")),
             "responsavel_retencao": _clean_string(payload.get("responsavel_retencao")),
             "codigo_nbs": _digits_only(payload.get("codigo_nbs")),
             "codigo_cnae": _clean_string(payload.get("codigo_cnae")),

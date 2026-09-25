@@ -117,23 +117,22 @@
                         {{ nfse_form.tributacao_iss.errors }}
                     </div>
 
-                    <div class="col-span-12 lg:col-span-4">
+                    <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.tipo_imunidade.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.tipo_imunidade.label }}</span></label>
                         {{ nfse_form.tipo_imunidade }}
                         {{ nfse_form.tipo_imunidade.errors }}
                     </div>
-                    <div class="col-span-12 lg:col-span-4">
+                    <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.retencao_iss.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.retencao_iss.label }}</span></label>
                         {{ nfse_form.retencao_iss }}
                         {{ nfse_form.retencao_iss.errors }}
                     </div>
-                    <div class="col-span-12 lg:col-span-4">
+                    <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.cst_pis_cofins.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.cst_pis_cofins.label }}</span></label>
                         {{ nfse_form.cst_pis_cofins }}
                         {{ nfse_form.cst_pis_cofins.errors }}
                     </div>
-
-                    <div class="col-span-12">
+                    <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.retencao_pis_cofins.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.retencao_pis_cofins.label }}</span></label>
                         {{ nfse_form.retencao_pis_cofins }}
                         {{ nfse_form.retencao_pis_cofins.errors }}
@@ -143,11 +142,11 @@
 
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
                 <div>
-                    <h3 class="font-semibold">Campos específicos de provedor</h3>
-                    <p class="text-sm text-base-content/70">Preencha apenas o que fizer sentido para o provedor da oficina.</p>
+                    <h3 class="font-semibold">Provedor ABRASF</h3>
+                    <p class="text-sm text-base-content/70">Preencha apenas o que o provedor municipal exigir.</p>
                 </div>
 
-                <div class="grid grid-cols-12 gap-4">
+                <div class="grid grid-cols-12 gap-4 items-start">
                     <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.natureza_operacao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.natureza_operacao.label }}</span></label>
                         {{ nfse_form.natureza_operacao }}
@@ -166,24 +165,47 @@
                     <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.responsavel_retencao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.responsavel_retencao.label }}</span></label>
                         {{ nfse_form.responsavel_retencao }}
+                        {% if nfse_form.responsavel_retencao.help_text %}<p class="text-xs text-base-content/60 mt-1">{{ nfse_form.responsavel_retencao.help_text }}</p>{% endif %}
                         {{ nfse_form.responsavel_retencao.errors }}
                     </div>
-                    <div class="col-span-12 lg:col-span-4">
+                </div>
+            </section>
+
+            <section class="border border-base-300 rounded-xl p-4 space-y-4">
+                <div>
+                    <h3 class="font-semibold">Padrão Nacional</h3>
+                    <p class="text-sm text-base-content/70">Para oficinas, o código indicador mais comum é 050101 (serviço sobre bem móvel no estabelecimento).</p>
+                </div>
+
+                <div class="grid grid-cols-12 gap-4 items-start">
+                    <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.codigo_nbs.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.codigo_nbs.label }}</span></label>
                         {{ nfse_form.codigo_nbs }}
+                        {% if nfse_form.codigo_nbs.help_text %}<p class="text-xs text-base-content/60 mt-1">{{ nfse_form.codigo_nbs.help_text }}</p>{% endif %}
                         {{ nfse_form.codigo_nbs.errors }}
                     </div>
-                    <div class="col-span-12 lg:col-span-4">
+                    <div class="col-span-12 lg:col-span-3">
                         <label class="label" for="{{ nfse_form.codigo_cnae.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.codigo_cnae.label }}</span></label>
                         {{ nfse_form.codigo_cnae }}
                         {{ nfse_form.codigo_cnae.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-3">
+                        <label class="label" for="{{ nfse_form.finalidade.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.finalidade.label }}</span></label>
+                        {{ nfse_form.finalidade }}
+                        {{ nfse_form.finalidade.errors }}
+                    </div>
+                    <div class="col-span-12 lg:col-span-6">
+                        <label class="label" for="{{ nfse_form.cod_indicador_operacao.id_for_label }}"><span class="label-text font-semibold">{{ nfse_form.cod_indicador_operacao.label }}</span></label>
+                        {{ nfse_form.cod_indicador_operacao }}
+                        {% if nfse_form.cod_indicador_operacao.help_text %}<p class="text-xs text-base-content/60 mt-1">{{ nfse_form.cod_indicador_operacao.help_text }}</p>{% endif %}
+                        {{ nfse_form.cod_indicador_operacao.errors }}
                     </div>
                 </div>
             </section>
 
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
                 <h3 class="font-semibold">Alíquotas</h3>
-                <div class="grid grid-cols-12 gap-4">
+                <div class="grid grid-cols-12 gap-4 items-start">
                     <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.iss.label_tag }}{{ nfse_form.iss }}{{ nfse_form.iss.errors }}</div>
                     <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.pis.label_tag }}{{ nfse_form.pis }}{{ nfse_form.pis.errors }}</div>
                     <div class="col-span-12 sm:col-span-6 lg:col-span-2">{{ nfse_form.cofins.label_tag }}{{ nfse_form.cofins }}{{ nfse_form.cofins.errors }}</div>
@@ -195,15 +217,15 @@
 
             <section class="border border-base-300 rounded-xl p-4 space-y-4">
                 <h3 class="font-semibold">IBS/CBS</h3>
-                <div class="grid grid-cols-12 gap-4">
+                <div class="grid grid-cols-12 gap-4 items-start">
                     <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_situacao_tributaria.label_tag }}{{ nfse_form.ibs_situacao_tributaria }}{{ nfse_form.ibs_situacao_tributaria.errors }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_classificacao_tributaria.label_tag }}{{ nfse_form.ibs_classificacao_tributaria }}{{ nfse_form.ibs_classificacao_tributaria.errors }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_situacao_tributaria_regular.label_tag }}{{ nfse_form.ibs_situacao_tributaria_regular }}{{ nfse_form.ibs_situacao_tributaria_regular.errors }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_classificacao_tributaria_regular.label_tag }}{{ nfse_form.ibs_classificacao_tributaria_regular }}{{ nfse_form.ibs_classificacao_tributaria_regular.errors }}</div>
-                    <div class="col-span-12 lg:col-span-4">{{ nfse_form.ibs_credito_presumido.label_tag }}{{ nfse_form.ibs_credito_presumido }}{{ nfse_form.ibs_credito_presumido.errors }}</div>
-                    <div class="col-span-12 lg:col-span-4">{{ nfse_form.ibs_aliquota_diferimento_estadual.label_tag }}{{ nfse_form.ibs_aliquota_diferimento_estadual }}{{ nfse_form.ibs_aliquota_diferimento_estadual.errors }}</div>
-                    <div class="col-span-12 lg:col-span-4">{{ nfse_form.ibs_aliquota_diferimento_municipal.label_tag }}{{ nfse_form.ibs_aliquota_diferimento_municipal }}{{ nfse_form.ibs_aliquota_diferimento_municipal.errors }}</div>
-                    <div class="col-span-12 lg:col-span-4">{{ nfse_form.cbs_aliquota_diferimento.label_tag }}{{ nfse_form.cbs_aliquota_diferimento }}{{ nfse_form.cbs_aliquota_diferimento.errors }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_credito_presumido.label_tag }}{{ nfse_form.ibs_credito_presumido }}{{ nfse_form.ibs_credito_presumido.errors }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_aliquota_diferimento_estadual.label_tag }}{{ nfse_form.ibs_aliquota_diferimento_estadual }}{{ nfse_form.ibs_aliquota_diferimento_estadual.errors }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ nfse_form.ibs_aliquota_diferimento_municipal.label_tag }}{{ nfse_form.ibs_aliquota_diferimento_municipal }}{{ nfse_form.ibs_aliquota_diferimento_municipal.errors }}</div>
+                    <div class="col-span-12 lg:col-span-3">{{ nfse_form.cbs_aliquota_diferimento.label_tag }}{{ nfse_form.cbs_aliquota_diferimento }}{{ nfse_form.cbs_aliquota_diferimento.errors }}</div>
                 </div>
             </section>
 
