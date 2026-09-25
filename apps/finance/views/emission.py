@@ -424,27 +424,20 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     def _detect_discount_type_mismatch(*, workorder: WorkOrder, note_mode: str) -> tuple[bool, str]:
         """
         Returns (has_mismatch, suggested_override) when the workorder discount_type
-        does not align with the note_mode selected for emission.
+        does not align with emitting both notes.
+
+        Single-note emission always applies the full discount to that note, so no
+        mismatch modal is needed for note_mode nfe/nfse.
         """
+        if note_mode != "both":
+            return False, ""
+
         if Decimal(str(workorder.resolved_discount_value.amount)) <= Decimal("0.00"):
             return False, ""
 
         discount_type = workorder.discount_type
-
-        if note_mode == "both":
-            if discount_type in (WorkOrderDiscountType.PRODUCTS, WorkOrderDiscountType.SERVICES):
-                return True, "both"
-            return False, ""
-
-        if discount_type == WorkOrderDiscountType.BOTH:
-            return True, "products" if note_mode == "nfe" else "services"
-
-        if discount_type == WorkOrderDiscountType.PRODUCTS and note_mode == "nfse":
-            return True, "services"
-
-        if discount_type == WorkOrderDiscountType.SERVICES and note_mode == "nfe":
-            return True, "products"
-
+        if discount_type in (WorkOrderDiscountType.PRODUCTS, WorkOrderDiscountType.SERVICES):
+            return True, "both"
         return False, ""
 
     @staticmethod
@@ -629,16 +622,25 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfe"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
-            kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
+            kwargs["discount_type_override"] = self._resolved_discount_type_override(state=state)
             kwargs["discount_value_override"] = state.get("discount_value_override")
         elif step_key == "nfse_config":
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfse"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
-            kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
+            kwargs["discount_type_override"] = self._resolved_discount_type_override(state=state)
             kwargs["discount_value_override"] = state.get("discount_value_override")
 
         return kwargs
+
+    @staticmethod
+    def _resolved_discount_type_override(*, state: dict[str, Any]) -> str:
+        from apps.finance.services.emission_discount import resolve_emission_discount_type_override
+
+        return resolve_emission_discount_type_override(
+            note_mode=str(state.get("note_mode") or ""),
+            explicit_override=str(state.get("discount_type_override") or ""),
+        )
 
     def _submit_button_label(self, *, state: dict[str, Any], step_key: str) -> str:
         if step_key in {"workorder", "customer", "items", "summary"}:
@@ -776,8 +778,10 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             self._write_state(state)
             return self._redirect_to_step(self._get_step_number(step_key="summary", state=state) or 4)
 
+        from apps.finance.services.emission_discount import resolve_emission_discount_type_override
+
         override_from_post = self.request.POST.get("discount_type_override")
-        if override_from_post is None:
+        if selected_mode == "both" and override_from_post is None:
             has_mismatch, suggested_override = self._detect_discount_type_mismatch(workorder=workorder, note_mode=selected_mode)
             if has_mismatch:
                 state["note_mode"] = selected_mode
@@ -789,7 +793,11 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                     form_action=form_action,
                 )
 
-        state["discount_type_override"] = override_from_post if override_from_post is not None else ""
+        explicit_override = override_from_post if override_from_post is not None else ""
+        state["discount_type_override"] = resolve_emission_discount_type_override(
+            note_mode=selected_mode,
+            explicit_override=explicit_override,
+        )
         discount_money = form.cleaned_data.get("discount_value_override")
         if discount_money is not None:
             state["discount_value_override"] = str(Decimal(str(discount_money.amount)).quantize(Decimal("0.01")))
@@ -821,7 +829,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfe_request.freight_mode = int((state.get("nfe_config") or {}).get("freight_mode") or 9)
         nfe_request.transport_snapshot = dict((state.get("nfe_config") or {}).get("transport_snapshot") or {})
         nfe_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
-        nfe_request.discount_type_override = str(state.get("discount_type_override") or "")
+        nfe_request.discount_type_override = self._resolved_discount_type_override(state=state)
         override_raw = state.get("discount_value_override")
         nfe_request.discount_value_override = Money(Decimal(str(override_raw)), "BRL") if override_raw not in (None, "") else None
         from apps.finance.services.emission_line_overrides import copy_line_overrides
@@ -851,7 +859,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request.codigo_nbs = str((state.get("nfse_config") or {}).get("codigo_nbs") or "")
         nfse_request.consumidor_final = _coerce_consumidor_final((state.get("nfse_config") or {}).get("consumidor_final"))
         nfse_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
-        nfse_request.discount_type_override = str(state.get("discount_type_override") or "")
+        nfse_request.discount_type_override = self._resolved_discount_type_override(state=state)
         override_raw = state.get("discount_value_override")
         nfse_request.discount_value_override = Money(Decimal(str(override_raw)), "BRL") if override_raw not in (None, "") else None
         from apps.finance.services.emission_line_overrides import copy_line_overrides
