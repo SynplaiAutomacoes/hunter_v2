@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 from apps.core.domain.contracts.fiscal import (
     DownloadedDocument,
@@ -15,6 +15,10 @@ class WebmaniaFiscalService(IFiscalService):
     def __init__(self, config: WebmaniaConfig) -> None:
         self._config = config
 
+    def _raise_fiscal(self, exc: BaseException) -> NoReturn:
+        """Re-raise as FiscalServiceError, always attaching last Webmania request attrs when present."""
+        raise FiscalServiceError(str(exc), log_extra=get_webmania_emission_request_log_attrs()) from exc
+
     def is_homolog_environment(self) -> bool:
         from apps.core.infrastructure.services.webmania.webmania import is_webmania_homolog_environment
 
@@ -26,7 +30,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return emit_nfe_request(nfe_request=nfe_request, request=request, slider_override=slider_override)
         except NfeEmissionError as exc:
-            raise FiscalServiceError(str(exc), log_extra=get_webmania_emission_request_log_attrs()) from exc
+            self._raise_fiscal(exc)
 
     def sync_nfe_emission_response(self, *, nfe_request, response_payload: dict[str, Any]) -> None:
         from apps.core.infrastructure.services.webmania.nfe_emission import sync_nfe_emission_response
@@ -39,7 +43,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return cancel_nfe_document(workshop=workshop, access_key=access_key, event_uuid=event_uuid, reason=reason)
         except NfeEmissionError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def invalidate_nfe_number(self, *, workshop, number: int, reason: str, series: int, model: int = 1) -> dict[str, Any]:
         from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, invalidate_nfe_number
@@ -47,7 +51,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return invalidate_nfe_number(workshop=workshop, number=number, reason=reason, series=series, model=model)
         except NfeEmissionError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def reconcile_nfe_item(self, *, item) -> Any:
         from apps.core.infrastructure.services.webmania.nfe_consulta import NfeConsultaError, reconcile_nfe_item
@@ -55,7 +59,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return reconcile_nfe_item(item=item)
         except NfeConsultaError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def download_nfe_preview_document(self, *, nfe_request, request=None) -> DownloadedDocument:
         from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, download_nfe_preview_document
@@ -68,7 +72,7 @@ class WebmaniaFiscalService(IFiscalService):
                 content_disposition=getattr(result, "content_disposition", ""),
             )
         except NfeEmissionError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def emit_nfse(self, *, nfse_request, request=None, slider_override=None) -> dict[str, Any]:
         from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, emit_nfse_request
@@ -76,7 +80,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return emit_nfse_request(nfse_request=nfse_request, request=request, slider_override=slider_override)
         except NfseEmissionError as exc:
-            raise FiscalServiceError(str(exc), log_extra=get_webmania_emission_request_log_attrs()) from exc
+            self._raise_fiscal(exc)
 
     def sync_nfse_emission_response(self, *, nfse_request, response_payload: dict[str, Any]) -> None:
         from apps.core.infrastructure.services.webmania.emission import sync_emission_response
@@ -89,7 +93,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return cancel_nfse_document(workshop=workshop, event_uuid=event_uuid, reason_code=reason_code)
         except NfseEmissionError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def reconcile_nfse_item(self, *, item) -> Any:
         from apps.core.infrastructure.services.webmania.nfse_consulta import NfseConsultaError, reconcile_nfse_item
@@ -97,7 +101,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return reconcile_nfse_item(item=item)
         except NfseConsultaError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def download_nfse_preview_document(self, *, nfse_request, request=None) -> DownloadedDocument:
         from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, download_nfse_preview_document
@@ -110,7 +114,7 @@ class WebmaniaFiscalService(IFiscalService):
                 content_disposition=getattr(result, "content_disposition", ""),
             )
         except NfseEmissionError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def download_document(self, *, workshop, url: str) -> DownloadedDocument:
         from apps.core.infrastructure.services.webmania.webmania_documents import (
@@ -126,7 +130,7 @@ class WebmaniaFiscalService(IFiscalService):
                 content_disposition=result.content_disposition,
             )
         except WebmaniaDocumentDownloadError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def create_b2b_companies(self, *, quantity: int, workshop=None, force_global: bool = False) -> list[dict[str, Any]]:
         from apps.core.infrastructure.services.webmania.webmania_b2b import WebmaniaB2BServiceError, create_b2b_companies
@@ -134,7 +138,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return create_b2b_companies(quantity=quantity, workshop=workshop, force_global=force_global)
         except WebmaniaB2BServiceError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def list_b2b_companies(self, *, workshop=None, force_global_auth: bool = False) -> list[dict[str, Any]]:
         from apps.core.infrastructure.services.webmania.webmania_b2b import WebmaniaB2BServiceError, list_b2b_companies
@@ -142,7 +146,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return list_b2b_companies(workshop=workshop, force_global_auth=force_global_auth)
         except WebmaniaB2BServiceError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def sync_b2b_companies_to_database(self, *, workshop=None, actor_user=None, force_global_auth: bool = False) -> list[Any]:
         from apps.core.infrastructure.services.webmania.webmania_b2b import WebmaniaB2BServiceError, sync_b2b_companies_to_database
@@ -150,7 +154,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return sync_b2b_companies_to_database(workshop=workshop, actor_user=actor_user, force_global_auth=force_global_auth)
         except WebmaniaB2BServiceError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def list_local_b2b_companies(self, *, workshop=None) -> list[Any]:
         from apps.core.infrastructure.services.webmania.webmania_b2b import list_local_b2b_companies
@@ -163,7 +167,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return get_b2b_requests(month=month, year=year, workshop=workshop)
         except WebmaniaB2BServiceError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def provision_webmania_company_for_workshop(self, *, workshop) -> Any:
         from apps.core.infrastructure.services.webmania.webmania_b2b import WebmaniaB2BServiceError, provision_webmania_company_for_workshop
@@ -171,7 +175,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return provision_webmania_company_for_workshop(workshop=workshop)
         except WebmaniaB2BServiceError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def update_webmania_company(self, *, company, payload: dict[str, Any]) -> dict[str, Any]:
         from apps.core.infrastructure.services.webmania.webmania_b2b import WebmaniaB2BServiceError, update_webmania_company
@@ -179,7 +183,7 @@ class WebmaniaFiscalService(IFiscalService):
         try:
             return update_webmania_company(company=company, payload=payload)
         except WebmaniaB2BServiceError as exc:
-            raise FiscalServiceError(str(exc)) from exc
+            self._raise_fiscal(exc)
 
     def get_context_meta(self, user_account_id) -> dict[str, Any]:
         from apps.core.infrastructure.services.webmania.webmania import get_webmania_context_meta

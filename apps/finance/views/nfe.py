@@ -32,7 +32,7 @@ from apps.finance.models.finance import (
 )
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
-from apps.core.infrastructure.services.webmania.webmania_logging import emission_failure_log_extra
+from apps.core.infrastructure.services.webmania.webmania_logging import log_emission_view_failure
 from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
@@ -586,9 +586,12 @@ class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             downloaded = service.download_nfe_preview_document(nfe_request=nfe_request, request=request)
         except FiscalServiceError as exc:
-            logger.exception(
+            log_emission_view_failure(
+                logger,
                 "nfe_preview_download_failed",
-                extra={"nfe_request_id": nfe_request.pk, "workshop_id": self.workshop.pk},
+                exc,
+                nfe_request_id=nfe_request.pk,
+                workshop_id=self.workshop.pk,
             )
             response = render(
                 request,
@@ -662,9 +665,11 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
             messages.success(self.request, "Solicitacao de Nota Fiscal de Produto enviada com sucesso.")
             return True
         except FiscalServiceError as exc:
-            logger.exception(
+            log_emission_view_failure(
+                logger,
                 "Falha ao emitir NF-e",
-                extra=emission_failure_log_extra(exc, nfe_request_id=self.object.pk),
+                exc,
+                nfe_request_id=self.object.pk,
             )
             messages.error(self.request, str(exc))
             return False

@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, override_settings
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_logging import (
     emission_failure_log_extra,
+    log_emission_view_failure,
     log_webmania_emission_failure,
     log_webmania_emission_request,
     remember_webmania_emission_request,
@@ -15,8 +16,8 @@ from apps.core.infrastructure.services.webmania.webmania_logging import (
 
 class WebmaniaEmissionRequestLoggingTests(SimpleTestCase):
     @override_settings(WEBMANIA_EMISSION_REQUEST_LOGS=True)
-    def test_logs_full_json_payload_and_redacted_headers(self) -> None:
-        with self.assertLogs("apps.core.infrastructure.services.webmania.webmania_logging", level="INFO") as captured:
+    def test_logs_full_json_payload_and_redacted_headers_like_failure(self) -> None:
+        with self.assertLogs("apps.core.infrastructure.services.webmania.webmania_logging", level="ERROR") as captured:
             log_webmania_emission_request(
                 kind="nfse",
                 action="emit",
@@ -28,12 +29,15 @@ class WebmaniaEmissionRequestLoggingTests(SimpleTestCase):
         joined = " ".join(captured.output)
         self.assertIn("webmania_emission_request", joined)
         self.assertIn("kind=nfse", joined)
+        self.assertIn("request_url=", joined)
+        self.assertIn("request_headers=", joined)
+        self.assertIn("request_body=", joined)
         self.assertIn('"valor_servicos": "10.00"', joined)
         self.assertIn("X-Access-Token", joined)
         self.assertNotIn("super-secret-token", joined)
 
     @override_settings(WEBMANIA_EMISSION_REQUEST_LOGS=False)
-    def test_can_disable_info_request_logs_but_still_remembers_for_errors(self) -> None:
+    def test_can_disable_request_logs_but_still_remembers_for_errors(self) -> None:
         with patch("apps.core.infrastructure.services.webmania.webmania_logging.logger") as logger_mock:
             log_webmania_emission_request(
                 kind="nfe",
@@ -42,7 +46,7 @@ class WebmaniaEmissionRequestLoggingTests(SimpleTestCase):
                 payload={"modelo": "1"},
                 headers={"X-Access-Token": "token-value"},
             )
-        logger_mock.info.assert_not_called()
+        logger_mock.error.assert_not_called()
 
         attrs = emission_failure_log_extra()
         self.assertEqual(attrs["webmania_request_kind"], "nfe")
@@ -50,7 +54,7 @@ class WebmaniaEmissionRequestLoggingTests(SimpleTestCase):
         self.assertIn("X-Access-Token", attrs["webmania_request_headers"])
         self.assertNotIn("token-value", attrs["webmania_request_headers"])
 
-    def test_failure_log_includes_request_body_and_headers(self) -> None:
+    def test_failure_log_includes_request_body_and_headers_for_any_reason(self) -> None:
         remember_webmania_emission_request(
             kind="nfse",
             action="emit",
@@ -85,3 +89,25 @@ class WebmaniaEmissionRequestLoggingTests(SimpleTestCase):
         attrs = emission_failure_log_extra(exc)
         self.assertEqual(attrs["nfse_request_id"], 165)
         self.assertIn("ambiente", attrs["webmania_request_body"])
+
+    def test_view_failure_log_puts_request_fields_in_message(self) -> None:
+        remember_webmania_emission_request(
+            kind="nfse",
+            action="emit",
+            url="https://api.example/nfse/",
+            payload={"ambiente": 2},
+            headers={"Authorization": "Bearer secret-token"},
+        )
+        view_logger = __import__("logging").getLogger("apps.finance.views.emission")
+        with self.assertLogs("apps.finance.views.emission", level="ERROR") as captured:
+            try:
+                raise FiscalServiceError("falhou")
+            except FiscalServiceError as exc:
+                log_emission_view_failure(view_logger, "Falha ao emitir NFS-e", exc, nfse_request_id=11)
+
+        joined = " ".join(captured.output)
+        self.assertIn("Falha ao emitir NFS-e", joined)
+        self.assertIn("request_url=", joined)
+        self.assertIn("request_body=", joined)
+        self.assertIn("ambiente", joined)
+        self.assertNotIn("secret-token", joined)
