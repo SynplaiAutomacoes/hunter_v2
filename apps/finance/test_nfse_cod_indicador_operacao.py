@@ -52,10 +52,10 @@ class CodIndicadorOperacaoEmissionHelpersTests(SimpleTestCase):
         # Original payload untouched
         self.assertNotIn("cod_indicador_operacao", payload["rps"][0]["servico"])
 
-    def test_enrich_defaults_finalidade_to_zero_when_missing(self) -> None:
+    def test_enrich_omits_finalidade_when_missing(self) -> None:
         payload = {"rps": [{"servico": {"classe_imposto": "REF1"}}]}
         enriched = _enrich_nfse_payload_with_tax_class(payload=payload, tax_class_payload={})
-        self.assertEqual(enriched["rps"][0]["servico"]["finalidade"], 0)
+        self.assertNotIn("finalidade", enriched["rps"][0]["servico"])
 
     def test_enrich_does_not_override_existing_servico_values(self) -> None:
         payload = {
