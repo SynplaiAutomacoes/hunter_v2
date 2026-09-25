@@ -182,7 +182,8 @@ def build_step4_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
             products = _accumulate_totals(target=products, row=_step4_product_row_totals(item=component))
 
         for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-            if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+            is_excluded = bool(exploded.get("is_excluded_from_composition"))
+            if not is_excluded and winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_step4_kit_service_item(kit_item=kit_item, exploded=exploded)
             services = _accumulate_totals(
@@ -232,7 +233,8 @@ def build_step4_pricing_breakdown(*, budget: Any) -> Step4PricingBreakdown:
 
         for override in item._iter_frozen_kit_service_overrides():
             service_id = getattr(override, "service_id", None)
-            if service_id is not None and winning_kit_service_item_ids.get(service_id) not in {None, item.pk}:
+            is_excluded = bool(getattr(override, "excluded_from_composition", False))
+            if not is_excluded and service_id is not None and winning_kit_service_item_ids.get(service_id) not in {None, item.pk}:
                 continue
             component = build_kit_component_service_item(kit_item=item, override=override)
             if component is None:
@@ -382,7 +384,8 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
             )
 
         for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-            if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+            is_excluded = bool(exploded.get("is_excluded_from_composition"))
+            if not is_excluded and winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
             unit_cost = _money(exploded.get("service_mechanic_cost_price"))

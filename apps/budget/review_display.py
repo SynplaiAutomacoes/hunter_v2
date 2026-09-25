@@ -168,8 +168,6 @@ def _build_kit_contribution(*, item: Any, sort_order: int) -> _SelectedItemContr
         # Courtesy/warranty kits still have no charge to the customer, but their
         # PDF and cost summaries must report what the workshop actually spends.
         contribution.labor_cost_total += unit_cost * total_quantity
-        if getattr(override, "excluded_from_composition", False):
-            continue
         contribution.labor_quantity += total_quantity
         if override.duration:
             contribution.labor_duration += override.duration * total_quantity
