@@ -154,6 +154,41 @@ def _has_payload_value(value: Any) -> bool:
     return True
 
 
+def _coerce_nfse_flag_int(value: Any) -> int | None:
+    """Normalize ABRASF/Webmania numeric flags (iss_retido, responsavel_retencao_iss) to int."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_responsavel_retencao_iss(*, service_payload: dict[str, Any], tax_class_payload: dict[str, Any]) -> None:
+    """Map tax-class responsavel_retencao onto emit field responsavel_retencao_iss."""
+    if _has_payload_value(service_payload.get("responsavel_retencao_iss")):
+        coerced = _coerce_nfse_flag_int(service_payload.get("responsavel_retencao_iss"))
+        if coerced is not None:
+            service_payload["responsavel_retencao_iss"] = coerced
+        return
+
+    source = tax_class_payload.get("responsavel_retencao_iss")
+    if not _has_payload_value(source):
+        source = tax_class_payload.get("responsavel_retencao")
+    if not _has_payload_value(source) and _has_payload_value(service_payload.get("responsavel_retencao")):
+        source = service_payload.get("responsavel_retencao")
+
+    coerced = _coerce_nfse_flag_int(source)
+    if coerced is not None:
+        service_payload["responsavel_retencao_iss"] = coerced
+
+    # Emit schema uses responsavel_retencao_iss; drop the class-only key from servico.
+    service_payload.pop("responsavel_retencao", None)
+
+
 def _is_tax_class_not_found_error(message: str) -> bool:
     normalized_message = (message or "").strip().lower()
     if "classe de imposto" not in normalized_message:
@@ -198,7 +233,6 @@ def _enrich_nfse_payload_with_tax_class(*, payload: dict[str, Any], tax_class_pa
         "tipo_emissao",
         "codigo_tributacao_municipio",
         "tipo_imunidade",
-        "responsavel_retencao",
         "codigo_cnae",
         "finalidade",
         "cod_indicador_operacao",
@@ -216,10 +250,11 @@ def _enrich_nfse_payload_with_tax_class(*, payload: dict[str, Any], tax_class_pa
     if not _has_payload_value(service_payload.get("finalidade")):
         service_payload["finalidade"] = 0
 
-    if not _has_payload_value(service_payload.get("iss_retido")):
-        fallback_retencao_iss = tax_class_payload.get("retencao_iss")
-        if _has_payload_value(fallback_retencao_iss):
-            service_payload["iss_retido"] = fallback_retencao_iss
+    iss_retido = _coerce_nfse_flag_int(service_payload.get("iss_retido"))
+    if iss_retido is not None:
+        service_payload["iss_retido"] = iss_retido
+
+    _apply_responsavel_retencao_iss(service_payload=service_payload, tax_class_payload=tax_class_payload)
 
     return enriched
 
@@ -359,7 +394,6 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
         "tipo_emissao",
         "codigo_tributacao_municipio",
         "tipo_imunidade",
-        "responsavel_retencao",
         "codigo_cnae",
         "finalidade",
         "consumidor_final",
@@ -380,10 +414,11 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
         if _has_payload_value(value):
             service_payload[field_name] = value
 
-    if not _has_payload_value(service_payload.get("iss_retido")):
-        fallback_retencao_iss = tax_class_payload.get("retencao_iss")
-        if _has_payload_value(fallback_retencao_iss):
-            service_payload["iss_retido"] = fallback_retencao_iss
+    iss_retido = _coerce_nfse_flag_int(service_payload.get("iss_retido"))
+    if iss_retido is not None:
+        service_payload["iss_retido"] = iss_retido
+
+    _apply_responsavel_retencao_iss(service_payload=service_payload, tax_class_payload=tax_class_payload)
 
     impostos_payload_raw = service_payload.get("impostos")
     impostos_payload = dict(impostos_payload_raw) if isinstance(impostos_payload_raw, dict) else {}

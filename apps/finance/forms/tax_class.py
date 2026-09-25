@@ -216,14 +216,25 @@ class NfseTaxClassForm(TaxClassFormBase):
     natureza_operacao = forms.ChoiceField(label="Natureza da operação (ABRASF)", required=False, choices=NATUREZA_OPERACAO_CHOICES, widget=SearchableSelectInput(choices=NATUREZA_OPERACAO_CHOICES))
     exigibilidade_iss = forms.ChoiceField(label="Exigibilidade ISS (ABRASF)", required=True, choices=EXIGIBILIDADE_ISS_CHOICES, widget=SearchableSelectInput(choices=EXIGIBILIDADE_ISS_CHOICES))
     iss_retido = forms.ChoiceField(label="ISS retido (ABRASF)", required=True, choices=ISS_RETIDO_CHOICES, widget=SearchableSelectInput(choices=ISS_RETIDO_CHOICES))
-    responsavel_retencao = forms.ChoiceField(label="Responsável pela retenção", required=False, choices=RESPONSAVEL_RETENCAO_CHOICES, widget=SearchableSelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES))
-    codigo_nbs = forms.CharField(label="Código NBS", required=False, help_text="Código NBS da classe NFS-e. Padrão Nacional: 9 dígitos.", widget=TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}))
+    responsavel_retencao = forms.ChoiceField(
+        label="Responsável pela retenção",
+        required=False,
+        choices=RESPONSAVEL_RETENCAO_CHOICES,
+        help_text="Obrigatório quando ISS retido = Sim.",
+        widget=SearchableSelectInput(choices=RESPONSAVEL_RETENCAO_CHOICES),
+    )
+    codigo_nbs = forms.CharField(
+        label="Código NBS",
+        required=False,
+        help_text="9 dígitos (Padrão Nacional).",
+        widget=TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}),
+    )
     codigo_cnae = forms.CharField(label="Código CNAE", required=False, widget=TextInput())
     cod_indicador_operacao = forms.ChoiceField(
         label="Código indicador da operação",
         required=False,
         choices=NFSE_COD_INDICADOR_OPERACAO_CHOICES,
-        help_text="Obrigatório no Padrão Nacional. Para oficinas, o mais comum é 050101 (serviço sobre bem móvel no estabelecimento).",
+        help_text="Obrigatório no Padrão Nacional.",
         widget=SearchableSelectInput(choices=NFSE_COD_INDICADOR_OPERACAO_CHOICES),
     )
     finalidade = forms.ChoiceField(
@@ -347,37 +358,50 @@ class NfseTaxClassForm(TaxClassFormBase):
                 Div(
                     Field("referencia", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("descricao", wrapper_class="col-span-12 lg:col-span-8"),
-                    css_class="grid grid-cols-12 gap-4",
+                    css_class="grid grid-cols-12 gap-4 items-start",
                 ),
+                HTML("<h3 class='font-semibold mt-4'>Tributação</h3>"),
                 Div(
                     Field("tipo_emissao", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("codigo_servico", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("codigo_tributacao_municipio", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("tributacao_iss", wrapper_class="col-span-12 lg:col-span-3"),
-                    css_class="grid grid-cols-12 gap-4",
+                    css_class="grid grid-cols-12 gap-4 items-start",
                 ),
                 Div(
-                    Field("tipo_imunidade", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("retencao_iss", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("cst_pis_cofins", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4",
+                    Field("tipo_imunidade", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("retencao_iss", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("cst_pis_cofins", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("retencao_pis_cofins", wrapper_class="col-span-12 lg:col-span-3"),
+                    css_class="grid grid-cols-12 gap-4 items-start",
                 ),
-                Field("retencao_pis_cofins"),
-                HTML("<h3 class='font-semibold mt-2'>Campos específicos de provedor (opcional)</h3>"),
+                HTML("<h3 class='font-semibold mt-4'>Provedor ABRASF (opcional)</h3>"),
+                HTML("<p class='text-sm text-base-content/70 -mt-2'>Preencha apenas o que o provedor municipal exigir.</p>"),
                 Div(
                     Field("natureza_operacao", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("exigibilidade_iss", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("iss_retido", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("responsavel_retencao", wrapper_class="col-span-12 lg:col-span-3"),
-                    css_class="grid grid-cols-12 gap-4",
+                    css_class="grid grid-cols-12 gap-4 items-start",
+                ),
+                HTML("<h3 class='font-semibold mt-4'>Padrão Nacional (opcional)</h3>"),
+                HTML(
+                    "<p class='text-sm text-base-content/70 -mt-2'>"
+                    "Para oficinas, o código indicador mais comum é 050101 "
+                    "(serviço sobre bem móvel no estabelecimento)."
+                    "</p>"
                 ),
                 Div(
                     Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("codigo_cnae", wrapper_class="col-span-12 lg:col-span-3"),
-                    Field("cod_indicador_operacao", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("finalidade", wrapper_class="col-span-12 lg:col-span-3"),
-                    css_class="grid grid-cols-12 gap-4 items-end",
+                    css_class="grid grid-cols-12 gap-4 items-start",
                 ),
+                Div(
+                    Field("cod_indicador_operacao", wrapper_class="col-span-12 lg:col-span-6"),
+                    css_class="grid grid-cols-12 gap-4 items-start",
+                ),
+                HTML("<h3 class='font-semibold mt-4'>Alíquotas</h3>"),
                 Div(
                     Field("iss", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("pis", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
@@ -385,27 +409,28 @@ class NfseTaxClassForm(TaxClassFormBase):
                     Field("inss", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("ir", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
                     Field("csll", wrapper_class="col-span-12 sm:col-span-6 lg:col-span-2"),
-                    css_class="grid grid-cols-12 gap-4",
+                    css_class="grid grid-cols-12 gap-4 items-start",
                 ),
-                HTML("<h3 class='font-semibold mt-2'>IBS/CBS (opcional)</h3>"),
+                HTML("<h3 class='font-semibold mt-4'>IBS/CBS (opcional)</h3>"),
                 Div(
                     Field("ibs_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("ibs_classificacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("ibs_situacao_tributaria_regular", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("ibs_classificacao_tributaria_regular", wrapper_class="col-span-12 lg:col-span-3"),
-                    css_class="grid grid-cols-12 gap-4",
+                    css_class="grid grid-cols-12 gap-4 items-start",
                 ),
                 Div(
-                    Field("ibs_credito_presumido", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("ibs_aliquota_diferimento_estadual", wrapper_class="col-span-12 lg:col-span-4"),
-                    Field("ibs_aliquota_diferimento_municipal", wrapper_class="col-span-12 lg:col-span-4"),
-                    css_class="grid grid-cols-12 gap-4",
+                    Field("ibs_credito_presumido", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("ibs_aliquota_diferimento_estadual", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("ibs_aliquota_diferimento_municipal", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("cbs_aliquota_diferimento", wrapper_class="col-span-12 lg:col-span-3"),
+                    css_class="grid grid-cols-12 gap-4 items-start",
                 ),
-                Field("cbs_aliquota_diferimento"),
+                HTML("<h3 class='font-semibold mt-4'>Informações adicionais</h3>"),
                 Div(
                     Field("informacoes_fisco", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("informacoes_complementares", wrapper_class="col-span-12 lg:col-span-6"),
-                    css_class="grid grid-cols-12 gap-4",
+                    css_class="grid grid-cols-12 gap-4 items-start",
                 ),
                 Field("base_payload_json"),
                 css_class="space-y-4",
