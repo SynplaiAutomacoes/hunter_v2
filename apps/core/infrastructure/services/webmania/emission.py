@@ -33,6 +33,7 @@ from apps.core.infrastructure.services.webmania.webmania_auth import (
 )
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_request
 
 
 logger = logging.getLogger(__name__)
@@ -226,8 +227,10 @@ def _post_nfse_payload_once(
     payload: dict[str, Any],
     timeout: int,
     default_error: str,
+    action: str = "emit",
 ) -> tuple[dict[str, Any] | None, str]:
     """POST once. Returns (data, error_message). error_message set on HTTP or business failure."""
+    log_webmania_emission_request(kind="nfse", action=action, url=emit_url, payload=payload)
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=timeout)
     except requests.RequestException as exc:
@@ -260,6 +263,7 @@ def _post_nfse_payload_with_tax_class_fallback(
     tax_class_payload: dict[str, Any],
     timeout: int = 30,
     default_error: str = "Falha ao emitir Nota Fiscal de Serviço",
+    action: str = "emit",
 ) -> dict[str, Any]:
     """
     POST NFS-e payload. If Webmania cannot resolve classe_imposto/REF (often API 2.0 vs
@@ -271,6 +275,7 @@ def _post_nfse_payload_with_tax_class_fallback(
         payload=payload,
         timeout=timeout,
         default_error=default_error,
+        action=action,
     )
 
     if error_message and _should_retry_nfse_with_explicit_tax_data(error_message):
@@ -286,6 +291,7 @@ def _post_nfse_payload_with_tax_class_fallback(
             payload=fallback_payload,
             timeout=timeout,
             default_error=default_error,
+            action=f"{action}_fallback_explicit_tax",
         )
 
     if error_message:
@@ -869,6 +875,7 @@ def preview_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | No
         tax_class_payload=tax_class_payload,
         timeout=30,
         default_error="Falha ao gerar previa da Nota Fiscal de Serviço",
+        action="preview",
     )
 
     preview_url = _extract_nfse_preview_url(data)
@@ -890,6 +897,14 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
 
     def _post_preview() -> requests.Response:
         nonlocal active_payload
+        action = "preview_download" if active_payload is payload else "preview_download_fallback_explicit_tax"
+        log_webmania_emission_request(
+            kind="nfse",
+            action=action,
+            url=emit_url,
+            payload=active_payload,
+            nfse_request_id=getattr(nfse_request, "pk", None),
+        )
         try:
             response = requests.post(
                 emit_url,
@@ -1025,6 +1040,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
             tax_class_payload=tax_class_payload,
             timeout=30,
             default_error="Falha ao emitir Nota Fiscal de Serviço",
+            action="emit",
         )
     except NfseEmissionError as exc:
         elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
