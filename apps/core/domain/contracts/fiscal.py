@@ -6,7 +6,9 @@ from typing import Any
 
 
 class FiscalServiceError(Exception):
-    pass
+    def __init__(self, message: str = "", *, log_extra: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.log_extra = dict(log_extra or {})
 
 
 @dataclass(frozen=True)

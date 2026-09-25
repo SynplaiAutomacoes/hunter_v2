@@ -49,7 +49,7 @@ from apps.finance.services.nfe_events import ensure_fiscal_document_for_nfe_item
 from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
-from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_request
+from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_failure, log_webmania_emission_request
 from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 
 
@@ -879,18 +879,21 @@ def download_nfe_return_preview_document(
     payload["previa_danfe"] = True
 
     return_url = _build_return_url()
+    headers = _build_headers(workshop=original_document.workshop)
     log_webmania_emission_request(
         kind="nfe_return",
         action="preview",
         url=return_url,
         payload=payload,
+        headers=headers,
         fiscal_document_id=getattr(original_document, "pk", None),
     )
     try:
-        response = requests.post(return_url, json=payload, headers=_build_headers(workshop=original_document.workshop), timeout=30)
+        response = requests.post(return_url, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao gerar a prévia da Nota de Devolução")
+        log_webmania_emission_failure(kind="nfe_return", action="preview", reason=message)
         raise NfeReturnError(message) from exc
 
     content_type = str(response.headers.get("Content-Type") or "application/pdf")
@@ -921,18 +924,21 @@ def download_generic_nfe_return_preview_document(*, workshop: Any, payload: Mapp
     preview_payload = dict(payload)
     preview_payload["previa_danfe"] = True
     emit_url = _build_generic_nfe_emit_url()
+    headers = _build_headers(workshop=workshop)
     log_webmania_emission_request(
         kind="nfe_return",
         action="preview_generic",
         url=emit_url,
         payload=preview_payload,
+        headers=headers,
         workshop_id=getattr(workshop, "pk", None),
     )
     try:
-        response = requests.post(emit_url, json=preview_payload, headers=_build_headers(workshop=workshop), timeout=30)
+        response = requests.post(emit_url, json=preview_payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao gerar a prévia da Nota de Devolução", scope="nfe")
+        log_webmania_emission_failure(kind="nfe_return", action="preview_generic", reason=message)
         raise NfeReturnError(message) from exc
 
     content_type = str(response.headers.get("Content-Type") or "application/pdf")
@@ -1123,11 +1129,13 @@ def transmit_nfe_return_document(*, document: FiscalDocument, use_generic_emit_e
 
     try:
         endpoint = _build_generic_nfe_emit_url() if use_generic_emit_endpoint else _build_return_url()
+        action = "emit_generic" if use_generic_emit_endpoint else "emit"
         log_webmania_emission_request(
             kind="nfe_return",
-            action="emit_generic" if use_generic_emit_endpoint else "emit",
+            action=action,
             url=endpoint,
             payload=payload,
+            headers=headers,
             fiscal_document_id=getattr(locked_document, "pk", None),
             fiscal_attempt_id=getattr(attempt, "pk", None),
         )
@@ -1136,12 +1144,14 @@ def transmit_nfe_return_document(*, document: FiscalDocument, use_generic_emit_e
     except requests.Timeout as exc:
         message = "Timeout ao emitir devolucao ou estorno; estado remoto incerto."
         logger.warning("nfe_return_timeout", extra={"fiscal_document_id": locked_document.pk, "fiscal_attempt_id": attempt.pk})
+        log_webmania_emission_failure(kind="nfe_return", action="emit", reason=message, fiscal_document_id=locked_document.pk)
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeReturnError(message) from exc
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao emitir devolucao ou estorno", scope="nfe")
         logger.warning("nfe_return_request_failed", extra={"fiscal_document_id": locked_document.pk, "fiscal_attempt_id": attempt.pk})
+        log_webmania_emission_failure(kind="nfe_return", action="emit", reason=message, fiscal_document_id=locked_document.pk)
         mark_attempt_failed(attempt=attempt, error_message=message)
         locked_document.status = FiscalDocumentStatus.REPROVED
         locked_document.response_payload = sanitize_fiscal_payload({"error": message})

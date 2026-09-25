@@ -14,6 +14,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.services.webmania.webmania_logging import emission_failure_log_extra
 from apps.finance.forms.emission import EmissionNfeConfigForm, EmissionNfseConfigForm
 from apps.finance.forms.standalone_emission import (
     StandaloneAddProductForm,
@@ -452,7 +453,10 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             self._write_state(state)
             return True, None
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NF-e avulsa", extra={"nfe_request_id": getattr(nfe_request, "pk", None)})
+            logger.exception(
+                "Falha ao emitir NF-e avulsa",
+                extra=emission_failure_log_extra(exc, nfe_request_id=getattr(nfe_request, "pk", None)),
+            )
             state["nfe_done"] = False
             state["nfe_request_id"] = nfe_request.pk
             self._write_state(state)
@@ -470,7 +474,10 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             self._write_state(state)
             return True, None
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NFS-e avulsa", extra={"nfse_request_id": getattr(nfse_request, "pk", None)})
+            logger.exception(
+                "Falha ao emitir NFS-e avulsa",
+                extra=emission_failure_log_extra(exc, nfse_request_id=getattr(nfse_request, "pk", None)),
+            )
             state["nfse_done"] = False
             state["nfse_request_id"] = nfse_request.pk
             self._write_state(state)
