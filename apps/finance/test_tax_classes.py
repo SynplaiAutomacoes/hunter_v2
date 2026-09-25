@@ -91,6 +91,24 @@ class NfseTaxClassFormServiceCodeTests(SimpleTestCase):
         self.assertNotIn("planilha", help_text)
         choice_values = {value for value, _label in form.fields["cod_indicador_operacao"].choices}
         self.assertIn("050101", choice_values)
+        self.assertIn("iss retido", str(form.fields["responsavel_retencao"].help_text).lower())
+
+        def _collect_layout_text(node) -> str:
+            parts: list[str] = []
+            html = getattr(node, "html", None)
+            if html:
+                parts.append(str(html))
+            css = getattr(node, "css_class", None)
+            if css:
+                parts.append(str(css))
+            for child in getattr(node, "fields", []) or []:
+                parts.append(_collect_layout_text(child))
+            return " ".join(parts)
+
+        layout_blob = _collect_layout_text(form.helper.layout)
+        self.assertIn("Padrão Nacional", layout_blob)
+        self.assertIn("Provedor ABRASF", layout_blob)
+        self.assertNotIn("items-end", layout_blob)
 
     def test_nfse_form_normalizes_six_digit_service_code(self) -> None:
         form = NfseTaxClassForm(
