@@ -289,6 +289,9 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
 
                 # Espelhos nas demais oficinas nascem sem `user` (OneToOne impede
                 # compartilhar o mesmo User; "manter separados"). Acesso via member.
+                # Copia os dados cadastrais do vínculo principal (birth_date,
+                # admission_date etc. são NOT NULL) e zera os dados por unidade
+                # (salário, vale-transporte), que pertencem a cada oficina.
                 for workshop in workshops_to_sync:
                     if workshop.pk == self.workshop.pk:
                         continue
@@ -299,11 +302,19 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
                             user=None,
                             name=form.instance.name,
                             cpf=form.instance.cpf,
+                            rg=form.instance.rg,
+                            birth_date=form.instance.birth_date,
+                            sex=form.instance.sex,
+                            phone=form.instance.phone,
+                            email=form.instance.email,
                             position=form.instance.position,
+                            payment_day_type=form.instance.payment_day_type,
+                            payment_day_of_month=form.instance.payment_day_of_month,
+                            admission_date=form.instance.admission_date,
+                            termination_date=form.instance.termination_date,
+                            collaborator_type=form.instance.collaborator_type,
                             is_active=form.instance.is_active,
                             system_access=False,
-                            collaborator_type=form.instance.collaborator_type,
-                            admission_date=form.instance.admission_date,
                         )
             else:
                 form.instance.user = None

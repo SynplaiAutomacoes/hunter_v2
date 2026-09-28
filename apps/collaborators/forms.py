@@ -16,6 +16,7 @@ from apps.collaborators.services import get_default_transport_budget_plan
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import (
     CalendarDateInput,
+    CheckboxButtonGroupInput,
     CheckboxInput,
     CPForCNPJInput,
     EmailInput,
@@ -133,15 +134,23 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             self.fields["workshops"] = ModelMultipleChoiceField(
                 queryset=owner_workshops,
                 required=False,
-                widget=SearchableSelectInput(attrs={"multiple": "multiple"}),
+                widget=CheckboxButtonGroupInput(),
                 label="Oficinas de acesso",
+                help_text="Marque as oficinas onde este usuário terá acesso. Desmarcar remove o acesso daquela unidade.",
             )
             if self.instance and getattr(self.instance, "pk", None):
+                # União dos members ativos de TODOS os vínculos do mesmo CPF nas
+                # oficinas do dono (o vínculo editado pode ser um espelho sem
+                # `user`, enquanto o acesso vive no vínculo-irmão).
+                sibling_user_ids = WorkshopCollaborator.objects.filter(
+                    cpf=self.instance.cpf,
+                    workshop__in=owner_workshops,
+                ).exclude(user_id__isnull=True).values_list("user_id", flat=True)
                 initial_workshops = WorkshopMember.objects.filter(
-                    user_id=self.instance.user_id,
+                    user_id__in=sibling_user_ids,
                     workshop__in=owner_workshops,
                     is_active=True,
-                ).values_list("workshop_id", flat=True) if self.instance.user_id else []
+                ).values_list("workshop_id", flat=True)
                 self.fields["workshops"].initial = initial_workshops
 
         if self.instance and getattr(self.instance, "user_id", None):
