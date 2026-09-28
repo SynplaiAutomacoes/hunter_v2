@@ -9,9 +9,10 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Prefetch
 from django.forms import BaseInlineFormSet
 from django.http import HttpResponse, HttpResponseRedirect
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -32,6 +33,10 @@ from apps.collaborators.services import (
     sync_collaborator_payroll_range,
     sync_current_month_salary_costs,
 )
+from apps.collaborators.services_multi_workshop import (
+    build_single_workshop_cell_value,
+    owner_workshops_queryset,
+)
 from apps.core.presentation.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.presentation.tables import TableActionDefaults
@@ -40,7 +45,7 @@ from apps.core.utils import clean_id
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.util.workshops import can_view_payroll_details, has_workshop_perm
+from apps.workshops.util.workshops import can_view_payroll_details, get_active_workshop_or_404, has_workshop_perm, is_workshop_director
 
 AuthUser = get_user_model()
 User = get_user_model()
@@ -66,6 +71,117 @@ COLLABORATOR_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
 
 
 # TODO: Validar melhor o fluxo de edição e criação com relação ao acesso ao sistema.
+class ManagedCollaboratorListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
+    """União dos vínculos de todas as oficinas da conta dona (uma linha por vínculo).
+
+    Sem agregação por pessoa: a mesma pessoa em 2 oficinas aparece em 2 linhas.
+    Paginação/busca/ordenação pertencem ao `render_table`; a view não pagina.
+    O filtro `is_active` aqui tem default TODOS (diferente da lista por oficina).
+    """
+
+    model = WorkshopCollaborator
+    template_name = "collaborators/managed_collaborator_list.html"
+    context_object_name = "managed_collaborators"
+    htmx_template_name = "collaborators/partials/managed_collaborator_table.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.active_workshop = get_active_workshop_or_404(request)
+        if not is_workshop_director(user=request.user, workshop=self.active_workshop, request=request):
+            if not (getattr(request.user, "is_account_owner", False) or request.user.is_superuser):
+                raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        self.active_workshop = get_active_workshop_or_404(self.request)
+        owner_workshops = owner_workshops_queryset(self.request.user, self.active_workshop)
+        queryset = (
+            WorkshopCollaborator.objects.filter(workshop__in=owner_workshops)
+            .select_related("user", "workshop")
+            .prefetch_related(
+                Prefetch(
+                    "user__workshop_members",
+                    queryset=WorkshopMember.objects.select_related("workshop", "role"),
+                    to_attr="all_members",
+                )
+            )
+            .order_by("name", "workshop__name")
+        )
+        queryset = self._apply_is_active_filter(queryset)
+        return apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=COLLABORATOR_LIST_FILTERS,
+        )
+
+    def _apply_is_active_filter(self, queryset):
+        raw_value = str(self.request.GET.get("is_active") or "").strip()
+        if raw_value == "1":
+            return queryset.filter(is_active=True)
+        if raw_value == "0":
+            return queryset.filter(is_active=False)
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        context["fields"] = [
+            TableColumn(label=WorkshopCollaborator.name.field.verbose_name, attr=WorkshopCollaborator.name.field.name),
+            TableColumn(label=WorkshopCollaborator.cpf.field.verbose_name, attr=WorkshopCollaborator.cpf.field.name, format="cpf"),
+            TableColumn(
+                label="Oficinas",
+                attr=build_single_workshop_cell_value,
+                cell_template="collaborators/partials/managed_workshops_cell.html",
+                sortable=False,
+                searchable=False,
+            ),
+            TableColumn(label=WorkshopCollaborator.system_access.field.verbose_name, attr=WorkshopCollaborator.system_access.field.name),
+            TableColumn(label=WorkshopCollaborator.is_active.field.verbose_name, attr=WorkshopCollaborator.is_active.field.name),
+            TableColumn(label=WorkshopCollaborator.position.field.verbose_name, attr=WorkshopCollaborator.position.field.name),
+        ]
+
+        context["actions"] = [
+            TableActionDefaults.edit("collaborators:collaborator_manage_edit"),
+        ]
+
+        context["collaborator_type_choices"] = WorkshopCollaborator.collaborator_type.field.choices
+        context["active_workshop"] = self.active_workshop
+
+        return context
+
+
+class ManagedCollaboratorEditRedirectView(LoginRequiredMixin, View):
+    """Troca a oficina ativa para a do vínculo e redireciona para a edição (Dúvida 2, opção A)."""
+
+    def get(self, request, pk):
+        active_workshop = get_active_workshop_or_404(request)
+        if not is_workshop_director(user=request.user, workshop=active_workshop, request=request):
+            if not (getattr(request.user, "is_account_owner", False) or request.user.is_superuser):
+                raise PermissionDenied
+
+        owner_workshops = owner_workshops_queryset(request.user, active_workshop)
+        collaborator = get_object_or_404(
+            WorkshopCollaborator.objects.select_related("workshop"),
+            pk=clean_id(pk),
+            workshop__in=owner_workshops,
+        )
+
+        allowed = (
+            request.user.is_superuser
+            or getattr(request.user, "is_account_owner", False)
+            or WorkshopMember.objects.filter(
+                user=request.user,
+                workshop=collaborator.workshop,
+                is_active=True,
+                workshop__is_active=True,
+            ).exists()
+        )
+        if not allowed:
+            raise PermissionDenied
+
+        request.session["active_workshop_id"] = collaborator.workshop_id
+        return redirect("collaborators:collaborator_update", pk=collaborator.pk)
+
+
 class WorkshopCollaboratorListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = WorkshopCollaborator
     template_name = "collaborators/collaborator_list.html"
@@ -113,6 +229,10 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
         kwargs = super().get_form_kwargs()
         kwargs["account"] = self.request.user.account
         kwargs["workshop"] = self.workshop
+        is_director = is_workshop_director(user=self.request.user, workshop=self.workshop, request=self.request)
+        kwargs["is_director"] = is_director
+        if is_director:
+            kwargs["owner_workshops"] = owner_workshops_queryset(self.request.user, self.workshop)
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -134,32 +254,57 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
                 username = form.cleaned_data["system_username"]
                 password = form.cleaned_data["password1"]
                 role = form.cleaned_data["role"]
+                selected_workshops = form.cleaned_data.get("workshops", [])
 
-                user = User(
+                user, created = User.objects.get_or_create(
                     username=username,
-                    cpf=form.cleaned_data["cpf"],
-                    email=form.cleaned_data.get("email") or "",
-                    account=self.workshop.account,
-                    is_active=form.cleaned_data.get("is_active", True),
+                    defaults={
+                        "cpf": form.cleaned_data["cpf"],
+                        "email": form.cleaned_data.get("email") or "",
+                        "account": self.workshop.account,
+                        "is_active": form.cleaned_data.get("is_active", True),
+                    },
                 )
-                parts = (form.cleaned_data.get("name") or "").split(" ", 1)
-                user.first_name = parts[0] if parts else ""
-                user.last_name = parts[1] if len(parts) > 1 else ""
-                user.set_password(password)
-                user.save()
+                if created:
+                    parts = (form.cleaned_data.get("name") or "").split(" ", 1)
+                    user.first_name = parts[0] if parts else ""
+                    user.last_name = parts[1] if len(parts) > 1 else ""
+                    user.set_password(password)
+                    user.save()
 
                 form.instance.user = user
 
                 response = super().form_valid(form)
 
-                WorkshopMember.objects.update_or_create(
-                    user=user,
-                    workshop=self.workshop,
-                    defaults={
-                        "role": role,
-                        "is_active": self.object.is_active,
-                    },
-                )
+                workshops_to_sync = selected_workshops if selected_workshops else [self.workshop]
+                for workshop in workshops_to_sync:
+                    WorkshopMember.objects.update_or_create(
+                        user=user,
+                        workshop=workshop,
+                        defaults={
+                            "role": role,
+                            "is_active": form.instance.is_active,
+                        },
+                    )
+
+                # Espelhos nas demais oficinas nascem sem `user` (OneToOne impede
+                # compartilhar o mesmo User; "manter separados"). Acesso via member.
+                for workshop in workshops_to_sync:
+                    if workshop.pk == self.workshop.pk:
+                        continue
+                    exists = WorkshopCollaborator.objects.filter(workshop=workshop, cpf=form.instance.cpf).exists()
+                    if not exists:
+                        WorkshopCollaborator.objects.create(
+                            workshop=workshop,
+                            user=None,
+                            name=form.instance.name,
+                            cpf=form.instance.cpf,
+                            position=form.instance.position,
+                            is_active=form.instance.is_active,
+                            system_access=False,
+                            collaborator_type=form.instance.collaborator_type,
+                            admission_date=form.instance.admission_date,
+                        )
             else:
                 form.instance.user = None
                 response = super().form_valid(form)
@@ -231,6 +376,10 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         kwargs = super().get_form_kwargs()
         kwargs["account"] = self.request.user.account
         kwargs["workshop"] = self.workshop
+        is_director = is_workshop_director(user=self.request.user, workshop=self.workshop, request=self.request)
+        kwargs["is_director"] = is_director
+        if is_director:
+            kwargs["owner_workshops"] = owner_workshops_queryset(self.request.user, self.workshop)
         return kwargs
 
     def _get_commission_scope_forms(self, data=None):
@@ -436,6 +585,8 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
             if collaborator.system_access:
                 role = form.cleaned_data["role"]
+                selected_workshops = form.cleaned_data.get("workshops", [])
+                workshops_to_sync = selected_workshops if selected_workshops else [self.workshop]
 
                 if collaborator.user_id:
                     user = collaborator.user
@@ -461,18 +612,30 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                     user.last_name = parts[1] if len(parts) > 1 else ""
                     user.set_password(form.cleaned_data["password1"])
                     user.save()
-
                     collaborator.user = user
                     collaborator.save(update_fields=["user"])
 
-                WorkshopMember.objects.update_or_create(
-                    user=user,
-                    workshop=self.workshop,
-                    defaults={
-                        "role": role,
-                        "is_active": collaborator.is_active,
-                    },
-                )
+                for workshop in workshops_to_sync:
+                    WorkshopMember.objects.update_or_create(
+                        user=user,
+                        workshop=workshop,
+                        defaults={
+                            "role": role,
+                            "is_active": collaborator.is_active,
+                        },
+                    )
+
+                # Desmarcar oficina desativa só o acesso naquela unidade (Dúvida 3);
+                # o `User` nunca é excluído nem desativado por aqui.
+                if "workshops" in form.fields:
+                    selected_ids = {w.pk for w in workshops_to_sync}
+                    owner_ids = list(
+                        owner_workshops_queryset(self.request.user, self.workshop).values_list("pk", flat=True)
+                    )
+                    WorkshopMember.objects.filter(
+                        user=user,
+                        workshop_id__in=owner_ids,
+                    ).exclude(workshop_id__in=selected_ids).update(is_active=False)
             elif collaborator.user_id:
                 WorkshopMember.objects.filter(user=collaborator.user, workshop=self.workshop).update(is_active=False)
                 collaborator.user.is_active = False
