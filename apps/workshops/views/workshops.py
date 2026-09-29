@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 import logging
 from typing import Any, cast
 
@@ -15,7 +14,7 @@ from django.template.response import TemplateResponse
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
-from django.views.generic import CreateView, DeleteView, ListView, TemplateView
+from django.views.generic import CreateView, DeleteView, ListView
 
 from apps.collaborators.models import WorkshopMember
 from apps.core.infrastructure.query_filters import apply_is_active_filter
@@ -26,8 +25,6 @@ from apps.core.infrastructure.services.webmania.webmania import to_public_integr
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.models.finance import WebmaniaCompany
-from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
-from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
 from apps.messaging.application.services.default_templates import create_default_message_templates
 from apps.workshops.forms.workshops import (
@@ -53,7 +50,7 @@ from apps.workshops.services.files import (
 from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, provision_workshop_synplaisign
 from apps.workshops.usecases.upload_file_usecase import UploadWorkshopFileUseCase
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
-from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director, is_workshop_manager
+from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm, is_workshop_director, is_workshop_manager
 
 
 logger = logging.getLogger(__name__)
@@ -198,33 +195,43 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
     TAB_EMPRESA = "empresa"
     TAB_ASSISTENTE_VIRTUAL = "assistente_virtual"
-    TAB_ENDERECO = "endereco"
     TAB_NOTA_FISCAL = "nota_fiscal"
-    TAB_CERTIFICADO = "certificado"
-    TAB_OPCIONAIS = "opcionais"
-    TAB_CREDENCIAIS = "credenciais"
     TAB_PDF_OBSERVATION = "pdf_observation"
     TAB_COMISSAO = "comissao"
+    TAB_CONTA_BANCARIA = "conta_bancaria"
     TAB_LOGO_AUTOUPLOAD = "logo_autoupload"
+    # Chave interna do form de endereço (a aba foi incorporada à Empresa).
+    TAB_ENDERECO = "endereco"
     TABS = {
         TAB_EMPRESA,
         TAB_ASSISTENTE_VIRTUAL,
-        TAB_ENDERECO,
         TAB_NOTA_FISCAL,
-        TAB_CERTIFICADO,
-        TAB_OPCIONAIS,
-        TAB_CREDENCIAIS,
         TAB_PDF_OBSERVATION,
         TAB_COMISSAO,
+        TAB_CONTA_BANCARIA,
     }
 
     NF_SUBTAB_NFE = "nfe"
     NF_SUBTAB_NFCE = "nfce"
     NF_SUBTAB_NFSE = "nfse"
+    NF_SUBTAB_CERTIFICADO = "certificado"
+    NF_SUBTAB_OPCIONAIS = "opcionais"
+    NF_SUBTAB_CLASSE_IMPOSTO = "classe_imposto"
     NF_SUBTABS = {
         NF_SUBTAB_NFE,
         NF_SUBTAB_NFCE,
         NF_SUBTAB_NFSE,
+        NF_SUBTAB_CERTIFICADO,
+        NF_SUBTAB_OPCIONAIS,
+        NF_SUBTAB_CLASSE_IMPOSTO,
+    }
+
+    # Abas removidas mantidas aqui para redirecionar links antigos.
+    LEGACY_TAB_REDIRECTS = {
+        "endereco": (TAB_EMPRESA, NF_SUBTAB_NFE),
+        "certificado": (TAB_NOTA_FISCAL, NF_SUBTAB_CERTIFICADO),
+        "opcionais": (TAB_NOTA_FISCAL, NF_SUBTAB_OPCIONAIS),
+        "credenciais": (TAB_EMPRESA, NF_SUBTAB_NFE),
     }
 
     def dispatch(self, request, *args, **kwargs):
@@ -272,14 +279,15 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         active_tab: str,
         data=None,
         files=None,
+        nf_subtab: str = "",
     ) -> dict[str, forms.BaseForm]:
         form_map: dict[str, forms.BaseForm] = {
             self.TAB_EMPRESA: WorkshopCompanySectionForm(instance=self.company, workshop=self.object),
             self.TAB_ASSISTENTE_VIRTUAL: WorkshopAssistantVirtualSectionForm(instance=self.object),
             self.TAB_ENDERECO: WorkshopAddressSectionForm(instance=self.company, workshop=self.object),
             self.TAB_NOTA_FISCAL: WorkshopFiscalSectionForm(instance=self.company, workshop=self.object),
-            self.TAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
-            self.TAB_OPCIONAIS: WorkshopOptionalsSectionForm(instance=self.company, workshop=self.object),
+            self.NF_SUBTAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
+            self.NF_SUBTAB_OPCIONAIS: WorkshopOptionalsSectionForm(instance=self.company, workshop=self.object),
             self.TAB_PDF_OBSERVATION: WorkshopPdfObservationSectionForm(instance=self.object),
             self.TAB_COMISSAO: WorkshopCommissionSectionForm(instance=self.object),
         }
@@ -289,47 +297,22 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         if active_tab == self.TAB_EMPRESA:
             form_map[self.TAB_EMPRESA] = WorkshopCompanySectionForm(data=data, files=files, instance=self.company, workshop=self.object)
+            form_map[self.TAB_ENDERECO] = WorkshopAddressSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
         elif active_tab == self.TAB_ASSISTENTE_VIRTUAL:
             form_map[self.TAB_ASSISTENTE_VIRTUAL] = WorkshopAssistantVirtualSectionForm(data=data, files=files, instance=self.object)
-        elif active_tab == self.TAB_ENDERECO:
-            form_map[self.TAB_ENDERECO] = WorkshopAddressSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
         elif active_tab == self.TAB_NOTA_FISCAL:
-            form_map[self.TAB_NOTA_FISCAL] = WorkshopFiscalSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
-        elif active_tab == self.TAB_CERTIFICADO:
-            form_map[self.TAB_CERTIFICADO] = WorkshopCertificateSectionForm(data=data, files=files, instance=self.object)
-        elif active_tab == self.TAB_OPCIONAIS:
-            form_map[self.TAB_OPCIONAIS] = WorkshopOptionalsSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
+            if nf_subtab == self.NF_SUBTAB_CERTIFICADO:
+                form_map[self.NF_SUBTAB_CERTIFICADO] = WorkshopCertificateSectionForm(data=data, files=files, instance=self.object)
+            elif nf_subtab == self.NF_SUBTAB_OPCIONAIS:
+                form_map[self.NF_SUBTAB_OPCIONAIS] = WorkshopOptionalsSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
+            else:
+                form_map[self.TAB_NOTA_FISCAL] = WorkshopFiscalSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
         elif active_tab == self.TAB_PDF_OBSERVATION:
             form_map[self.TAB_PDF_OBSERVATION] = WorkshopPdfObservationSectionForm(data=data, files=files, instance=self.object)
         elif active_tab == self.TAB_COMISSAO:
             form_map[self.TAB_COMISSAO] = WorkshopCommissionSectionForm(data=data, files=files, instance=self.object)
 
         return form_map
-
-    def _credential_preview_fields(self) -> list[dict[str, object]]:
-        fields = [
-            ("Consumer Key", self.company.consumer_key),
-            ("Consumer Secret", self.company.consumer_secret),
-            ("Access Token", self.company.access_token),
-            ("Access Token Secret", self.company.access_token_secret),
-            ("Bearer Access Token", self.company.bearer_access_token),
-            ("Login NFS-e", self.company.nfse_login),
-            ("Senha NFS-e", self.company.nfse_password),
-            ("Token NFS-e", self.company.nfse_token),
-        ]
-
-        payload: list[dict[str, object]] = []
-        for label, value in fields:
-            decrypted_value = decrypt_secret(value)
-            payload.append(
-                {
-                    "label": label,
-                    "value": decrypted_value,
-                    "has_value": bool(decrypted_value.strip()),
-                }
-            )
-
-        return payload
 
     def _logo_preview_url(self) -> str:
         if not self.object.has_logo_file:
@@ -387,11 +370,10 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "assistant_virtual_form": forms_map[self.TAB_ASSISTENTE_VIRTUAL],
             "address_form": forms_map[self.TAB_ENDERECO],
             "fiscal_form": forms_map[self.TAB_NOTA_FISCAL],
-            "certificate_form": forms_map[self.TAB_CERTIFICADO],
-            "optionals_form": forms_map[self.TAB_OPCIONAIS],
+            "certificate_form": forms_map[self.NF_SUBTAB_CERTIFICADO],
+            "optionals_form": forms_map[self.NF_SUBTAB_OPCIONAIS],
             "pdf_observation_form": forms_map[self.TAB_PDF_OBSERVATION],
             "commission_form": forms_map[self.TAB_COMISSAO],
-            "credential_preview_fields": self._credential_preview_fields(),
             "certificate_status": self._certificate_status(),
             "has_certificate_file": self.object.has_certificate_file,
             "has_certificate_password": bool(str(self.object.certificate_password or "").strip()),
@@ -482,6 +464,74 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
+    def _save_empresa_forms(
+        self,
+        *,
+        company_form: WorkshopCompanySectionForm,
+        address_form: WorkshopAddressSectionForm,
+        nf_subtab: str,
+    ):
+        tab = self.TAB_EMPRESA
+        if not company_form.changed_data and not address_form.changed_data:
+            logger.info(
+                "workshop_update_tab_no_changes workshop_id=%s tab=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                tab,
+                getattr(self.request.user, "id", None),
+            )
+            messages.info(self.request, "Nenhuma alteracao detectada.")
+            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
+        payload = {**company_form.build_api_payload(), **address_form.build_api_payload()}
+        logger.info(
+            "workshop_update_tab_save_started workshop_id=%s tab=%s has_sync_payload=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            tab,
+            bool(payload),
+            getattr(self.request.user, "id", None),
+        )
+
+        try:
+            if payload:
+                get_fiscal_service().update_webmania_company(company=self.company, payload=payload)
+        except FiscalServiceError as exc:
+            public_message = to_public_integration_message(str(exc))
+            get_fiscal_service().save_sync_metadata(company=self.company, error=str(exc))
+            logger.warning(
+                "workshop_update_tab_sync_failed workshop_id=%s tab=%s error=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                tab,
+                public_message,
+                getattr(self.request.user, "id", None),
+            )
+            company_form.add_error(None, public_message)
+            forms_map = self._build_forms(active_tab=tab)
+            forms_map[tab] = company_form
+            forms_map[self.TAB_ENDERECO] = address_form
+            context = self._build_context(forms_map=forms_map, active_tab=tab, active_nf_subtab=nf_subtab)
+            return TemplateResponse(self.request, self.template_name, context)
+
+        with transaction.atomic():
+            self.company = company_form.save(commit=True)
+            self.company = address_form.save(commit=True)
+            get_fiscal_service().save_sync_metadata(company=self.company, error="")
+            get_fiscal_service().sync_workshop_from_company(self.object, self.company, sync_name=True, sync_address=True)
+
+        if not payload:
+            messages.success(self.request, "Dados locais atualizados com sucesso.")
+        else:
+            messages.success(self.request, "Dados sincronizados com sucesso.")
+
+        logger.info(
+            "workshop_update_tab_save_succeeded workshop_id=%s tab=%s synced=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            tab,
+            bool(payload),
+            getattr(self.request.user, "id", None),
+        )
+
+        return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
     def _save_certificate_form(self, *, form: WorkshopCertificateSectionForm, tab: str, nf_subtab: str):
         if not form.changed_data:
             logger.info(
@@ -516,7 +566,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             )
             form.add_error(None, public_message)
             forms_map = self._build_forms(active_tab=tab)
-            forms_map[tab] = form
+            forms_map[nf_subtab] = form
             context = self._build_context(forms_map=forms_map, active_tab=tab, active_nf_subtab=nf_subtab)
             return TemplateResponse(self.request, self.template_name, context)
 
@@ -568,6 +618,11 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
     def get(self, request, *args, **kwargs):
+        raw_tab = str(request.GET.get("tab") or "").strip().lower()
+        if raw_tab in self.LEGACY_TAB_REDIRECTS:
+            tab, nf_subtab = self.LEGACY_TAB_REDIRECTS[raw_tab]
+            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
         active_tab = self._normalize_tab(request.GET.get("tab"))
         active_nf_subtab = self._normalize_nf_subtab(request.GET.get("nf_tab"))
 
@@ -618,14 +673,11 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             getattr(request.user, "id", None),
         )
 
-        forms_map = self._build_forms(active_tab=active_tab, data=request.POST, files=request.FILES)
+        forms_map = self._build_forms(active_tab=active_tab, data=request.POST, files=request.FILES, nf_subtab=active_nf_subtab)
 
         restricted_webmania_tabs = {
             self.TAB_EMPRESA,
-            self.TAB_ENDERECO,
             self.TAB_NOTA_FISCAL,
-            self.TAB_CERTIFICADO,
-            self.TAB_OPCIONAIS,
         }
         restricted_workshop_tabs = {
             self.TAB_PDF_OBSERVATION,
@@ -648,8 +700,9 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         if active_tab == self.TAB_EMPRESA:
             company_form = cast(WorkshopCompanySectionForm, forms_map[self.TAB_EMPRESA])
-            if company_form.is_valid():
-                return self._save_company_tab_form(form=company_form, tab=active_tab, nf_subtab=active_nf_subtab, sync_name=True)
+            address_form = cast(WorkshopAddressSectionForm, forms_map[self.TAB_ENDERECO])
+            if company_form.is_valid() and address_form.is_valid():
+                return self._save_empresa_forms(company_form=company_form, address_form=address_form, nf_subtab=active_nf_subtab)
         elif active_tab == self.TAB_ASSISTENTE_VIRTUAL:
             assistant_form = cast(WorkshopAssistantVirtualSectionForm, forms_map[self.TAB_ASSISTENTE_VIRTUAL])
             if assistant_form.is_valid():
@@ -659,22 +712,22 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                     nf_subtab=active_nf_subtab,
                     success_message="Configuracoes do assistente virtual atualizadas com sucesso.",
                 )
-        elif active_tab == self.TAB_ENDERECO:
-            address_form = cast(WorkshopAddressSectionForm, forms_map[self.TAB_ENDERECO])
-            if address_form.is_valid():
-                return self._save_company_tab_form(form=address_form, tab=active_tab, nf_subtab=active_nf_subtab, sync_address=True)
         elif active_tab == self.TAB_NOTA_FISCAL:
-            fiscal_form = cast(WorkshopFiscalSectionForm, forms_map[self.TAB_NOTA_FISCAL])
-            if fiscal_form.is_valid():
-                return self._save_company_tab_form(form=fiscal_form, tab=active_tab, nf_subtab=active_nf_subtab)
-        elif active_tab == self.TAB_CERTIFICADO:
-            certificate_form = cast(WorkshopCertificateSectionForm, forms_map[self.TAB_CERTIFICADO])
-            if certificate_form.is_valid():
-                return self._save_certificate_form(form=certificate_form, tab=active_tab, nf_subtab=active_nf_subtab)
-        elif active_tab == self.TAB_OPCIONAIS:
-            optionals_form = cast(WorkshopOptionalsSectionForm, forms_map[self.TAB_OPCIONAIS])
-            if optionals_form.is_valid():
-                return self._save_company_tab_form(form=optionals_form, tab=active_tab, nf_subtab=active_nf_subtab)
+            if active_nf_subtab == self.NF_SUBTAB_CERTIFICADO:
+                certificate_form = cast(WorkshopCertificateSectionForm, forms_map[self.NF_SUBTAB_CERTIFICADO])
+                if certificate_form.is_valid():
+                    return self._save_certificate_form(form=certificate_form, tab=active_tab, nf_subtab=active_nf_subtab)
+            elif active_nf_subtab == self.NF_SUBTAB_OPCIONAIS:
+                optionals_form = cast(WorkshopOptionalsSectionForm, forms_map[self.NF_SUBTAB_OPCIONAIS])
+                if optionals_form.is_valid():
+                    return self._save_company_tab_form(form=optionals_form, tab=active_tab, nf_subtab=active_nf_subtab, form_key=self.NF_SUBTAB_OPCIONAIS)
+            elif active_nf_subtab == self.NF_SUBTAB_CLASSE_IMPOSTO:
+                messages.info(request, "Gerencie as classes de imposto na pagina dedicada.")
+                return redirect(self._build_update_url(tab=active_tab, nf_subtab=active_nf_subtab))
+            else:
+                fiscal_form = cast(WorkshopFiscalSectionForm, forms_map[self.TAB_NOTA_FISCAL])
+                if fiscal_form.is_valid():
+                    return self._save_company_tab_form(form=fiscal_form, tab=active_tab, nf_subtab=active_nf_subtab)
         elif active_tab == self.TAB_PDF_OBSERVATION:
             pdf_observation_form = cast(WorkshopPdfObservationSectionForm, forms_map[self.TAB_PDF_OBSERVATION])
             if pdf_observation_form.is_valid():
@@ -693,8 +746,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                     nf_subtab=active_nf_subtab,
                     success_message="Configuracoes de comissao atualizadas com sucesso.",
                 )
-        elif active_tab == self.TAB_CREDENCIAIS:
-            messages.info(request, "As credenciais dessa aba sao apenas para visualizacao.")
+        elif active_tab == self.TAB_CONTA_BANCARIA:
+            messages.info(request, "Gerencie as contas bancarias na pagina dedicada.")
             return redirect(self._build_update_url(tab=active_tab, nf_subtab=active_nf_subtab))
 
         context = self._build_context(forms_map=forms_map, active_tab=active_tab, active_nf_subtab=active_nf_subtab)
@@ -983,100 +1036,21 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):
         return self._redirect_after_sync(request)
 
 
-class WorkshopEmissionHistoryView(LoginRequiredMixin, DirectorWorkshopAccessMixin, TemplateView):
-    template_name = "finance/webmania_requests_list.html"
-    required_webmania_permission_codename = "view_webmaniacompany"
+class WorkshopSettingsTabRedirectView(LoginRequiredMixin, View):
+    """Redireciona itens da navbar para abas das Configurações da oficina ativa."""
 
-    @staticmethod
-    def _parse_competencia(value: str | None) -> tuple[int, int] | None:
-        raw_value = str(value or "").strip()
-        if not raw_value:
-            return None
+    allowed_tabs = frozenset({"conta_bancaria", "nota_fiscal"})
 
-        parts = raw_value.split("-")
-        if len(parts) != 2:
-            return None
-
-        year_str, month_str = parts
-        try:
-            year = int(year_str)
-            month = int(month_str)
-        except ValueError:
-            return None
-
-        if year < 2000 or year > 9999:
-            return None
-        if month < 1 or month > 12:
-            return None
-
-        return month, year
-
-    @staticmethod
-    def _normalize_month(value: str | None) -> int:
-        try:
-            month = int(str(value or "").strip())
-        except ValueError:
-            month = date.today().month
-        if month < 1 or month > 12:
-            return date.today().month
-        return month
-
-    @staticmethod
-    def _normalize_year(value: str | None) -> int:
-        try:
-            year = int(str(value or "").strip())
-        except ValueError:
-            year = date.today().year
-        if year < 2000 or year > 9999:
-            return date.today().year
-        return year
-
-    def get_context_data(self, **kwargs: object) -> dict[str, object]:
-        context = super().get_context_data(**kwargs)
-
-        competencia = self._parse_competencia(self.request.GET.get("competencia"))
-        if competencia is not None:
-            month, year = competencia
-        else:
-            month = self._normalize_month(self.request.GET.get("mes"))
-            year = self._normalize_year(self.request.GET.get("ano"))
-
-        try:
-            request_payload = get_fiscal_service().get_b2b_requests(month=month, year=year, workshop=self.workshop)
-        except FiscalServiceError as exc:
-            messages.error(self.request, to_public_integration_message(str(exc)))
-            total_notas_processadas = 0
-            request_rows: list[dict[str, str]] = []
-        else:
-            total_notas_processadas = int(request_payload.get("total_notas_processadas") or 0)
-            empresas_payload_raw = request_payload.get("empresas")
-            empresas_payload: list[object] = empresas_payload_raw if isinstance(empresas_payload_raw, list) else []
-
-            request_rows = []
-            for item in empresas_payload:
-                if not isinstance(item, dict):
-                    continue
-                request_rows.append(
-                    {
-                        "name": str(item.get("razao_social") or item.get("nome_completo") or "-"),
-                        "document": str(item.get("cnpj") or item.get("cpf") or "-"),
-                        "ie": str(item.get("ie") or "-"),
-                        "notas_processadas": str(item.get("notas_processadas") or 0),
-                    }
-                )
-
-        context.update(
-            {
-                "selected_month": month,
-                "selected_year": year,
-                "selected_month_str": f"{month:02d}",
-                "selected_year_str": f"{year:04d}",
-                "selected_competencia": f"{year:04d}-{month:02d}",
-                "total_notas_processadas": total_notas_processadas,
-                "request_rows": request_rows,
-            }
-        )
-        return context
+    def get(self, request, *args, **kwargs):
+        workshop = get_active_workshop_or_404(request)
+        tab = str(request.GET.get("tab") or "").strip().lower()
+        nf_tab = str(request.GET.get("nf_tab") or "").strip().lower()
+        if tab not in self.allowed_tabs:
+            tab = WorkshopUpdateView.TAB_NOTA_FISCAL
+            nf_tab = WorkshopUpdateView.NF_SUBTAB_NFE
+        if tab == WorkshopUpdateView.TAB_NOTA_FISCAL:
+            nf_tab = WorkshopUpdateView._normalize_nf_subtab(nf_tab)
+        return redirect(f"{reverse('workshops:update', kwargs={'pk': workshop.pk})}?tab={tab}&nf_tab={nf_tab}")
 
 
 class NavbarWorkshopSelectView(LoginRequiredMixin, View):
