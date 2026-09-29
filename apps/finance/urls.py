@@ -210,7 +210,7 @@ urlpatterns = [
     path("webmania/empresas/sync/", WebmaniaCompanySyncView.as_view(), name="webmania_company_sync"),
     path("webmania/empresas/<int:pk>/", WebmaniaCompanyDetailView.as_view(), name="webmania_company_detail"),
     path("webmania/empresas/<int:pk>/editar/", WebmaniaCompanyUpdateView.as_view(), name="webmania_company_update"),
-    path("webmania/requisicoes/", RedirectView.as_view(pattern_name="workshops:emission_history", permanent=False), name="webmania_requests"),
+    path("webmania/requisicoes/", RedirectView.as_view(pattern_name="workshops:list", permanent=False), name="webmania_requests"),
     path("webmania/webhook/ping/", WebhookView.as_view(), name="webhook_ping"),
     path("webmania/webhook/", WebhookView.as_view(), name="webhook"),
     # Fluxo de Contas
