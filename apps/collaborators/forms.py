@@ -318,23 +318,30 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             if cpf_queryset.exists():
                 self.add_error("cpf", "Já existe um colaborador com este CPF.")
 
+        manages_login = False
         if cleaned.get("system_access"):
             username = cleaned.get("system_username")
             role = cleaned.get("role")
+            has_login = bool(getattr(self.instance, "user_id", None))
+            # Na edição de vínculo sem login e sem username preenchido, o acesso
+            # é herdado: mantém a flag sem exigir credenciais nem grupo.
+            manages_login = self.is_create or has_login or bool((username or "").strip())
 
             if not username:
-                self.add_error("system_username", "Informe o usuário de acesso.")
+                if manages_login:
+                    self.add_error("system_username", "Informe o usuário de acesso.")
             else:
                 qs = User.objects.filter(username=username)
-                if not self.is_create and getattr(self.instance, "user_id", None):
+                if not self.is_create and has_login:
                     qs = qs.exclude(pk=self.instance.user_id)
                 if qs.exists():
                     self.add_error("system_username", "Este usuário já está em uso.")
 
-            if role is None:
-                self.add_error("role", "Selecione um grupo de permissões.")
-            elif self.account and role.account_id != self.account.id:
-                raise ValidationError("Grupo inválido para esta conta.")
+            if manages_login:
+                if role is None:
+                    self.add_error("role", "Selecione um grupo de permissões.")
+                elif self.account and role.account_id != self.account.id:
+                    raise ValidationError("Grupo inválido para esta conta.")
 
         if "workshops" in self.fields:
             selected_workshops = cleaned.get("workshops") or []
@@ -344,7 +351,7 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
                     self.add_error("workshops", "Todas as oficinas devem pertencer à sua conta.")
                     break
 
-            if cleaned.get("system_access") and not selected_workshops:
+            if cleaned.get("system_access") and not selected_workshops and manages_login:
                 self.add_error("workshops", "Selecione pelo menos uma oficina de acesso.")
 
         if cleaned.get("transport_budget_plan") is None and self.workshop is not None:
@@ -407,10 +414,15 @@ class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
         if cleaned.get("system_access"):
             p1 = cleaned.get("password1")
             p2 = cleaned.get("password2")
+            username = (cleaned.get("system_username") or "").strip()
 
             if getattr(self.instance, "user_id", None):
                 if not p1 and not p2:
                     p1 = p2 = None
+            elif username and not p1 and not p2:
+                # Provisão de login em vínculo sem usuário: senha obrigatória.
+                self.add_error("password1", "Informe a senha.")
+                self.add_error("password2", "Confirme a senha.")
             if p1 or p2:
                 if not p1:
                     self.add_error("password1", "Informe a senha.")

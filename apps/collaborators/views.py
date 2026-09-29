@@ -9,7 +9,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Prefetch
 from django.forms import BaseInlineFormSet
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
@@ -34,8 +33,12 @@ from apps.collaborators.services import (
     sync_current_month_salary_costs,
 )
 from apps.collaborators.services_multi_workshop import (
-    build_single_workshop_cell_value,
+    aggregate_collaborators,
+    build_workshops_cell_value,
+    members_prefetch,
     owner_workshops_queryset,
+    sync_siblings,
+    sync_siblings_workshops,
 )
 from apps.core.presentation.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
@@ -72,11 +75,10 @@ COLLABORATOR_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
 
 # TODO: Validar melhor o fluxo de edição e criação com relação ao acesso ao sistema.
 class ManagedCollaboratorListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
-    """União dos vínculos de todas as oficinas da conta dona (uma linha por vínculo).
+    """Uma linha por pessoa (dono, CPF), com as oficinas na coluna Oficinas.
 
-    Sem agregação por pessoa: a mesma pessoa em 2 oficinas aparece em 2 linhas.
-    Paginação/busca/ordenação pertencem ao `render_table`; a view não pagina.
-    O filtro `is_active` aqui tem default TODOS (diferente da lista por oficina).
+    Filtros aplicados no QS antes da agregação; busca/ordenação/paginação
+    pertencem ao `render_table`. O filtro `is_active` tem default TODOS.
     """
 
     model = WorkshopCollaborator
@@ -94,23 +96,22 @@ class ManagedCollaboratorListView(LoginRequiredMixin, HtmxTemplateResponseMixin,
     def get_queryset(self):
         self.active_workshop = get_active_workshop_or_404(self.request)
         owner_workshops = owner_workshops_queryset(self.request.user, self.active_workshop)
+        workshop_ids = list(owner_workshops.values_list("pk", flat=True))
         queryset = (
-            WorkshopCollaborator.objects.filter(workshop__in=owner_workshops)
+            WorkshopCollaborator.objects.filter(workshop_id__in=workshop_ids)
             .select_related("user", "workshop")
-            .prefetch_related(
-                Prefetch(
-                    "user__workshop_members",
-                    queryset=WorkshopMember.objects.select_related("workshop", "role"),
-                    to_attr="all_members",
-                )
-            )
+            .prefetch_related(members_prefetch(workshop_ids))
             .order_by("name", "workshop__name")
         )
         queryset = self._apply_is_active_filter(queryset)
-        return apply_query_param_filters(
+        queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,
             filter_configs=COLLABORATOR_LIST_FILTERS,
+        )
+        return aggregate_collaborators(
+            list(queryset),
+            active_workshop_id=self.active_workshop.pk,
         )
 
     def _apply_is_active_filter(self, queryset):
@@ -125,18 +126,18 @@ class ManagedCollaboratorListView(LoginRequiredMixin, HtmxTemplateResponseMixin,
         context = super().get_context_data(**kwargs)
 
         context["fields"] = [
-            TableColumn(label=WorkshopCollaborator.name.field.verbose_name, attr=WorkshopCollaborator.name.field.name),
-            TableColumn(label=WorkshopCollaborator.cpf.field.verbose_name, attr=WorkshopCollaborator.cpf.field.name, format="cpf"),
+            TableColumn(label=WorkshopCollaborator.name.field.verbose_name, attr="name"),
+            TableColumn(label=WorkshopCollaborator.cpf.field.verbose_name, attr="cpf", format="cpf"),
             TableColumn(
                 label="Oficinas",
-                attr=build_single_workshop_cell_value,
+                attr=lambda row: build_workshops_cell_value(row, preview_limit=2),
                 cell_template="collaborators/partials/managed_workshops_cell.html",
                 sortable=False,
                 searchable=False,
             ),
-            TableColumn(label=WorkshopCollaborator.system_access.field.verbose_name, attr=WorkshopCollaborator.system_access.field.name),
-            TableColumn(label=WorkshopCollaborator.is_active.field.verbose_name, attr=WorkshopCollaborator.is_active.field.name),
-            TableColumn(label=WorkshopCollaborator.position.field.verbose_name, attr=WorkshopCollaborator.position.field.name),
+            TableColumn(label=WorkshopCollaborator.system_access.field.verbose_name, attr="system_access"),
+            TableColumn(label=WorkshopCollaborator.is_active.field.verbose_name, attr="is_active_any"),
+            TableColumn(label=WorkshopCollaborator.position.field.verbose_name, attr="position"),
         ]
 
         context["actions"] = [
@@ -316,9 +317,14 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
                             is_active=form.instance.is_active,
                             system_access=False,
                         )
+
+                # Irmãos pré-existentes (mesmo dono, mesmo CPF) acompanham os
+                # dados da pessoa e o acesso/papel.
+                sync_siblings(self.object, role=role, include_access=True)
             else:
                 form.instance.user = None
                 response = super().form_valid(form)
+                sync_siblings(self.object, include_access=False)
 
             freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
             if _should_sync_monthly_costs(self.request):
@@ -594,7 +600,15 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                     sync_salary_costs=should_sync_monthly_costs,
                 )
 
-            if collaborator.system_access:
+            wants_access = bool(collaborator.system_access)
+            has_login = bool(collaborator.user_id)
+            access_username = (form.cleaned_data.get("system_username") or "").strip()
+            # Sem login e sem username preenchido, o acesso é herdado: a flag
+            # persiste sem exigir credenciais nem criar usuário, e só os dados
+            # pessoais sincronizam (este vínculo não comanda o acesso alheio).
+            provision_login = wants_access and not has_login and bool(access_username)
+
+            if wants_access and (has_login or provision_login):
                 role = form.cleaned_data["role"]
                 selected_workshops = form.cleaned_data.get("workshops", [])
                 workshops_to_sync = selected_workshops if selected_workshops else [self.workshop]
@@ -636,8 +650,9 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                         },
                     )
 
-                # Desmarcar oficina desativa só o acesso naquela unidade (Dúvida 3);
-                # o `User` nunca é excluído nem desativado por aqui.
+                # Desmarcar desativa vínculo + acesso naquela unidade; remarcar
+                # reativa ambos. Nunca exclui nada. O vínculo editado segue o
+                # checkbox "Ativo" do formulário; aqui comandamos só os irmãos.
                 if "workshops" in form.fields:
                     selected_ids = {w.pk for w in workshops_to_sync}
                     owner_ids = list(
@@ -647,10 +662,17 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                         user=user,
                         workshop_id__in=owner_ids,
                     ).exclude(workshop_id__in=selected_ids).update(is_active=False)
-            elif collaborator.user_id:
+                    sync_siblings_workshops(collaborator, selected_ids)
+
+                # Irmãos (mesmo dono, mesmo CPF) acompanham pessoa + acesso/papel.
+                sync_siblings(collaborator, role=role, include_access=True)
+            elif has_login:
                 WorkshopMember.objects.filter(user=collaborator.user, workshop=self.workshop).update(is_active=False)
                 collaborator.user.is_active = False
                 collaborator.user.save(update_fields=["is_active"])
+                sync_siblings(collaborator, include_access=True)
+            else:
+                sync_siblings(collaborator, include_access=False)
 
             if should_sync_monthly_costs:
                 sync_current_month_salary_costs(workshop=self.workshop)
@@ -1046,6 +1068,7 @@ class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixi
             freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
             if _should_sync_monthly_costs(self.request):
                 sync_current_month_salary_costs(workshop=self.workshop)
+            sync_siblings(self.object, include_access=False)
 
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})
@@ -1075,6 +1098,8 @@ class WorkshopCollaboratorModalUpdateView(LoginRequiredMixin, WorkshopScopedMixi
                 if self.object.email and user.email != self.object.email:
                     user.email = self.object.email
                     user.save(update_fields=["email"])
+
+            sync_siblings(self.object, include_access=False)
 
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})
