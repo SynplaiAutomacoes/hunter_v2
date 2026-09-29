@@ -37,6 +37,7 @@ from apps.collaborators.services_multi_workshop import (
     build_workshops_cell_value,
     members_prefetch,
     owner_workshops_queryset,
+    resolve_access_user,
     sync_siblings,
     sync_siblings_workshops,
 )
@@ -601,44 +602,44 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 )
 
             wants_access = bool(collaborator.system_access)
-            has_login = bool(collaborator.user_id)
             access_username = (form.cleaned_data.get("system_username") or "").strip()
-            # Sem login e sem username preenchido, o acesso é herdado: a flag
-            # persiste sem exigir credenciais nem criar usuário, e só os dados
-            # pessoais sincronizam (este vínculo não comanda o acesso alheio).
-            provision_login = wants_access and not has_login and bool(access_username)
+            # Login gerenciado: o próprio vínculo ou, sem login próprio, o mais
+            # antigo entre os irmãos — qualquer formulário edita o mesmo acesso.
+            access_user = resolve_access_user(collaborator)
 
-            if wants_access and (has_login or provision_login):
+            if wants_access and access_user is None and access_username:
+                # Provisão: primeiro login da pessoa, vinculado a este vínculo.
+                access_user = User(
+                    username=access_username,
+                    cpf=collaborator.cpf,
+                    email=collaborator.email or "",
+                    account=self.workshop.account,
+                    is_active=collaborator.is_active,
+                )
+                parts = (collaborator.name or "").split(" ", 1)
+                access_user.first_name = parts[0] if parts else ""
+                access_user.last_name = parts[1] if len(parts) > 1 else ""
+                access_user.set_password(form.cleaned_data["password1"])
+                access_user.save()
+                collaborator.user = access_user
+                collaborator.save(update_fields=["user"])
+
+            if wants_access and access_user is not None:
                 role = form.cleaned_data["role"]
                 selected_workshops = form.cleaned_data.get("workshops", [])
                 workshops_to_sync = selected_workshops if selected_workshops else [self.workshop]
 
-                if collaborator.user_id:
-                    user = collaborator.user
-                    user.username = form.cleaned_data["system_username"]
-                    user.email = collaborator.email or user.email
-                    user.is_active = collaborator.is_active
-                    update_fields = ["username", "email", "is_active"]
-                    new_password = form.cleaned_data.get("password1")
-                    if new_password:
-                        user.set_password(new_password)
-                        update_fields.append("password")
-                    user.save(update_fields=update_fields)
-                else:
-                    user = User(
-                        username=form.cleaned_data["system_username"],
-                        cpf=collaborator.cpf,
-                        email=collaborator.email or "",
-                        account=self.workshop.account,
-                        is_active=collaborator.is_active,
-                    )
-                    parts = (collaborator.name or "").split(" ", 1)
-                    user.first_name = parts[0] if parts else ""
-                    user.last_name = parts[1] if len(parts) > 1 else ""
-                    user.set_password(form.cleaned_data["password1"])
-                    user.save()
-                    collaborator.user = user
-                    collaborator.save(update_fields=["user"])
+                user = access_user
+                if access_username:
+                    user.username = access_username
+                user.email = collaborator.email or user.email
+                user.is_active = collaborator.is_active
+                update_fields = ["username", "email", "is_active"]
+                new_password = form.cleaned_data.get("password1")
+                if new_password:
+                    user.set_password(new_password)
+                    update_fields.append("password")
+                user.save(update_fields=update_fields)
 
                 for workshop in workshops_to_sync:
                     WorkshopMember.objects.update_or_create(
@@ -666,10 +667,10 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
                 # Irmãos (mesmo dono, mesmo CPF) acompanham pessoa + acesso/papel.
                 sync_siblings(collaborator, role=role, include_access=True)
-            elif has_login:
-                WorkshopMember.objects.filter(user=collaborator.user, workshop=self.workshop).update(is_active=False)
-                collaborator.user.is_active = False
-                collaborator.user.save(update_fields=["is_active"])
+            elif access_user is not None:
+                WorkshopMember.objects.filter(user=access_user, workshop=self.workshop).update(is_active=False)
+                access_user.is_active = False
+                access_user.save(update_fields=["is_active"])
                 sync_siblings(collaborator, include_access=True)
             else:
                 sync_siblings(collaborator, include_access=False)
