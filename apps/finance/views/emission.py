@@ -28,6 +28,7 @@ from apps.finance.forms import (
 from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.services.webmania.webmania_logging import log_emission_view_failure
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
@@ -54,18 +55,22 @@ def _normalize_note_mode(value: object) -> str:
 
 
 def _empty_nfse_config() -> dict[str, object]:
-    return {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": "", "consumidor_final": True}
+    return {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": "", "consumidor_final": None}
 
 
-def _coerce_consumidor_final(value: object) -> bool:
+def _coerce_consumidor_final(value: object) -> bool | None:
+    if value is None:
+        return None
     if isinstance(value, bool):
         return value
-    normalized = str(value or "").strip().lower()
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return None
     if normalized in {"false", "0", "nao", "não", "no"}:
         return False
     if normalized in {"true", "1", "sim", "yes"}:
         return True
-    return True
+    return None
 
 
 def bind_emission_request_view(*, request, workshop) -> EmissionRequestCreateView:
@@ -221,6 +226,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfse_config"] = _empty_nfse_config()
         else:
             state["nfse_config"] = {**_empty_nfse_config(), **state["nfse_config"]}
+            # Legacy sessions used consumidor_final=True as empty-config default.
+            if state.get("nfse_config_version", 1) < 2:
+                if state["nfse_config"].get("consumidor_final") is True:
+                    state["nfse_config"]["consumidor_final"] = None
+                state["nfse_config_version"] = 2
+                self._write_state(state)
 
         if not isinstance(state.get("line_overrides"), dict):
             state["line_overrides"] = {}
@@ -896,7 +907,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             self._write_state(state)
             return True, None
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NF-e pelo fluxo unificado", extra={"nfe_request_id": getattr(nfe_request, "pk", None)})
+            log_emission_view_failure(
+                logger,
+                "Falha ao emitir NF-e pelo fluxo unificado",
+                exc,
+                nfe_request_id=getattr(nfe_request, "pk", None),
+            )
             state["nfe_done"] = False
             state["nfe_request_id"] = nfe_request.pk
             self._write_state(state)
@@ -924,7 +940,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             self._write_state(state)
             return True, None
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NFS-e pelo fluxo unificado", extra={"nfse_request_id": getattr(nfse_request, "pk", None)})
+            log_emission_view_failure(
+                logger,
+                "Falha ao emitir NFS-e pelo fluxo unificado",
+                exc,
+                nfse_request_id=getattr(nfse_request, "pk", None),
+            )
             state["nfse_done"] = False
             state["nfse_request_id"] = nfse_request.pk
             self._write_state(state)
@@ -1094,7 +1115,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 "service_description": form.cleaned_data["service_description"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
                 "codigo_nbs": form.cleaned_data.get("codigo_nbs", ""),
-                "consumidor_final": bool(form.cleaned_data.get("consumidor_final", True)),
+                "consumidor_final": _coerce_consumidor_final(form.cleaned_data.get("consumidor_final")),
             }
             self._write_state(state)
             if self.request.POST.get("intent") == "preview":

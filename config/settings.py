@@ -45,6 +45,8 @@ PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 TAX_CLASS_DEBUG_LOGS = os.getenv("TAX_CLASS_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
+# Log full JSON body of Webmania emission/preview POSTs (NF-e, NFS-e, devolução). Default on.
+WEBMANIA_EMISSION_REQUEST_LOGS = os.getenv("WEBMANIA_EMISSION_REQUEST_LOGS", "1").lower() in ("1", "true", "yes")
 
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")

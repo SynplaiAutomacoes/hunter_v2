@@ -17,6 +17,7 @@ from django.views import View
 from django.views.generic import DetailView, ListView
 
 from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.services.webmania.webmania_logging import log_emission_view_failure
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.infrastructure.services.webmania.emission import compute_service_discount_for_nfse
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
@@ -267,7 +268,10 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),
                     _build_field("Código NBS", self.object.codigo_nbs),
-                    _build_field("Consumidor final", "Sim" if self.object.consumidor_final else "Não"),
+                    _build_field(
+                        "Consumidor final",
+                        {True: "Sim", False: "Não"}.get(self.object.consumidor_final, "—"),
+                    ),
                     _build_field("Número da Nota Fiscal de Serviço", self.object.reserved_rps_number),
                     _build_field("Série da Nota Fiscal de Serviço", self.object.reserved_rps_series),
                     _build_field("Discriminação", self.object.service_description),
@@ -460,7 +464,12 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
             )
             return True
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NFS-e", extra={"nfse_request_id": self.object.pk})
+            log_emission_view_failure(
+                logger,
+                "Falha ao emitir NFS-e",
+                exc,
+                nfse_request_id=self.object.pk,
+            )
             messages.error(self.request, str(exc))
             return False
 

@@ -37,15 +37,19 @@ def line_has_valid_ncm(*, line: dict[str, Any]) -> bool:
     return len(normalize_ncm(line.get("ncm"))) == 8
 
 
-def _coerce_consumidor_final(value: object) -> bool:
+def _coerce_consumidor_final(value: object) -> bool | None:
+    if value is None:
+        return None
     if isinstance(value, bool):
         return value
-    normalized = str(value or "").strip().lower()
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return None
     if normalized in {"false", "0", "nao", "não", "no"}:
         return False
     if normalized in {"true", "1", "sim", "yes"}:
         return True
-    return True
+    return None
 
 
 def default_standalone_state() -> dict[str, Any]:
@@ -57,7 +61,7 @@ def default_standalone_state() -> dict[str, Any]:
         "nfe_lines": [],
         "nfse_lines": [],
         "nfe_config": {"tax_class": "", "additional_information": "", "freight_mode": "9", "transport_snapshot": {}},
-        "nfse_config": {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": "", "consumidor_final": True},
+        "nfse_config": {"tax_class": "", "service_description": "", "additional_information": "", "codigo_nbs": "", "consumidor_final": None},
         "nfe_request_id": None,
         "nfse_request_id": None,
         "nfe_done": False,

@@ -6,12 +6,31 @@ from unittest.mock import patch
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, override_settings
 
-from apps.core.infrastructure.services.webmania.emission import build_nfse_payload, normalize_codigo_nbs
+from apps.core.infrastructure.services.webmania.emission import (
+    _omit_empty_json_values,
+    build_nfse_payload,
+    normalize_codigo_nbs,
+)
 from apps.finance.forms.emission import EmissionNfseConfigForm
 from apps.finance.forms.nfse import clean_required_codigo_nbs
 
 
-class NormalizeCodigoNbsTests(SimpleTestCase):
+class OmitEmptyJsonValuesTests(SimpleTestCase):
+    def test_omits_none_blank_and_empty_containers_keeps_zero_and_false(self) -> None:
+        cleaned = _omit_empty_json_values(
+            {
+                "a": None,
+                "b": "",
+                "c": "  ",
+                "d": {},
+                "e": [],
+                "f": 0,
+                "g": False,
+                "h": {"nested": "", "keep": 1},
+                "i": [None, "", 2],
+            }
+        )
+        self.assertEqual(cleaned, {"f": 0, "g": False, "h": {"keep": 1}, "i": [2]})
     def test_keeps_nine_digits(self) -> None:
         self.assertEqual(normalize_codigo_nbs("115021000"), "115021000")
 
@@ -38,7 +57,7 @@ class EmissionNfseConfigFormCodigoNbsTests(SimpleTestCase):
             "tax_class": "REF1",
             "service_description": "Prestação de serviço",
             "codigo_nbs": "115021000",
-            "consumidor_final": True,
+            "consumidor_final": "true",
             **overrides,
         }
         return EmissionNfseConfigForm(data=data, tax_class_choices=[("REF1", "Classe 1")])
@@ -54,18 +73,27 @@ class EmissionNfseConfigFormCodigoNbsTests(SimpleTestCase):
         self.assertEqual(form.cleaned_data["codigo_nbs"], "")
 
     def test_consumidor_final_sim_is_true(self) -> None:
-        form = self._form(consumidor_final=True)
+        form = self._form(consumidor_final="true")
         self.assertTrue(form.is_valid(), form.errors)
         self.assertIs(form.cleaned_data["consumidor_final"], True)
 
     def test_consumidor_final_nao_is_false(self) -> None:
-        form = self._form(consumidor_final=False)
+        form = self._form(consumidor_final="false")
         self.assertTrue(form.is_valid(), form.errors)
         self.assertIs(form.cleaned_data["consumidor_final"], False)
 
+    def test_consumidor_final_blank_is_valid(self) -> None:
+        form = self._form(consumidor_final="")
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data["consumidor_final"])
+
+    def test_consumidor_final_default_initial_is_empty(self) -> None:
+        form = EmissionNfseConfigForm(tax_class_choices=[("REF1", "Classe 1")])
+        self.assertEqual(form.initial.get("consumidor_final"), "")
+
 
 class BuildNfsePayloadCodigoNbsTests(SimpleTestCase):
-    def _request(self, *, codigo_nbs: str, consumidor_final: bool = True) -> SimpleNamespace:
+    def _request(self, *, codigo_nbs: str, consumidor_final: bool | None = True) -> SimpleNamespace:
         return SimpleNamespace(
             pk=11,
             tax_class="REF000001",
@@ -116,3 +144,13 @@ class BuildNfsePayloadCodigoNbsTests(SimpleTestCase):
     def test_payload_maps_consumidor_final_false_to_zero(self, *_mocks: object) -> None:
         payload = build_nfse_payload(nfse_request=self._request(codigo_nbs="", consumidor_final=False))
         self.assertEqual(payload["rps"][0]["servico"]["consumidor_final"], 0)
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    @patch("apps.core.infrastructure.services.webmania.emission.build_webmania_webhook_url", return_value="https://example.test/hook")
+    @patch("apps.core.infrastructure.services.webmania.emission._build_taker_payload", return_value={"cpf": "00000000000"})
+    @patch("apps.core.infrastructure.services.webmania.emission._additional_information", return_value="")
+    @patch("apps.core.infrastructure.services.webmania.emission._default_service_description", return_value="Serviço")
+    @patch("apps.core.infrastructure.services.webmania.emission.calculate_nfse_service_total", return_value="100.00")
+    def test_payload_omits_consumidor_final_when_none(self, *_mocks: object) -> None:
+        payload = build_nfse_payload(nfse_request=self._request(codigo_nbs="", consumidor_final=None))
+        self.assertNotIn("consumidor_final", payload["rps"][0]["servico"])
