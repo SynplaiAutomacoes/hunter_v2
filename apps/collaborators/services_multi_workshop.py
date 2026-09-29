@@ -110,6 +110,38 @@ def members_of(collaborator: WorkshopCollaborator) -> list[WorkshopMember]:
     return list(members) if members else []
 
 
+def sibling_login_ids(source: WorkshopCollaborator) -> list[int]:
+    """IDs dos logins dos vínculos-irmãos (mesmo dono, mesmo CPF), do mais antigo ao mais novo."""
+    if getattr(source, "pk", None) is None:
+        return []
+    digits = normalize_cpf(getattr(source, "cpf", ""))
+    workshop = getattr(source, "workshop", None)
+    account_id = getattr(workshop, "account_id", None)
+    if not digits or account_id is None:
+        return []
+    ids: list[int] = []
+    for cand in WorkshopCollaborator.objects.filter(workshop__account_id=account_id).only("pk", "cpf", "user_id").order_by("pk"):
+        if cand.pk == source.pk or not cand.user_id:
+            continue
+        if normalize_cpf(cand.cpf) == digits and cand.user_id not in ids:
+            ids.append(cand.user_id)
+    return ids
+
+
+def resolve_access_user(source: WorkshopCollaborator) -> User | None:
+    """Login gerenciado pelo formulário: o próprio vínculo ou, sem login
+    próprio, o mais antigo entre os irmãos (mesmo dono, mesmo CPF)."""
+    user_id = getattr(source, "user_id", None)
+    if user_id:
+        return User.objects.filter(pk=user_id).first()
+    if getattr(source, "pk", None) is None:
+        return None
+    ids = sibling_login_ids(source)
+    if not ids:
+        return None
+    return User.objects.filter(pk=ids[0]).first()
+
+
 def aggregate_collaborators(
     collaborators: list[WorkshopCollaborator],
     *,

@@ -29,6 +29,7 @@ from apps.core.presentation.widgets import (
     SearchableSelectInput,
     TextInput,
 )
+from apps.collaborators.services_multi_workshop import resolve_access_user, sibling_login_ids
 from apps.iam.models import WorkshopRole
 from apps.core.text_normalization import name_case, sentence_case
 from apps.finance.models.financial_group import FinancialGroup
@@ -153,9 +154,13 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
                 ).values_list("workshop_id", flat=True)
                 self.fields["workshops"].initial = initial_workshops
 
-        if self.instance and getattr(self.instance, "user_id", None):
-            self.fields["system_username"].initial = self.instance.user.username
-            member = WorkshopMember.objects.filter(user_id=self.instance.user_id, workshop=self.instance.workshop).select_related("role").first()
+        # Login gerenciado pelo formulário: o próprio vínculo ou, sem login
+        # próprio, o mais antigo entre os irmãos — qualquer formulário edita
+        # o mesmo acesso e as informações batem em todos.
+        self.access_user = resolve_access_user(self.instance) if getattr(self.instance, "pk", None) else None
+        if self.access_user is not None:
+            self.fields["system_username"].initial = self.access_user.username
+            member = WorkshopMember.objects.filter(user_id=self.access_user.pk, workshop=self.instance.workshop).select_related("role").first()
             if member:
                 self.fields["role"].initial = member.role
 
@@ -323,17 +328,25 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             username = cleaned.get("system_username")
             role = cleaned.get("role")
             has_login = bool(getattr(self.instance, "user_id", None))
-            # Na edição de vínculo sem login e sem username preenchido, o acesso
-            # é herdado: mantém a flag sem exigir credenciais nem grupo.
-            manages_login = self.is_create or has_login or bool((username or "").strip())
+            access_user = getattr(self, "access_user", None)
+            # Gerencia login se: criando, com login próprio/herdado, ou com
+            # username preenchido (provisão). Sem login a gerenciar, a flag de
+            # acesso apenas persiste (herdada) sem exigir credenciais.
+            manages_login = self.is_create or has_login or access_user is not None or bool((username or "").strip())
 
             if not username:
                 if manages_login:
                     self.add_error("system_username", "Informe o usuário de acesso.")
             else:
                 qs = User.objects.filter(username=username)
-                if not self.is_create and has_login:
-                    qs = qs.exclude(pk=self.instance.user_id)
+                if not self.is_create and getattr(self.instance, "pk", None):
+                    # O username do próprio login e dos logins-irmãos (mesma
+                    # pessoa) não contam como "em uso" — é o mesmo acesso.
+                    exclude_ids = {pk for pk in [self.instance.user_id, *sibling_login_ids(self.instance)] if pk}
+                    access_user = getattr(self, "access_user", None)
+                    if access_user is not None and access_user.pk:
+                        exclude_ids.add(access_user.pk)
+                    qs = qs.exclude(pk__in=exclude_ids)
                 if qs.exists():
                     self.add_error("system_username", "Este usuário já está em uso.")
 
@@ -419,8 +432,9 @@ class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
             if getattr(self.instance, "user_id", None):
                 if not p1 and not p2:
                     p1 = p2 = None
-            elif username and not p1 and not p2:
-                # Provisão de login em vínculo sem usuário: senha obrigatória.
+            elif username and not p1 and not p2 and getattr(self, "access_user", None) is None:
+                # Provisão de login (ninguém da pessoa tem login): senha obrigatória.
+                # Com login herdado, preencher só o usuário renomeia mantendo a senha.
                 self.add_error("password1", "Informe a senha.")
                 self.add_error("password2", "Confirme a senha.")
             if p1 or p2:
