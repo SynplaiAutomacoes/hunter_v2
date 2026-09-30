@@ -41,6 +41,7 @@ from apps.finance.services.purchase_returns import (
 from apps.finance.views.navigation import build_issued_documents_list_url
 from apps.finance.views.purchase_return import (
     PurchaseReturnCreateView,
+    PurchaseReturnDocumentDownloadView,
     PurchaseReturnPreviewPdfView,
     PurchaseReturnReconcileView,
     PurchaseReturnReissueView,
@@ -1224,6 +1225,53 @@ class PurchaseReturnWorkflowTests(TestCase):
         product_payload = transmitted.fiscal_document.request_payload["produtos"][0]
         self.assertEqual(transmitted.fiscal_document.request_payload["finalidade"], 4)
         self.assertEqual(product_payload["dfe_referenciado"], {"chave": ACCESS_KEY, "item": 1})
+
+    def test_authorized_return_shows_and_downloads_xml_and_danfe(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        _set_fiscal_fields(return_request)
+        return_request = finalize_purchase_return_request(request=return_request)
+        response = MagicMock()
+        response.headers = {"Content-Type": "application/json"}
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "status": "aprovado",
+            "modelo": "nfe",
+            "uuid": str(uuid4()),
+            "chave": "35" + ("8" * 42),
+            "nfe": "1234",
+            "serie": "1",
+            "xml": "https://example.test/devolucao.xml",
+            "danfe": "https://example.test/devolucao.pdf",
+        }
+        with patch("apps.finance.services.nfe_returns._build_headers", return_value={}), patch("apps.finance.services.nfe_returns.requests.post", return_value=response):
+            return_request = transmit_purchase_return(request_instance=return_request)
+        return_request.refresh_from_db()
+
+        page_request = self.factory.get(f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=4")
+        page_request.user = self.user
+        view = PurchaseReturnWorkflowView()
+        view.setup(page_request, pk=return_request.pk)
+        view.workshop = self.workshop
+        page_response = view.get(page_request, pk=return_request.pk)
+        self.assertContains(page_response, "Baixar XML")
+        self.assertContains(page_response, "Baixar DANFE")
+        self.assertContains(page_response, reverse("finance:purchase_return_document_download", args=[return_request.pk, "xml"]))
+        self.assertContains(page_response, reverse("finance:purchase_return_document_download", args=[return_request.pk, "danfe"]))
+
+        downloaded = SimpleNamespace(content=b"%PDF-danfe", content_type="application/pdf")
+        download_request = self.factory.get(reverse("finance:purchase_return_document_download", args=[return_request.pk, "danfe"]))
+        download_request.user = self.user
+        download_view = PurchaseReturnDocumentDownloadView()
+        download_view.setup(download_request, pk=return_request.pk, document="danfe")
+        download_view.workshop = self.workshop
+        with patch("apps.finance.views.purchase_return.download_webmania_document", return_value=downloaded) as download_mock:
+            download_response = download_view.get(download_request, pk=return_request.pk, document="danfe")
+        download_mock.assert_called_once_with(workshop=self.workshop, url="https://example.test/devolucao.pdf")
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(download_response.content, b"%PDF-danfe")
+        self.assertIn("attachment", download_response["Content-Disposition"])
+        self.assertIn("danfe", download_response["Content-Disposition"])
 
     def test_authorized_manual_only_return_does_not_move_stock_or_create_persistent_product(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
