@@ -47,6 +47,7 @@ class PurchaseReturnRequest(TimeStampedModel):
     tax_class = models.CharField(max_length=120, blank=True, default="", verbose_name="Classe de imposto")
     ipi_situacao_tributaria = models.CharField(max_length=2, blank=True, default="", verbose_name="Situação tributária do IPI")
     ipi_codigo_enquadramento = models.CharField(max_length=3, blank=True, default="", verbose_name="Código de enquadramento do IPI")
+    ipi_aliquota = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, verbose_name="Alíquota do IPI")
     additional_information = models.TextField(blank=True, default="", verbose_name="Informações complementares")
     fisco_information = models.TextField(blank=True, default="", verbose_name="Informações ao fisco")
     volume = models.PositiveBigIntegerField(null=True, blank=True, verbose_name="Quantidade de volumes")
@@ -79,6 +80,7 @@ class PurchaseReturnRequest(TimeStampedModel):
         "cfop",
         "ipi_situacao_tributaria",
         "ipi_codigo_enquadramento",
+        "ipi_aliquota",
         "additional_information",
         "fisco_information",
         "volume",

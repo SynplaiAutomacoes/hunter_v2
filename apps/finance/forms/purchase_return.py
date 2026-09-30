@@ -141,15 +141,17 @@ def _datetime_local_value(value: object) -> str:
 def build_purchase_return_fiscal_initial(instance: PurchaseReturnRequest) -> dict[str, Any]:
     from apps.finance.services.purchase_returns import inferred_purchase_return_ipi, inferred_purchase_return_supplier_ie
 
-    inferred_ipi_situacao, inferred_ipi_enquadramento = inferred_purchase_return_ipi(request=instance)
+    inferred_ipi_situacao, inferred_ipi_enquadramento, inferred_ipi_aliquota = inferred_purchase_return_ipi(request=instance)
     ipi_situacao = str(instance.ipi_situacao_tributaria or "").strip() or inferred_ipi_situacao
     ipi_enquadramento = str(instance.ipi_codigo_enquadramento or "").strip() or inferred_ipi_enquadramento
+    ipi_aliquota = instance.ipi_aliquota if instance.ipi_aliquota is not None else inferred_ipi_aliquota
 
     return {
         "operation_nature": instance.operation_nature,
         "cfop": instance.cfop,
         "ipi_situacao_tributaria": ipi_situacao,
         "ipi_codigo_enquadramento": ipi_enquadramento,
+        "ipi_aliquota": ipi_aliquota,
         "additional_information": instance.additional_information,
         "fisco_information": instance.fisco_information,
         "volume": instance.volume,
@@ -219,6 +221,14 @@ class PurchaseReturnFiscalForm(CoreForm):
         max_length=3,
         help_text="Obrigatório. Pré-preenchido com 999 ou com o cEnq do XML, quando existir.",
         widget=TextInput(attrs={"inputmode": "numeric"}),
+    )
+    ipi_aliquota = forms.DecimalField(
+        label="Alíquota do IPI (%)",
+        min_value=Decimal("0"),
+        max_digits=7,
+        decimal_places=2,
+        help_text="Obrigatória na Webmania. Pré-preenchida com 0,00 ou com a alíquota do XML, quando existir.",
+        widget=DecimalInput(min_value=0, decimal_places=2),
     )
     additional_information = forms.CharField(label="Informações complementares", required=False, max_length=5000, widget=TextareaInput(rows=3))
     fisco_information = forms.CharField(label="Informações ao fisco", required=False, max_length=2000, widget=TextareaInput(rows=3))
@@ -299,8 +309,9 @@ class PurchaseReturnFiscalForm(CoreForm):
                 Div(
                     Field("operation_nature", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("cfop", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("ipi_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("ipi_codigo_enquadramento", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("ipi_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("ipi_codigo_enquadramento", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("ipi_aliquota", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("supplier_ie", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("volume", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("additional_information", wrapper_class="col-span-12 lg:col-span-6"),
