@@ -62,6 +62,7 @@ def _fiscal_form_data(**overrides: object) -> dict[str, object]:
     data: dict[str, object] = {
         "operation_nature": "Devolução de compra",
         "cfop": "5202",
+        "icms_situacao_tributaria": "00",
         "ipi_situacao_tributaria": "99",
         "ipi_codigo_enquadramento": "999",
         "ipi_aliquota": "0.00",
@@ -74,16 +75,25 @@ def _set_fiscal_fields(
     return_request: PurchaseReturnRequest,
     *,
     cfop: str = "5202",
+    icms_situacao: str = "00",
     ipi_situacao: str = "99",
     ipi_enquadramento: str = "999",
     ipi_aliquota: object = Decimal("0.00"),
 ) -> None:
     return_request.cfop = cfop
+    return_request.icms_situacao_tributaria = icms_situacao
     return_request.ipi_situacao_tributaria = ipi_situacao
     return_request.ipi_codigo_enquadramento = ipi_enquadramento
     return_request.ipi_aliquota = Decimal(str(ipi_aliquota))
     return_request.save(
-        update_fields=["cfop", "ipi_situacao_tributaria", "ipi_codigo_enquadramento", "ipi_aliquota", "atualizado_em"]
+        update_fields=[
+            "cfop",
+            "icms_situacao_tributaria",
+            "ipi_situacao_tributaria",
+            "ipi_codigo_enquadramento",
+            "ipi_aliquota",
+            "atualizado_em",
+        ]
     )
 
 
@@ -557,6 +567,7 @@ class PurchaseReturnWorkflowTests(TestCase):
             {
                 "operation_nature": "Devolução de compra",
                 "cfop": "5202",
+                "icms_situacao_tributaria": "00",
                 "ipi_situacao_tributaria": "99",
                 "ipi_codigo_enquadramento": "999",
                 "ipi_aliquota": "0.00",
@@ -593,6 +604,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(return_request.insurance_amount, Decimal("1.10"))
         self.assertEqual(return_request.volume, 2)
         self.assertEqual(return_request.payment_method, "90")
+        self.assertEqual(return_request.icms_situacao_tributaria, "00")
         self.assertEqual(return_request.ipi_situacao_tributaria, "99")
         self.assertEqual(return_request.ipi_codigo_enquadramento, "999")
         self.assertEqual(return_request.ipi_aliquota, Decimal("0.00"))
@@ -631,7 +643,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         save_purchase_return_fiscal_data(
             request=return_request,
-            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "ipi_aliquota": "0.00", "freight_mode": 9, "transport_snapshot": {}},
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "icms_situacao_tributaria": "00", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "ipi_aliquota": "0.00", "freight_mode": 9, "transport_snapshot": {}},
         )
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
@@ -817,6 +829,8 @@ class PurchaseReturnWorkflowTests(TestCase):
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         form = PurchaseReturnFiscalForm(instance=return_request)
+        self.assertEqual(form.initial["icms_situacao_tributaria"], "00")
+        self.assertIn("icms_situacao_tributaria", form.fields)
         self.assertEqual(form.initial["ipi_situacao_tributaria"], "99")
         self.assertEqual(form.initial["ipi_codigo_enquadramento"], "999")
         self.assertEqual(form.initial["ipi_aliquota"], Decimal("0.00"))
@@ -846,10 +860,11 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_generic_payload_uses_persisted_ipi_not_silent_defaults(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        _set_fiscal_fields(return_request, ipi_situacao="53", ipi_enquadramento="301", ipi_aliquota="5.50")
+        _set_fiscal_fields(return_request, icms_situacao="60", ipi_situacao="53", ipi_enquadramento="301", ipi_aliquota="5.50")
 
         payload = build_generic_purchase_return_payload(request=return_request)
 
+        self.assertEqual(payload["produtos"][0]["impostos"]["icms"]["situacao_tributaria"], "60")
         self.assertEqual(
             payload["produtos"][0]["impostos"]["ipi"],
             {"situacao_tributaria": "53", "codigo_enquadramento": "301", "aliquota": "5.50"},
@@ -974,7 +989,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         save_purchase_return_fiscal_data(
             request=return_request,
-            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "ipi_aliquota": "0.00", "supplier_ie": ""},
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "icms_situacao_tributaria": "00", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "ipi_aliquota": "0.00", "supplier_ie": ""},
         )
         return_request = finalize_purchase_return_request(request=return_request)
 
@@ -987,7 +1002,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         save_purchase_return_fiscal_data(
             request=return_request,
-            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "ipi_aliquota": "0.00", "supplier_ie": "998877665"},
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "icms_situacao_tributaria": "00", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "ipi_aliquota": "0.00", "supplier_ie": "998877665"},
         )
         return_request = finalize_purchase_return_request(request=return_request)
 
@@ -1003,6 +1018,7 @@ class PurchaseReturnWorkflowTests(TestCase):
             cleaned_data={
                 "operation_nature": "Devolução de compra",
                 "cfop": "5202",
+                "icms_situacao_tributaria": "00",
                 "ipi_situacao_tributaria": "99",
                 "ipi_codigo_enquadramento": "999",
                 "ipi_aliquota": "0.00",

@@ -45,6 +45,7 @@ class PurchaseReturnRequest(TimeStampedModel):
     operation_nature = models.CharField(max_length=255, default="Devolução de mercadoria", verbose_name="Natureza da operação")
     cfop = models.CharField(max_length=8, blank=True, default="", verbose_name="CFOP")
     tax_class = models.CharField(max_length=120, blank=True, default="", verbose_name="Classe de imposto")
+    icms_situacao_tributaria = models.CharField(max_length=3, blank=True, default="", verbose_name="Situação tributária do ICMS (CST/CSOSN)")
     ipi_situacao_tributaria = models.CharField(max_length=2, blank=True, default="", verbose_name="Situação tributária do IPI")
     ipi_codigo_enquadramento = models.CharField(max_length=3, blank=True, default="", verbose_name="Código de enquadramento do IPI")
     ipi_aliquota = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, verbose_name="Alíquota do IPI")
@@ -78,6 +79,7 @@ class PurchaseReturnRequest(TimeStampedModel):
     FISCAL_CONFIGURATION_FIELDS: tuple[str, ...] = (
         "operation_nature",
         "cfop",
+        "icms_situacao_tributaria",
         "ipi_situacao_tributaria",
         "ipi_codigo_enquadramento",
         "ipi_aliquota",

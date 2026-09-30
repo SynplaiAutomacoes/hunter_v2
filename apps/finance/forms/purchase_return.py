@@ -81,6 +81,30 @@ IPI_SITUACAO_CHOICES: tuple[tuple[str, str], ...] = (
     ("49", "49 - Outras entradas"),
 )
 
+ICMS_SITUACAO_CHOICES: tuple[tuple[str, str], ...] = (
+    ("00", "00 - Tributada integralmente"),
+    ("10", "10 - Tributada e com cobrança de ICMS por ST"),
+    ("20", "20 - Com redução de base de cálculo"),
+    ("30", "30 - Isenta ou não tributada e com cobrança de ICMS por ST"),
+    ("40", "40 - Isenta"),
+    ("41", "41 - Não tributada"),
+    ("50", "50 - Suspensão"),
+    ("51", "51 - Diferimento"),
+    ("60", "60 - ICMS cobrado anteriormente por ST"),
+    ("70", "70 - Com redução de BC e cobrança de ICMS por ST"),
+    ("90", "90 - Outros"),
+    ("101", "101 - SN tributada com permissão de crédito"),
+    ("102", "102 - SN tributada sem permissão de crédito"),
+    ("103", "103 - SN isenção do ICMS para faixa de receita bruta"),
+    ("201", "201 - SN tributada com crédito e com cobrança de ICMS por ST"),
+    ("202", "202 - SN tributada sem crédito e com cobrança de ICMS por ST"),
+    ("203", "203 - SN isenção e com cobrança de ICMS por ST"),
+    ("300", "300 - SN imune"),
+    ("400", "400 - SN não tributada"),
+    ("500", "500 - SN ICMS cobrado anteriormente por ST ou antecipação"),
+    ("900", "900 - SN outros"),
+)
+
 
 class PurchaseReturnSourceForm(CoreForm):
     access_key = forms.CharField(
@@ -139,16 +163,22 @@ def _datetime_local_value(value: object) -> str:
 
 
 def build_purchase_return_fiscal_initial(instance: PurchaseReturnRequest) -> dict[str, Any]:
-    from apps.finance.services.purchase_returns import inferred_purchase_return_ipi, inferred_purchase_return_supplier_ie
+    from apps.finance.services.purchase_returns import (
+        inferred_purchase_return_icms_situacao,
+        inferred_purchase_return_ipi,
+        inferred_purchase_return_supplier_ie,
+    )
 
     inferred_ipi_situacao, inferred_ipi_enquadramento, inferred_ipi_aliquota = inferred_purchase_return_ipi(request=instance)
     ipi_situacao = str(instance.ipi_situacao_tributaria or "").strip() or inferred_ipi_situacao
     ipi_enquadramento = str(instance.ipi_codigo_enquadramento or "").strip() or inferred_ipi_enquadramento
     ipi_aliquota = instance.ipi_aliquota if instance.ipi_aliquota is not None else inferred_ipi_aliquota
+    icms_situacao = str(instance.icms_situacao_tributaria or "").strip() or inferred_purchase_return_icms_situacao(request=instance)
 
     return {
         "operation_nature": instance.operation_nature,
         "cfop": instance.cfop,
+        "icms_situacao_tributaria": icms_situacao,
         "ipi_situacao_tributaria": ipi_situacao,
         "ipi_codigo_enquadramento": ipi_enquadramento,
         "ipi_aliquota": ipi_aliquota,
@@ -207,8 +237,14 @@ class PurchaseReturnFiscalForm(CoreForm):
         label="CFOP da Nota de Devolução",
         min_length=4,
         max_length=8,
-        help_text="Único CFOP enviado à Webmania. Informe somente números. ICMS/PIS/COFINS vêm do XML da NF-e de compra.",
+        help_text="Único CFOP enviado à Webmania. Informe somente números. PIS/COFINS e demais bases do ICMS vêm do XML da NF-e de compra.",
         widget=forms.TextInput(attrs={"inputmode": "numeric"}),
+    )
+    icms_situacao_tributaria = forms.ChoiceField(
+        label="CST / CSOSN do ICMS",
+        choices=ICMS_SITUACAO_CHOICES,
+        help_text="Obrigatório. Pré-preenchido com o CST/CSOSN do XML da NF-e de compra.",
+        widget=SearchableSelectInput(choices=ICMS_SITUACAO_CHOICES),
     )
     ipi_situacao_tributaria = forms.ChoiceField(
         label="Situação tributária do IPI",
@@ -295,6 +331,11 @@ class PurchaseReturnFiscalForm(CoreForm):
         self.fields["freight_mode"].required = False
         self.fields["freight_mode"].help_text = "Padrão 9 - Sem transporte. Preencha transportadora e volumes somente quando houver transporte."
         self.fields["additional_information"].required = False
+        icms_situacao = str(self.initial.get("icms_situacao_tributaria") or "").strip()
+        if icms_situacao and icms_situacao not in {value for value, _label in ICMS_SITUACAO_CHOICES}:
+            icms_choices = list(ICMS_SITUACAO_CHOICES) + [(icms_situacao, f"{icms_situacao} (do XML)")]
+            self.fields["icms_situacao_tributaria"].choices = icms_choices
+            self.fields["icms_situacao_tributaria"].widget = SearchableSelectInput(choices=icms_choices)
         situacao = str(self.initial.get("ipi_situacao_tributaria") or "").strip()
         if situacao and situacao not in {value for value, _label in IPI_SITUACAO_CHOICES}:
             choices = list(IPI_SITUACAO_CHOICES) + [(situacao, f"{situacao} (do XML)")]
@@ -305,10 +346,11 @@ class PurchaseReturnFiscalForm(CoreForm):
         self.helper.layout = Layout(
             Div(
                 HTML("<h3 class='text-lg font-semibold'>Dados fiscais da Nota de Devolução</h3>"),
-                HTML("<p class='text-sm text-base-content/70'>Natureza, CFOP e IPI são obrigatórios. ICMS/PIS/COFINS vêm do XML da NF-e de compra. A inscrição estadual vem do XML; deixe em branco para enviar ISENTO.</p>"),
+                HTML("<p class='text-sm text-base-content/70'>Natureza, CFOP, CST/CSOSN do ICMS e IPI são obrigatórios. Bases de ICMS e PIS/COFINS vêm do XML da NF-e de compra. A inscrição estadual vem do XML; deixe em branco para enviar ISENTO.</p>"),
                 Div(
                     Field("operation_nature", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("cfop", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("cfop", wrapper_class="col-span-12 lg:col-span-3"),
+                    Field("icms_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-3"),
                     Field("ipi_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("ipi_codigo_enquadramento", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("ipi_aliquota", wrapper_class="col-span-12 lg:col-span-4"),
@@ -367,6 +409,13 @@ class PurchaseReturnFiscalForm(CoreForm):
         if not cfop.isdigit():
             raise forms.ValidationError("Informe o CFOP somente com números.")
         return cfop
+
+    def clean_icms_situacao_tributaria(self) -> str:
+        situacao = str(self.cleaned_data.get("icms_situacao_tributaria") or "").strip()
+        valid = {value for value, _label in self.fields["icms_situacao_tributaria"].choices}
+        if situacao not in valid:
+            raise forms.ValidationError("Selecione o CST/CSOSN do ICMS.")
+        return situacao
 
     def clean_ipi_situacao_tributaria(self) -> str:
         situacao = str(self.cleaned_data.get("ipi_situacao_tributaria") or "").strip()
