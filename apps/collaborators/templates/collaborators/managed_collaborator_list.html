@@ -1,0 +1,12 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Gerenciar Colaboradores{% endblock %}
+{% block crud_subtitle %}Colaboradores de todas as oficinas da sua conta.{% endblock %}
+
+{% block crud_table_wrapper_id %}managed-collaborators-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'collaborators:collaborator_manage' %}{% endblock %}
+{% block crud_table_hx_trigger %}managed-collaborators-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    {% include 'collaborators/partials/managed_collaborator_table.html' %}
+{% endblock %}
