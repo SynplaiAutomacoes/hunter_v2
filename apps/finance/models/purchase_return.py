@@ -71,6 +71,7 @@ class PurchaseReturnRequest(TimeStampedModel):
     departure_at = models.DateTimeField(null=True, blank=True, verbose_name="Data de entrada/saída")
     delivery_forecast = models.DateField(null=True, blank=True, verbose_name="Previsão de entrega")
     transport_snapshot = models.JSONField(default=dict, blank=True, verbose_name="Snapshot de transporte")
+    supplier_ie = models.CharField(max_length=14, blank=True, null=True, verbose_name="Inscrição Estadual do fornecedor")
     FISCAL_CONFIGURATION_FIELDS: tuple[str, ...] = (
         "operation_nature",
         "cfop",
@@ -101,6 +102,7 @@ class PurchaseReturnRequest(TimeStampedModel):
         "departure_at",
         "delivery_forecast",
         "transport_snapshot",
+        "supplier_ie",
     )
     stock_status = models.CharField(max_length=24, choices=PurchaseReturnStockStatus.choices, default=PurchaseReturnStockStatus.WAITING_AUTHORIZATION, db_index=True, verbose_name="Status do estoque")
     stock_processed_at = models.DateTimeField(null=True, blank=True, verbose_name="Estoque atualizado em")
@@ -127,6 +129,31 @@ class PurchaseReturnRequest(TimeStampedModel):
             errors["fiscal_document"] = "O documento fiscal de devolução pertence a outra oficina."
         if errors:
             raise ValidationError(errors)
+
+    @property
+    def resume_step(self) -> int:
+        current = max(1, min(int(self.current_step or 1), 4))
+        if self.status == PurchaseReturnRequestStatus.DRAFT:
+            return min(current, 3)
+        return 4
+
+    @property
+    def purchase_return_status_badge(self) -> dict[str, str]:
+        status_color = {
+            PurchaseReturnRequestStatus.DRAFT: "badge-soft badge-ghost",
+            PurchaseReturnRequestStatus.READY: "badge-soft badge-info",
+            PurchaseReturnRequestStatus.PROCESSING: "badge-soft badge-warning",
+            PurchaseReturnRequestStatus.AUTHORIZED: "badge-success",
+            PurchaseReturnRequestStatus.REJECTED: "badge-error",
+            PurchaseReturnRequestStatus.COMMUNICATION_ERROR: "badge-error",
+            PurchaseReturnRequestStatus.CONTINGENCY: "badge-soft badge-warning",
+            PurchaseReturnRequestStatus.UNCERTAIN: "badge-warning",
+            PurchaseReturnRequestStatus.CANCELED: "badge-soft badge-error",
+        }
+        return {
+            "text": str(PurchaseReturnRequestStatus(self.status).label),
+            "class": status_color.get(self.status, "badge-ghost"),
+        }
 
     def __str__(self) -> str:
         return f"Devolução de compra {self.pk or '---'} - {self.source_stock_import.nf_number_display}"

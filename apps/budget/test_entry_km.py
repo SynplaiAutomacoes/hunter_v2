@@ -96,6 +96,31 @@ class BudgetStep1EntryKmFormTests(TestCase):
         form = self._form(current_km="87673")
         self.assertTrue(form.is_valid(), form.errors)
 
+    def test_direct_sale_requires_customer_but_not_vehicle_or_km(self) -> None:
+        form = BudgetStep1Form(
+            data={
+                "entry_date": "17/08/2026",
+                "budget_type": "direct_sale",
+                "customer": str(self.customer.pk),
+                "vehicle": "",
+                "current_km": "",
+            },
+            workshop=self.workshop,
+            request=self.request,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_direct_sale_still_requires_customer(self) -> None:
+        form = BudgetStep1Form(
+            data={"entry_date": "17/08/2026", "budget_type": "direct_sale", "vehicle": "", "current_km": ""},
+            workshop=self.workshop,
+            request=self.request,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("customer", form.errors)
+
     def test_vehicle_from_another_customer_is_rejected(self) -> None:
         other_customer = Customer.objects.create(
             workshop=self.workshop,

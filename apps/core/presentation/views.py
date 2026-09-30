@@ -12,7 +12,9 @@ from django.http import HttpResponse, JsonResponse
 from django.urls import reverse
 from django.template.response import TemplateResponse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import TemplateView
 
 from apps.core.domain.contracts.documents import DocumentRenderRequest
@@ -29,7 +31,7 @@ from apps.core.infrastructure.services.dashboard_snapshot_service import get_das
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.utils import clean_id
 from apps.workshops.util.workshops import get_active_workshop_or_404
-from apps.workorder.models import WORKORDER_REVENUE_STATUSES, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus
 
 external_calls_logger = logging.getLogger("performance.external")
 logger = logging.getLogger(__name__)
@@ -186,6 +188,7 @@ class FavoritePageReorderView(LoginRequiredMixin, View):
         return response
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
 class DashboardFinancialReportView(View):
     @staticmethod
     def _build_report_context(*, request: Any) -> dict[str, Any] | None:

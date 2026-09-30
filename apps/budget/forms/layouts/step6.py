@@ -40,7 +40,10 @@ def configure_budget_step6_form(form):
     service_responsibles = WorkshopCollaborator.objects.filter(
         workshop=form.workshop,
         is_active=True,
-        collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+        collaborator_type__in=[
+            WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+            WorkshopCollaborator.CollaboratorType.PRO_LABORE,
+        ],
     ).order_by("name", "pk")
     responsible_options_html = "".join(
         "<option value='{pk}'>{name}</option>".format(pk=collaborator.pk, name=escape(collaborator.name)) for collaborator in service_responsibles

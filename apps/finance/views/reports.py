@@ -29,7 +29,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
-from apps.finance.services.reports import build_day_month_year_financial_overviews_with_open_workorder_credits, open_credits, open_debits
+from apps.finance.services.reports import build_day_month_year_financial_overviews_with_open_workorder_credits, filter_grouped_movements_for_reporting, open_credits, open_debits
 from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.suppliers.models import Supplier
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
@@ -129,11 +129,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         if cached is not None:
             return cached
 
-        queryset = (
+        queryset = filter_grouped_movements_for_reporting(
             FinancialMovement.objects.filter(workshop=self.workshop)
             .filter(due_date__isnull=False)
-            .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
             .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
+        )
+        queryset = (
+            queryset
             .select_related(
                 "source",
                 "supplier",

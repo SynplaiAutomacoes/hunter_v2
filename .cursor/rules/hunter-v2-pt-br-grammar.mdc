@@ -1,0 +1,38 @@
+---
+description: Correção gramatical e ortográfica em textos pt-BR da UI e cópia do produto
+alwaysApply: true
+---
+
+# Português (pt-BR) — gramática e ortografia
+
+Textos de interface, mensagens, títulos, labels, help texts, templates e documentação voltada ao usuário devem estar em português brasileiro **gramaticalmente e ortograficamente corretos**.
+
+## Ao encontrar erro
+
+- Corrija no mesmo PR/change, sem esperar pedido explícito.
+- Priorize acentuação, concordância, crase e termos do domínio (ex.: emissão, serviço, ordem de serviço).
+- Não “desacentue” de propósito por convenção ASCII em strings de UI.
+
+## Ao escrever texto novo
+
+- Use acentuação correta: emissão, serviço, operação, número, situação, fiscal, etc.
+- Prefira frases claras e naturais em pt-BR; evite misturar PT/EN em labels visíveis.
+- Identificadores de código (`snake_case`, status codes, chaves JSON) podem permanecer sem acento; a regra vale para **texto exibido ao usuário**.
+
+## Exemplos
+
+```html
+<!-- ❌ -->
+<h1>Emissao de nota</h1>
+
+<!-- ✅ -->
+<h1>Emissão de nota</h1>
+```
+
+```python
+# ❌
+messages.error(request, "Falha na emissao da Nota Fiscal de Servico.")
+
+# ✅
+messages.error(request, "Falha na emissão da Nota Fiscal de Serviço.")
+```

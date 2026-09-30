@@ -198,7 +198,14 @@
                                 <span class="text-2xl font-bold text-base-content">{{ taxa_aprovacao|floatformat:2 }}%</span>
                             </div>
                             {% endwith %}
-                            <span class="text-lg font-semibold">Taxa de Aprovação</span>
+                            <div class="flex items-center gap-1">
+                                <span class="text-lg font-semibold">Taxa de Aprovação</span>
+                                <a href="{% url 'core:management_report' %}?tipo=taxa_aprovacao&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}"
+                                   class="flex items-center text-base-content/30 hover:text-primary"
+                                   title="Ver relatório detalhado" aria-label="Ver relatório de taxa de aprovação">
+                                    <span class="material-icons" style="font-size: 14px;">visibility</span>
+                                </a>
+                            </div>
                             <p class="text-xs text-base-content/60 text-center max-w-[200px]">Valor calculado em cima dos orçamentos reprovados / orçamentos enviados</p>
                         </div>
                         <div class="flex flex-col items-center gap-4" x-data="{ mode: 'profitability' }">
@@ -229,7 +236,15 @@
                                     </div>
                                 </div>
                             {% endwith %}
-                            <span x-show="mode === 'profitability'" class="text-lg font-semibold">Rentabilidade Acumulada</span>
+                            <div class="flex items-center gap-1" x-show="mode === 'profitability'">
+                                <span class="text-lg font-semibold">Rentabilidade Acumulada</span>
+                                <a href="{% url 'core:management_report' %}?tipo=rentabilidade_acumulada&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}"
+                                   class="flex items-center text-base-content/30 hover:text-primary"
+                                   title="Ver relatório detalhado" aria-label="Ver relatório de rentabilidade"
+                                   @click.stop>
+                                    <span class="material-icons" style="font-size: 14px;">visibility</span>
+                                </a>
+                            </div>
                             <p x-show="mode === 'profitability'" class="text-xs text-base-content/60 text-center max-w-[200px]">Rentabilidade calculada em cima do valor dos veículos entregues</p>
                             <span x-show="mode === 'markup'" x-cloak class="text-lg font-semibold text-center">Multiplicador de Lucratividade Acumulado</span>
                             {% if markup_meta %}
@@ -243,7 +258,14 @@
                                  role="progressbar">
                                 <span class="text-2xl font-bold text-base-content">{{ indice_retorno_em_garantia_mes|floatformat:2 }}%</span>
                             </div>
-                            <span class="text-lg font-semibold">Retorno em Garantia</span>
+                            <div class="flex items-center gap-1">
+                                <span class="text-lg font-semibold">Retorno em Garantia</span>
+                                <a href="{% url 'core:management_report' %}?tipo=retorno_garantia&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}"
+                                   class="flex items-center text-base-content/30 hover:text-primary"
+                                   title="Ver relatório detalhado" aria-label="Ver relatório de retorno em garantia">
+                                    <span class="material-icons" style="font-size: 14px;">visibility</span>
+                                </a>
+                            </div>
                             <p class="text-xs text-base-content/60 text-center max-w-[200px]">Percentual de veículos que retornaram no período</p>
                         </div>
                     </div>

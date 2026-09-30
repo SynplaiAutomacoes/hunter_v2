@@ -361,6 +361,8 @@ class WorkshopAddressSectionForm(BaseWebmaniaCompanySectionForm):
 
 
 class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
+    secret_fields = ("nfse_password", "nfse_token")
+
     class Meta:
         model = WebmaniaCompany
         fields = [
@@ -384,6 +386,9 @@ class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
             "regime_apuracao_sn",
             "regime_especial_nacional",
             "regime_especial_municipal",
+            "nfse_login",
+            "nfse_password",
+            "nfse_token",
         ]
         widgets = {
             "informacoes_fisco": TextareaInput(rows=3),
@@ -406,7 +411,20 @@ class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
             "regime_apuracao_sn": TextInput(),
             "regime_especial_nacional": TextInput(),
             "regime_especial_municipal": TextInput(),
+            "nfse_login": TextInput(),
+            "nfse_password": PasswordInput(),
+            "nfse_token": PasswordInput(),
         }
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, workshop=workshop, **kwargs)
+        portal_help = "Portal da Prefeitura ou Portal Nacional (MEI), conforme o municipio."
+        if "nfse_login" in self.fields:
+            self.fields["nfse_login"].help_text = portal_help
+        keep_secret_help = "Deixe em branco para manter o valor atual."
+        for field_name in self.secret_fields:
+            if field_name in self.fields:
+                self.fields[field_name].help_text = keep_secret_help
 
 
 class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):

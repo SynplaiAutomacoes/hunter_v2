@@ -166,6 +166,7 @@ def create_envelope(
     signatories: list[dict[str, Any]],
     whatsapp_instance: str = "",
     content_type: str = "application/pdf",
+    sender_name: str = "",
 ) -> SynplaiSignGatewayResult:
     base_url = _require_base_url()
     resolved_content_type = str(content_type or "application/pdf").strip() or "application/pdf"
@@ -176,6 +177,10 @@ def create_envelope(
         "message": message,
         "signatories": json.dumps(signatories, ensure_ascii=False),
     }
+    resolved_sender_name = str(sender_name or "").strip()
+    if resolved_sender_name:
+        data["senderName"] = resolved_sender_name
+
     instance_name = str(whatsapp_instance or "").strip()
     if instance_name:
         data["whatsappInstance"] = instance_name
@@ -189,6 +194,7 @@ def create_envelope(
             "document_bytes_size": len(document_bytes),
             "content_type": resolved_content_type,
             "whatsapp_instance": instance_name or None,
+            "sender_name": resolved_sender_name or None,
         },
     )
 

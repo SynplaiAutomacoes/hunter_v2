@@ -29,7 +29,7 @@ from apps.budget.item_origin import (
 )
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.pricing import _is_better_service_source, _is_better_source, kit_component_winning_item_ids, zero_money
-from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.budget.service_costs import displayed_service_mechanic_cost
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.services.workorder_emission import get_workorder_emission_ui_state
@@ -39,7 +39,7 @@ from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.core.infrastructure.services.signature import build_signature_whatsapp_skip_note
 from apps.collaborators.services import workorder_commission_context
-from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
+from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderDeliveryDateForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
 from apps.terms.models import WorkOrderTermSigning
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.service import (
@@ -413,15 +413,14 @@ def _annotate_workorder_resume_gestor_costs(*, workorder: WorkOrder, display_pro
         fallback_cost = unit_fallback * quantity if quantity else unit_fallback
         service = getattr(item, "service", None)
         is_third_party = bool(getattr(service, "is_third_party", False))
-        if budget is None or is_third_party:
+        is_kit_origin = bool(getattr(item, "origin_is_kit", False) or getattr(item, "is_kit_component", False))
+        if budget is None:
+            mechanic_cost = fallback_cost
+        elif is_third_party and is_kit_origin:
+            # Kit tables use the exploded catalog cost for third-party rows.
             mechanic_cost = fallback_cost
         else:
-            mechanic_cost = calculate_mechanic_service_cost(
-                budget=budget,
-                duration=getattr(item, "duration", None),
-                quantity=quantity,
-                fallback_cost=fallback_cost,
-            )
+            mechanic_cost = displayed_service_mechanic_cost(budget=budget, item=item)
         total_price = getattr(item, "total_price", None) or _zero_brl()
         profit = total_price - mechanic_cost
         benefit = str(getattr(item, "item_benefit_type", "normal") or "normal")
@@ -812,16 +811,29 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         can_reopen = bool(request and can_reopen_workorder(request=request, workorder=workorder))
     except AttributeError:
         can_reopen = False
+    can_edit_delivery_date = bool(
+        request
+        and has_workshop_perm(
+            user=request.user,
+            workshop=workorder.workshop,
+            app_label="workorder",
+            model="workorder",
+            codename="change_delivery_date",
+            request=request,
+        )
+    )
     term_signing = WorkOrderTermSigning.objects.filter(workorder=workorder).select_related("term_template").first()
     return {
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
         "approval_form": WorkOrderCustomerApprovalForm(workorder=workorder),
+        "delivery_date_form": WorkOrderDeliveryDateForm(workorder=workorder),
         "term_signing": term_signing,
         "cancel_form": WorkOrderStatusReasonForm(workorder=workorder, action="cancel"),
         "reject_form": WorkOrderStatusReasonForm(workorder=workorder, action="reject"),
         "reopen_form": WorkOrderReopenForm(workorder=workorder),
         "can_reopen_workorder": can_reopen,
+        "can_edit_delivery_date": can_edit_delivery_date,
         "can_view_workorder_emission": can_emit,
         "emission_ui": emission_ui,
         "emission_form": None,

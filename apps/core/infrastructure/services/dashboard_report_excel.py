@@ -163,12 +163,12 @@ def _workorder_row(*, item: Any, amount: Decimal, link_label: str, row_fill: str
 
 
 def _budget_type_label(budget_type: str) -> str:
-    mapping = {"sale": "Venda", "warranty": "Garantia", "courtesy": "Cortesia"}
+    mapping = {"sale": "Venda", "direct_sale": "Venda Direta", "warranty": "Garantia", "courtesy": "Cortesia"}
     return mapping.get(budget_type, budget_type or "-")
 
 
 def _budget_type_badge(budget_type: str) -> BadgeKey:
-    mapping = {"sale": "venda", "warranty": "garantia", "courtesy": "cortesia"}
+    mapping = {"sale": "venda", "direct_sale": "venda", "warranty": "garantia", "courtesy": "cortesia"}
     return mapping.get(budget_type, "venda")
 
 

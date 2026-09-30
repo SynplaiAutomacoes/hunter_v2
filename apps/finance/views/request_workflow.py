@@ -19,7 +19,8 @@ def build_preview_hidden_fields(*, cleaned_data: dict[str, object]) -> list[dict
         if value is None:
             normalized_value = ""
         elif isinstance(value, bool):
-            normalized_value = "1" if value else ""
+            # TypedChoiceField round-trip for consumidor_final uses "true"/"false".
+            normalized_value = "true" if value else "false"
         else:
             normalized_value = str(value)
         hidden_fields.append({"name": str(name), "value": normalized_value})
@@ -34,6 +35,8 @@ def render_emission_preview_modal(
     transmit_url: str,
     hidden_fields: list[dict[str, str]],
     description: str = "",
+    transmit_target: str = "#step-container",
+    transmit_label: str = "Transmitir",
 ) -> HttpResponse:
     response = render(
         request,
@@ -44,6 +47,8 @@ def render_emission_preview_modal(
             "transmit_url": transmit_url,
             "hidden_fields": hidden_fields,
             "description": description,
+            "transmit_target": transmit_target,
+            "transmit_label": transmit_label,
         },
     )
     if getattr(request, "htmx", False):

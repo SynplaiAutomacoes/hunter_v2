@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 from django.test import SimpleTestCase, TestCase
@@ -8,7 +9,8 @@ from django.urls import reverse
 from djmoney.money import Money
 
 from apps.budget.item_origin import AVULSO_ORIGIN_LABEL, KIT_ORIGIN_LABEL
-from apps.budget.models import Budget
+from apps.budget.models import Budget, BudgetItem
+from apps.budget.review_totals import build_step6_table_totals
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
@@ -333,3 +335,99 @@ class WorkOrderAddKitBatchViewTests(TestCase):
         self.assertEqual(product_rows[0].product_id, self.kit_product.pk)
         self.assertEqual(product_rows[0].quantity, 2)
         self.assertEqual(product_rows[0].origin_label, KIT_ORIGIN_LABEL)
+
+
+class WorkOrderResumeGestorCostTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(
+            name="Oficina Custo Gestor",
+            cnpj="12.345.678/0001-98",
+            phone="+5511999999998",
+            address="Rua Custo Gestor, 1",
+        )
+        self.labor = Service.objects.create(
+            workshop=self.workshop,
+            name="Kit embreagem OS",
+            duration=timedelta(hours=8),
+            suggested_cost=Money("10.00", "BRL"),
+            selling_price=Money("600.00", "BRL"),
+        )
+        self.third_party = Service.objects.create(
+            workshop=self.workshop,
+            name="Retifica do Volante OS",
+            duration=timedelta(0),
+            suggested_cost=Money("150.00", "BRL"),
+            selling_price=Money("360.00", "BRL"),
+            is_third_party=True,
+        )
+        self.budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=date(2026, 9, 14),
+            slider=0,
+            pricing_reference_month=9,
+            pricing_reference_year=2026,
+            pricing_hourly_cost_value=Money("164.35", "BRL"),
+            pricing_working_hours_per_month=Decimal("176.00"),
+            pricing_productive_salary_total=Money("4938.56", "BRL"),
+            pricing_profitability_multiplier=Decimal("3.30"),
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            service=self.labor,
+            quantity=1,
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            service=self.third_party,
+            quantity=1,
+        )
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            service=self.labor,
+            quantity=1,
+        )
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            service=self.third_party,
+            quantity=1,
+        )
+
+    def test_standalone_third_party_resume_matches_budget_table(self) -> None:
+        table = build_step6_table_totals(budget=self.budget)
+        context = _build_edit_items_context(self.workorder)
+        third_party_row = next(row for row in context["display_service_items"] if row.service_id == self.third_party.pk)
+
+        self.assertEqual(third_party_row.origin_label, AVULSO_ORIGIN_LABEL)
+        self.assertEqual(third_party_row.gestor_cost_total, Money("0.00", "BRL"))
+        self.assertEqual(context["resume_pdf"]["total_services_mechanic_cost_value"], table["services"].cost)
+        self.assertEqual(context["resume_pdf"]["total_profit_service_value"], table["services"].profit)
+
+    def test_kit_third_party_resume_keeps_catalog_cost(self) -> None:
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit terceiro")
+        kit.refresh_from_db()
+        KitService.objects.create(
+            kit=kit,
+            service=self.third_party,
+            quantity=1,
+            duration=timedelta(0),
+            cost_price=Money("150.00", "BRL"),
+            selling_price=Money("360.00", "BRL"),
+        )
+        kit_workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget)
+        WorkOrderItem.objects.create(
+            workshop=self.workshop,
+            workorder=kit_workorder,
+            kit=kit,
+            quantity=1,
+        )
+
+        context = _build_edit_items_context(kit_workorder)
+        service_rows = list(context["display_service_items"])
+        self.assertEqual(len(service_rows), 1)
+        self.assertEqual(service_rows[0].origin_label, KIT_ORIGIN_LABEL)
+        self.assertEqual(service_rows[0].gestor_cost_total, Money("150.00", "BRL"))

@@ -10,6 +10,18 @@ from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateR
 from apps.iam.forms import WorkshopRoleForm
 from apps.iam.models import WorkshopRole
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import is_workshop_director
+
+
+class DirectorOnlyDeliveryDatePermissionMixin:
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["can_manage_delivery_date_permission"] = is_workshop_director(
+            user=self.request.user,
+            workshop=self.workshop,
+            request=self.request,
+        )
+        return kwargs
 
 
 class WorkshopRoleListView(WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -48,7 +60,7 @@ class WorkshopRoleListView(WorkshopScopedMixin, HtmxTemplateResponseMixin, ListV
         return context
 
 
-class WorkshopRoleCreateView(WorkshopScopedMixin, CreateView):
+class WorkshopRoleCreateView(DirectorOnlyDeliveryDatePermissionMixin, WorkshopScopedMixin, CreateView):
     model = WorkshopRole
     form_class = WorkshopRoleForm
     template_name = "iam/role_create.html"
@@ -59,7 +71,7 @@ class WorkshopRoleCreateView(WorkshopScopedMixin, CreateView):
         return super().form_valid(form)
 
 
-class WorkshopRoleUpdateView(WorkshopScopedMixin, UpdateView):
+class WorkshopRoleUpdateView(DirectorOnlyDeliveryDatePermissionMixin, WorkshopScopedMixin, UpdateView):
     model = WorkshopRole
     form_class = WorkshopRoleForm
     template_name = "iam/role_update.html"

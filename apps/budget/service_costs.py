@@ -15,3 +15,20 @@ def calculate_mechanic_service_cost(*, budget: Any, duration: timedelta | None, 
 
     amount = (mechanic_hour_cost * duration_hours * Decimal(max(0, quantity))).amount.quantize(Decimal("0.01"), ROUND_HALF_UP)
     return Money(amount, "BRL")
+
+
+def displayed_service_mechanic_cost(*, budget: Any, item: Any) -> Money:
+    """Mechanic cost shown on budget tables, OS resume, and PDF gestor.
+
+    Uses hour × duration. Catalog/third-party cost is only a fallback when the
+    workshop hour cost is missing — never added on top of a zero-duration line.
+    """
+    quantity = int(getattr(item, "quantity", 0) or 0)
+    fallback = getattr(item, "service_cost_price", None) or Money(0, "BRL")
+    fallback_total = fallback * quantity if quantity else fallback
+    return calculate_mechanic_service_cost(
+        budget=budget,
+        duration=getattr(item, "duration", None),
+        quantity=quantity,
+        fallback_cost=fallback_total,
+    )

@@ -19,8 +19,11 @@ from djmoney.money import Money
 from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator
 from apps.finance.services.payroll_commission_history import SERVICE_COMMISSION_ORIGINS
 from apps.core.domain.contracts.documents import DocumentRenderRequest
-from apps.core.infrastructure.pdf.renderer import build_pdf_http_response, render_template_request_to_pdf
+from apps.core.infrastructure.pdf.renderer import build_excel_http_response, build_pdf_http_response, render_template_request_to_pdf
 from apps.core.infrastructure.search import build_text_search_query
+from apps.core.infrastructure.services.management_reports.commissions import build_total_comissao_periodo
+from apps.core.infrastructure.services.management_reports.exports import build_management_report_excel
+from apps.core.infrastructure.services.management_reports.period import ReportPeriod
 from apps.finance.forms.emission_ui import format_money
 from apps.workorder.models import WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -455,3 +458,23 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
         )
         return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
+
+
+class CommissionReportExcelView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
+    workshop_permission_codename = "view_financialmovement"
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        today = timezone.localdate()
+        start_date = CommissionReportPdfView._parse_date_param(request.GET.get("data_inicial"))
+        end_date = CommissionReportPdfView._parse_date_param(request.GET.get("data_final"))
+        period = ReportPeriod(
+            month=_parse_int_param(request.GET.get("mes"), default=today.month, minimum=1, maximum=12),
+            year=_parse_int_param(request.GET.get("ano"), default=today.year, minimum=2000, maximum=9999),
+            start_date=start_date,
+            end_date=end_date,
+        )
+        report = build_total_comissao_periodo(workshop=self.workshop, period=period)
+        document = build_management_report_excel(report=report)
+        return build_excel_http_response(document=document)

@@ -856,7 +856,16 @@
                 init() {
                     let d = onlyDigits(this.rawValue);
                     if (d.startsWith('55')) d = d.slice(2);
-                    d = d.slice(0, 11);
+
+                    // Overlong / glued values must stay visible as invalid so the
+                    // user can fix them. Silent truncation hid bad DB phones.
+                    if (d.length > 11) {
+                        this.$refs.value.value = '';
+                        this.$refs.display.value = this.rawValue || d;
+                        this.$refs.display.classList.add('input-error');
+                        return;
+                    }
+
                     this.$refs.value.value = d ? ('+55' + d) : '';
                     this.$refs.display.value = phone.formatBRFromDigits(d);
                 },
@@ -864,6 +873,7 @@
                     const digits = onlyDigits(e.target.value).replace(/^55/, '').slice(0, 11);
                     this.$refs.value.value = digits ? ('+55' + digits) : '';
                     e.target.value = phone.formatBRFromDigits(digits);
+                    e.target.classList.remove('input-error');
                 },
             };
         },

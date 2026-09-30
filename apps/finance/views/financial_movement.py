@@ -70,7 +70,11 @@ def _get_financial_movement_selected_source_id(request: HttpRequest) -> int | No
 def get_financial_movement_table_columns() -> list[TableColumn]:
     return [
         TableColumn("ID", attr="id"),
-        TableColumn(FinancialMovement.source.field.verbose_name, attr="source", search_by="source__name"),
+        TableColumn(
+            FinancialMovement.source.field.verbose_name,
+            attr="source",
+            search_by=("source__name", "supplier__name", "collaborator__name"),
+        ),
         TableColumn("Tipo", attr="get_direction_display", search_by="direction"),
         TableColumn("Lançamento", attr="entry_date"),
         TableColumn("Valor Bruto", attr="gross_amount", format="money_br"),

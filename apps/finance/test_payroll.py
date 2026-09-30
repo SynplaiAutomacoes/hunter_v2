@@ -19,7 +19,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.dre import _agent_label
 from apps.finance.services.payroll_visibility import PAYROLL_REDACTED_LABEL, resolve_payroll_movement_display
-from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementRemovePayrollLinkView
+from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementRemovePayrollLinkView, get_financial_movement_table_columns
 from apps.finance.views.payroll import PayrollAddManualBenefitView, PayrollAddManualCommissionView, PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView
 from apps.finance.views.reports import ReportMovementEditView
 from apps.workshops.models.workshops import Workshop
@@ -228,6 +228,11 @@ class PayrollListViewTests(TestCase):
 
 
 class FinancialMovementListViewTests(TestCase):
+    def test_global_search_includes_supplier_and_collaborator(self) -> None:
+        agent_column = next(column for column in get_financial_movement_table_columns() if column.attr == "source")
+
+        self.assertEqual(agent_column.search_by, ("source__name", "supplier__name", "collaborator__name"))
+
     def test_payroll_movements_use_remove_action_instead_of_delete(self) -> None:
         workshop = create_workshop(suffix=24)
         collaborator = create_collaborator(workshop=workshop, suffix=24)

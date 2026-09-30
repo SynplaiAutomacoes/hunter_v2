@@ -64,6 +64,14 @@ class BudgetStep1Form(BudgetStepBaseForm):
         self.fields["fuel_level"].required = False
         self.fields["current_km"].error_messages["required"] = "Preencha o KM atual para continuar."
 
+        # Venda Direta é uma venda sem atendimento de veículo. Cliente segue
+        # obrigatório, porém veículo e os seus dados não podem bloquear o fluxo.
+        selected_budget_type = self.data.get("budget_type") if self.is_bound else getattr(self.instance, "budget_type", None)
+        if selected_budget_type == "direct_sale":
+            vehicle_field.required = False
+            self.fields["current_km"].required = False
+            self.fields["fuel_level"].required = False
+
         selected_customer_id = ""
         selected_vehicle_id = ""
         selected_customer = None
@@ -404,8 +412,44 @@ class BudgetStep1Form(BudgetStepBaseForm):
                             <div
                                 class="mb-5 rounded-2xl border border-base-300/80 bg-base-200/30 p-4 shadow-sm"
                                 x-data="{
-                                    budgetType: '{{ form.budget_type.value|default:"sale" }}'
+                                    budgetType: '{{ form.budget_type.value|default:"sale" }}',
+                                    toggleDirectSaleFields() {
+                                        const isDirectSale = this.budgetType === 'direct_sale';
+                                        const vehicle = document.getElementById('id_vehicle');
+                                        const km = document.getElementById('id_current_km');
+                                        const kmDisplay = km?.closest('[x-data]')?.querySelector('[x-ref=display]');
+
+                                        [vehicle, km, kmDisplay].filter(Boolean).forEach((field) => {
+                                            field.required = !isDirectSale;
+                                            field.toggleAttribute('required', !isDirectSale);
+                                        });
+
+                                        ['id_vehicle', 'id_current_km'].forEach((fieldId) => {
+                                            const label = document.querySelector('label[for=' + fieldId + ']');
+                                            if (!label) return;
+
+                                            label.querySelectorAll('.asteriskField').forEach((marker) => {
+                                                marker.style.display = isDirectSale ? 'none' : '';
+                                            });
+                                            let optionalHint = label.querySelector('[data-direct-sale-optional]');
+                                            if (isDirectSale && !optionalHint) {
+                                                optionalHint = document.createElement('span');
+                                                optionalHint.dataset.directSaleOptional = 'true';
+                                                optionalHint.className = 'ml-1 text-xs font-normal text-base-content/60';
+                                                optionalHint.textContent = '(opcional)';
+                                                label.appendChild(optionalHint);
+                                            } else if (!isDirectSale && optionalHint) {
+                                                optionalHint.remove();
+                                            }
+                                        });
+
+                                        if (isDirectSale && kmDisplay && String(kmDisplay.value || '').trim() === '0') {
+                                            kmDisplay.value = '';
+                                            kmDisplay.dispatchEvent(new Event('input', { bubbles: true }));
+                                        }
+                                    }
                                 }"
+                                x-init="toggleDirectSaleFields()"
                             >
                                 <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                     <div class="space-y-1">
@@ -415,30 +459,35 @@ class BudgetStep1Form(BudgetStepBaseForm):
                                         </p>
                                     </div>
 
-                                    <div class="flex w-full items-center justify-between gap-4 bg-base-100 px-4 py-3 transition-all hover:border-primary/40 hover:shadow-sm lg:max-w-xs">
+                                    <div class="flex w-full items-center justify-between gap-3 bg-base-100 px-4 py-3 transition-all hover:border-primary/40 hover:shadow-sm lg:max-w-xs">
                                         <div class="flex w-full flex-col gap-2">
                                             <select
                                                 name="budget_type"
                                                 id="id_budget_type"
                                                 class="select select-bordered w-full"
                                                 x-model="budgetType"
+                                                @change="toggleDirectSaleFields()"
                                             >
                                                 <option value="sale" {% if form.budget_type.value == "sale" %}selected{% endif %}>Venda</option>
-                                                <option value="warranty" {% if form.budget_type.value == "warranty" %}selected{% endif %}>Garantia</option>
+                <option value="direct_sale" {% if form.budget_type.value == "direct_sale" %}selected{% endif %}>Venda Direta</option>
+                <option value="warranty" {% if form.budget_type.value == "warranty" %}selected{% endif %}>Garantia</option>
                                                 <option value="courtesy" {% if form.budget_type.value == "courtesy" %}selected{% endif %}>Cortesia</option>
                                             </select>
                                         </div>
 
                                         <span
-                                            class="badge min-w-20 px-3 py-3 text-sm font-semibold transition-colors"
+                                            class="badge min-w-24 shrink-0 whitespace-nowrap px-2 py-2 text-xs font-semibold transition-colors"
                                             :class="{
                                                 'badge-success': budgetType === 'sale',
+                                                'badge-reopened-after-delivery': budgetType === 'direct_sale',
                                                 'badge-error': budgetType === 'warranty',
                                                 'badge-info': budgetType === 'courtesy'
                                             }"
                                             x-text="
                                                 budgetType === 'warranty'
                                                     ? 'Garantia'
+                                                    : budgetType === 'direct_sale'
+                                                        ? 'Venda Direta'
                                                     : budgetType === 'courtesy'
                                                         ? 'Cortesia'
                                                         : 'Venda'
@@ -446,6 +495,8 @@ class BudgetStep1Form(BudgetStepBaseForm):
                                         >
                                             {% if form.budget_type.value == "warranty" %}
                                                 Garantia
+                                            {% elif form.budget_type.value == "direct_sale" %}
+                                                Venda Direta
                                             {% elif form.budget_type.value == "courtesy" %}
                                                 Cortesia
                                             {% else %}

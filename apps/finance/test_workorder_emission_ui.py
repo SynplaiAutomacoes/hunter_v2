@@ -180,7 +180,12 @@ class EmissionDeepLinkTests(TestCase):
         view.seed_state_at_summary(workorder=self.workorder)
         request.POST = QueryDict("", mutable=True)
         form = EmissionStep4Form(
-            {"pricing_slider": "0", "note_mode": "nfe"},
+            {
+                "pricing_slider": "0",
+                "note_mode": "nfe",
+                "discount_value_override_0": "0.00",
+                "discount_value_override_1": "BRL",
+            },
             workorder=self.workorder,
             allowed_note_modes={"nfe", "nfse", "both"},
         )

@@ -13,10 +13,6 @@ from apps.workshops.util.workshops import can_view_payroll_details
 VisibilityPredicate = Callable[[HttpRequest, dict[str, Any]], bool]
 
 
-def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool:
-    return bool(flags.get("active_workshop_is_director") or flags.get("active_workshop_is_manager"))
-
-
 def _can_view_payroll(request: HttpRequest, flags: dict[str, Any]) -> bool:
     active_workshop_id = flags.get("active_workshop_id")
     if active_workshop_id is None:
@@ -46,11 +42,20 @@ FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movime
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {"label": "Orçamentos", "view_name": "budget:budget_list", "favoritable": False},
     {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False},
-    {"label": "Agendamentos", "view_name": "scheduling:appointment_calendar", "favoritable": False},
+    {
+        "label": "Agendamentos",
+        "items": (
+            {"label": "Criar Agendamento", "view_name": "scheduling:appointment_create"},
+            {"label": "Mensagens WhatsApp", "view_name": "messaging:message_template_list"},
+            {"label": "Grupos de Mensagens", "view_name": "messaging:customer_message_group_list"},
+            {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list"},
+        ),
+    },
     {
         "label": "Estoque",
         "items": (
             {"label": "Consulta no Estoque", "view_name": "stock:stock_inquiry"},
+            {"label": "Cadastro de Produto", "view_name": "catalog:product_list"},
             {"label": "Exportar Itens", "view_name": "stock:transfer"},
             {"label": "Importar Itens", "view_name": "stock:stock_list"},
             {"label": "Aprovação", "view_name": "stock:approvals"},
@@ -68,10 +73,8 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Movimentação Financeira", "view_name": "finance:reports_home"},
             {"label": "Folha de Pagamento", "view_name": "finance:payroll_list", "visible_if": _can_view_payroll},
             {"label": "Apuração de Comissões", "view_name": "finance:commission_report"},
-            {"label": "Conta Bancária", "view_name": "finance:bank_account_list"},
             {"label": "Formas de Pagamento", "view_name": "finance:payment_methods_list"},
             {"label": "Grupos Financeiros", "view_name": "finance:financial_groups_list"},
-            {"label": "Classe de Imposto", "view_name": "finance:tax_class_list"},
             {"label": "Gerar DRE", "view_name": "finance:dre_report"},
             {"label": "Fluxo de Contas", "view_name": "finance:cash_flow"},
         ),
@@ -80,28 +83,24 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "label": "Cadastros",
         "items": (
             {"label": "Cliente", "view_name": "customer:customer_list"},
-            {"label": "Mensagens WhatsApp", "view_name": "messaging:message_template_list"},
-            {"label": "Grupos de Mensagens", "view_name": "messaging:customer_message_group_list"},
             {"label": "Colaborador", "view_name": "collaborators:collaborator_list"},
             {"label": "Fornecedor", "view_name": "suppliers:supplier_list"},
-            {"label": "Produto", "view_name": "catalog:product_list"},
             {"label": "Serviço", "view_name": "catalog:services_list"},
             {"label": "Kit", "view_name": "catalog:kits_list"},
             {"label": "Grupo", "view_name": "catalog:group_list"},
             {"label": "Checklist", "view_name": "checklist:checklist_list"},
             {"label": "Termos", "view_name": "terms:term_template_list"},
             {"label": "Planos de Revisão", "view_name": "workshops:review_plan_list"},
+            {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
         ),
     },
     {
         "label": "Gestão",
         "items": (
+            {"label": "Central de Relatórios", "view_name": "core:reports_hub"},
             {"label": "Gerenciar Oficinas", "view_name": "workshops:list"},
             {"label": "Gerenciar Permissões", "view_name": "iam:role_list"},
-            {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
-            {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
-            {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list"},
         ),
     },
 )

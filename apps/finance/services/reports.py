@@ -49,6 +49,21 @@ def _sum_payment_totals(queryset) -> Decimal:
     )
 
 
+def _apply_workorder_payment_aware_date_filter(queryset, *, lookup: str, value: date):
+    """Filter by due_date, using payment due dates for OS parents that have plans."""
+    workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
+    return queryset.filter(
+        (~workorder_parent_query & Q(**{lookup: value}))
+        | (
+            workorder_parent_query
+            & Q(
+                workorder__payments__isnull=False,
+                **{f"workorder__payments__{lookup}": value},
+            )
+        )
+    ).distinct()
+
+
 def filter_grouped_movements_for_reporting(queryset):
     consolidated_group_parent = FinancialMovement.objects.filter(
         movement_group_id=OuterRef("movement_group_id"),
@@ -79,19 +94,6 @@ def build_financial_overview(
     reconciliation_status: str | None = None,
 ) -> FinancialOverview:
     normalized_budget_plan_ids = [int(value) for value in budget_plan_ids or []]
-
-    def _apply_workorder_payment_aware_date_filter(queryset, *, lookup: str, value: date):
-        workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
-        return queryset.filter(
-            (~workorder_parent_query & Q(**{lookup: value}))
-            | (
-                workorder_parent_query
-                & Q(
-                    workorder__payments__isnull=False,
-                    **{f"workorder__payments__{lookup}": value},
-                )
-            )
-        ).distinct()
 
     def _apply_common_filters(queryset):
         if start_date is not None and not str(search or "").strip():
@@ -287,19 +289,6 @@ def _apply_report_common_filters(queryset, *, start_date=None, end_date=None, se
     cash flow and tests).
     """
     normalized_budget_plan_ids = [int(value) for value in budget_plan_ids or []]
-
-    def _apply_workorder_payment_aware_date_filter(qs, *, lookup: str, value: date):
-        workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
-        return qs.filter(
-            (~workorder_parent_query & Q(**{lookup: value}))
-            | (
-                workorder_parent_query
-                & Q(
-                    workorder__payments__isnull=False,
-                    **{f"workorder__payments__{lookup}": value},
-                )
-            )
-        ).distinct()
 
     if start_date is not None and not str(search or "").strip():
         queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
