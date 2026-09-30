@@ -440,6 +440,22 @@ class PurchaseReturnWorkflowTests(TestCase):
         with self.assertRaisesMessage(PurchaseReturnError, "excede o saldo disponível"):
             save_purchase_return_items(request=second, quantities={self.motor.pk: Decimal("0.5001")})
 
+    def test_soft_deleted_ready_intention_releases_reserved_balance(self) -> None:
+        from apps.finance.services.fiscal_request_soft_delete import soft_delete_purchase_return_request
+
+        first = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=first, quantities={self.motor.pk: Decimal("2")})
+        finalize_purchase_return_request(request=first)
+        self.assertEqual(available_purchase_return_quantities(stock_import=self.stock_import)[1], Decimal("0.0000"))
+
+        soft_delete_purchase_return_request(return_request=first, user=self.user)
+        self.assertEqual(available_purchase_return_quantities(stock_import=self.stock_import)[1], Decimal("2.0000"))
+
+        second = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=second, quantities={self.motor.pk: Decimal("2")})
+        finalized = finalize_purchase_return_request(request=second)
+        self.assertEqual(finalized.status, PurchaseReturnRequestStatus.READY)
+
     def test_workflow_persists_steps_renders_review_and_creates_only_intention(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})

@@ -244,6 +244,7 @@ def available_purchase_return_quantities(*, stock_import: StockImport, exclude_r
         request__source_stock_import=stock_import,
         request__status=PurchaseReturnRequestStatus.READY,
         request__fiscal_document__isnull=True,
+        request__soft_deleted_at__isnull=True,
         source_item__isnull=False,
     )
     if exclude_request is not None and exclude_request.pk:
