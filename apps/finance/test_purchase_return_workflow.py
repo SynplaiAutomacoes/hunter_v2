@@ -58,6 +58,30 @@ LEGACY_ACCESS_KEY = "35" + ("8" * 42)
 User = get_user_model()
 
 
+def _fiscal_form_data(**overrides: object) -> dict[str, object]:
+    data: dict[str, object] = {
+        "operation_nature": "Devolução de compra",
+        "cfop": "5202",
+        "ipi_situacao_tributaria": "99",
+        "ipi_codigo_enquadramento": "999",
+    }
+    data.update(overrides)
+    return data
+
+
+def _set_fiscal_fields(
+    return_request: PurchaseReturnRequest,
+    *,
+    cfop: str = "5202",
+    ipi_situacao: str = "99",
+    ipi_enquadramento: str = "999",
+) -> None:
+    return_request.cfop = cfop
+    return_request.ipi_situacao_tributaria = ipi_situacao
+    return_request.ipi_codigo_enquadramento = ipi_enquadramento
+    return_request.save(update_fields=["cfop", "ipi_situacao_tributaria", "ipi_codigo_enquadramento", "atualizado_em"])
+
+
 def _purchase_return_source_xml(*, access_key: str, issuer_cnpj: str, recipient_cnpj: str, ie: str) -> bytes:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
     <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe">
@@ -192,7 +216,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_fiscal_form_does_not_expose_tax_class_field(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         form = PurchaseReturnFiscalForm(
-            {"operation_nature": "Devolução de compra", "cfop": "5202"},
+            _fiscal_form_data(),
             instance=return_request,
         )
 
@@ -206,14 +230,14 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(form.initial["supplier_ie"], "123456789")
 
         empty_ie_form = PurchaseReturnFiscalForm(
-            {"operation_nature": "Devolução de compra", "cfop": "5202", "supplier_ie": ""},
+            _fiscal_form_data(supplier_ie=""),
             instance=return_request,
         )
         self.assertTrue(empty_ie_form.is_valid(), empty_ie_form.errors)
         self.assertEqual(empty_ie_form.cleaned_data["supplier_ie"], "")
 
         isento_form = PurchaseReturnFiscalForm(
-            {"operation_nature": "Devolução de compra", "cfop": "5202", "supplier_ie": "ISENTO"},
+            _fiscal_form_data(supplier_ie="ISENTO"),
             instance=return_request,
         )
         self.assertTrue(isento_form.is_valid(), isento_form.errors)
@@ -448,7 +472,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertNotContains(response, "Transmitir Nota de Devolução")
         self.assertContains(response, "w-10 h-10")
 
-        minimal_form = PurchaseReturnFiscalForm({"operation_nature": "Devolução de mercadoria", "cfop": "5202"}, instance=return_request)
+        minimal_form = PurchaseReturnFiscalForm(_fiscal_form_data(operation_nature="Devolução de mercadoria"), instance=return_request)
         self.assertTrue(minimal_form.is_valid(), minimal_form.errors)
         self.assertEqual(minimal_form.cleaned_data["freight_mode"], 9)
 
@@ -460,8 +484,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_workflow_keeps_origin_steps_accessible_after_review(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
 
         request = self.factory.get(f"/finance/emissao/devolucao-compra/{return_request.pk}/?step=1")
@@ -518,7 +541,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         invalid_intermediary = PurchaseReturnFiscalForm(
-            {"operation_nature": "Devolução de mercadoria", "cfop": "5202", "intermediary": "1"},
+            _fiscal_form_data(operation_nature="Devolução de mercadoria", intermediary="1"),
             instance=return_request,
         )
         self.assertFalse(invalid_intermediary.is_valid())
@@ -529,6 +552,8 @@ class PurchaseReturnWorkflowTests(TestCase):
             {
                 "operation_nature": "Devolução de compra",
                 "cfop": "5202",
+                "ipi_situacao_tributaria": "99",
+                "ipi_codigo_enquadramento": "999",
                 "additional_information": "Devolução parcial ao fornecedor",
                 "fisco_information": "Informação ao fisco",
                 "volume": "2",
@@ -562,6 +587,8 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(return_request.insurance_amount, Decimal("1.10"))
         self.assertEqual(return_request.volume, 2)
         self.assertEqual(return_request.payment_method, "90")
+        self.assertEqual(return_request.ipi_situacao_tributaria, "99")
+        self.assertEqual(return_request.ipi_codigo_enquadramento, "999")
         self.assertEqual(return_request.transport_snapshot["volumes"]["volume"], 2)
         self.assertEqual(return_request.transport_snapshot["volumes"]["especie"].upper(), "CAIXA")
 
@@ -597,7 +624,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         save_purchase_return_fiscal_data(
             request=return_request,
-            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "freight_mode": 9, "transport_snapshot": {}},
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "freight_mode": 9, "transport_snapshot": {}},
         )
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
@@ -659,8 +686,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_preview_uses_original_key_and_selected_items_without_creating_attempt(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1.25")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
         response.headers = {"Content-Type": "application/pdf"}
@@ -684,6 +710,10 @@ class PurchaseReturnWorkflowTests(TestCase):
             payload["produtos"][0]["impostos"]["icms"],
             {"codigo_cfop": "5.202", "situacao_tributaria": "00"},
         )
+        self.assertEqual(
+            payload["produtos"][0]["impostos"]["ipi"],
+            {"situacao_tributaria": "99", "codigo_enquadramento": "999"},
+        )
         self.assertTrue(payload["previa_danfe"])
         self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
         self.assertEqual(FiscalDocument.objects.count(), 1)
@@ -694,8 +724,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_preview_pdf_view_renders_visible_error_when_webmania_rejects_payload(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         error_message = "[impostos][ICMS] A classe de imposto REF905853443 não possui uma configuração válida de ICMS."
 
@@ -733,8 +762,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.motor.save(update_fields=["tax_snapshot", "atualizado_em"])
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5411"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request, cfop="5411")
 
         payload = build_generic_purchase_return_payload(request=return_request)
         product = payload["produtos"][0]
@@ -754,6 +782,54 @@ class PurchaseReturnWorkflowTests(TestCase):
         )
         self.assertEqual(product["impostos"]["pis"]["situacao_tributaria"], "01")
         self.assertEqual(product["impostos"]["cofins"]["situacao_tributaria"], "01")
+        self.assertEqual(
+            product["impostos"]["ipi"],
+            {"situacao_tributaria": "99", "codigo_enquadramento": "999"},
+        )
+
+    def test_fiscal_form_prefills_editable_ipi_defaults_and_xml_values(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        form = PurchaseReturnFiscalForm(instance=return_request)
+        self.assertEqual(form.initial["ipi_situacao_tributaria"], "99")
+        self.assertEqual(form.initial["ipi_codigo_enquadramento"], "999")
+        self.assertIn("ipi_situacao_tributaria", form.fields)
+        self.assertIn("ipi_codigo_enquadramento", form.fields)
+
+        edited = PurchaseReturnFiscalForm(
+            _fiscal_form_data(ipi_situacao_tributaria="53", ipi_codigo_enquadramento="301"),
+            instance=return_request,
+        )
+        self.assertTrue(edited.is_valid(), edited.errors)
+        self.assertEqual(edited.cleaned_data["ipi_situacao_tributaria"], "53")
+        self.assertEqual(edited.cleaned_data["ipi_codigo_enquadramento"], "301")
+
+        self.motor.tax_snapshot = {
+            "ICMS": {"ICMS00": {"orig": "0", "CST": "00"}},
+            "IPI": {"IPINT": {"CST": "53"}, "cEnq": "301"},
+        }
+        self.motor.save(update_fields=["tax_snapshot", "atualizado_em"])
+        xml_form = PurchaseReturnFiscalForm(instance=return_request)
+        self.assertEqual(xml_form.initial["ipi_situacao_tributaria"], "53")
+        self.assertEqual(xml_form.initial["ipi_codigo_enquadramento"], "301")
+
+    def test_generic_payload_uses_persisted_ipi_not_silent_defaults(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        _set_fiscal_fields(return_request, ipi_situacao="53", ipi_enquadramento="301")
+
+        payload = build_generic_purchase_return_payload(request=return_request)
+
+        self.assertEqual(
+            payload["produtos"][0]["impostos"]["ipi"],
+            {"situacao_tributaria": "53", "codigo_enquadramento": "301"},
+        )
+
+        return_request.ipi_situacao_tributaria = ""
+        return_request.ipi_codigo_enquadramento = ""
+        return_request.save(update_fields=["ipi_situacao_tributaria", "ipi_codigo_enquadramento", "atualizado_em"])
+        with self.assertRaisesMessage(PurchaseReturnError, "situação tributária do IPI"):
+            build_generic_purchase_return_payload(request=return_request)
 
     def test_preview_uses_registered_supplier_address_when_legacy_xml_is_unavailable(self) -> None:
         self.stock_import.fiscal_snapshot = {
@@ -774,8 +850,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         )
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
         response.headers = {"Content-Type": "application/pdf"}
@@ -794,8 +869,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_emission_uses_supplier_ie_from_purchase_xml_snapshot(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
 
         payload = build_generic_purchase_return_payload(request=return_request)
@@ -817,8 +891,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         )
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
 
         with patch("apps.finance.services.purchase_returns.read_import_xml_file", return_value=SimpleNamespace(content=xml_content)) as read_mock:
@@ -852,8 +925,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         )
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
 
         payload = build_generic_purchase_return_payload(request=return_request)
@@ -866,7 +938,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         save_purchase_return_fiscal_data(
             request=return_request,
-            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "supplier_ie": ""},
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "supplier_ie": ""},
         )
         return_request = finalize_purchase_return_request(request=return_request)
 
@@ -879,7 +951,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         save_purchase_return_fiscal_data(
             request=return_request,
-            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "supplier_ie": "998877665"},
+            cleaned_data={"operation_nature": "Devolução de mercadoria", "cfop": "5202", "ipi_situacao_tributaria": "99", "ipi_codigo_enquadramento": "999", "supplier_ie": "998877665"},
         )
         return_request = finalize_purchase_return_request(request=return_request)
 
@@ -895,6 +967,8 @@ class PurchaseReturnWorkflowTests(TestCase):
             cleaned_data={
                 "operation_nature": "Devolução de compra",
                 "cfop": "5202",
+                "ipi_situacao_tributaria": "99",
+                "ipi_codigo_enquadramento": "999",
                 "additional_information": "Devolução parcial",
                 "supplier_ie": "123456789",
                 "freight_mode": 9,
@@ -936,8 +1010,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_reissue_releases_uncertain_return_without_remote_identity(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         derived = FiscalDocument.objects.create(
             workshop=self.workshop,
@@ -976,8 +1049,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_reconcile_view_consults_return_document_status(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         derived = FiscalDocument.objects.create(
             workshop=self.workshop,
@@ -1039,8 +1111,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.stock_import.save(update_fields=["fiscal_snapshot", "atualizado_em"])
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
         response.headers = {"Content-Type": "application/pdf"}
@@ -1057,8 +1128,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_transmission_creates_one_derived_document_link_and_attempt_idempotently(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1.25")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
         response.headers = {"Content-Type": "application/json"}
@@ -1120,8 +1190,7 @@ class PurchaseReturnWorkflowTests(TestCase):
                 }
             ],
         )
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
         response.headers = {"Content-Type": "application/json"}
@@ -1151,8 +1220,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_rejected_return_does_not_change_stock(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
         response.raise_for_status.return_value = None
@@ -1173,8 +1241,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_rejected_return_shows_webmania_motivo(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
         response.raise_for_status.return_value = None
@@ -1209,8 +1276,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_draft_creation_failure_releases_reservation_for_new_review(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
 
         with patch("apps.finance.services.purchase_returns.create_nfe_return_draft", side_effect=NfeReturnError("Dados fiscais inválidos")):
@@ -1249,8 +1315,7 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.motor.save(update_fields=["stock_product", "atualizado_em"])
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response = MagicMock()
         response.raise_for_status.return_value = None
@@ -1271,8 +1336,7 @@ class PurchaseReturnWorkflowTests(TestCase):
     def test_duplicate_webhook_and_reconciliation_do_not_duplicate_stock_exit(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("0.7500")})
-        return_request.cfop = "5202"
-        return_request.save(update_fields=["cfop", "atualizado_em"])
+        _set_fiscal_fields(return_request)
         return_request = finalize_purchase_return_request(request=return_request)
         response_payload = {
             "status": "aprovado",

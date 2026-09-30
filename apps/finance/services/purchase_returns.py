@@ -808,6 +808,21 @@ def _extract_named_tax_group(tax_snapshot: Mapping[str, Any], *, parents: tuple[
     return {}
 
 
+def _extract_ipi_group(tax_snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    parent = tax_snapshot.get("IPI")
+    if not isinstance(parent, dict):
+        parent = tax_snapshot.get("ipi")
+    if not isinstance(parent, dict):
+        return {}
+    nested = _first_nested_tax_group(parent, prefixes=("IPI",))
+    fields = dict(nested[1]) if nested is not None else dict(parent)
+    if not _optional_tax_amount(fields, "cEnq", "cenq", "codigo_enquadramento"):
+        parent_enq = _optional_tax_amount(parent, "cEnq", "cenq", "codigo_enquadramento")
+        if parent_enq:
+            fields["cEnq"] = parent_enq
+    return fields
+
+
 def _build_icms_from_snapshot(*, fields: Mapping[str, Any], situacao: str, codigo_cfop: str) -> dict[str, Any]:
     icms: dict[str, Any] = {"codigo_cfop": codigo_cfop, "situacao_tributaria": situacao}
     aliquota = _optional_tax_amount(fields, "pICMS", "pIcms", "aliquota")
@@ -849,14 +864,22 @@ def _build_icms_from_snapshot(*, fields: Mapping[str, Any], situacao: str, codig
     return icms
 
 
-def _build_ipi_from_snapshot(fields: Mapping[str, Any]) -> dict[str, Any] | None:
-    situacao = _optional_tax_amount(fields, "CST", "cst", "situacao_tributaria")
+def _build_ipi_from_snapshot(
+    fields: Mapping[str, Any],
+    *,
+    situacao_tributaria: str,
+    codigo_enquadramento: str,
+) -> dict[str, Any]:
+    situacao = str(situacao_tributaria or "").strip()
     if not situacao:
-        return None
-    ipi: dict[str, Any] = {"situacao_tributaria": situacao}
-    codigo_enquadramento = _optional_tax_amount(fields, "cEnq", "cenq", "codigo_enquadramento")
-    if codigo_enquadramento:
-        ipi["codigo_enquadramento"] = codigo_enquadramento
+        raise PurchaseReturnError("Informe a situação tributária do IPI nos dados fiscais da Nota de Devolução.")
+    enquadramento = str(codigo_enquadramento or "").strip()
+    if not enquadramento:
+        raise PurchaseReturnError("Informe o código de enquadramento do IPI nos dados fiscais da Nota de Devolução.")
+    ipi: dict[str, Any] = {
+        "situacao_tributaria": situacao,
+        "codigo_enquadramento": enquadramento,
+    }
     aliquota = _optional_tax_amount(fields, "pIPI", "pIpi", "aliquota")
     if aliquota:
         ipi["aliquota"] = aliquota
@@ -895,11 +918,28 @@ def _product_origin_from_tax_snapshot(tax_snapshot: Mapping[str, Any]) -> int:
         return 0
 
 
+def inferred_purchase_return_ipi(*, request: PurchaseReturnRequest) -> tuple[str, str]:
+    """Return (situacao, enquadramento) for fiscal form prefill: first item XML IPI, else 99/999."""
+    for item in request.items.select_related("source_item").order_by("kind", "source_item__sequence", "pk"):
+        if item.source_item_id is None:
+            continue
+        tax_snapshot = item.source_item.tax_snapshot if isinstance(item.source_item.tax_snapshot, dict) else {}
+        ipi_fields = _extract_ipi_group(tax_snapshot)
+        situacao = _optional_tax_amount(ipi_fields, "CST", "cst", "situacao_tributaria")
+        if not situacao:
+            continue
+        enquadramento = _optional_tax_amount(ipi_fields, "cEnq", "cenq", "codigo_enquadramento") or "999"
+        return situacao, enquadramento
+    return "99", "999"
+
+
 def _webmania_impostos_from_purchase_tax_snapshot(
     *,
     tax_snapshot: Mapping[str, Any],
     codigo_cfop: str,
     sequence: int,
+    ipi_situacao_tributaria: str,
+    ipi_codigo_enquadramento: str,
 ) -> dict[str, Any]:
     """Map purchase XML tax snapshot into Webmania `impostos` for finalidade=4."""
     formatted_cfop = _format_webmania_cfop(codigo_cfop)
@@ -913,11 +953,11 @@ def _webmania_impostos_from_purchase_tax_snapshot(
         )
 
     impostos: dict[str, Any] = {"icms": _build_icms_from_snapshot(fields=icms_fields, situacao=situacao, codigo_cfop=formatted_cfop)}
-
-    ipi_fields = _extract_named_tax_group(tax_snapshot, parents=("IPI", "ipi"), prefixes=("IPI",))
-    ipi_payload = _build_ipi_from_snapshot(ipi_fields)
-    if ipi_payload is not None:
-        impostos["ipi"] = ipi_payload
+    impostos["ipi"] = _build_ipi_from_snapshot(
+        _extract_ipi_group(tax_snapshot),
+        situacao_tributaria=ipi_situacao_tributaria,
+        codigo_enquadramento=ipi_codigo_enquadramento,
+    )
 
     pis_fields = _extract_named_tax_group(tax_snapshot, parents=("PIS", "pis"), prefixes=("PIS",))
     pis_payload = _build_pis_or_cofins_from_snapshot(pis_fields, bc_key="bc_pis")
@@ -943,6 +983,8 @@ def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -
     requires_ibs_cbs = _return_requires_ibs_cbs(original_document=request.original_document)
     original_products = _original_products_by_sequence(request.original_document) if requires_ibs_cbs else {}
     return_cfop = str(request.cfop or "").strip()
+    ipi_situacao = str(request.ipi_situacao_tributaria or "").strip()
+    ipi_enquadramento = str(request.ipi_codigo_enquadramento or "").strip()
     for selected in request.items.select_related("source_item").order_by("source_item__sequence", "pk"):
         source = selected.source_item
         if source is None:
@@ -968,6 +1010,8 @@ def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -
                 tax_snapshot=tax_snapshot,
                 codigo_cfop=return_cfop,
                 sequence=source.sequence,
+                ipi_situacao_tributaria=ipi_situacao,
+                ipi_codigo_enquadramento=ipi_enquadramento,
             ),
         }
         cest = str(tax_snapshot.get("cest") or tax_snapshot.get("CEST") or "").strip()
