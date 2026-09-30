@@ -33,7 +33,7 @@ from apps.core.infrastructure.services.webmania.webmania_auth import (
 )
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
-from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_request
+from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_failure, log_webmania_emission_request
 
 
 logger = logging.getLogger(__name__)
@@ -155,6 +155,34 @@ def _has_payload_value(value: Any) -> bool:
     return True
 
 
+def _omit_empty_json_values(value: Any) -> Any:
+    """Drop None, blank strings, and empty containers from emit JSON. Keep 0/False."""
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            pruned = _omit_empty_json_values(item)
+            if pruned is None:
+                continue
+            if isinstance(pruned, str) and not pruned.strip():
+                continue
+            if isinstance(pruned, (dict, list)) and not pruned:
+                continue
+            cleaned[key] = pruned
+        return cleaned
+    if isinstance(value, list):
+        cleaned_list: list[Any] = []
+        for item in value:
+            pruned = _omit_empty_json_values(item)
+            if pruned is None:
+                continue
+            if isinstance(pruned, str) and not pruned.strip():
+                continue
+            if isinstance(pruned, (dict, list)) and not pruned:
+                continue
+            cleaned_list.append(pruned)
+        return cleaned_list
+    return value
+
 def _coerce_nfse_flag_int(value: Any) -> int | None:
     """Normalize ABRASF/Webmania numeric flags (iss_retido, responsavel_retencao_iss) to int."""
     if value is None:
@@ -230,9 +258,12 @@ def _post_nfse_payload_once(
     action: str = "emit",
 ) -> tuple[dict[str, Any] | None, str]:
     """POST once. Returns (data, error_message). error_message set on HTTP or business failure."""
-    log_webmania_emission_request(kind="nfse", action=action, url=emit_url, payload=payload)
+    pruned_payload = _omit_empty_json_values(payload)
+    if not isinstance(pruned_payload, dict):
+        pruned_payload = {}
+    log_webmania_emission_request(kind="nfse", action=action, url=emit_url, payload=pruned_payload, headers=headers)
     try:
-        response = requests.post(emit_url, json=payload, headers=headers, timeout=timeout)
+        response = requests.post(emit_url, json=pruned_payload, headers=headers, timeout=timeout)
     except requests.RequestException as exc:
         return None, build_webmania_request_exception_message(exc, default=default_error, scope="nfse")
 
@@ -295,8 +326,10 @@ def _post_nfse_payload_with_tax_class_fallback(
         )
 
     if error_message:
+        log_webmania_emission_failure(kind="nfse", action=action, reason=error_message)
         _raise_friendly_nfse_tax_error(error_message)
     if data is None:
+        log_webmania_emission_failure(kind="nfse", action=action, reason="Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
         raise NfseEmissionError("Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
     return data
 
@@ -343,8 +376,9 @@ def _enrich_nfse_payload_with_tax_class(*, payload: dict[str, Any], tax_class_pa
         if _has_payload_value(value):
             service_payload[field_name] = value
 
+    # Empty finalidade must not be sent (omit the key entirely).
     if not _has_payload_value(service_payload.get("finalidade")):
-        service_payload["finalidade"] = 0
+        service_payload.pop("finalidade", None)
 
     iss_retido = _coerce_nfse_flag_int(service_payload.get("iss_retido"))
     if iss_retido is not None:
@@ -509,6 +543,9 @@ def _build_fallback_payload_with_explicit_tax_data(*, payload: dict[str, Any], t
         value = tax_class_payload.get(field_name)
         if _has_payload_value(value):
             service_payload[field_name] = value
+
+    if not _has_payload_value(service_payload.get("finalidade")):
+        service_payload.pop("finalidade", None)
 
     iss_retido = _coerce_nfse_flag_int(service_payload.get("iss_retido"))
     if iss_retido is not None:
@@ -763,32 +800,40 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
     notification_url = build_webmania_webhook_url(request=request)
 
-    first_rps: dict[str, Any] = {
-        "servico": {
-            "valor_servicos": calculate_nfse_service_total(nfse_request, slider_override=slider_override),
-            "discriminacao": _default_service_description(nfse_request),
-            "classe_imposto": nfse_request.tax_class,
-            "consumidor_final": 1 if bool(getattr(nfse_request, "consumidor_final", True)) else 0,
-        },
-        "tomador": _build_taker_payload(nfse_request),
+    service_payload: dict[str, Any] = {
+        "valor_servicos": calculate_nfse_service_total(nfse_request, slider_override=slider_override),
+        "discriminacao": _default_service_description(nfse_request),
+        "classe_imposto": nfse_request.tax_class,
     }
+    consumidor_final = getattr(nfse_request, "consumidor_final", None)
+    if consumidor_final is not None:
+        service_payload["consumidor_final"] = 1 if bool(consumidor_final) else 0
     additional_information = _additional_information(nfse_request)
     if additional_information:
-        first_rps["servico"]["informacoes_complementares"] = additional_information
+        service_payload["informacoes_complementares"] = additional_information
     codigo_nbs = normalize_codigo_nbs(getattr(nfse_request, "codigo_nbs", ""))
     if codigo_nbs:
-        first_rps["servico"]["codigo_nbs"] = codigo_nbs
+        service_payload["codigo_nbs"] = codigo_nbs
+
+    first_rps: dict[str, Any] = {
+        "servico": service_payload,
+        "tomador": _build_taker_payload(nfse_request),
+    }
     if nfse_request.reserved_rps_number is not None:
         first_rps["numero"] = int(nfse_request.reserved_rps_number)
     if str(nfse_request.reserved_rps_series or "").strip():
         first_rps["serie"] = str(nfse_request.reserved_rps_series)
 
-    payload = {
-        "ID": str(nfse_request.pk),
-        "ambiente": ambiente,
-        "url_notificacao": notification_url,
-        "rps": [first_rps],
-    }
+    payload = _omit_empty_json_values(
+        {
+            "ID": str(nfse_request.pk),
+            "ambiente": ambiente,
+            "url_notificacao": notification_url,
+            "rps": [first_rps],
+        }
+    )
+    if not isinstance(payload, dict):
+        payload = {}
 
     first_rps = payload["rps"][0]
     taker_payload = first_rps.get("tomador") if isinstance(first_rps, dict) else {}
@@ -898,17 +943,21 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
     def _post_preview() -> requests.Response:
         nonlocal active_payload
         action = "preview_download" if active_payload is payload else "preview_download_fallback_explicit_tax"
+        pruned_payload = _omit_empty_json_values(active_payload)
+        if not isinstance(pruned_payload, dict):
+            pruned_payload = {}
         log_webmania_emission_request(
             kind="nfse",
             action=action,
             url=emit_url,
-            payload=active_payload,
+            payload=pruned_payload,
+            headers=headers,
             nfse_request_id=getattr(nfse_request, "pk", None),
         )
         try:
             response = requests.post(
                 emit_url,
-                json=active_payload,
+                json=pruned_payload,
                 headers=headers,
                 timeout=60,
             )
@@ -926,6 +975,7 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
                 )
                 _debug_print("Tentando previa PDF com impostos explicitos apos erro de classe", error_message)
                 return _post_preview()
+            log_webmania_emission_failure(kind="nfse", action=action, reason=error_message, nfse_request_id=getattr(nfse_request, "pk", None))
             raise NfseEmissionError(error_message) from exc
         return response
 

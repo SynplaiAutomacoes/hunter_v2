@@ -30,7 +30,7 @@ from apps.finance.forms.emission_ui import (
 from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
-from apps.finance.forms.nfse import clean_required_codigo_nbs
+from apps.finance.forms.nfse import clean_required_codigo_nbs, consumidor_final_widget_value
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.finance.models.finance import NfeRequest, NfseRequest
 from apps.workorder.models import WorkOrder, WorkOrderStatus
@@ -1184,7 +1184,7 @@ class EmissionNfeConfigForm(CoreForm):
 
 
 class EmissionNfseConfigForm(CoreForm):
-    CONSUMIDOR_FINAL_CHOICES = ((True, "Sim"), (False, "Não"))
+    CONSUMIDOR_FINAL_CHOICES = (("", "—"), ("true", "Sim"), ("false", "Não"))
 
     tax_class = forms.ChoiceField(label="Selecione a classe de imposto correta", choices=[])
     codigo_nbs = forms.CharField(
@@ -1194,12 +1194,12 @@ class EmissionNfseConfigForm(CoreForm):
     )
     consumidor_final = forms.TypedChoiceField(
         label="Consumidor final?",
-        required=True,
-        initial=True,
-        coerce=lambda value: str(value).lower() in {"true", "1"},
+        required=False,
+        empty_value=None,
+        coerce=lambda value: None if value in ("", None) else str(value).strip().lower() in {"true", "1", "sim"},
         choices=CONSUMIDOR_FINAL_CHOICES,
         widget=SearchableSelectInput(choices=CONSUMIDOR_FINAL_CHOICES),
-        help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
+        help_text="Opcional. Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
     )
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
@@ -1227,8 +1227,8 @@ class EmissionNfseConfigForm(CoreForm):
             self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
 
         self.fields["codigo_nbs"].help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
-        if not self.is_bound and "consumidor_final" not in self.initial:
-            self.initial["consumidor_final"] = True
+        if not self.is_bound:
+            self.initial["consumidor_final"] = consumidor_final_widget_value(self.initial.get("consumidor_final"))
 
         default_service_description = "Prestacao de servico"
         if workorder is not None:

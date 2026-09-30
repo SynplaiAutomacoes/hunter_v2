@@ -15,7 +15,7 @@ from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 from apps.finance.services.fiscal_recipient import FiscalRecipient, resolve_fiscal_recipient_for_nfe_request
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
-from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
+from apps.core.infrastructure.services.webmania.emission import _omit_empty_json_values, build_webmania_webhook_url
 from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
 from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
@@ -25,7 +25,7 @@ from apps.core.infrastructure.services.webmania.webmania_auth import (
 )
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
-from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_request
+from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_failure, log_webmania_emission_request
 from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfe_status
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
@@ -642,6 +642,11 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
     _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
     _apply_transport_to_nfe_payload(payload=payload, nfe_request=nfe_request)
 
+    pruned = _omit_empty_json_values(payload)
+    if not isinstance(pruned, dict):
+        pruned = {}
+    payload = pruned
+
     logger.info(
         "nfe_payload_built nfe_request_id=%s workshop_id=%s workorder_id=%s slider=%s products_target=%s services_target=%s product_discount=%s discount_type=%s",
         getattr(nfe_request, "pk", None),
@@ -683,6 +688,7 @@ def preview_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None 
         action="preview",
         url=emit_url,
         payload=payload,
+        headers=headers,
         nfe_request_id=getattr(nfe_request, "pk", None),
     )
     try:
@@ -690,6 +696,7 @@ def preview_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None 
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da Nota Fiscal", scope="nfe")
+        log_webmania_emission_failure(kind="nfe", action="preview", reason=message, nfe_request_id=getattr(nfe_request, "pk", None))
         raise NfeEmissionError(message) from exc
 
     try:
@@ -725,6 +732,7 @@ def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpReque
         action="preview_download",
         url=emit_url,
         payload=payload,
+        headers=headers,
         nfe_request_id=getattr(nfe_request, "pk", None),
     )
     try:
@@ -732,6 +740,7 @@ def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpReque
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao gerar previa da Nota Fiscal", scope="nfe")
+        log_webmania_emission_failure(kind="nfe", action="preview_download", reason=message, nfe_request_id=getattr(nfe_request, "pk", None))
         raise NfeEmissionError(message) from exc
 
     content_type = str(response.headers.get("Content-Type") or "application/pdf")
@@ -789,6 +798,7 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
         action="emit",
         url=emit_url,
         payload=payload,
+        headers=headers,
         nfe_request_id=nfe_request.pk,
         workshop_id=nfe_request.workshop_id,
     )
@@ -806,23 +816,38 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota Fiscal", scope="nfe")
+        log_webmania_emission_failure(kind="nfe", action="emit", reason=message, nfe_request_id=nfe_request.pk)
         raise NfeEmissionError(message) from exc
 
     try:
         data = response.json()
     except ValueError as exc:
+        log_webmania_emission_failure(
+            kind="nfe",
+            action="emit",
+            reason="Resposta invalida da API de emissao de Nota Fiscal.",
+            nfe_request_id=nfe_request.pk,
+        )
         raise NfeEmissionError("Resposta invalida da API de emissao de Nota Fiscal.") from exc
 
     if not isinstance(data, dict):
+        log_webmania_emission_failure(
+            kind="nfe",
+            action="emit",
+            reason="Resposta invalida da API de emissao de Nota Fiscal.",
+            nfe_request_id=nfe_request.pk,
+        )
         raise NfeEmissionError("Resposta invalida da API de emissao de Nota Fiscal.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
     if error_message:
+        log_webmania_emission_failure(kind="nfe", action="emit", reason=error_message, nfe_request_id=nfe_request.pk)
         raise NfeEmissionError(error_message)
 
     if not data.get("uuid") and str(data.get("modelo") or "").lower() != "nfe":
-        message = extract_webmania_error_message(data, scope="nfe")
-        raise NfeEmissionError(message or "Resposta da API sem dados de identificacao da Nota Fiscal.")
+        message = extract_webmania_error_message(data, scope="nfe") or "Resposta da API sem dados de identificacao da Nota Fiscal."
+        log_webmania_emission_failure(kind="nfe", action="emit", reason=message, nfe_request_id=nfe_request.pk)
+        raise NfeEmissionError(message)
 
     return data
 

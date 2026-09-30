@@ -31,12 +31,12 @@ class BuildPreviewHiddenFieldsTests(SimpleTestCase):
                 cleaned_data={"consumidor_final": True, "other_flag": False, "tax_class": "REF1"}
             )
         }
-        self.assertEqual(fields["consumidor_final"], "True")
-        self.assertEqual(fields["other_flag"], "False")
+        self.assertEqual(fields["consumidor_final"], "true")
+        self.assertEqual(fields["other_flag"], "false")
         self.assertEqual(fields["tax_class"], "REF1")
 
     def test_consumidor_final_hidden_values_round_trip_step3_form(self) -> None:
-        for raw_value, expected in (("True", True), ("False", False)):
+        for raw_value, expected in (("true", True), ("false", False)):
             form = NfseRequestStep3Form(
                 data={
                     "tax_class": "REF1",
@@ -50,6 +50,21 @@ class BuildPreviewHiddenFieldsTests(SimpleTestCase):
             )
             self.assertTrue(form.is_valid(), form.errors)
             self.assertIs(form.cleaned_data["consumidor_final"], expected)
+
+    def test_consumidor_final_blank_is_optional_on_step3_form(self) -> None:
+        form = NfseRequestStep3Form(
+            data={
+                "tax_class": "REF1",
+                "codigo_nbs": "123456789",
+                "consumidor_final": "",
+                "service_description": "Prestacao de servico",
+                "additional_information": "",
+                "pricing_slider": 0,
+            },
+            tax_class_choices=[("REF1", "Classe 1")],
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data["consumidor_final"])
 
     def test_legacy_checkbox_style_bool_encoding_is_rejected_by_step3_form(self) -> None:
         form = NfseRequestStep3Form(

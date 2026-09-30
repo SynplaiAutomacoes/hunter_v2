@@ -19,8 +19,8 @@ def build_preview_hidden_fields(*, cleaned_data: dict[str, object]) -> list[dict
         if value is None:
             normalized_value = ""
         elif isinstance(value, bool):
-            # TypedChoiceField / Select round-trip expects "True"/"False", not "1"/"".
-            normalized_value = "True" if value else "False"
+            # TypedChoiceField round-trip for consumidor_final uses "true"/"false".
+            normalized_value = "true" if value else "false"
         else:
             normalized_value = str(value)
         hidden_fields.append({"name": str(name), "value": normalized_value})

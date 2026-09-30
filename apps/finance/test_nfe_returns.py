@@ -417,7 +417,7 @@ class NfeReturnOperationalTests(TestCase):
         self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.FAILED)
         self.assertEqual(attempt.error_message, "Rejeicao: Informar a NF-e referenciada [nItem:1]")
 
-    def test_inconclusive_response_stays_uncertain_and_preserves_remote_payload(self) -> None:
+    def test_inconclusive_response_without_safe_identifier_is_recoverable_failure(self) -> None:
         item = self._create_nfe_item()
         document = self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}])
         response_payload = {"modelo": "nfe", "status": "processando", "log": {"authorization": "secret"}}
@@ -431,10 +431,11 @@ class NfeReturnOperationalTests(TestCase):
 
         document.refresh_from_db()
         attempt = FiscalEmissionAttempt.objects.get(fiscal_document=document)
-        self.assertEqual(document.status, FiscalDocumentStatus.UNCERTAIN)
+        self.assertEqual(document.status, FiscalDocumentStatus.REPROVED)
         self.assertEqual(document.response_payload["status"], "processando")
         self.assertEqual(document.response_payload["log"]["authorization"], "[REDACTED]")
-        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.FAILED)
+        self.assertIn("identificador seguro", attempt.error_message)
 
     def test_response_with_invalid_remote_identifier_stays_uncertain(self) -> None:
         item = self._create_nfe_item()
