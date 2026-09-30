@@ -41,6 +41,7 @@ from apps.finance.services.purchase_returns import (
 from apps.finance.views.navigation import build_issued_documents_list_url
 from apps.finance.views.purchase_return import (
     PurchaseReturnCreateView,
+    PurchaseReturnPreviewPdfView,
     PurchaseReturnReconcileView,
     PurchaseReturnReissueView,
     PurchaseReturnTransmitView,
@@ -697,6 +698,32 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(StockMovement.objects.count(), 0)
         self.motor_stock.refresh_from_db()
         self.assertEqual(self.motor_stock.current_quantity, Decimal("2.0000"))
+
+    def test_preview_pdf_view_renders_visible_error_when_webmania_rejects_tax_class(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        return_request.cfop = "5202"
+        return_request.tax_class = "REF905853443"
+        return_request.save(update_fields=["cfop", "tax_class", "atualizado_em"])
+        return_request = finalize_purchase_return_request(request=return_request)
+        error_message = "[impostos][ICMS] A classe de imposto REF905853443 não possui uma configuração válida de ICMS."
+
+        request = self.factory.get(reverse("finance:purchase_return_preview_pdf", args=[return_request.pk]))
+        request.user = self.user
+        view = PurchaseReturnPreviewPdfView()
+        view.setup(request, pk=return_request.pk)
+        view.workshop = self.workshop
+        with patch(
+            "apps.finance.views.purchase_return.preview_purchase_return",
+            side_effect=PurchaseReturnError(error_message),
+        ):
+            response = view.get(request, pk=return_request.pk)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("text/html", response["Content-Type"])
+        self.assertContains(response, "Não foi possível gerar a prévia da Nota de Devolução", status_code=422)
+        self.assertContains(response, error_message, status_code=422)
+        self.assertContains(response, "Prévia indisponível", status_code=422)
 
     def test_preview_uses_registered_supplier_address_when_legacy_xml_is_unavailable(self) -> None:
         self.stock_import.fiscal_snapshot = {
