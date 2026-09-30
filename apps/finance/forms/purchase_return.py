@@ -64,6 +64,23 @@ PAYMENT_METHOD_CHOICES: tuple[tuple[str, str], ...] = (
     ("99", "99 - Outros"),
 )
 
+IPI_SITUACAO_CHOICES: tuple[tuple[str, str], ...] = (
+    ("50", "50 - Saída tributada"),
+    ("51", "51 - Saída tributada com alíquota zero"),
+    ("52", "52 - Saída isenta"),
+    ("53", "53 - Saída não-tributada"),
+    ("54", "54 - Saída imune"),
+    ("55", "55 - Saída com suspensão"),
+    ("99", "99 - Outras saídas"),
+    ("00", "00 - Entrada com recuperação de crédito"),
+    ("01", "01 - Entrada tributada com alíquota zero"),
+    ("02", "02 - Entrada isenta"),
+    ("03", "03 - Entrada não-tributada"),
+    ("04", "04 - Entrada imune"),
+    ("05", "05 - Entrada com suspensão"),
+    ("49", "49 - Outras entradas"),
+)
+
 
 class PurchaseReturnSourceForm(CoreForm):
     access_key = forms.CharField(
@@ -122,11 +139,17 @@ def _datetime_local_value(value: object) -> str:
 
 
 def build_purchase_return_fiscal_initial(instance: PurchaseReturnRequest) -> dict[str, Any]:
-    from apps.finance.services.purchase_returns import inferred_purchase_return_supplier_ie
+    from apps.finance.services.purchase_returns import inferred_purchase_return_ipi, inferred_purchase_return_supplier_ie
+
+    inferred_ipi_situacao, inferred_ipi_enquadramento = inferred_purchase_return_ipi(request=instance)
+    ipi_situacao = str(instance.ipi_situacao_tributaria or "").strip() or inferred_ipi_situacao
+    ipi_enquadramento = str(instance.ipi_codigo_enquadramento or "").strip() or inferred_ipi_enquadramento
 
     return {
         "operation_nature": instance.operation_nature,
         "cfop": instance.cfop,
+        "ipi_situacao_tributaria": ipi_situacao,
+        "ipi_codigo_enquadramento": ipi_enquadramento,
         "additional_information": instance.additional_information,
         "fisco_information": instance.fisco_information,
         "volume": instance.volume,
@@ -182,8 +205,20 @@ class PurchaseReturnFiscalForm(CoreForm):
         label="CFOP da Nota de Devolução",
         min_length=4,
         max_length=8,
-        help_text="Único CFOP enviado à Webmania. Informe somente números. Os impostos são espelhados do XML da NF-e de compra.",
+        help_text="Único CFOP enviado à Webmania. Informe somente números. ICMS/PIS/COFINS vêm do XML da NF-e de compra.",
         widget=forms.TextInput(attrs={"inputmode": "numeric"}),
+    )
+    ipi_situacao_tributaria = forms.ChoiceField(
+        label="Situação tributária do IPI",
+        choices=IPI_SITUACAO_CHOICES,
+        help_text="Obrigatório na emissão genérica. Pré-preenchido com 99 ou com o CST do XML, quando existir.",
+        widget=SearchableSelectInput(choices=IPI_SITUACAO_CHOICES),
+    )
+    ipi_codigo_enquadramento = forms.CharField(
+        label="Código de enquadramento do IPI",
+        max_length=3,
+        help_text="Obrigatório. Pré-preenchido com 999 ou com o cEnq do XML, quando existir.",
+        widget=TextInput(attrs={"inputmode": "numeric"}),
     )
     additional_information = forms.CharField(label="Informações complementares", required=False, max_length=5000, widget=TextareaInput(rows=3))
     fisco_information = forms.CharField(label="Informações ao fisco", required=False, max_length=2000, widget=TextareaInput(rows=3))
@@ -250,15 +285,22 @@ class PurchaseReturnFiscalForm(CoreForm):
         self.fields["freight_mode"].required = False
         self.fields["freight_mode"].help_text = "Padrão 9 - Sem transporte. Preencha transportadora e volumes somente quando houver transporte."
         self.fields["additional_information"].required = False
+        situacao = str(self.initial.get("ipi_situacao_tributaria") or "").strip()
+        if situacao and situacao not in {value for value, _label in IPI_SITUACAO_CHOICES}:
+            choices = list(IPI_SITUACAO_CHOICES) + [(situacao, f"{situacao} (do XML)")]
+            self.fields["ipi_situacao_tributaria"].choices = choices
+            self.fields["ipi_situacao_tributaria"].widget = SearchableSelectInput(choices=choices)
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
                 HTML("<h3 class='text-lg font-semibold'>Dados fiscais da Nota de Devolução</h3>"),
-                HTML("<p class='text-sm text-base-content/70'>Natureza da operação e CFOP são obrigatórios. Os impostos vêm do XML da NF-e de compra. A inscrição estadual vem do XML; deixe em branco para enviar ISENTO.</p>"),
+                HTML("<p class='text-sm text-base-content/70'>Natureza, CFOP e IPI são obrigatórios. ICMS/PIS/COFINS vêm do XML da NF-e de compra. A inscrição estadual vem do XML; deixe em branco para enviar ISENTO.</p>"),
                 Div(
                     Field("operation_nature", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("cfop", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("ipi_situacao_tributaria", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("ipi_codigo_enquadramento", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("supplier_ie", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("volume", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("additional_information", wrapper_class="col-span-12 lg:col-span-6"),
@@ -314,6 +356,19 @@ class PurchaseReturnFiscalForm(CoreForm):
         if not cfop.isdigit():
             raise forms.ValidationError("Informe o CFOP somente com números.")
         return cfop
+
+    def clean_ipi_situacao_tributaria(self) -> str:
+        situacao = str(self.cleaned_data.get("ipi_situacao_tributaria") or "").strip()
+        valid = {value for value, _label in self.fields["ipi_situacao_tributaria"].choices}
+        if situacao not in valid:
+            raise forms.ValidationError("Selecione a situação tributária do IPI.")
+        return situacao
+
+    def clean_ipi_codigo_enquadramento(self) -> str:
+        codigo = str(self.cleaned_data.get("ipi_codigo_enquadramento") or "").strip()
+        if not codigo.isdigit() or not (1 <= len(codigo) <= 3):
+            raise forms.ValidationError("Informe o código de enquadramento do IPI somente com números (1 a 3 dígitos).")
+        return codigo
 
     def clean_intermediary_cnpj(self) -> str:
         digits = "".join(character for character in str(self.cleaned_data.get("intermediary_cnpj") or "") if character.isdigit())
