@@ -248,7 +248,17 @@ class PurchaseReturnPreviewPdfView(PurchaseReturnPermissionMixin, View):
         try:
             downloaded = preview_purchase_return(request_instance=return_request, http_request=request)
         except PurchaseReturnError as exc:
-            return HttpResponse(str(exc), status=422, content_type="text/plain; charset=utf-8")
+            response = render(
+                request,
+                "finance/partials/preview_error.html",
+                {
+                    "title": "Não foi possível gerar a prévia da Nota de Devolução",
+                    "message": str(exc),
+                },
+            )
+            response["Cache-Control"] = "no-store"
+            response.status_code = 422
+            return response
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         response["Content-Disposition"] = downloaded.content_disposition or f'inline; filename="previa-devolucao-{return_request.pk}.pdf"'
         response["Cache-Control"] = "no-store"
