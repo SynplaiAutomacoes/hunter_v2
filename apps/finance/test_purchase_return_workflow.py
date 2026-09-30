@@ -788,11 +788,30 @@ class PurchaseReturnWorkflowTests(TestCase):
             },
         )
         self.assertEqual(product["impostos"]["pis"]["situacao_tributaria"], "01")
+        self.assertEqual(product["impostos"]["pis"]["aliquota"], "1.65")
         self.assertEqual(product["impostos"]["cofins"]["situacao_tributaria"], "01")
+        self.assertEqual(product["impostos"]["cofins"]["aliquota"], "7.60")
         self.assertEqual(
             product["impostos"]["ipi"],
             {"situacao_tributaria": "99", "codigo_enquadramento": "999", "aliquota": "0.00"},
         )
+
+    def test_generic_payload_defaults_pis_cofins_aliquota_when_xml_only_has_cst(self) -> None:
+        self.motor.tax_snapshot = {
+            "ICMS": {"ICMS00": {"orig": "0", "CST": "00"}},
+            "PIS": {"PISNT": {"CST": "07"}},
+            "COFINS": {"COFINSNT": {"CST": "07"}},
+        }
+        self.motor.save(update_fields=["tax_snapshot", "atualizado_em"])
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        _set_fiscal_fields(return_request)
+
+        payload = build_generic_purchase_return_payload(request=return_request)
+        impostos = payload["produtos"][0]["impostos"]
+
+        self.assertEqual(impostos["pis"], {"situacao_tributaria": "07", "aliquota": "0.00"})
+        self.assertEqual(impostos["cofins"], {"situacao_tributaria": "07", "aliquota": "0.00"})
 
     def test_fiscal_form_prefills_editable_ipi_defaults_and_xml_values(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
