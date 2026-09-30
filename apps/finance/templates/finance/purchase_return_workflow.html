@@ -250,6 +250,22 @@
                     {% if return_request.status == 'canceled' and return_request.stock_status == 'processed' %}
                         <div class="alert alert-warning mt-4"><span class="material-icons">warning</span><span>A NF-e foi cancelada após a baixa. O estoque não é estornado automaticamente e exige conferência operacional.</span></div>
                     {% endif %}
+                    {% if document_xml_url or document_danfe_url %}
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            {% if document_xml_url %}
+                                <a href="{% url 'finance:purchase_return_document_download' return_request.pk 'xml' %}" class="btn btn-outline btn-sm gap-2">
+                                    <span class="material-icons text-sm">code</span>
+                                    Baixar XML
+                                </a>
+                            {% endif %}
+                            {% if document_danfe_url %}
+                                <a href="{% url 'finance:purchase_return_document_download' return_request.pk 'danfe' %}" class="btn btn-outline btn-sm gap-2">
+                                    <span class="material-icons text-sm">picture_as_pdf</span>
+                                    Baixar DANFE
+                                </a>
+                            {% endif %}
+                        </div>
+                    {% endif %}
                 {% endif %}
                 <div class="mt-6 flex flex-wrap justify-between gap-3 border-t border-base-200 pt-5">
                     <a href="{% url 'finance:purchase_return_workflow' return_request.pk %}?step=1" class="btn btn-ghost gap-2"><span class="material-icons text-sm">arrow_back</span>Ver NF-e origem</a>
