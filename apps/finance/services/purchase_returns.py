@@ -900,10 +900,8 @@ def _build_pis_or_cofins_from_snapshot(fields: Mapping[str, Any], *, bc_key: str
     situacao = _optional_tax_amount(fields, "CST", "cst", "situacao_tributaria")
     if not situacao:
         return None
-    payload: dict[str, Any] = {"situacao_tributaria": situacao}
-    aliquota = _optional_tax_amount(fields, "pPIS", "pPis", "pCOFINS", "pCofins", "aliquota")
-    if aliquota:
-        payload["aliquota"] = aliquota
+    aliquota = _optional_tax_amount(fields, "pPIS", "pPis", "pCOFINS", "pCofins", "aliquota") or "0.00"
+    payload: dict[str, Any] = {"situacao_tributaria": situacao, "aliquota": aliquota}
     base = _optional_tax_amount(fields, "vBC", "vBc", bc_key)
     if base:
         payload[bc_key] = base
