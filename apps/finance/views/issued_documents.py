@@ -241,7 +241,9 @@ class IssuedDocumentsFilterMixin:
         )
 
     def _build_purchase_return_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
-        qs = PurchaseReturnRequest.objects.filter(workshop=self.workshop)
+        from apps.finance.services.fiscal_request_soft_delete import active_purchase_return_requests
+
+        qs = active_purchase_return_requests(queryset=PurchaseReturnRequest.objects.filter(workshop=self.workshop))
         if start_date and end_date:
             qs = qs.filter(criado_em__date__range=(start_date, end_date))
         if search_raw:
@@ -383,6 +385,8 @@ class IssuedDocumentsFilterMixin:
         }
 
     def _build_purchase_return_row(self, request_obj: PurchaseReturnRequest) -> dict[str, Any]:
+        from apps.finance.services.fiscal_request_soft_delete import is_purchase_return_soft_deletable
+
         document = request_obj.fiscal_document
         source = request_obj.source_stock_import
         origin_number = str(getattr(source, "nf_number_display", "") or "").strip()
@@ -390,6 +394,7 @@ class IssuedDocumentsFilterMixin:
         danfe_url = str(getattr(document, "danfe_url", "") or "").strip() if document is not None else ""
         document_number = str(getattr(document, "number", "") or "").strip() if document is not None else ""
         document_series = str(getattr(document, "series", "") or "").strip() if document is not None else ""
+        can_soft_delete = is_purchase_return_soft_deletable(return_request=request_obj)
         return {
             "note_type": "purchase_return",
             "note_type_label": "Nota de Devolução",
@@ -408,6 +413,8 @@ class IssuedDocumentsFilterMixin:
             "available_documents": [label for url, label in ((xml_url, "XML"), (danfe_url, "DANFE")) if url],
             "detail_url": reverse("finance:purchase_return_workflow", args=[request_obj.pk]) + f"?step={request_obj.resume_step}",
             "action_label": "Abrir",
+            "can_soft_delete": can_soft_delete,
+            "soft_delete_url": reverse("finance:purchase_return_soft_delete", kwargs={"pk": request_obj.pk}) if can_soft_delete else "",
         }
 
     def _build_rows(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], purchase_returns: list[PurchaseReturnRequest], state: dict[str, Any]) -> list[dict[str, Any]]:

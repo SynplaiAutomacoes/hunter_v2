@@ -107,6 +107,15 @@ class PurchaseReturnRequest(TimeStampedModel):
     stock_status = models.CharField(max_length=24, choices=PurchaseReturnStockStatus.choices, default=PurchaseReturnStockStatus.WAITING_AUTHORIZATION, db_index=True, verbose_name="Status do estoque")
     stock_processed_at = models.DateTimeField(null=True, blank=True, verbose_name="Estoque atualizado em")
     stock_error = models.TextField(blank=True, default="", verbose_name="Erro de atualização do estoque")
+    soft_deleted_at = models.DateTimeField(verbose_name="Apagado em", null=True, blank=True, db_index=True)
+    soft_deleted_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="soft_deleted_purchase_return_requests",
+        verbose_name="Apagado por",
+    )
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Intenção de devolução de compra"
@@ -154,6 +163,11 @@ class PurchaseReturnRequest(TimeStampedModel):
             "text": str(PurchaseReturnRequestStatus(self.status).label),
             "class": status_color.get(self.status, "badge-ghost"),
         }
+
+    @property
+    def workorder_reference(self) -> str:
+        """Compatible label for shared soft-delete modal (purchase returns are standalone)."""
+        return "Avulsa"
 
     def __str__(self) -> str:
         return f"Devolução de compra {self.pk or '---'} - {self.source_stock_import.nf_number_display}"

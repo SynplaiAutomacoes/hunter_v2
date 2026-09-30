@@ -17,7 +17,7 @@ from apps.budget.models import Budget
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.finance.forms.purchase_return import PurchaseReturnFiscalForm, PurchaseReturnItemsForm
-from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
+from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
 from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest, TaxClassNfe
 from apps.finance.services.nfe_returns import NfeReturnError, confirm_nfe_return_document_from_payload
 from apps.finance.services.purchase_returns import (
@@ -875,6 +875,46 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("?step=3", response.url)
         self.assertNotEqual(response.url, reverse("finance:purchase_return_workflow", args=[return_request.pk]) + "?step=3")
+
+    def test_reissue_releases_uncertain_return_without_remote_identity(self) -> None:
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        return_request.cfop = "5202"
+        return_request.save(update_fields=["cfop", "atualizado_em"])
+        return_request = finalize_purchase_return_request(request=return_request)
+        derived = FiscalDocument.objects.create(
+            workshop=self.workshop,
+            origin=FiscalDocumentOrigin.DERIVED,
+            purpose=FiscalDocumentPurpose.RETURN,
+            status=FiscalDocumentStatus.UNCERTAIN,
+            request_payload={"produtos": [1], "quantidade": ["1"]},
+        )
+        FiscalEmissionAttempt.objects.create(
+            workshop=self.workshop,
+            document_kind="nfe",
+            operation_type="return",
+            request_model="FiscalDocument",
+            request_id=derived.pk,
+            fiscal_document=derived,
+            idempotency_key=f"uncertain-return-{derived.pk}",
+            status=FiscalEmissionAttemptStatus.UNCERTAIN,
+            error_message="estado remoto incerto",
+        )
+        return_request.fiscal_document = derived
+        return_request.status = PurchaseReturnRequestStatus.UNCERTAIN
+        return_request.current_step = 4
+        return_request.save(update_fields=["fiscal_document", "status", "current_step", "atualizado_em"])
+
+        cloned = clone_purchase_return_for_reissue(request=return_request, requested_by=self.user)
+
+        return_request.refresh_from_db()
+        derived.refresh_from_db()
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document=derived)
+        self.assertEqual(return_request.status, PurchaseReturnRequestStatus.REJECTED)
+        self.assertEqual(derived.status, FiscalDocumentStatus.REPROVED)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.FAILED)
+        self.assertEqual(cloned.status, PurchaseReturnRequestStatus.DRAFT)
+        self.assertIsNone(cloned.fiscal_document_id)
 
     def test_reconcile_view_consults_return_document_status(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)

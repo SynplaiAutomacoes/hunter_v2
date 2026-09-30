@@ -10,8 +10,26 @@
             <h1 class="mt-1 text-3xl font-bold text-base-content">Nota de Devolução</h1>
             <p class="mt-1 text-base-content/70">Localize a nota recebida, selecione os produtos e emita a Nota de Devolução.</p>
         </div>
-        {% if issued_documents_url %}
-            <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+        {% if issued_documents_url or can_soft_delete %}
+            <div class="flex flex-wrap items-center gap-2">
+                {% if can_soft_delete and soft_delete_url %}
+                    <button
+                        type="button"
+                        class="btn btn-ghost text-error"
+                        title="Apagar rascunho"
+                        aria-label="Apagar rascunho"
+                        hx-get="{{ soft_delete_url }}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML"
+                    >
+                        <span class="material-icons text-sm">delete</span>
+                        Apagar
+                    </button>
+                {% endif %}
+                {% if issued_documents_url %}
+                    <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                {% endif %}
+            </div>
         {% endif %}
     </div>
 

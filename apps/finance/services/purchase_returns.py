@@ -264,7 +264,6 @@ def get_or_create_purchase_return_request(*, stock_import: StockImport, requeste
     )
 
 
-_REISSUE_ALLOWED_STATUSES = frozenset({PurchaseReturnRequestStatus.REJECTED, PurchaseReturnRequestStatus.COMMUNICATION_ERROR})
 _PURCHASE_RETURN_ITEM_COPY_FIELDS = (
     "kind",
     "source_item",
@@ -282,10 +281,28 @@ _PURCHASE_RETURN_ITEM_COPY_FIELDS = (
 )
 
 
+def can_reissue_purchase_return(*, request: PurchaseReturnRequest) -> bool:
+    from apps.finance.services.fiscal_request_soft_delete import purchase_return_has_remote_identity
+
+    if request.status in {PurchaseReturnRequestStatus.REJECTED, PurchaseReturnRequestStatus.COMMUNICATION_ERROR}:
+        return True
+    if request.status == PurchaseReturnRequestStatus.UNCERTAIN and not purchase_return_has_remote_identity(return_request=request):
+        return True
+    return False
+
+
 @transaction.atomic
 def clone_purchase_return_for_reissue(*, request: PurchaseReturnRequest, requested_by: Any) -> PurchaseReturnRequest:
-    if request.status not in _REISSUE_ALLOWED_STATUSES:
-        raise PurchaseReturnError("Somente notas rejeitadas ou com erro de comunicação podem ser emitidas novamente.")
+    from apps.finance.services.fiscal_request_soft_delete import FiscalRequestSoftDeleteError, release_unreachable_purchase_return_reservation
+
+    if not can_reissue_purchase_return(request=request):
+        raise PurchaseReturnError("Somente notas rejeitadas, com erro de comunicação ou sem identificador remoto podem ser emitidas novamente.")
+    if request.status == PurchaseReturnRequestStatus.UNCERTAIN:
+        try:
+            release_unreachable_purchase_return_reservation(return_request=request)
+        except FiscalRequestSoftDeleteError as exc:
+            raise PurchaseReturnError(str(exc)) from exc
+        request.refresh_from_db()
     fiscal_values: dict[str, Any] = {}
     for field_name in PurchaseReturnRequest.FISCAL_CONFIGURATION_FIELDS:
         value = getattr(request, field_name)

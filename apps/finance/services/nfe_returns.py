@@ -1006,6 +1006,17 @@ def _mark_document_uncertain(*, document: FiscalDocument, error_message: str, re
     document.save(update_fields=["status", "response_payload", "remote_status", "atualizado_em"])
 
 
+def _mark_document_reproved(*, document: FiscalDocument, error_message: str, response_payload: dict[str, Any] | None = None) -> None:
+    document.status = FiscalDocumentStatus.REPROVED
+    document.response_payload = sanitize_fiscal_payload(response_payload if response_payload is not None else {"error": error_message})
+    document.remote_status = str((response_payload or {}).get("status") or FiscalDocumentStatus.REPROVED).strip()
+    document.save(update_fields=["status", "response_payload", "remote_status", "atualizado_em"])
+
+
+def _identity_error_is_missing_safe_identifier(exc: NfeReturnError) -> bool:
+    return "nao possui identificador seguro" in str(exc)
+
+
 def _return_attempt_for_document(*, document: FiscalDocument) -> FiscalEmissionAttempt | None:
     return document.emission_attempts.filter(operation_type__in=[FiscalEmissionOperationType.RETURN, FiscalEmissionOperationType.REVERSAL]).order_by("-pk").first()
 
@@ -1181,6 +1192,13 @@ def transmit_nfe_return_document(*, document: FiscalDocument, use_generic_emit_e
     try:
         validate_nfe_return_payload_identity(document=locked_document, payload=response_payload, require_safe_identifier=True)
     except NfeReturnError as exc:
+        if _identity_error_is_missing_safe_identifier(exc):
+            # Without uuid/chave there is no reconcile/webhook path. Treat as recoverable failure
+            # so the user can reissue instead of remaining stuck in UNCERTAIN forever.
+            message = f"Resposta inconclusiva da Webmania ao emitir devolucao ou estorno. {exc}"
+            mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
+            _mark_document_reproved(document=locked_document, error_message=message, response_payload=response_payload)
+            raise NfeReturnError(message) from exc
         message = f"Resposta inconclusiva da Webmania ao emitir devolucao ou estorno; estado remoto incerto. {exc}"
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message, response_payload=response_payload)
