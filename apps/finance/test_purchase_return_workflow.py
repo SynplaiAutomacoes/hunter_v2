@@ -18,7 +18,7 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.finance.forms.purchase_return import PurchaseReturnFiscalForm, PurchaseReturnItemsForm
 from apps.finance.models import FiscalDocument, FiscalDocumentStatus, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, PurchaseReturnItemKind, PurchaseReturnRequest, PurchaseReturnRequestItem, PurchaseReturnRequestStatus, PurchaseReturnStockStatus
-from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest, TaxClassNfe
+from apps.finance.models.finance import FiscalDocumentOrigin, FiscalDocumentPurpose, NfeItem, NfeRequest
 from apps.finance.services.nfe_returns import NfeReturnError, confirm_nfe_return_document_from_payload
 from apps.finance.services.purchase_returns import (
     PurchaseReturnError,
@@ -189,45 +189,16 @@ class PurchaseReturnWorkflowTests(TestCase):
         with self.assertRaisesMessage(PurchaseReturnError, "44 dígitos"):
             find_purchase_by_access_key(workshop=self.workshop, access_key="123")
 
-    def test_fiscal_form_only_accepts_synced_nfe_tax_class_from_current_workshop(self) -> None:
-        valid_tax_class = TaxClassNfe.objects.create(
-            workshop=self.workshop,
-            reference="REF-DEV",
-            description="Devolução de compra",
-        )
-        TaxClassNfe.objects.create(
-            workshop=self.other_workshop,
-            reference="REF-OUTRA",
-            description="Classe de outra oficina",
-        )
-        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
-
-        unbound_form = PurchaseReturnFiscalForm(instance=return_request)
-        choices = dict(unbound_form.fields["tax_class"].widget.choices)
-        self.assertEqual(choices[valid_tax_class.reference], "REF-DEV - Devolução de compra")
-        self.assertNotIn("REF-OUTRA", choices)
-
-        valid_form = PurchaseReturnFiscalForm(
-            {"operation_nature": "Devolução de compra", "cfop": "5202", "tax_class": "REF-DEV"},
-            instance=return_request,
-        )
-        self.assertTrue(valid_form.is_valid(), valid_form.errors)
-
-        invalid_form = PurchaseReturnFiscalForm(
-            {"operation_nature": "Devolução de compra", "cfop": "5202", "tax_class": "REF-INEXISTENTE"},
-            instance=return_request,
-        )
-        self.assertFalse(invalid_form.is_valid())
-        self.assertIn("sincronizada com a Webmania", invalid_form.errors["tax_class"][0])
-
-    def test_fiscal_form_allows_omitting_tax_class_when_no_class_is_synced(self) -> None:
+    def test_fiscal_form_does_not_expose_tax_class_field(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         form = PurchaseReturnFiscalForm(
-            {"operation_nature": "Devolução de compra", "cfop": "5202", "tax_class": ""},
+            {"operation_nature": "Devolução de compra", "cfop": "5202"},
             instance=return_request,
         )
 
+        self.assertNotIn("tax_class", form.fields)
         self.assertTrue(form.is_valid(), form.errors)
+        self.assertNotIn("tax_class", form.persistable_data())
 
     def test_fiscal_form_prefills_supplier_ie_from_purchase_xml(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
@@ -544,7 +515,6 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(response.url, f"{reverse('finance:purchase_return_workflow', args=[return_request.pk])}?step=3")
 
     def test_review_persists_optional_order_fields_and_sends_them_on_emission(self) -> None:
-        TaxClassNfe.objects.create(workshop=self.workshop, reference="REF-DEV", description="Devolução de compra")
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         invalid_intermediary = PurchaseReturnFiscalForm(
@@ -559,7 +529,6 @@ class PurchaseReturnWorkflowTests(TestCase):
             {
                 "operation_nature": "Devolução de compra",
                 "cfop": "5202",
-                "tax_class": "REF-DEV",
                 "additional_information": "Devolução parcial ao fornecedor",
                 "fisco_information": "Informação ao fisco",
                 "volume": "2",
@@ -708,6 +677,13 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertEqual(payload["cliente"]["ie"], "123456789")
         self.assertEqual(payload["produtos"][0]["dfe_referenciado"], {"chave": ACCESS_KEY, "item": 1})
         self.assertEqual(payload["produtos"][0]["quantidade"], "1.2500")
+        self.assertEqual(payload["produtos"][0]["codigo_cfop"], "5202")
+        self.assertNotIn("classe_imposto", payload["produtos"][0])
+        self.assertNotIn("classe_imposto", payload)
+        self.assertEqual(
+            payload["produtos"][0]["impostos"]["icms"],
+            {"codigo_cfop": "5.202", "situacao_tributaria": "00"},
+        )
         self.assertTrue(payload["previa_danfe"])
         self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
         self.assertEqual(FiscalDocument.objects.count(), 1)
@@ -715,12 +691,11 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.motor_stock.refresh_from_db()
         self.assertEqual(self.motor_stock.current_quantity, Decimal("2.0000"))
 
-    def test_preview_pdf_view_renders_visible_error_when_webmania_rejects_tax_class(self) -> None:
+    def test_preview_pdf_view_renders_visible_error_when_webmania_rejects_payload(self) -> None:
         return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
         save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
         return_request.cfop = "5202"
-        return_request.tax_class = "REF905853443"
-        return_request.save(update_fields=["cfop", "tax_class", "atualizado_em"])
+        return_request.save(update_fields=["cfop", "atualizado_em"])
         return_request = finalize_purchase_return_request(request=return_request)
         error_message = "[impostos][ICMS] A classe de imposto REF905853443 não possui uma configuração válida de ICMS."
 
@@ -740,6 +715,45 @@ class PurchaseReturnWorkflowTests(TestCase):
         self.assertContains(response, "Não foi possível gerar a prévia da Nota de Devolução", status_code=422)
         self.assertContains(response, error_message, status_code=422)
         self.assertContains(response, "Prévia indisponível", status_code=422)
+
+    def test_generic_payload_maps_nested_xml_tax_snapshot_to_impostos(self) -> None:
+        self.motor.tax_snapshot = {
+            "ICMS": {
+                "ICMS00": {
+                    "orig": "0",
+                    "CST": "00",
+                    "vBC": "1500.50",
+                    "pICMS": "18.00",
+                    "vICMS": "270.09",
+                }
+            },
+            "PIS": {"PISAliq": {"CST": "01", "vBC": "1500.50", "pPIS": "1.65"}},
+            "COFINS": {"COFINSAliq": {"CST": "01", "vBC": "1500.50", "pCOFINS": "7.60"}},
+        }
+        self.motor.save(update_fields=["tax_snapshot", "atualizado_em"])
+        return_request = get_or_create_purchase_return_request(stock_import=self.stock_import, requested_by=self.user)
+        save_purchase_return_items(request=return_request, quantities={self.motor.pk: Decimal("1")})
+        return_request.cfop = "5411"
+        return_request.save(update_fields=["cfop", "atualizado_em"])
+
+        payload = build_generic_purchase_return_payload(request=return_request)
+        product = payload["produtos"][0]
+
+        self.assertNotIn("classe_imposto", product)
+        self.assertEqual(product["codigo_cfop"], "5411")
+        self.assertEqual(product["origem"], 0)
+        self.assertEqual(
+            product["impostos"]["icms"],
+            {
+                "codigo_cfop": "5.411",
+                "situacao_tributaria": "00",
+                "aliquota": "18.00",
+                "bc_icms": "1500.50",
+                "valor_icms": "270.09",
+            },
+        )
+        self.assertEqual(product["impostos"]["pis"]["situacao_tributaria"], "01")
+        self.assertEqual(product["impostos"]["cofins"]["situacao_tributaria"], "01")
 
     def test_preview_uses_registered_supplier_address_when_legacy_xml_is_unavailable(self) -> None:
         self.stock_import.fiscal_snapshot = {
