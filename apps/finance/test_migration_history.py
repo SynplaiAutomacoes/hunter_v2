@@ -90,6 +90,26 @@ class FinanceMigrationHistoryTests(SimpleTestCase):
             },
         )
 
+    def test_purchase_return_ie_leaf_is_merged_at_tip(self) -> None:
+        deps = _finance_dependencies("0070_merge_purchase_return_ie_and_transfer")
+        self.assertEqual(
+            set(deps),
+            {
+                "0068_purchase_return_supplier_ie",
+                "0069_merge_20260904_1810",
+            },
+        )
+
+    def test_staging_amount_index_and_nfse_are_merged_at_tip(self) -> None:
+        deps = _finance_dependencies("0072_merge_nfse_consumidor_final_and_staging")
+        self.assertEqual(
+            set(deps),
+            {
+                "0070_nfserequest_consumidor_final",
+                "0071_merge_amount_index_and_transfer",
+            },
+        )
+
 
 class IdempotentMigrationStateTests(SimpleTestCase):
     def test_duplicate_create_add_index_constraint_are_state_safe(self) -> None:

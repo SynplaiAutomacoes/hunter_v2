@@ -180,6 +180,11 @@
                                                         {% endfor %}
                                                     </select>
                                                 </div>
+
+                                                <div>
+                                                    <label for="reports-filter-valor">Valor (R$)</label>
+                                                    <input type="text" inputmode="decimal" name="valor" id="reports-filter-valor" value="{{ selected_amount_display|default:'' }}" placeholder="Ex: 121,00" class="input input-bordered w-full" />
+                                                </div>
                                             </div>
 
                                             <div
@@ -326,17 +331,11 @@
                                             <th class="w-16">
                                                 <input type="checkbox" id="select-all-movements" class="checkbox checkbox-primary" />
                                             </th>
-                                            <th>Pago</th>
-                                            <th>Conciliado</th>
-                                            <th>Tipo</th>
-                                            <th>Lançamento</th>
-                                            <th>Vencimento</th>
-                                            <th>Agente</th>
-                                            <th>Descrição</th>
-                                            <th>Plano Orçamentário</th>
-                                            <th>Tipo Pagamento</th>
-                                            <th class="text-center">Editar</th>
-                                            <th class="text-right">Total</th>
+                                            {% for column in sortable_columns %}
+                                                {% include "finance/reports/partials/sortable_th.html" with column=column %}
+                                            {% endfor %}
+                                            <th class="text-center">Ações</th>
+                                            {% include "finance/reports/partials/sortable_th.html" with column=total_column %}
                                         </tr>
                                     </thead>
                                     <tbody>

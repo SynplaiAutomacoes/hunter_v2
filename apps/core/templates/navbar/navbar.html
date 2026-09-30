@@ -50,7 +50,7 @@
                 </ul>
             </div>
 
-            <a href="/core/" class="hidden items-center gap-1 md:flex md:justify-self-center lg:justify-self-auto">
+            <a href="{{ navbar_home_url|default:'/core/' }}" class="hidden items-center gap-1 md:flex md:justify-self-center lg:justify-self-auto">
                 <span class="material-icons !text-4xl text-indigo-300">directions_car</span>
                 <h1 class="text-2xl font-semibold">Hunter</h1>
             </a>
@@ -119,6 +119,83 @@
                     <path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z"></path>
                 </svg>
             </label>
+
+            <!-- Dropdown Notificações -->
+            <div
+                class="relative"
+                x-data="{
+                    open: false,
+                    loaded: false,
+                    unreadCount: {{ unread_count|default:0 }},
+                    toggle() {
+                        if (this.open) { this.open = false; return; }
+                        this.open = true;
+                        if (!this.loaded) {
+                            htmx.ajax('GET', '{% url 'notifications:dropdown' %}', {target: '#notification-dropdown-content', swap: 'innerHTML'});
+                            this.loaded = true;
+                        }
+                    },
+                    reload() {
+                        htmx.ajax('GET', '{% url 'notifications:dropdown' %}', {target: '#notification-dropdown-content', swap: 'innerHTML'});
+                    },
+                    fetchCount() {
+                        if (document.hidden) return;
+                        fetch('{% url 'notifications:unread_count' %}')
+                            .then(r => r.json())
+                            .then(data => {
+                                if (typeof data.count === 'number') {
+                                    const previous = this.unreadCount;
+                                    this.unreadCount = data.count;
+                                    if (data.count !== previous) {
+                                        // Count mudou: invalida cache do dropdown
+                                        this.loaded = false;
+                                        if (this.open) this.reload();
+                                    }
+                                }
+                            })
+                            .catch(() => {});
+                    },
+                    init() {
+                        setInterval(() => this.fetchCount(), 30000);
+                        document.addEventListener('visibilitychange', () => {
+                            if (!document.hidden) this.fetchCount();
+                        });
+                        document.body.addEventListener('notifications-updated', () => { this.fetchCount(); if (this.open) this.reload(); });
+                    }
+                }"
+                @click.outside="open = false"
+            >
+                <button
+                    type="button"
+                    class="btn btn-ghost btn-circle text-navbar-text relative"
+                    aria-label="Notificações"
+                    @click="toggle()"
+                >
+                    <span class="material-icons text-2xl">notifications</span>
+                    <span
+                        x-show="unreadCount > 0"
+                        x-text="unreadCount > 99 ? '99+' : unreadCount"
+                        class="badge badge-sm badge-error absolute -top-1 -right-1 font-bold text-white"
+                        style="display: none;"
+                    ></span>
+                </button>
+                <div
+                    id="notification-dropdown-content"
+                    x-show="open"
+                    x-transition:enter="transition ease-out duration-100"
+                    x-transition:enter-start="opacity-0 scale-95"
+                    x-transition:enter-end="opacity-100 scale-100"
+                    x-transition:leave="transition ease-in duration-75"
+                    x-transition:leave-start="opacity-100 scale-100"
+                    x-transition:leave-end="opacity-0 scale-95"
+                    class="absolute right-0 top-full mt-3 w-80 rounded-box bg-base-100 text-base-content p-0 shadow-lg z-50 overflow-hidden border border-base-200"
+                    style="display: none;"
+                >
+                    <div class="p-4 text-center text-sm text-base-content/60">
+                        <span class="loading loading-spinner loading-md"></span>
+                    </div>
+                </div>
+            </div>
 
             <div class="dropdown dropdown-end">
                 <div tabindex="0" role="button" class="avatar hover:cursor-pointer" aria-label="Abrir menu do perfil">

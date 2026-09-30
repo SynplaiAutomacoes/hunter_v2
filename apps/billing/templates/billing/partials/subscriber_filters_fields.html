@@ -1,0 +1,18 @@
+<div class="form-control">
+    <label class="label py-1"><span class="label-text text-xs">Status</span></label>
+    <select name="status" class="select select-bordered select-sm">
+        <option value="">Todos</option>
+        {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if request.GET.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+    </select>
+</div>
+<div class="form-control">
+    <label class="label py-1"><span class="label-text text-xs">Plano</span></label>
+    <select name="plan" class="select select-bordered select-sm">
+        <option value="">Todos</option>
+        {% for value, label in plan_choices %}
+        <option value="{{ value }}" {% if request.GET.plan == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+    </select>
+</div>

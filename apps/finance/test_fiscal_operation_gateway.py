@@ -92,7 +92,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         self.assertEqual(response.context_data["gateway_step"], "linkage")
         self.assertEqual(len(response.context_data["linkage_cards"]), 2)
 
-    def test_linkage_continue_opens_document_step(self) -> None:
+    def test_standalone_linkage_continue_opens_document_step(self) -> None:
         request = self.factory.post(
             "/finance/emissao/?etapa=linkage",
             {
@@ -113,26 +113,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
             fetch_redirect_response=False,
         )
 
-    def test_document_step_renders_for_standalone_only(self) -> None:
-        request = self.factory.get("/finance/emissao/", {"etapa": "document", "vinculo": "standalone"})
-        view = self._build_view(request)
-        response = view.get(request)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context_data["gateway_step"], "document")
-        self.assertEqual(response.context_data["selected_linkage"], "standalone")
-        self.assertEqual(len(response.context_data["document_cards"]), 2)
-
-    def test_workorder_vinculo_query_stays_on_linkage_not_document(self) -> None:
-        request = self.factory.get("/finance/emissao/", {"etapa": "document", "vinculo": "workorder"})
-        view = self._build_view(request)
-        response = view.get(request)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context_data["gateway_step"], "linkage")
-        self.assertEqual(response.context_data["selected_linkage"], "workorder")
-
-    def test_workorder_linkage_redirects_to_wizard_without_tipo(self) -> None:
+    def test_workorder_linkage_skips_document_step(self) -> None:
         request = self.factory.post(
             "/finance/emissao/?etapa=linkage",
             {
@@ -146,6 +127,23 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
         response = view.form_valid(form)
+
+        self.assertRedirects(response, f"{reverse('finance:emission_normal')}?reset=1", fetch_redirect_response=False)
+
+    def test_document_step_renders_product_and_service_cards_for_standalone(self) -> None:
+        request = self.factory.get("/finance/emissao/", {"etapa": "document", "vinculo": "standalone"})
+        view = self._build_view(request)
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context_data["gateway_step"], "document")
+        self.assertEqual(response.context_data["selected_linkage"], "standalone")
+        self.assertEqual(len(response.context_data["document_cards"]), 2)
+
+    def test_workorder_document_bookmark_redirects_to_wizard(self) -> None:
+        request = self.factory.get("/finance/emissao/", {"etapa": "document", "vinculo": "workorder"})
+        view = self._build_view(request)
+        response = view.get(request)
 
         self.assertRedirects(response, f"{reverse('finance:emission_normal')}?reset=1", fetch_redirect_response=False)
 
