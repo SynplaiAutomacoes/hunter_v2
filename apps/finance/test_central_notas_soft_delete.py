@@ -21,9 +21,11 @@ from apps.finance.services.fiscal_request_soft_delete import (
     FiscalRequestSoftDeleteError,
     is_nfe_request_soft_deletable,
     is_nfse_request_soft_deletable,
+    is_purchase_return_soft_deletable,
     soft_delete_nfe_request,
     soft_delete_nfse_request,
 )
+from apps.finance.models.purchase_return import PurchaseReturnRequestStatus
 from apps.finance.services.workorder_emission import get_workorder_emission_ui_state
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderStatus
 
@@ -87,6 +89,49 @@ class FiscalRequestSoftDeleteEligibilityTests(SimpleTestCase):
         with patch("apps.finance.services.fiscal_request_soft_delete.NfseItem.objects.filter") as filter_mock:
             filter_mock.return_value.exists.return_value = False
             self.assertTrue(is_nfse_request_soft_deletable(nfse_request=nfse_request))
+
+    def test_purchase_return_draft_never_sent_is_soft_deletable(self) -> None:
+        return_request = SimpleNamespace(
+            pk=3,
+            status=PurchaseReturnRequestStatus.DRAFT,
+            soft_deleted_at=None,
+            fiscal_document=None,
+        )
+        self.assertTrue(is_purchase_return_soft_deletable(return_request=return_request))
+
+    def test_purchase_return_ready_never_sent_is_soft_deletable(self) -> None:
+        return_request = SimpleNamespace(
+            pk=4,
+            status=PurchaseReturnRequestStatus.READY,
+            soft_deleted_at=None,
+            fiscal_document=None,
+        )
+        self.assertTrue(is_purchase_return_soft_deletable(return_request=return_request))
+
+    def test_purchase_return_with_remote_attempt_is_not_soft_deletable(self) -> None:
+        document = SimpleNamespace(
+            remote_uuid="",
+            access_key="",
+            emission_attempts=SimpleNamespace(
+                filter=lambda **kwargs: SimpleNamespace(exists=lambda: True),
+            ),
+        )
+        return_request = SimpleNamespace(
+            pk=5,
+            status=PurchaseReturnRequestStatus.READY,
+            soft_deleted_at=None,
+            fiscal_document=document,
+        )
+        self.assertFalse(is_purchase_return_soft_deletable(return_request=return_request))
+
+    def test_purchase_return_authorized_is_not_soft_deletable(self) -> None:
+        return_request = SimpleNamespace(
+            pk=6,
+            status=PurchaseReturnRequestStatus.AUTHORIZED,
+            soft_deleted_at=None,
+            fiscal_document=None,
+        )
+        self.assertFalse(is_purchase_return_soft_deletable(return_request=return_request))
 
 
 class EmissionLineOverridesUnitTests(SimpleTestCase):

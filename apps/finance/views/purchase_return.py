@@ -18,6 +18,7 @@ from apps.finance.models import PurchaseReturnRequest, PurchaseReturnRequestStat
 from apps.finance.services.purchase_returns import (
     PurchaseReturnError,
     available_purchase_return_quantities,
+    can_reissue_purchase_return,
     clone_purchase_return_for_reissue,
     display_purchase_return_supplier_ie,
     finalize_purchase_return_request,
@@ -32,6 +33,7 @@ from apps.finance.services.purchase_returns import (
     sync_purchase_return_status,
     transmit_purchase_return,
 )
+from apps.finance.services.fiscal_request_soft_delete import is_purchase_return_soft_deletable
 from apps.finance.views.navigation import build_issued_documents_list_url
 from apps.finance.views.request_workflow import render_emission_preview_modal
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -90,10 +92,14 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
     template_name = "finance/purchase_return_workflow.html"
 
     def _get_request(self, pk: int) -> PurchaseReturnRequest:
+        from apps.finance.services.fiscal_request_soft_delete import active_purchase_return_requests
+
         return_request = get_object_or_404(
-            PurchaseReturnRequest.objects.filter(workshop=self.workshop)
-            .select_related("source_stock_import__fiscal_document", "original_document", "requested_by")
-            .prefetch_related("source_stock_import__fiscal_items__stock_product__product", "items__source_item"),
+            active_purchase_return_requests(
+                queryset=PurchaseReturnRequest.objects.filter(workshop=self.workshop)
+                .select_related("source_stock_import__fiscal_document", "original_document", "requested_by")
+                .prefetch_related("source_stock_import__fiscal_items__stock_product__product", "items__source_item")
+            ),
             pk=pk,
         )
         return sync_purchase_return_status(request_instance=return_request)
@@ -207,8 +213,10 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
             "fiscal_attempt": attempt,
             "supplier_ie_display": display_purchase_return_supplier_ie(request=return_request),
             "issued_documents_url": build_issued_documents_list_url(note_type="nfe"),
-            "can_reissue": return_request.status in {PurchaseReturnRequestStatus.REJECTED, PurchaseReturnRequestStatus.COMMUNICATION_ERROR},
+            "can_reissue": can_reissue_purchase_return(request=return_request),
             "can_reconcile": fiscal_document is not None,
+            "can_soft_delete": is_purchase_return_soft_deletable(return_request=return_request),
+            "soft_delete_url": reverse("finance:purchase_return_soft_delete", kwargs={"pk": return_request.pk}),
         }
         return render(self.request, self.template_name, context)
 

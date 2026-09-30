@@ -6,6 +6,8 @@ from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
 from apps.finance.models.finance import (
+    FiscalDocumentStatus,
+    FiscalEmissionAttemptStatus,
     NfeItem,
     NfeRequest,
     NfeRequestStatus,
@@ -13,6 +15,7 @@ from apps.finance.models.finance import (
     NfseRequest,
     NfseRequestStatus,
 )
+from apps.finance.models.purchase_return import PurchaseReturnRequest, PurchaseReturnRequestStatus
 
 FiscalRequestKind = Literal["nfe", "nfse"]
 
@@ -28,6 +31,19 @@ NFSE_SOFT_DELETABLE_STATUSES: frozenset[str] = frozenset(
         NfseRequestStatus.WAITING_WO,
         NfseRequestStatus.CHECKING_CLIENT,
         NfseRequestStatus.CHECKING_SERVICES,
+    }
+)
+PURCHASE_RETURN_SOFT_DELETABLE_STATUSES: frozenset[str] = frozenset(
+    {
+        PurchaseReturnRequestStatus.DRAFT,
+        PurchaseReturnRequestStatus.READY,
+    }
+)
+_PURCHASE_RETURN_REMOTE_ATTEMPT_STATUSES: frozenset[str] = frozenset(
+    {
+        FiscalEmissionAttemptStatus.SENT,
+        FiscalEmissionAttemptStatus.SUCCEEDED,
+        FiscalEmissionAttemptStatus.UNCERTAIN,
     }
 )
 
@@ -46,7 +62,13 @@ def active_nfse_requests(*, queryset: QuerySet[NfseRequest] | None = None) -> Qu
     return qs.filter(soft_deleted_at__isnull=True)
 
 
+def active_purchase_return_requests(*, queryset: QuerySet[PurchaseReturnRequest] | None = None) -> QuerySet[PurchaseReturnRequest]:
+    qs = queryset if queryset is not None else PurchaseReturnRequest.objects.all()
+    return qs.filter(soft_deleted_at__isnull=True)
+
+
 def is_nfe_request_soft_deletable(*, nfe_request: NfeRequest) -> bool:
+    """True when the NF-e draft never reached Webmania (no remote item / reserved number)."""
     if getattr(nfe_request, "soft_deleted_at", None) is not None:
         return False
     if str(nfe_request.status) not in NFE_SOFT_DELETABLE_STATUSES:
@@ -59,6 +81,7 @@ def is_nfe_request_soft_deletable(*, nfe_request: NfeRequest) -> bool:
 
 
 def is_nfse_request_soft_deletable(*, nfse_request: NfseRequest) -> bool:
+    """True when the NFS-e draft never reached Webmania (no remote item / reserved RPS)."""
     if getattr(nfse_request, "soft_deleted_at", None) is not None:
         return False
     if str(nfse_request.status) not in NFSE_SOFT_DELETABLE_STATUSES:
@@ -68,6 +91,32 @@ def is_nfse_request_soft_deletable(*, nfse_request: NfseRequest) -> bool:
     if NfseItem.objects.filter(request_id=nfse_request.pk).exists():
         return False
     return True
+
+
+def purchase_return_has_remote_identity(*, return_request: PurchaseReturnRequest) -> bool:
+    document = getattr(return_request, "fiscal_document", None)
+    if document is None:
+        return False
+    return bool(str(document.remote_uuid or "").strip() or str(document.access_key or "").strip())
+
+
+def purchase_return_reached_webmania(*, return_request: PurchaseReturnRequest) -> bool:
+    """True when a purchase-return intention already contacted Webmania."""
+    if purchase_return_has_remote_identity(return_request=return_request):
+        return True
+    document = getattr(return_request, "fiscal_document", None)
+    if document is None:
+        return False
+    return document.emission_attempts.filter(status__in=_PURCHASE_RETURN_REMOTE_ATTEMPT_STATUSES).exists()
+
+
+def is_purchase_return_soft_deletable(*, return_request: PurchaseReturnRequest) -> bool:
+    """True when the Nota de Devolução draft never reached Webmania."""
+    if getattr(return_request, "soft_deleted_at", None) is not None:
+        return False
+    if str(return_request.status) not in PURCHASE_RETURN_SOFT_DELETABLE_STATUSES:
+        return False
+    return not purchase_return_reached_webmania(return_request=return_request)
 
 
 def annotate_nfe_soft_deletable(queryset: QuerySet[NfeRequest]) -> QuerySet[NfeRequest]:
@@ -100,6 +149,17 @@ def soft_delete_nfse_request(*, nfse_request: NfseRequest, user=None) -> NfseReq
     nfse_request.soft_deleted_by = user
     nfse_request.save(update_fields=["soft_deleted_at", "soft_deleted_by", "atualizado_em"])
     return nfse_request
+
+
+def soft_delete_purchase_return_request(*, return_request: PurchaseReturnRequest, user=None) -> PurchaseReturnRequest:
+    if not is_purchase_return_soft_deletable(return_request=return_request):
+        raise FiscalRequestSoftDeleteError(
+            "Só é possível apagar Notas de Devolução que ainda não foram enviadas à Webmania."
+        )
+    return_request.soft_deleted_at = timezone.now()
+    return_request.soft_deleted_by = user
+    return_request.save(update_fields=["soft_deleted_at", "soft_deleted_by", "atualizado_em"])
+    return return_request
 
 
 def soft_delete_fiscal_request(*, kind: FiscalRequestKind, request_obj: NfeRequest | NfseRequest, user=None) -> NfeRequest | NfseRequest:
@@ -157,3 +217,34 @@ def is_soft_deletable_from_row(*, kind: FiscalRequestKind, request_obj: NfeReque
     if has_remote is None:
         return not NfseItem.objects.filter(request_id=request_obj.pk).exists()
     return not bool(has_remote)
+
+
+def release_unreachable_purchase_return_reservation(*, return_request: PurchaseReturnRequest) -> PurchaseReturnRequest:
+    """Release quantity reservation for a stuck return that has no remote identity.
+
+    Used when reissuing UNCERTAIN intentions that cannot be reconciled because
+    Webmania never returned uuid/chave.
+    """
+    from apps.finance.services.fiscal_attempts import mark_attempt_failed
+    from apps.finance.services.nfe_returns import RESERVING_RETURN_STATUSES
+
+    document = getattr(return_request, "fiscal_document", None)
+    if document is None:
+        return return_request
+    if purchase_return_has_remote_identity(return_request=return_request):
+        raise FiscalRequestSoftDeleteError("Não é possível liberar uma Nota de Devolução que já possui identificador remoto.")
+
+    message = "Intenção liberada para nova emissão: resposta remota sem identificador seguro."
+    if document.status in RESERVING_RETURN_STATUSES or document.status == FiscalDocumentStatus.PROCESSING:
+        document.status = FiscalDocumentStatus.REPROVED
+        document.remote_status = FiscalDocumentStatus.REPROVED
+        document.response_payload = {**(document.response_payload or {}), "error": message}
+        document.save(update_fields=["status", "remote_status", "response_payload", "atualizado_em"])
+
+    for attempt in document.emission_attempts.exclude(status=FiscalEmissionAttemptStatus.FAILED).order_by("pk"):
+        mark_attempt_failed(attempt=attempt, error_message=message, response_payload=document.response_payload or None)
+
+    if return_request.status == PurchaseReturnRequestStatus.UNCERTAIN:
+        return_request.status = PurchaseReturnRequestStatus.REJECTED
+        return_request.save(update_fields=["status", "atualizado_em"])
+    return return_request
