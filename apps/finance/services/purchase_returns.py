@@ -869,6 +869,7 @@ def _build_ipi_from_snapshot(
     *,
     situacao_tributaria: str,
     codigo_enquadramento: str,
+    aliquota: Decimal | str | None,
 ) -> dict[str, Any]:
     situacao = str(situacao_tributaria or "").strip()
     if not situacao:
@@ -876,13 +877,19 @@ def _build_ipi_from_snapshot(
     enquadramento = str(codigo_enquadramento or "").strip()
     if not enquadramento:
         raise PurchaseReturnError("Informe o código de enquadramento do IPI nos dados fiscais da Nota de Devolução.")
+    if aliquota in (None, ""):
+        raise PurchaseReturnError("Informe a alíquota do IPI nos dados fiscais da Nota de Devolução.")
+    try:
+        aliquota_value = Decimal(str(aliquota))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise PurchaseReturnError("Informe a alíquota do IPI nos dados fiscais da Nota de Devolução.") from exc
+    if aliquota_value < 0:
+        raise PurchaseReturnError("A alíquota do IPI não pode ser negativa.")
     ipi: dict[str, Any] = {
         "situacao_tributaria": situacao,
         "codigo_enquadramento": enquadramento,
+        "aliquota": _format_return_number(aliquota_value, places=2),
     }
-    aliquota = _optional_tax_amount(fields, "pIPI", "pIpi", "aliquota")
-    if aliquota:
-        ipi["aliquota"] = aliquota
     bc_ipi = _optional_tax_amount(fields, "vBC", "vBc", "bc_ipi")
     if bc_ipi:
         ipi["bc_ipi"] = bc_ipi
@@ -918,8 +925,8 @@ def _product_origin_from_tax_snapshot(tax_snapshot: Mapping[str, Any]) -> int:
         return 0
 
 
-def inferred_purchase_return_ipi(*, request: PurchaseReturnRequest) -> tuple[str, str]:
-    """Return (situacao, enquadramento) for fiscal form prefill: first item XML IPI, else 99/999."""
+def inferred_purchase_return_ipi(*, request: PurchaseReturnRequest) -> tuple[str, str, Decimal]:
+    """Return (situacao, enquadramento, aliquota) for fiscal form prefill: first item XML IPI, else 99/999/0.00."""
     for item in request.items.select_related("source_item").order_by("kind", "source_item__sequence", "pk"):
         if item.source_item_id is None:
             continue
@@ -929,8 +936,13 @@ def inferred_purchase_return_ipi(*, request: PurchaseReturnRequest) -> tuple[str
         if not situacao:
             continue
         enquadramento = _optional_tax_amount(ipi_fields, "cEnq", "cenq", "codigo_enquadramento") or "999"
-        return situacao, enquadramento
-    return "99", "999"
+        aliquota_raw = _optional_tax_amount(ipi_fields, "pIPI", "pIpi", "aliquota")
+        try:
+            aliquota = Decimal(aliquota_raw) if aliquota_raw else Decimal("0.00")
+        except (InvalidOperation, TypeError, ValueError):
+            aliquota = Decimal("0.00")
+        return situacao, enquadramento, aliquota
+    return "99", "999", Decimal("0.00")
 
 
 def _webmania_impostos_from_purchase_tax_snapshot(
@@ -940,6 +952,7 @@ def _webmania_impostos_from_purchase_tax_snapshot(
     sequence: int,
     ipi_situacao_tributaria: str,
     ipi_codigo_enquadramento: str,
+    ipi_aliquota: Decimal | str | None,
 ) -> dict[str, Any]:
     """Map purchase XML tax snapshot into Webmania `impostos` for finalidade=4."""
     formatted_cfop = _format_webmania_cfop(codigo_cfop)
@@ -957,6 +970,7 @@ def _webmania_impostos_from_purchase_tax_snapshot(
         _extract_ipi_group(tax_snapshot),
         situacao_tributaria=ipi_situacao_tributaria,
         codigo_enquadramento=ipi_codigo_enquadramento,
+        aliquota=ipi_aliquota,
     )
 
     pis_fields = _extract_named_tax_group(tax_snapshot, parents=("PIS", "pis"), prefixes=("PIS",))
@@ -985,6 +999,7 @@ def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -
     return_cfop = str(request.cfop or "").strip()
     ipi_situacao = str(request.ipi_situacao_tributaria or "").strip()
     ipi_enquadramento = str(request.ipi_codigo_enquadramento or "").strip()
+    ipi_aliquota = request.ipi_aliquota
     for selected in request.items.select_related("source_item").order_by("source_item__sequence", "pk"):
         source = selected.source_item
         if source is None:
@@ -1012,6 +1027,7 @@ def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -
                 sequence=source.sequence,
                 ipi_situacao_tributaria=ipi_situacao,
                 ipi_codigo_enquadramento=ipi_enquadramento,
+                ipi_aliquota=ipi_aliquota,
             ),
         }
         cest = str(tax_snapshot.get("cest") or tax_snapshot.get("CEST") or "").strip()
