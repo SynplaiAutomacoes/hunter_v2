@@ -75,7 +75,6 @@ class PurchaseReturnRequest(TimeStampedModel):
     FISCAL_CONFIGURATION_FIELDS: tuple[str, ...] = (
         "operation_nature",
         "cfop",
-        "tax_class",
         "additional_information",
         "fisco_information",
         "volume",

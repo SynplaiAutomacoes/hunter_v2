@@ -525,7 +525,6 @@ def _selected_products(request: PurchaseReturnRequest) -> list[dict[str, Any]]:
                     "valor_unitario": str(item.unit_value),
                     "total": str(item.total_value),
                     "codigo_cfop": item.cfop,
-                    "classe_imposto": item.tax_class or request.tax_class,
                 }
             )
             continue
@@ -737,6 +736,202 @@ def _format_return_number(value: Decimal, *, places: int) -> str:
     return f"{value.quantize(Decimal('1.' + ('0' * places))):.{places}f}"
 
 
+def _format_webmania_cfop(cfop: object) -> str:
+    digits = "".join(character for character in str(cfop or "") if character.isdigit())
+    if len(digits) == 4:
+        return f"{digits[0]}.{digits[1:]}"
+    return digits
+
+
+def _snapshot_scalar(value: object) -> str:
+    if value is None or isinstance(value, (dict, list)):
+        return ""
+    return str(value).strip()
+
+
+def _optional_tax_amount(fields: Mapping[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = _snapshot_scalar(fields.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _first_nested_tax_group(parent: Mapping[str, Any], *, prefixes: tuple[str, ...]) -> tuple[str, dict[str, Any]] | None:
+    for key, value in parent.items():
+        if not isinstance(value, dict):
+            continue
+        key_upper = str(key).upper()
+        if any(key_upper.startswith(prefix) for prefix in prefixes):
+            return key_upper, value
+    return None
+
+
+def _situacao_from_icms_group_name(group_name: str) -> str:
+    upper = group_name.upper()
+    if upper.startswith("ICMSSN"):
+        return upper.removeprefix("ICMSSN")
+    if upper.startswith("ICMS"):
+        return upper.removeprefix("ICMS")
+    return ""
+
+
+def _extract_icms_group(tax_snapshot: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
+    icms_parent = tax_snapshot.get("ICMS")
+    if not isinstance(icms_parent, dict):
+        icms_parent = tax_snapshot.get("icms")
+    if isinstance(icms_parent, dict):
+        nested = _first_nested_tax_group(icms_parent, prefixes=("ICMS",))
+        if nested is not None:
+            group_name, fields = nested
+            situacao = _optional_tax_amount(fields, "CST", "cst", "CSOSN", "csosn") or _situacao_from_icms_group_name(group_name)
+            return fields, situacao
+        situacao = _optional_tax_amount(icms_parent, "CST", "cst", "CSOSN", "csosn")
+        if situacao:
+            return dict(icms_parent), situacao
+    situacao = _optional_tax_amount(tax_snapshot, "CST", "cst", "CSOSN", "csosn")
+    if situacao:
+        return dict(tax_snapshot), situacao
+    return {}, ""
+
+
+def _extract_named_tax_group(tax_snapshot: Mapping[str, Any], *, parents: tuple[str, ...], prefixes: tuple[str, ...]) -> dict[str, Any]:
+    for parent_key in parents:
+        parent = tax_snapshot.get(parent_key)
+        if not isinstance(parent, dict):
+            continue
+        nested = _first_nested_tax_group(parent, prefixes=prefixes)
+        if nested is not None:
+            return nested[1]
+        if any(_snapshot_scalar(parent.get(key)) for key in ("CST", "cst", "situacao_tributaria")):
+            return dict(parent)
+    return {}
+
+
+def _build_icms_from_snapshot(*, fields: Mapping[str, Any], situacao: str, codigo_cfop: str) -> dict[str, Any]:
+    icms: dict[str, Any] = {"codigo_cfop": codigo_cfop, "situacao_tributaria": situacao}
+    aliquota = _optional_tax_amount(fields, "pICMS", "pIcms", "aliquota")
+    if aliquota:
+        icms["aliquota"] = aliquota
+    bc_icms = _optional_tax_amount(fields, "vBC", "vBc", "bc_icms")
+    if bc_icms:
+        icms["bc_icms"] = bc_icms
+    valor_icms = _optional_tax_amount(fields, "vICMS", "vIcms", "valor_icms")
+    if valor_icms:
+        icms["valor_icms"] = valor_icms
+    aliquota_reducao = _optional_tax_amount(fields, "pRedBC", "pRedBc", "aliquota_reducao")
+    if aliquota_reducao:
+        icms["aliquota_reducao"] = aliquota_reducao
+    aliquota_credito = _optional_tax_amount(fields, "pCredSN", "pCredSn", "aliquota_credito")
+    if aliquota_credito:
+        icms["aliquota_credito"] = aliquota_credito
+    bc_icms_st = _optional_tax_amount(fields, "vBCST", "vBcSt", "bc_icms_st")
+    if bc_icms_st:
+        icms["bc_icms_st"] = bc_icms_st
+    aliquota_st = _optional_tax_amount(fields, "pICMSST", "pIcmsSt", "aliquota_st")
+    if aliquota_st:
+        icms["aliquota_st"] = aliquota_st
+    aliquota_mva = _optional_tax_amount(fields, "pMVAST", "pMvaSt", "aliquota_mva")
+    if aliquota_mva:
+        icms["aliquota_mva"] = aliquota_mva
+    bc_st_retido = _optional_tax_amount(fields, "vBCSTRet", "vBcStRet", "bc_st_retido")
+    if bc_st_retido:
+        icms["bc_st_retido"] = bc_st_retido
+    aliquota_st_retido = _optional_tax_amount(fields, "pST", "pSt", "aliquota_st_retido")
+    if aliquota_st_retido:
+        icms["aliquota_st_retido"] = aliquota_st_retido
+    valor_st_retido = _optional_tax_amount(fields, "vICMSSTRet", "vIcmsStRet", "valor_st_retido")
+    if valor_st_retido:
+        icms["valor_st_retido"] = valor_st_retido
+    valor_icms_substituto = _optional_tax_amount(fields, "vICMSSubstituto", "vIcmsSubstituto", "valor_icms_substituto")
+    if valor_icms_substituto:
+        icms["valor_icms_substituto"] = valor_icms_substituto
+    return icms
+
+
+def _build_ipi_from_snapshot(fields: Mapping[str, Any]) -> dict[str, Any] | None:
+    situacao = _optional_tax_amount(fields, "CST", "cst", "situacao_tributaria")
+    if not situacao:
+        return None
+    ipi: dict[str, Any] = {"situacao_tributaria": situacao}
+    codigo_enquadramento = _optional_tax_amount(fields, "cEnq", "cenq", "codigo_enquadramento")
+    if codigo_enquadramento:
+        ipi["codigo_enquadramento"] = codigo_enquadramento
+    aliquota = _optional_tax_amount(fields, "pIPI", "pIpi", "aliquota")
+    if aliquota:
+        ipi["aliquota"] = aliquota
+    bc_ipi = _optional_tax_amount(fields, "vBC", "vBc", "bc_ipi")
+    if bc_ipi:
+        ipi["bc_ipi"] = bc_ipi
+    return ipi
+
+
+def _build_pis_or_cofins_from_snapshot(fields: Mapping[str, Any], *, bc_key: str) -> dict[str, Any] | None:
+    situacao = _optional_tax_amount(fields, "CST", "cst", "situacao_tributaria")
+    if not situacao:
+        return None
+    payload: dict[str, Any] = {"situacao_tributaria": situacao}
+    aliquota = _optional_tax_amount(fields, "pPIS", "pPis", "pCOFINS", "pCofins", "aliquota")
+    if aliquota:
+        payload["aliquota"] = aliquota
+    base = _optional_tax_amount(fields, "vBC", "vBc", bc_key)
+    if base:
+        payload[bc_key] = base
+    return payload
+
+
+def _product_origin_from_tax_snapshot(tax_snapshot: Mapping[str, Any]) -> int:
+    direct = _optional_tax_amount(tax_snapshot, "orig", "origin")
+    if direct:
+        try:
+            return int(direct)
+        except (TypeError, ValueError):
+            pass
+    fields, _situacao = _extract_icms_group(tax_snapshot)
+    nested_origin = _optional_tax_amount(fields, "orig", "origin")
+    try:
+        return int(nested_origin or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _webmania_impostos_from_purchase_tax_snapshot(
+    *,
+    tax_snapshot: Mapping[str, Any],
+    codigo_cfop: str,
+    sequence: int,
+) -> dict[str, Any]:
+    """Map purchase XML tax snapshot into Webmania `impostos` for finalidade=4."""
+    formatted_cfop = _format_webmania_cfop(codigo_cfop)
+    if not formatted_cfop:
+        raise PurchaseReturnError("Informe o CFOP da Nota de Devolução antes de gerar a prévia ou transmitir.")
+
+    icms_fields, situacao = _extract_icms_group(tax_snapshot)
+    if not situacao:
+        raise PurchaseReturnError(
+            f"Item fiscal {sequence} não possui ICMS no XML da NF-e de compra para montar a devolução."
+        )
+
+    impostos: dict[str, Any] = {"icms": _build_icms_from_snapshot(fields=icms_fields, situacao=situacao, codigo_cfop=formatted_cfop)}
+
+    ipi_fields = _extract_named_tax_group(tax_snapshot, parents=("IPI", "ipi"), prefixes=("IPI",))
+    ipi_payload = _build_ipi_from_snapshot(ipi_fields)
+    if ipi_payload is not None:
+        impostos["ipi"] = ipi_payload
+
+    pis_fields = _extract_named_tax_group(tax_snapshot, parents=("PIS", "pis"), prefixes=("PIS",))
+    pis_payload = _build_pis_or_cofins_from_snapshot(pis_fields, bc_key="bc_pis")
+    if pis_payload is not None:
+        impostos["pis"] = pis_payload
+
+    cofins_fields = _extract_named_tax_group(tax_snapshot, parents=("COFINS", "cofins"), prefixes=("COFINS",))
+    cofins_payload = _build_pis_or_cofins_from_snapshot(cofins_fields, bc_key="bc_cofins")
+    if cofins_payload is not None:
+        impostos["cofins"] = cofins_payload
+
+    return impostos
+
+
 def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -> list[dict[str, Any]]:
     if request.items.filter(kind=PurchaseReturnItemKind.MANUAL).exists():
         raise PurchaseReturnError("Produto avulso não pode compor uma devolução fiscal por item. Selecione apenas itens da NF-e de compra.")
@@ -747,6 +942,7 @@ def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -
     products: list[dict[str, Any]] = []
     requires_ibs_cbs = _return_requires_ibs_cbs(original_document=request.original_document)
     original_products = _original_products_by_sequence(request.original_document) if requires_ibs_cbs else {}
+    return_cfop = str(request.cfop or "").strip()
     for selected in request.items.select_related("source_item").order_by("source_item__sequence", "pk"):
         source = selected.source_item
         if source is None:
@@ -763,24 +959,25 @@ def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -
             "ncm": ncm,
             "quantidade": _format_return_number(selected.quantity, places=4),
             "unidade": str(source.unit or "UN").strip().upper(),
-            "origem": int(tax_snapshot.get("orig", tax_snapshot.get("origin", 0)) or 0),
+            "origem": _product_origin_from_tax_snapshot(tax_snapshot),
             "subtotal": _format_return_number(selected.unit_value, places=4),
             "total": _format_return_number(selected.total_value, places=2),
-            "codigo_cfop": str(request.cfop or "").strip(),
+            "codigo_cfop": return_cfop,
             "dfe_referenciado": {"chave": access_key, "item": source.sequence},
+            "impostos": _webmania_impostos_from_purchase_tax_snapshot(
+                tax_snapshot=tax_snapshot,
+                codigo_cfop=return_cfop,
+                sequence=source.sequence,
+            ),
         }
-        cest = str(tax_snapshot.get("cest") or "").strip()
+        cest = str(tax_snapshot.get("cest") or tax_snapshot.get("CEST") or "").strip()
         if cest:
             product["cest"] = cest
-        if request.tax_class:
-            product["classe_imposto"] = str(request.tax_class).strip()
         if requires_ibs_cbs:
             original_product = original_products.get(source.sequence)
             if original_product is None:
                 raise PurchaseReturnError(f"Item fiscal {source.sequence} não foi encontrado no snapshot da NF-e de compra.")
-            product["impostos"] = {
-                "ibs_cbs": _extract_ibs_cbs_payload_from_product(original_product, sequence=source.sequence)
-            }
+            product["impostos"]["ibs_cbs"] = _extract_ibs_cbs_payload_from_product(original_product, sequence=source.sequence)
         products.append(product)
     if not products:
         raise PurchaseReturnError("A devolução não possui produtos selecionados.")
@@ -899,7 +1096,6 @@ def transmit_purchase_return(*, request_instance: PurchaseReturnRequest, http_re
                     requested_by=locked.requested_by,
                     natureza_operacao=locked.operation_nature,
                     codigo_cfop=locked.cfop,
-                    classe_imposto=locked.tax_class,
                     volume=locked.volume,
                     informacoes_fisco=locked.fisco_information,
                     informacoes_complementares=locked.additional_information,
