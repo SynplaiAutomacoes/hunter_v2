@@ -923,6 +923,18 @@ def _product_origin_from_tax_snapshot(tax_snapshot: Mapping[str, Any]) -> int:
         return 0
 
 
+def inferred_purchase_return_icms_situacao(*, request: PurchaseReturnRequest) -> str:
+    """Return ICMS CST/CSOSN for fiscal form prefill from the first selected item XML."""
+    for item in request.items.select_related("source_item").order_by("kind", "source_item__sequence", "pk"):
+        if item.source_item_id is None:
+            continue
+        tax_snapshot = item.source_item.tax_snapshot if isinstance(item.source_item.tax_snapshot, dict) else {}
+        _fields, situacao = _extract_icms_group(tax_snapshot)
+        if situacao:
+            return situacao
+    return ""
+
+
 def inferred_purchase_return_ipi(*, request: PurchaseReturnRequest) -> tuple[str, str, Decimal]:
     """Return (situacao, enquadramento, aliquota) for fiscal form prefill: first item XML IPI, else 99/999/0.00."""
     for item in request.items.select_related("source_item").order_by("kind", "source_item__sequence", "pk"):
@@ -948,6 +960,7 @@ def _webmania_impostos_from_purchase_tax_snapshot(
     tax_snapshot: Mapping[str, Any],
     codigo_cfop: str,
     sequence: int,
+    icms_situacao_tributaria: str,
     ipi_situacao_tributaria: str,
     ipi_codigo_enquadramento: str,
     ipi_aliquota: Decimal | str | None,
@@ -957,11 +970,10 @@ def _webmania_impostos_from_purchase_tax_snapshot(
     if not formatted_cfop:
         raise PurchaseReturnError("Informe o CFOP da Nota de Devolução antes de gerar a prévia ou transmitir.")
 
-    icms_fields, situacao = _extract_icms_group(tax_snapshot)
+    icms_fields, xml_situacao = _extract_icms_group(tax_snapshot)
+    situacao = str(icms_situacao_tributaria or "").strip() or xml_situacao
     if not situacao:
-        raise PurchaseReturnError(
-            f"Item fiscal {sequence} não possui ICMS no XML da NF-e de compra para montar a devolução."
-        )
+        raise PurchaseReturnError("Informe o CST/CSOSN do ICMS nos dados fiscais da Nota de Devolução.")
 
     impostos: dict[str, Any] = {"icms": _build_icms_from_snapshot(fields=icms_fields, situacao=situacao, codigo_cfop=formatted_cfop)}
     impostos["ipi"] = _build_ipi_from_snapshot(
@@ -995,6 +1007,7 @@ def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -
     requires_ibs_cbs = _return_requires_ibs_cbs(original_document=request.original_document)
     original_products = _original_products_by_sequence(request.original_document) if requires_ibs_cbs else {}
     return_cfop = str(request.cfop or "").strip()
+    icms_situacao = str(request.icms_situacao_tributaria or "").strip()
     ipi_situacao = str(request.ipi_situacao_tributaria or "").strip()
     ipi_enquadramento = str(request.ipi_codigo_enquadramento or "").strip()
     ipi_aliquota = request.ipi_aliquota
@@ -1023,6 +1036,7 @@ def _build_generic_purchase_return_products(*, request: PurchaseReturnRequest) -
                 tax_snapshot=tax_snapshot,
                 codigo_cfop=return_cfop,
                 sequence=source.sequence,
+                icms_situacao_tributaria=icms_situacao,
                 ipi_situacao_tributaria=ipi_situacao,
                 ipi_codigo_enquadramento=ipi_enquadramento,
                 ipi_aliquota=ipi_aliquota,
