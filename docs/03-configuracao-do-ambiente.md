@@ -25,33 +25,17 @@ Opcao recomendada no Windows:
 1. instale o GTK3 Runtime ou outro pacote que forneca `libcairo-2.dll`
 2. adicione a pasta `bin` desse runtime ao `PATH`
 3. feche e abra o terminal novamente
-4. rode `uv sync`
 
 Exemplo comum de pasta esperada no `PATH`:
 
 - `C:\Program Files\GTK3-Runtime Win64\bin`
+aa
 
 Validacao rapida:
 
 ```bash
 uv run python -c "import cairosvg; print('ok')"
-```
-
-Se esse comando falhar com erro sobre `libcairo-2.dll`, o runtime do Cairo ainda nao esta disponivel para o Python.
-
-## Setup local minimo
-
-No root do projeto:
-
-```bash
-uv sync
-npm ci
-docker compose up -d postgres
-uv run python manage.py migrate
-uv run python manage.py runserver
-```
-
-Se voce pretende subir logomarca em SVG no ambiente local, valide tambem:
+``` ahgaehgawem SVG no ambiente local, valide tambem:
 
 ```bash
 uv run python -c "import cairosvg; print('cairosvg pronto')"
