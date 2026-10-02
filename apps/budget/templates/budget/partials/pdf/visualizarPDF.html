@@ -329,6 +329,21 @@
             <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
             <p class="preserve-freeform-text"><span class="text-gray-500 italic">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
         </div>
+
+        {% if observations or fixed_observation %}
+        <div class="summary-observation p-4 border-b border-gray-200">
+            <h4 class="font-bold mb-2 uppercase">Observações</h4>
+            {% if observations %}
+                <p class="text-[12px] preserve-freeform-text">{{ observations }}</p>
+            {% endif %}
+            {% if observations and fixed_observation %}
+                <div class="mt-3"></div>
+            {% endif %}
+            {% if fixed_observation %}
+                <p class="text-[12px] preserve-freeform-text">{{ fixed_observation }}</p>
+            {% endif %}
+        </div>
+        {% endif %}
         {% endif %}
 
         <div class="p-4 border-b border-gray-200">
@@ -431,20 +446,6 @@
                         {% endfor %}
                     </tbody>
                 </table>
-            </div>
-            {% endif %}
-            {% if observations or fixed_observation %}
-            <div class="summary-observation mt-3">
-                <h4 class="font-bold mb-2 uppercase">Observações</h4>
-                {% if fixed_observation %}
-                    <p class="text-[12px] preserve-freeform-text">{{ fixed_observation }}</p>
-                {% endif %}
-                {% if observations and fixed_observation %}
-                    <div class="mt-3"></div>
-                {% endif %}
-                {% if observations %}
-                    <p class="text-[12px] preserve-freeform-text">{{ observations }}</p>
-                {% endif %}
             </div>
             {% endif %}
             <div class="summary-totals-row">
