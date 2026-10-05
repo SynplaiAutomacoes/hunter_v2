@@ -52,7 +52,13 @@ from .forms import (
 )
 from .services.files import StockImportFileStorageError, delete_import_xml_file, read_import_xml_file
 from .financial_entries import apply_card_fee_budget_plan, calculate_import_totals, get_next_entry_id, resolve_import_budget_plan
-from .models import StockImport, StockMovement, StockProduct, StockTransfer
+from .models import SefazZipCache, StockImport, StockMovement, StockProduct, StockTransfer
+from .services.sefaz_manifestation import (
+    SefazManifestationServiceError,
+    manifestation_event_choices,
+    serialize_manifestation_summary,
+    submit_sefaz_manifestation,
+)
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..core.infrastructure.pdf.renderer import build_pdf_http_response
@@ -889,6 +895,81 @@ class RefreshSefazListView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "showToast": {
                     "type": "success" if success else "warning",
                     "message": message,
+                },
+                "sefaz-list-refresh": {},
+            }
+        )
+        return response
+
+
+class SefazManifestModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    def get(self, request):
+        access_key = "".join(character for character in str(request.GET.get("access_key") or "").strip() if character.isdigit())
+        stock_import_pk = request.GET.get("stock_import_pk") or ""
+        if len(access_key) != 44:
+            return HttpResponse("Chave de acesso inválida.", status=400)
+
+        cache_row = SefazZipCache.objects.filter(workshop=self.workshop, key=access_key).first()
+        return render(
+            request,
+            "stock/partials/modal/sefaz_manifest_modal.html",
+            {
+                "access_key": access_key,
+                "nf_number_display": cache_row.nf_number_display if cache_row else access_key,
+                "stock_import_pk": stock_import_pk,
+                "event_choices": manifestation_event_choices(),
+                "selected_event": "210210",
+                "justificativa": "",
+                "error_message": "",
+            },
+        )
+
+
+class SefazManifestSubmitView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "change_stockimport"
+
+    def post(self, request):
+        access_key = "".join(character for character in str(request.POST.get("access_key") or "").strip() if character.isdigit())
+        event_code = str(request.POST.get("event_code") or "").strip()
+        justificativa = str(request.POST.get("justificativa") or "").strip()
+        stock_import_pk = str(request.POST.get("stock_import_pk") or "").strip()
+
+        context = {
+            "access_key": access_key,
+            "nf_number_display": access_key,
+            "stock_import_pk": stock_import_pk,
+            "event_choices": manifestation_event_choices(),
+            "selected_event": event_code or "210210",
+            "justificativa": justificativa,
+            "error_message": "",
+        }
+        cache_row = SefazZipCache.objects.filter(workshop=self.workshop, key=access_key).first()
+        if cache_row is not None:
+            context["nf_number_display"] = cache_row.nf_number_display
+
+        try:
+            manifestation = submit_sefaz_manifestation(
+                workshop=self.workshop,
+                access_key=access_key,
+                event_code=event_code,
+                justificativa=justificativa,
+                requested_by=request.user,
+            )
+        except SefazManifestationServiceError as exc:
+            context["error_message"] = str(exc)
+            return render(request, "stock/partials/modal/sefaz_manifest_modal.html", context, status=400)
+
+        summary = serialize_manifestation_summary(manifestation)
+        response = HttpResponse("")
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {
+                    "type": "success",
+                    "message": f"Manifestação enviada: {summary['event_label']} ({summary['status_label']}).",
                 },
                 "sefaz-list-refresh": {},
             }
