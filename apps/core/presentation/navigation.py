@@ -15,10 +15,6 @@ from apps.workshops.util.workshops import can_view_payroll_details
 VisibilityPredicate = Callable[[HttpRequest, dict[str, Any]], bool]
 
 
-def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool:
-    return bool(flags.get("active_workshop_is_director") or flags.get("active_workshop_is_manager"))
-
-
 def _is_director(request: HttpRequest, flags: dict[str, Any]) -> bool:
     return bool(flags.get("active_workshop_is_director"))
 
@@ -119,7 +115,6 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Gerenciar Oficinas", "view_name": "workshops:list"},
             {"label": "Gerenciar Permissões", "view_name": "iam:role_list"},
             {"label": "Gerenciar Colaboradores", "view_name": "collaborators:collaborator_manage", "visible_if": _is_director},
-            {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
             {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
             {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list", "visible_if": _requires_full_plan},
