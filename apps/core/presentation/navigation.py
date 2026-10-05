@@ -19,6 +19,10 @@ def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool
     return bool(flags.get("active_workshop_is_director") or flags.get("active_workshop_is_manager"))
 
 
+def _is_director(request: HttpRequest, flags: dict[str, Any]) -> bool:
+    return bool(flags.get("active_workshop_is_director"))
+
+
 def _can_view_payroll(request: HttpRequest, flags: dict[str, Any]) -> bool:
     active_workshop_id = flags.get("active_workshop_id")
     if active_workshop_id is None:
@@ -114,6 +118,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Central de Relatórios", "view_name": "core:reports_hub"},
             {"label": "Gerenciar Oficinas", "view_name": "workshops:list"},
             {"label": "Gerenciar Permissões", "view_name": "iam:role_list"},
+            {"label": "Gerenciar Colaboradores", "view_name": "collaborators:collaborator_manage", "visible_if": _is_director},
             {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
             {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},

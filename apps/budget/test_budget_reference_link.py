@@ -131,3 +131,35 @@ class BudgetReferenceLinkTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'value="yes"')
         self.assertNotContains(response, LINKED_COPY_CLOSED_WORKORDER_MESSAGE)
+        self.assertContains(response, 'hx-disabled-elt="find button[type=\'submit\']"')
+        self.assertContains(response, 'hx-sync="this:drop"')
+
+    def test_double_post_relate_yes_reuses_single_linked_copy(self) -> None:
+        budget = self._create_budget_with_workorder(workorder_status=WorkOrderStatus.DRAFT)
+        url = self._reference_url(budget)
+
+        first = self.client.post(url, {"relate_budget": "yes"}, HTTP_HX_REQUEST="true")
+        second = self.client.post(url, {"relate_budget": "yes"}, HTTP_HX_REQUEST="true")
+
+        self.assertEqual(first.status_code, 204)
+        self.assertEqual(second.status_code, 204)
+        children = list(Budget.objects.filter(reference_budget=budget).order_by("pk"))
+        self.assertEqual(len(children), 1)
+        self.assertEqual(first["HX-Redirect"], second["HX-Redirect"])
+        self.assertIn(f"/budget/{children[0].pk}/edit/", first["HX-Redirect"])
+
+    def test_double_post_relate_no_reuses_single_unlinked_copy(self) -> None:
+        budget = self._create_budget_with_workorder(workorder_status=WorkOrderStatus.APPROVED)
+        url = self._reference_url(budget)
+        before_ids = set(Budget.objects.values_list("pk", flat=True))
+
+        first = self.client.post(url, {"relate_budget": "no"}, HTTP_HX_REQUEST="true")
+        second = self.client.post(url, {"relate_budget": "no"}, HTTP_HX_REQUEST="true")
+
+        self.assertEqual(first.status_code, 204)
+        self.assertEqual(second.status_code, 204)
+        created = list(Budget.objects.exclude(pk__in=before_ids).order_by("pk"))
+        self.assertEqual(len(created), 1)
+        self.assertIsNone(created[0].reference_budget_id)
+        self.assertEqual(first["HX-Redirect"], second["HX-Redirect"])
+        self.assertIn(f"/budget/{created[0].pk}/edit/", first["HX-Redirect"])

@@ -25,6 +25,7 @@ from .payroll import (
 )
 from .purchase_return import (
     PurchaseReturnCreateView,
+    PurchaseReturnDocumentDownloadView,
     PurchaseReturnPreviewPdfView,
     PurchaseReturnPreviewView,
     PurchaseReturnReconcileView,
@@ -78,6 +79,7 @@ __all__ = [
     "PayrollListView",
     "PayrollSyncComponentView",
     "PurchaseReturnCreateView",
+    "PurchaseReturnDocumentDownloadView",
     "PurchaseReturnPreviewPdfView",
     "PurchaseReturnPreviewView",
     "PurchaseReturnReconcileView",
