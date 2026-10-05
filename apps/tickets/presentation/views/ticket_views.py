@@ -13,8 +13,9 @@ from django.views.generic import CreateView, DetailView, ListView
 
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
-from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
+from apps.core.presentation.tables import TableActionDefaults
+from apps.core.templatetags.table_tags import TableColumn
 from apps.tickets.application.services.attachments import TicketAttachmentError, attachment_download_url, prepare_uploaded_file
 from apps.tickets.application.services.chat import TicketChatError, post_ticket_message
 from apps.tickets.application.services.ws_auth import issue_ticket_chat_ws_token
@@ -39,9 +40,23 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 User = get_user_model()
 
+TICKET_STATUS_VALUES: frozenset[str] = frozenset(value for value, _label in TicketStatus.choices)
+
 
 def _developer_user_queryset():
     return User.objects.filter(pk__in=WorkshopCollaborator.objects.filter(is_developer=True, is_active=True, user__isnull=False).values_list("user_id", flat=True)).order_by("username")
+
+
+def _get_selected_ticket_status_values(request: HttpRequest) -> list[str]:
+    selected: list[str] = []
+    seen: set[str] = set()
+    for raw_value in request.GET.getlist("status"):
+        value = str(raw_value or "").strip()
+        if not value or value not in TICKET_STATUS_VALUES or value in seen:
+            continue
+        seen.add(value)
+        selected.append(value)
+    return selected
 
 
 def _collect_prepared_attachments(request: HttpRequest, *, default_source: str = TicketAttachmentSource.UPLOAD):
@@ -73,28 +88,31 @@ class MyTicketListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
     template_name = "tickets/my_list.html"
     htmx_template_name = "tickets/partials/my_table.html"
     context_object_name = "tickets"
-    paginate_by = 20
 
     def get_queryset(self):
         qs = Ticket.objects.filter(created_by=self.request.user).select_related("workshop", "assignee", "created_by")
-        status_param = (self.request.GET.get("status") or "").strip()
-        if status_param == "all":
-            pass
-        elif status_param:
-            qs = qs.filter(status=status_param)
+        selected_statuses = _get_selected_ticket_status_values(self.request)
+        if selected_statuses:
+            qs = qs.filter(status__in=selected_statuses)
         else:
             qs = qs.filter(status__in=NON_FINAL_STATUSES)
-
-        search_query = (self.request.GET.get("q") or "").strip()
-        if search_query:
-            qs = apply_text_search(qs, search_value=search_query, lookups=("title", "problem"))
         return qs.order_by("-created_at")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
+        context["tickets"] = self.get_queryset()
+        context["fields"] = [
+            TableColumn("#", attr="pk", search_by="pk"),
+            TableColumn("Título", attr="title", search_by=("title", "problem")),
+            TableColumn("Status", attr="status_badge", search_by="status", sort_by="status", format="status_badge"),
+            TableColumn("Oficina", attr="workshop.name", search_by="workshop__name"),
+            TableColumn("Responsável", attr="assignee_display", search_by="assignee__username", sortable=False),
+            TableColumn("Criado em", attr="created_at", searchable=False),
+        ]
+        context["actions"] = [TableActionDefaults.view("tickets:ticket_detail")]
         context["status_choices"] = TicketStatus.choices
+        context["selected_status_values"] = _get_selected_ticket_status_values(self.request)
         context["status_badge_classes"] = STATUS_BADGE_CLASSES
-        context["current_status"] = (self.request.GET.get("status") or "").strip()
         context["can_access_all_tickets"] = can_access_all_tickets(self.request.user)
         return context
 
@@ -104,16 +122,14 @@ class AllTicketListView(LoginRequiredMixin, DeveloperOrAdminRequiredMixin, HtmxT
     template_name = "tickets/all_list.html"
     htmx_template_name = "tickets/partials/all_table.html"
     context_object_name = "tickets"
-    paginate_by = 20
 
     def get_queryset(self):
         qs = Ticket.objects.all().select_related("workshop", "assignee", "created_by")
-        status_values = frozenset(value for value, _label in TicketStatus.choices)
         qs = apply_query_param_filters(
             qs,
             params=self.request.GET,
             filter_configs=[
-                QueryParamFilter(param_name="status", lookup="status", kind="choice", allowed_values=status_values),
+                QueryParamFilter(param_name="status", lookup="status", kind="choice", allowed_values=TICKET_STATUS_VALUES),
             ],
         )
         workshop_id = (self.request.GET.get("workshop") or "").strip()
@@ -122,14 +138,24 @@ class AllTicketListView(LoginRequiredMixin, DeveloperOrAdminRequiredMixin, HtmxT
         assignee_id = (self.request.GET.get("assignee") or "").strip()
         if assignee_id.isdigit():
             qs = qs.filter(assignee_id=int(assignee_id))
-        search_query = (self.request.GET.get("q") or "").strip()
-        if search_query:
-            qs = apply_text_search(qs, search_value=search_query, lookups=("title", "problem", "created_by__username"))
         return qs.order_by("-created_at")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
+        context["tickets"] = self.get_queryset()
+        context["fields"] = [
+            TableColumn("#", attr="pk", search_by="pk"),
+            TableColumn("Título", attr="title", search_by=("title", "problem", "created_by__username")),
+            TableColumn("Status", attr="status_badge", search_by="status", sort_by="status", format="status_badge"),
+            TableColumn("Oficina", attr="workshop.name", search_by="workshop__name"),
+            TableColumn("Aberto por", attr="created_by_display", search_by="created_by__username", sortable=False),
+            TableColumn("Responsável", attr="assignee_display", search_by="assignee__username", sortable=False),
+            TableColumn("Criado em", attr="created_at", searchable=False),
+        ]
+        context["actions"] = [TableActionDefaults.view("tickets:ticket_detail")]
         context["status_choices"] = TicketStatus.choices
+        context["selected_status_values"] = _get_selected_ticket_status_values(self.request)
+        context["selected_assignee_id"] = (self.request.GET.get("assignee") or "").strip()
         context["status_badge_classes"] = STATUS_BADGE_CLASSES
         context["is_developer"] = is_developer(self.request.user)
         context["developer_users"] = _developer_user_queryset()

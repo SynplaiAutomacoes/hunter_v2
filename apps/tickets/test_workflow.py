@@ -168,6 +168,20 @@ class TicketWorkflowTests(TicketSupportBaseTestCase):
         self.assertEqual(ticket.cancellation_reason, "Duplicado")
 
 
+class TicketCreateViewTests(TicketSupportBaseTestCase):
+    def test_create_page_renders_for_authenticated_user(self) -> None:
+        self._login_with_workshop(self.owner)
+        response = self.client.get(reverse("tickets:create"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Abrir chamado")
+        self.assertContains(response, "ticket_screen_recorder.js")
+        self.assertContains(response, "ticketAttachments(")
+        self.assertContains(response, "maxBytes: 314572800")
+        self.assertNotContains(response, "maxBytes: 314.572.800")
+        self.assertContains(response, "Prepare-se")
+        self.assertContains(response, "videocam")
+
+
 class TicketPermissionTests(TicketSupportBaseTestCase):
     def test_owner_sees_only_own_tickets_and_non_dev_forbidden_on_general(self) -> None:
         own = self._create_ticket()
@@ -186,6 +200,49 @@ class TicketPermissionTests(TicketSupportBaseTestCase):
         self._login_with_workshop(self.dev_user)
         response = self.client.get(reverse("tickets:all_list"))
         self.assertEqual(response.status_code, 200)
+
+    def test_my_list_multi_status_filter_and_default_non_final(self) -> None:
+        open_ticket = self._create_ticket()
+        closed_ticket = self._create_ticket()
+        Ticket.objects.filter(pk=closed_ticket.pk).update(status=TicketStatus.FECHADO)
+        closed_ticket.refresh_from_db()
+
+        self._login_with_workshop(self.owner)
+
+        default_response = self.client.get(reverse("tickets:my_list"))
+        self.assertEqual(default_response.status_code, 200)
+        default_ids = {ticket.pk for ticket in default_response.context["tickets"]}
+        self.assertIn(open_ticket.pk, default_ids)
+        self.assertNotIn(closed_ticket.pk, default_ids)
+
+        filtered_response = self.client.get(
+            reverse("tickets:my_list"),
+            {"status": [TicketStatus.ABERTO, TicketStatus.FECHADO]},
+        )
+        self.assertEqual(filtered_response.status_code, 200)
+        filtered_ids = {ticket.pk for ticket in filtered_response.context["tickets"]}
+        self.assertEqual(filtered_ids, {open_ticket.pk, closed_ticket.pk})
+        self.assertEqual(
+            filtered_response.context["selected_status_values"],
+            [TicketStatus.ABERTO, TicketStatus.FECHADO],
+        )
+        self.assertContains(filtered_response, 'name="status"')
+        self.assertContains(filtered_response, 'type="checkbox"')
+
+    def test_all_list_multi_status_filter(self) -> None:
+        open_ticket = self._create_ticket()
+        closed_ticket = self._create_ticket(created_by=self.other_user)
+        Ticket.objects.filter(pk=closed_ticket.pk).update(status=TicketStatus.FECHADO)
+
+        self._login_with_workshop(self.dev_user)
+        response = self.client.get(
+            reverse("tickets:all_list"),
+            {"status": [TicketStatus.FECHADO]},
+        )
+        self.assertEqual(response.status_code, 200)
+        ticket_ids = {ticket.pk for ticket in response.context["tickets"]}
+        self.assertIn(closed_ticket.pk, ticket_ids)
+        self.assertNotIn(open_ticket.pk, ticket_ids)
 
     @override_settings(SYSTEM_ADMIN_USERNAMES=["sysadmin_tickets"])
     def test_non_admin_cannot_set_is_developer_flag(self) -> None:

@@ -89,6 +89,20 @@ class Ticket(models.Model):
 
         return STATUS_BADGE_CLASSES.get(self.status, "badge-ghost")
 
+    @property
+    def status_badge(self) -> dict[str, str]:
+        return {"text": self.get_status_display(), "class": self.status_badge_class}
+
+    @property
+    def assignee_display(self) -> str:
+        if self.assignee_id is None:
+            return "—"
+        return str(self.assignee)
+
+    @property
+    def created_by_display(self) -> str:
+        return str(self.created_by)
+
 
 class TicketAttachment(models.Model):
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="attachments", verbose_name="Chamado")

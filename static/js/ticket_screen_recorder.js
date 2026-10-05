@@ -1,24 +1,44 @@
-(function () {
+document.addEventListener("alpine:init", () => {
   function formatBytes(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  window.ticketAttachments = function ticketAttachments(options) {
-    const maxBytes = Number(options?.maxBytes || 300 * 1024 * 1024);
-    const maxSeconds = Number(options?.maxSeconds || 300);
+  Alpine.data("ticketAttachments", (options = {}) => {
+    const maxBytes = Number(options.maxBytes || 300 * 1024 * 1024);
+    const maxSeconds = Number(options.maxSeconds || 300);
+    const countdownFrom = Number(options.countdownFrom || 3);
 
     return {
       fileNames: [],
       isRecording: false,
       recordingBusy: false,
+      countdownSeconds: 0,
       recordingLabel: "",
       mediaRecorder: null,
       recordedChunks: [],
       recordingTimer: null,
+      countdownTimer: null,
+      countdownResolve: null,
       displayStream: null,
       micStream: null,
+
+      get isCountingDown() {
+        return this.countdownSeconds > 0;
+      },
+
+      get buttonIcon() {
+        if (this.isRecording) return "stop";
+        if (this.isCountingDown) return "timer";
+        return "videocam";
+      },
+
+      get buttonLabel() {
+        if (this.isRecording) return "Parar gravação";
+        if (this.isCountingDown) return "Cancelar preparação";
+        return "Gravar tela";
+      },
 
       onFilesSelected(event) {
         const files = Array.from(event.target.files || []);
@@ -38,10 +58,14 @@
           this.stopRecording();
           return;
         }
-        await this.startRecording();
+        if (this.isCountingDown) {
+          this.cancelCountdown({ label: "Preparação cancelada." });
+          return;
+        }
+        await this.beginRecordingFlow();
       },
 
-      async startRecording() {
+      async beginRecordingFlow() {
         this.recordingBusy = true;
         this.recordingLabel = "Solicitando permissão de tela e microfone...";
         try {
@@ -55,54 +79,101 @@
             this.micStream = null;
           }
 
-          const tracks = [...this.displayStream.getTracks()];
-          if (this.micStream) {
-            tracks.push(...this.micStream.getAudioTracks());
+          this.recordingBusy = false;
+          const shouldStart = await this.runCountdown();
+          if (!shouldStart || !this.displayStream) {
+            return;
           }
-          const combined = new MediaStream(tracks);
-          this.recordedChunks = [];
-          const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
-          let recorder = null;
-          for (const mimeType of candidates) {
-            if (MediaRecorder.isTypeSupported && !MediaRecorder.isTypeSupported(mimeType)) continue;
-            try {
-              recorder = new MediaRecorder(combined, { mimeType });
-              break;
-            } catch (_err) {
-              recorder = null;
-            }
-          }
-          if (!recorder) {
-            recorder = new MediaRecorder(combined);
-          }
-          this.mediaRecorder = recorder;
-          this.mediaRecorder.ondataavailable = (event) => {
-            if (event.data && event.data.size > 0) {
-              this.recordedChunks.push(event.data);
-            }
-          };
-          this.mediaRecorder.onstop = () => this.onRecordingStop();
-          this.mediaRecorder.start(1000);
-          this.isRecording = true;
-          this.recordingLabel = "Gravando...";
-
-          this.recordingTimer = window.setTimeout(() => {
-            if (this.isRecording) {
-              this.stopRecording();
-              alert("A gravação atingiu o limite de 5 minutos e foi finalizada.");
-            }
-          }, maxSeconds * 1000);
-
-          this.displayStream.getVideoTracks()[0]?.addEventListener("ended", () => {
-            if (this.isRecording) this.stopRecording();
-          });
+          this.startMediaRecorder();
         } catch (err) {
           console.error(err);
           this.recordingLabel = "Não foi possível iniciar a gravação.";
           this.cleanupStreams();
-        } finally {
           this.recordingBusy = false;
         }
+      },
+
+      runCountdown() {
+        return new Promise((resolve) => {
+          this.countdownResolve = resolve;
+          this.countdownSeconds = countdownFrom;
+          this.recordingLabel = `Gravação inicia em ${this.countdownSeconds}…`;
+
+          this.countdownTimer = window.setInterval(() => {
+            this.countdownSeconds -= 1;
+            if (this.countdownSeconds > 0) {
+              this.recordingLabel = `Gravação inicia em ${this.countdownSeconds}…`;
+              return;
+            }
+
+            window.clearInterval(this.countdownTimer);
+            this.countdownTimer = null;
+            this.countdownSeconds = 0;
+            this.recordingLabel = "Iniciando gravação…";
+            const done = this.countdownResolve;
+            this.countdownResolve = null;
+            if (done) done(true);
+          }, 1000);
+        });
+      },
+
+      cancelCountdown({ label } = {}) {
+        if (this.countdownTimer) {
+          window.clearInterval(this.countdownTimer);
+          this.countdownTimer = null;
+        }
+        this.countdownSeconds = 0;
+        this.cleanupStreams();
+        this.recordingBusy = false;
+        this.recordingLabel = label || "";
+        const done = this.countdownResolve;
+        this.countdownResolve = null;
+        if (done) done(false);
+      },
+
+      startMediaRecorder() {
+        const tracks = [...this.displayStream.getTracks()];
+        if (this.micStream) {
+          tracks.push(...this.micStream.getAudioTracks());
+        }
+        const combined = new MediaStream(tracks);
+        this.recordedChunks = [];
+        const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+        let recorder = null;
+        for (const mimeType of candidates) {
+          if (MediaRecorder.isTypeSupported && !MediaRecorder.isTypeSupported(mimeType)) continue;
+          try {
+            recorder = new MediaRecorder(combined, { mimeType });
+            break;
+          } catch (_err) {
+            recorder = null;
+          }
+        }
+        if (!recorder) {
+          recorder = new MediaRecorder(combined);
+        }
+        this.mediaRecorder = recorder;
+        this.mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            this.recordedChunks.push(event.data);
+          }
+        };
+        this.mediaRecorder.onstop = () => this.onRecordingStop();
+        this.mediaRecorder.start(1000);
+        this.isRecording = true;
+        this.recordingLabel = "Gravando…";
+
+        this.recordingTimer = window.setTimeout(() => {
+          if (this.isRecording) {
+            this.stopRecording();
+            alert("A gravação atingiu o limite de 5 minutos e foi finalizada.");
+          }
+        }, maxSeconds * 1000);
+
+        this.displayStream.getVideoTracks()[0]?.addEventListener("ended", () => {
+          if (this.isRecording) this.stopRecording();
+          if (this.countdownSeconds > 0) this.cancelCountdown({ label: "Compartilhamento de tela encerrado." });
+        });
       },
 
       stopRecording() {
@@ -144,5 +215,5 @@
         this.micStream = null;
       },
     };
-  };
-})();
+  });
+});

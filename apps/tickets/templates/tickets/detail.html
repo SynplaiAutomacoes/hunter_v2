@@ -1,5 +1,5 @@
 {% extends 'crud/page.html' %}
-{% load crispy_forms_tags static %}
+{% load crispy_forms_tags l10n static %}
 
 {% block crud_content %}
 <div class="flex items-start justify-between gap-4 mb-6">
@@ -47,7 +47,7 @@
         </div>
 
         <div class="card bg-base-100 shadow">
-            <div class="card-body space-y-4" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes }}, maxSeconds: {{ max_recording_seconds }} })">
+            <div class="card-body space-y-4" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes|unlocalize }}, maxSeconds: {{ max_recording_seconds|unlocalize }} })">
                 <h2 class="font-semibold text-lg">Anexos</h2>
                 <ul class="space-y-2">
                     {% for item in attachments_with_urls %}
@@ -70,11 +70,21 @@
                         {% csrf_token %}
                         <input type="file" name="attachments" multiple class="file-input file-input-bordered w-full" @change="onFilesSelected($event)">
                         <div class="flex flex-wrap items-center gap-3">
-                            <button type="button" class="btn btn-outline btn-sm gap-2" @click="toggleRecording()">
-                                <span class="material-icons text-base" x-text="isRecording ? 'stop' : 'videocam'"></span>
-                                <span x-text="isRecording ? 'Parar gravação' : 'Gravar tela'"></span>
+                            <button type="button" class="btn btn-outline btn-sm gap-2" @click="toggleRecording()" :disabled="recordingBusy" :class="isRecording ? 'btn-error' : ''">
+                                <span class="material-icons text-base" x-text="buttonIcon" aria-hidden="true">videocam</span>
+                                <span x-text="buttonLabel">Gravar tela</span>
                             </button>
                             <span class="text-sm text-base-content/60" x-show="recordingLabel" x-text="recordingLabel"></span>
+                        </div>
+                        <div
+                            x-show="isCountingDown"
+                            x-cloak
+                            class="flex items-center gap-3 rounded-box border border-warning/40 bg-warning/10 px-3 py-2"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <span class="flex h-10 w-10 items-center justify-center rounded-full bg-warning text-xl font-bold text-warning-content" x-text="countdownSeconds">3</span>
+                            <p class="text-sm">Prepare-se — gravação em <span x-text="countdownSeconds">3</span>s</p>
                         </div>
                         <input type="file" name="screen_recording" x-ref="screenInput" class="hidden" accept="video/webm,video/mp4">
                         <button type="submit" class="btn btn-primary btn-sm">Enviar anexos</button>
@@ -161,7 +171,7 @@
                         <button type="submit" class="btn btn-success w-full">Aprovar solução</button>
                     </form>
 
-                    <form method="post" action="{% url 'tickets:reject' ticket.pk %}" enctype="multipart/form-data" class="space-y-3" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes }}, maxSeconds: {{ max_recording_seconds }} })">
+                    <form method="post" action="{% url 'tickets:reject' ticket.pk %}" enctype="multipart/form-data" class="space-y-3" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes|unlocalize }}, maxSeconds: {{ max_recording_seconds|unlocalize }} })">
                         {% csrf_token %}
                         <label class="form-control">
                             <span class="label-text">Motivo da recusa</span>
@@ -169,11 +179,21 @@
                         </label>
                         <input type="file" name="attachments" multiple class="file-input file-input-bordered w-full" @change="onFilesSelected($event)">
                         <div class="flex flex-wrap items-center gap-3">
-                            <button type="button" class="btn btn-outline btn-sm gap-2" @click="toggleRecording()">
-                                <span class="material-icons text-base" x-text="isRecording ? 'stop' : 'videocam'"></span>
-                                <span x-text="isRecording ? 'Parar gravação' : 'Gravar tela'"></span>
+                            <button type="button" class="btn btn-outline btn-sm gap-2" @click="toggleRecording()" :disabled="recordingBusy" :class="isRecording ? 'btn-error' : ''">
+                                <span class="material-icons text-base" x-text="buttonIcon" aria-hidden="true">videocam</span>
+                                <span x-text="buttonLabel">Gravar tela</span>
                             </button>
                             <span class="text-sm text-base-content/60" x-show="recordingLabel" x-text="recordingLabel"></span>
+                        </div>
+                        <div
+                            x-show="isCountingDown"
+                            x-cloak
+                            class="flex items-center gap-3 rounded-box border border-warning/40 bg-warning/10 px-3 py-2"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <span class="flex h-10 w-10 items-center justify-center rounded-full bg-warning text-xl font-bold text-warning-content" x-text="countdownSeconds">3</span>
+                            <p class="text-sm">Prepare-se — gravação em <span x-text="countdownSeconds">3</span>s</p>
                         </div>
                         <input type="file" name="screen_recording" x-ref="screenInput" class="hidden" accept="video/webm,video/mp4">
                         <button type="submit" class="btn btn-error w-full">Reprovar solução</button>
@@ -184,6 +204,5 @@
     </div>
 </div>
 
-<script src="{% static 'js/ticket_screen_recorder.js' %}"></script>
 <script src="{% static 'js/ticket_chat.js' %}"></script>
 {% endblock %}

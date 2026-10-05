@@ -13,6 +13,8 @@ class TicketCreateForm(CoreForm):
     reproduction_steps = forms.CharField(label="Como repetir este problema", widget=TextareaInput(attrs={"rows": 4}))
 
     def __init__(self, *args, **kwargs):
+        # CreateView passa instance=; este form não é ModelForm.
+        kwargs.pop("instance", None)
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
         self.helper.form_tag = False
