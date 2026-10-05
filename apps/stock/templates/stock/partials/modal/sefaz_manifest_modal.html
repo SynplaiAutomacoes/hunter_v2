@@ -1,0 +1,62 @@
+<div class="modal modal-open">
+    <div class="modal-box w-11/12 max-w-lg relative">
+        <button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="document.getElementById('modal-container').innerHTML=''">✕</button>
+
+        <h3 class="text-lg font-bold">Manifestação do Destinatário</h3>
+        <p class="mt-1 text-sm text-base-content/70">
+            NF-e {{ nf_number_display|default:access_key }} — informe o tipo de manifesto a enviar à SEFAZ.
+        </p>
+
+        {% if error_message %}
+        <div role="alert" class="alert alert-error mt-4">
+            <span>{{ error_message }}</span>
+        </div>
+        {% endif %}
+
+        <form
+            method="post"
+            hx-post="{% url 'stock:sefaz_manifest' %}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+            hx-disabled-elt="find button[type='submit']"
+            class="mt-4 space-y-4"
+            x-data="{ eventCode: '{{ selected_event|default:'210210' }}' }">
+            {% csrf_token %}
+            <input type="hidden" name="access_key" value="{{ access_key }}">
+            {% if stock_import_pk %}
+            <input type="hidden" name="stock_import_pk" value="{{ stock_import_pk }}">
+            {% endif %}
+
+            <div class="form-control w-full">
+                <label class="label" for="mde-event-code"><span class="label-text">Tipo de manifesto</span></label>
+                <select
+                    id="mde-event-code"
+                    name="event_code"
+                    class="select select-bordered w-full"
+                    required
+                    x-model="eventCode">
+                    {% for value, label in event_choices %}
+                    <option value="{{ value }}" {% if selected_event == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-control w-full" x-show="eventCode === '210240'" x-cloak>
+                <label class="label" for="mde-justificativa"><span class="label-text">Justificativa</span></label>
+                <textarea
+                    id="mde-justificativa"
+                    name="justificativa"
+                    class="textarea textarea-bordered w-full"
+                    rows="4"
+                    maxlength="1000"
+                    placeholder="Obrigatória para operação não realizada (mínimo 15 caracteres)."
+                    :required="eventCode === '210240'">{{ justificativa }}</textarea>
+            </div>
+
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('modal-container').innerHTML=''">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Enviar manifesto</button>
+            </div>
+        </form>
+    </div>
+</div>

@@ -19,9 +19,9 @@
     <div class="text-xs opacity-70 mb-3 flex justify-between items-center">
         <div>
             {% if form.workshop.last_sefaz_search_date %}
-                Ultima sincronizacao: <strong>{{ form.workshop.last_sefaz_search_date|date:"d/m/Y H:i" }}</strong>
+                Última sincronização: <strong>{{ form.workshop.last_sefaz_search_date|date:"d/m/Y H:i" }}</strong>
             {% else %}
-                Nenhuma sincronizacao executada ainda.
+                Nenhuma sincronização executada ainda.
             {% endif %}
             {% if form.workshop.last_sefaz_sync_status == "ERROR" %}
                 <span class="ml-2 text-error">{{ form.workshop.last_sefaz_sync_message }}</span>
@@ -32,7 +32,7 @@
             {% endif %}
         </div>
         <div>
-            Exibindo <strong>{{ form.notas.object_list|length }}</strong> notas nesta pagina
+            Exibindo <strong>{{ form.notas.object_list|length }}</strong> notas nesta página
         </div>
     </div>
 
@@ -46,6 +46,7 @@
                     <th>CNPJ</th>
                     <th>Valor Total</th>
                     <th>Status</th>
+                    <th>Manifestação</th>
                     <th class="text-center">Ação</th>
                 </tr>
             </thead>
@@ -68,21 +69,40 @@
                             </div>
                         {% endif %}
                     </td>
-                    <td class="text-center">
-                        {% if not nota.is_imported %}
-                        <button type="button"
-                                class="btn btn-primary btn-xs px-4"
-                                onclick="selectNFe('{{ nota.key }}')">
-                            Selecionar
-                        </button>
+                    <td>
+                        {% if nota.last_manifestation_event %}
+                            <div class="flex flex-col gap-1">
+                                <span class="text-xs font-medium">{{ nota.last_manifestation_event_display }}</span>
+                                <span class="badge badge-outline badge-xs">{{ nota.get_last_manifestation_status_display }}</span>
+                            </div>
                         {% else %}
-                        <button class="btn btn-disabled btn-xs px-4" title="Esta nota ja foi importada no estoque">Vincular</button>
+                            <span class="text-xs opacity-50">—</span>
                         {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <div class="flex flex-wrap justify-center gap-1">
+                            {% if not nota.is_imported %}
+                            <button type="button"
+                                    class="btn btn-primary btn-xs px-3"
+                                    onclick="selectNFe('{{ nota.key }}')">
+                                Selecionar
+                            </button>
+                            {% else %}
+                            <button class="btn btn-disabled btn-xs px-3" title="Esta nota já foi importada no estoque">Vincular</button>
+                            {% endif %}
+                            <button type="button"
+                                    class="btn btn-outline btn-xs px-3"
+                                    hx-get="{% url 'stock:sefaz_manifest_modal' %}?access_key={{ nota.key }}{% if object.pk %}&stock_import_pk={{ object.pk }}{% endif %}"
+                                    hx-target="#modal-container"
+                                    hx-swap="innerHTML">
+                                Manifestar
+                            </button>
+                        </div>
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="7" class="text-center py-12">
+                    <td colspan="8" class="text-center py-12">
                         <div class="flex flex-col items-center opacity-40">
                             <span class="material-icons text-4xl mb-2">inventory_2</span>
                             <p>Nenhuma nota encontrada na SEFAZ para esta oficina.</p>
@@ -114,7 +134,7 @@
             {% endif %}
 
             <button class="join-item btn btn-sm btn-active pointer-events-none">
-                Pagina {{ form.notas.number }} de {{ form.notas.paginator.num_pages }}
+                Página {{ form.notas.number }} de {{ form.notas.paginator.num_pages }}
             </button>
 
             {% if form.notas.has_next %}
@@ -122,7 +142,7 @@
                         hx-get="?step={{ current_step }}&page={{ form.notas.next_page_number }}{% if object.pk %}&pk={{ object.pk|unlocalize }}{% endif %}"
                         hx-target="#step-container"
                         hx-push-url="true">
-                    Proxima
+                    Próxima
                 </button>
 
                 <button class="join-item btn btn-sm btn-ghost"
@@ -146,7 +166,7 @@ function selectNFe(chave) {
         if (form) {
             form.requestSubmit();
         } else {
-            console.error("Formulario 'import-form' nao encontrado.");
+            console.error("Formulário 'import-form' não encontrado.");
         }
     }
 }
