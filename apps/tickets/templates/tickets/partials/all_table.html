@@ -1,0 +1,2 @@
+{% load table_tags %}
+{% render_table tickets fields table_id='all-tickets-table' actions=actions filter_fields_template='tickets/partials/all_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar chamados' filter_param_names='status,assignee' search_placeholder='Título, problema ou usuário' empty_text='Nenhum chamado encontrado.' %}

@@ -1,0 +1,2 @@
+{% load table_tags %}
+{% render_table tickets fields table_id='my-tickets-table' actions=actions filter_fields_template='tickets/partials/my_filters_fields.html' filter_button_label='Filtro' filter_panel_title='Filtrar chamados' filter_param_names='status' search_placeholder='Título ou problema' empty_text='Nenhum chamado encontrado.' %}
