@@ -230,7 +230,8 @@
     @click.outside="closeDropdown()"
     @searchable-set-value="setValue($event.detail ? $event.detail.value : '', !($event.detail && $event.detail.silent))"
     @searchable-set-options="setOptions($event.detail ? $event.detail.options : [])"
-    @searchable-set-selection="setSelection($event.detail)">
+    @searchable-set-selection="setSelection($event.detail)"
+    @searchable-set-allowed="setAllowedValues($event.detail ? $event.detail.allowed : null)">
 
     <input
         x-ref="hiddenInput"

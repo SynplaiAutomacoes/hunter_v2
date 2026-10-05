@@ -6,6 +6,8 @@ from urllib.parse import urlencode
 from django.http import HttpRequest
 from django.urls import reverse
 
+from django.conf import settings
+
 from apps.workshops.context_processors import active_workshops
 from apps.workshops.util.workshops import can_view_payroll_details
 
@@ -33,37 +35,40 @@ def _can_view_payroll(request: HttpRequest, flags: dict[str, Any]) -> bool:
     return can_view_payroll_details(user=request.user, workshop=active_workshop, request=request)
 
 
+def _is_system_admin(request: HttpRequest, flags: dict[str, Any]) -> bool:
+    admin_usernames = getattr(settings, "SYSTEM_ADMIN_USERNAMES", [])
+    return request.user.is_authenticated and request.user.username in admin_usernames
+
+
+def _requires_full_plan(request: HttpRequest, flags: dict[str, Any]) -> bool:
+    from apps.billing.access import account_has_full_plan
+
+    return account_has_full_plan(request)
+
+
 BUDGET_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Orçamento", "view_name": "budget:budget_create"}
 CREATE_CLIENT_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar Cliente", "view_name": "customer:customer_create"}
 COLLABORATOR_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar colaborador", "view_name": "collaborators:collaborator_create"}
-SUPPLIER_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar fornecedor", "view_name": "suppliers:supplier_create"}
+SUPPLIER_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar fornecedor", "view_name": "suppliers:supplier_create", "visible_if": _requires_full_plan}
 PRODUCT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Produto", "view_name": "catalog:product_create"}
 SERVICE_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Serviço", "view_name": "catalog:services_create"}
 KIT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Kit", "view_name": "catalog:kits_create"}
 CATALOG_GROUP_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar grupo", "view_name": "catalog:group_create"}
 CHECKLIST_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Checklist", "view_name": "checklist:checklist_create"}
-APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}}
-STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Importação", "view_name": "stock:import"}
-FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movimentação Financeira", "view_name": "finance:financial_movement_create"}
+APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}, "visible_if": _requires_full_plan}
+STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Importação", "view_name": "stock:import", "visible_if": _requires_full_plan}
+FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movimentação Financeira", "view_name": "finance:financial_movement_create", "visible_if": _requires_full_plan}
 
 
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {"label": "Orçamentos", "view_name": "budget:budget_list", "favoritable": False},
-    {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False},
-    {
-        "label": "Agendamentos",
-        "items": (
-            {"label": "Criar Agendamento", "view_name": "scheduling:appointment_create"},
-            {"label": "Mensagens WhatsApp", "view_name": "messaging:message_template_list"},
-            {"label": "Grupos de Mensagens", "view_name": "messaging:customer_message_group_list"},
-            {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list"},
-        ),
-    },
+    {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False, "visible_if": _requires_full_plan},
+    {"label": "Agendamentos", "view_name": "scheduling:appointment_calendar", "favoritable": False, "visible_if": _requires_full_plan},
     {
         "label": "Estoque",
+        "visible_if": _requires_full_plan,
         "items": (
             {"label": "Consulta no Estoque", "view_name": "stock:stock_inquiry"},
-            {"label": "Cadastro de Produto", "view_name": "catalog:product_list"},
             {"label": "Exportar Itens", "view_name": "stock:transfer"},
             {"label": "Importar Itens", "view_name": "stock:stock_list"},
             {"label": "Aprovação", "view_name": "stock:approvals"},
@@ -75,14 +80,17 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     },
     {
         "label": "Financeiro",
+        "visible_if": _requires_full_plan,
         "items": (
             {"label": "Emitir nota", "view_name": "finance:emission_create"},
             {"label": "Central de Notas", "view_name": "finance:issued_documents_list"},
             {"label": "Movimentação Financeira", "view_name": "finance:reports_home"},
             {"label": "Folha de Pagamento", "view_name": "finance:payroll_list", "visible_if": _can_view_payroll},
             {"label": "Apuração de Comissões", "view_name": "finance:commission_report"},
+            {"label": "Conta Bancária", "view_name": "finance:bank_account_list"},
             {"label": "Formas de Pagamento", "view_name": "finance:payment_methods_list"},
             {"label": "Grupos Financeiros", "view_name": "finance:financial_groups_list"},
+            {"label": "Classe de Imposto", "view_name": "finance:tax_class_list"},
             {"label": "Gerar DRE", "view_name": "finance:dre_report"},
             {"label": "Fluxo de Contas", "view_name": "finance:cash_flow"},
         ),
@@ -91,15 +99,17 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "label": "Cadastros",
         "items": (
             {"label": "Cliente", "view_name": "customer:customer_list"},
+            {"label": "Mensagens WhatsApp", "view_name": "messaging:message_template_list", "visible_if": _requires_full_plan},
+            {"label": "Grupos de Mensagens", "view_name": "messaging:customer_message_group_list", "visible_if": _requires_full_plan},
             {"label": "Colaborador", "view_name": "collaborators:collaborator_list"},
-            {"label": "Fornecedor", "view_name": "suppliers:supplier_list"},
+            {"label": "Fornecedor", "view_name": "suppliers:supplier_list", "visible_if": _requires_full_plan},
+            {"label": "Produto", "view_name": "catalog:product_list"},
             {"label": "Serviço", "view_name": "catalog:services_list"},
             {"label": "Kit", "view_name": "catalog:kits_list"},
             {"label": "Grupo", "view_name": "catalog:group_list"},
             {"label": "Checklist", "view_name": "checklist:checklist_list"},
             {"label": "Termos", "view_name": "terms:term_template_list"},
             {"label": "Planos de Revisão", "view_name": "workshops:review_plan_list"},
-            {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
         ),
     },
     {
@@ -109,7 +119,11 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Gerenciar Oficinas", "view_name": "workshops:list"},
             {"label": "Gerenciar Permissões", "view_name": "iam:role_list"},
             {"label": "Gerenciar Colaboradores", "view_name": "collaborators:collaborator_manage", "visible_if": _is_director},
+            {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
+            {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
+            {"label": "Avaliações", "view_name": "messaging:satisfaction_review_list", "visible_if": _requires_full_plan},
+            {"label": "Gerenciar Sistema", "view_name": "workshops:system_manage", "visible_if": _is_system_admin},
         ),
     },
 )

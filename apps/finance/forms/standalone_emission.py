@@ -6,6 +6,7 @@ from html import escape
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from django.urls import reverse
 
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -21,8 +22,9 @@ from apps.core.presentation.widgets import (
     SearchableSelectInput,
     TextInput,
 )
+from apps.customer.models import Customer
 from apps.finance.nfe_transport import BRAZILIAN_STATE_CHOICES
-from apps.finance.services.fiscal_recipient import validate_recipient_snapshot
+from apps.finance.services.fiscal_recipient import recipient_snapshot_from_customer, validate_recipient_snapshot
 from apps.finance.services.standalone_emission import normalize_note_mode
 
 
@@ -89,7 +91,7 @@ class StandaloneNoteModeForm(CoreForm):
                 HTML("<h2 class='text-2xl font-bold'>Tipo de emissão avulsa</h2>"),
                 HTML(
                     "<p class='text-base-content/70 mb-6'>Escolha quais notas serão emitidas sem Ordem de Serviço. "
-                    "O destinatário informado não será cadastrado como cliente.</p>"
+                    "Você poderá usar um cliente cadastrado ou informar um destinatário avulso.</p>"
                 ),
                 Div(
                     HTML(
@@ -111,8 +113,8 @@ class StandaloneNoteModeForm(CoreForm):
                     <div class="mt-6 rounded-2xl border border-base-300 bg-base-200/60 p-5 space-y-2">
                         <p class="text-sm font-semibold text-base-content">Como funciona</p>
                         <p class="text-sm text-base-content/70">
-                            Informe o destinatário, adicione os itens e configure a emissão. Os dados fiscais
-                            desta nota não criam um cliente no sistema.
+                            Informe o destinatário, adicione os itens e configure a emissão. Se quiser, cadastre o
+                            destinatário avulso como cliente sem sair da emissão.
                         </p>
                     </div>
                     """
@@ -129,24 +131,90 @@ class StandaloneNoteModeForm(CoreForm):
 
 
 class StandaloneRecipientForm(AddressFormMixin, CoreForm):
+    RECIPIENT_MODE_REGISTERED = "registered"
+    RECIPIENT_MODE_GUEST = "guest"
+
+    recipient_mode = forms.ChoiceField(
+        label="Origem do destinatário",
+        choices=(
+            (RECIPIENT_MODE_REGISTERED, "Cliente cadastrado"),
+            (RECIPIENT_MODE_GUEST, "Não cadastrado"),
+        ),
+        initial=RECIPIENT_MODE_REGISTERED,
+        widget=forms.HiddenInput(),
+        required=False,
+    )
+    customer = forms.ModelChoiceField(
+        label="Cliente",
+        queryset=Customer.objects.none(),
+        required=False,
+        widget=SearchableSelectInput(),
+    )
     customer_type = forms.CharField(required=False, widget=forms.HiddenInput())
-    cpf_or_cnpj = forms.CharField(label="CPF", required=True, widget=CPForCNPJInput(mode="both"))
-    name = forms.CharField(label="Nome", required=True, widget=TextInput())
+    cpf_or_cnpj = forms.CharField(label="CPF", required=False, widget=CPForCNPJInput(mode="both"))
+    name = forms.CharField(label="Nome", required=False, widget=TextInput())
     phone = forms.CharField(label="Telefone", required=False, widget=PhoneInput())
     email = forms.EmailField(label="E-mail", required=False, widget=EmailInput())
     state_registration = forms.CharField(label="Inscrição Estadual", required=False, widget=TextInput())
     municipal_registration = forms.CharField(label="Inscrição Municipal", required=False, widget=TextInput())
-    cep = forms.CharField(label="CEP", required=True)
-    logradouro = forms.CharField(label="Logradouro", required=True, widget=TextInput())
-    numero = forms.IntegerField(label="Número", required=True, min_value=1)
+    cep = forms.CharField(label="CEP", required=False)
+    logradouro = forms.CharField(label="Logradouro", required=False, widget=TextInput())
+    numero = forms.IntegerField(label="Número", required=False, min_value=1)
     complemento = forms.CharField(label="Complemento", required=False, widget=TextInput())
-    bairro = forms.CharField(label="Bairro", required=True, widget=TextInput())
-    cidade = forms.CharField(label="Cidade", required=True, widget=TextInput())
-    estado = forms.ChoiceField(label="Estado", required=True, choices=BRAZILIAN_STATE_CHOICES, widget=SearchableSelectInput(choices=BRAZILIAN_STATE_CHOICES))
+    bairro = forms.CharField(label="Bairro", required=False, widget=TextInput())
+    cidade = forms.CharField(label="Cidade", required=False, widget=TextInput())
+    estado = forms.ChoiceField(label="Estado", required=False, choices=BRAZILIAN_STATE_CHOICES, widget=SearchableSelectInput(choices=BRAZILIAN_STATE_CHOICES))
 
     def __init__(self, *args, **kwargs):
+        workshop = kwargs.pop("workshop", None)
         super().__init__(*args, **kwargs)
+        self.workshop = workshop
         self.setup_address_fields()
+
+        if workshop is not None:
+            workshop_id = getattr(workshop, "pk", workshop)
+            customer_qs = Customer.objects.filter(workshop_id=workshop_id, is_active=True).order_by("name")
+            customer_field = self.fields["customer"]
+            customer_field.queryset = customer_qs
+            customer_field.empty_label = "Selecione um cliente"
+            customer_field.label_from_instance = lambda customer: (
+                f"{customer.name} — {customer.cpf_or_cnpj_formatted}" if getattr(customer, "cpf_or_cnpj", None) else str(customer.name)
+            )
+
+            selected_customer = None
+            raw_selected = self.data.get("customer") if self.is_bound else self.initial.get("customer")
+            if raw_selected not in (None, ""):
+                if hasattr(raw_selected, "pk"):
+                    selected_customer = customer_qs.filter(pk=raw_selected.pk).first()
+                else:
+                    try:
+                        selected_customer = customer_qs.filter(pk=int(str(raw_selected))).first()
+                    except (TypeError, ValueError):
+                        selected_customer = None
+
+            widget_choices: list[tuple[str, str]] = [("", "Selecione um cliente")]
+            if selected_customer is not None:
+                widget_choices.append(
+                    (
+                        str(selected_customer.pk),
+                        customer_field.label_from_instance(selected_customer),
+                    )
+                )
+
+            customer_field.widget = SearchableSelectInput(
+                choices=widget_choices,
+                attrs={
+                    "data-source-url": reverse("finance:standalone_customer_search"),
+                    "data-min-search-length": "0",
+                    "placeholder": "Digite para buscar o cliente...",
+                },
+            )
+
+        initial_mode = str(self.data.get("recipient_mode") or self.initial.get("recipient_mode") or self.RECIPIENT_MODE_REGISTERED).strip().lower()
+        if initial_mode not in {self.RECIPIENT_MODE_REGISTERED, self.RECIPIENT_MODE_GUEST}:
+            initial_mode = self.RECIPIENT_MODE_REGISTERED
+        self.fields["recipient_mode"].initial = initial_mode
+        self.initial["recipient_mode"] = initial_mode
 
         initial_customer_type = str(self.data.get("customer_type") or self.initial.get("customer_type") or "PF").upper()
         if initial_customer_type not in {"PF", "PJ"}:
@@ -162,40 +230,56 @@ class StandaloneRecipientForm(AddressFormMixin, CoreForm):
             Div(
                 HTML("<h2 class='text-2xl font-bold col-span-12'>Destinatário da nota</h2>"),
                 HTML(
-                    "<p class='text-base-content/70 mb-2 col-span-12'>Informe os dados fiscais de quem receberá a nota.</p>"
-                    "<p class='text-sm font-semibold text-warning mb-4 col-span-12'>Este destinatário não será cadastrado como cliente.</p>"
+                    "<p class='text-base-content/70 mb-4 col-span-12'>"
+                    "Selecione um cliente já cadastrado ou informe os dados de um destinatário avulso. "
+                    "No modo avulso você pode cadastrá-lo como cliente sem sair da emissão."
+                    "</p>"
                 ),
                 HTML(
                     f"""
                     <div
-                        x-data="{{ tipo: '{initial_customer_type}' }}"
+                        x-data="{{ mode: '{initial_mode}', tipo: '{initial_customer_type}' }}"
                         class="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-2"
                     >
                     """
                 ),
                 HTML(
                     """
+                    <div class="col-span-12 flex flex-wrap items-center gap-4 pb-2">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" class="radio radio-primary" value="registered" x-model="mode">
+                            <span class="font-medium">Cliente cadastrado</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" class="radio radio-primary" value="guest" x-model="mode">
+                            <span class="font-medium">Não cadastrado</span>
+                        </label>
+                        <input type="hidden" name="recipient_mode" :value="mode">
+                    </div>
+                    """
+                ),
+                HTML('<div x-show="mode === \'registered\'" x-cloak class="col-span-12 relative z-20">'),
+                Field("customer", wrapper_class="col-span-12"),
+                HTML(
+                    """
+                    <p class="text-xs text-base-content/60 mt-1 col-span-12">
+                        Digite o nome, CPF ou CNPJ para buscar entre os clientes da oficina.
+                    </p>
+                    """
+                ),
+                HTML("</div>"),
+                HTML('<div x-show="mode === \'guest\'" x-cloak class="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-2">'),
+                HTML(
+                    """
                     <div class="col-span-12 flex flex-wrap items-center gap-4 pb-1">
                         <label class="flex items-center gap-2 cursor-pointer">
-                            <input
-                                type="radio"
-                                class="radio radio-primary"
-                                value="PF"
-                                x-model="tipo"
-                            >
+                            <input type="radio" class="radio radio-primary" value="PF" x-model="tipo">
                             <span class="font-medium">Pessoa Física</span>
                         </label>
-
                         <label class="flex items-center gap-2 cursor-pointer">
-                            <input
-                                type="radio"
-                                class="radio radio-primary"
-                                value="PJ"
-                                x-model="tipo"
-                            >
+                            <input type="radio" class="radio radio-primary" value="PJ" x-model="tipo">
                             <span class="font-medium">Pessoa Jurídica</span>
                         </label>
-
                         <input type="hidden" name="customer_type" :value="tipo">
                     </div>
                     """
@@ -263,6 +347,18 @@ class StandaloneRecipientForm(AddressFormMixin, CoreForm):
                 HTML("</div>"),
                 HTML('<div class="col-span-12 divider my-1"></div>'),
                 address_layout(),
+                HTML(
+                    """
+                    <div class="col-span-12 mt-2">
+                        <button type="submit" name="register_as_customer" value="1" class="btn btn-outline btn-sm gap-2">
+                            <span class="material-icons text-sm">person_add</span>
+                            Cadastrar como cliente
+                        </button>
+                        <p class="text-xs text-base-content/60 mt-2">Salva o destinatário no cadastro de clientes e continua a emissão.</p>
+                    </div>
+                    """
+                ),
+                HTML("</div>"),
                 HTML("</div>"),
                 css_class="grid grid-cols-12 gap-2",
             )
@@ -270,6 +366,21 @@ class StandaloneRecipientForm(AddressFormMixin, CoreForm):
 
     def clean(self) -> dict[str, object]:
         cleaned_data = super().clean()
+        mode = str(cleaned_data.get("recipient_mode") or self.RECIPIENT_MODE_REGISTERED).strip().lower()
+        if mode not in {self.RECIPIENT_MODE_REGISTERED, self.RECIPIENT_MODE_GUEST}:
+            mode = self.RECIPIENT_MODE_REGISTERED
+        cleaned_data["recipient_mode"] = mode
+
+        if mode == self.RECIPIENT_MODE_REGISTERED:
+            customer = cleaned_data.get("customer")
+            if customer is None:
+                self.add_error("customer", "Selecione um cliente cadastrado.")
+                return cleaned_data
+            snapshot = recipient_snapshot_from_customer(customer)
+            cleaned_data["recipient_snapshot"] = snapshot
+            cleaned_data["customer_id"] = customer.pk
+            return cleaned_data
+
         snapshot = {
             "customer_type": str(cleaned_data.get("customer_type") or "PF").upper(),
             "name": str(cleaned_data.get("name") or "").strip(),
@@ -290,11 +401,13 @@ class StandaloneRecipientForm(AddressFormMixin, CoreForm):
             for message in messages:
                 self.add_error(field_name if field_name in self.fields else None, message)
         cleaned_data["recipient_snapshot"] = snapshot
+        cleaned_data["customer_id"] = None
         return cleaned_data
 
 
 class StandaloneAddProductForm(CoreForm):
     product = forms.ModelChoiceField(label="Produto", queryset=Product.objects.none(), widget=SearchableSelectInput())
+    ncm = forms.CharField(label="NCM", max_length=10, required=False, widget=TextInput())
     quantity = forms.IntegerField(
         label="Quantidade",
         min_value=0,
@@ -332,15 +445,20 @@ class StandaloneAddProductForm(CoreForm):
         if workshop is not None:
             self.fields["product"].queryset = Product.objects.filter(workshop=workshop, is_active=True).order_by("name")
             self.fields["product"].widget = SearchableSelectInput(choices=self.fields["product"].choices)
+        self.fields["ncm"].help_text = "Preenchido pelo cadastro do produto; você pode ajustar aqui."
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                Field("product", wrapper_class="col-span-12"),
+                Field("product", wrapper_class="col-span-12 sm:col-span-8"),
+                Field("ncm", wrapper_class="col-span-12 sm:col-span-4"),
                 *_pricing_layout_fields(),
                 css_class="grid grid-cols-1 sm:grid-cols-12 gap-3",
             )
         )
+
+    def clean_ncm(self) -> str:
+        return normalize_ncm(self.cleaned_data.get("ncm"))
 
 
 class StandaloneAddServiceForm(CoreForm):
@@ -566,7 +684,7 @@ def _render_product_lines_html(lines: list[dict[str, object]]) -> str:
     if not lines:
         return (
             "<table class='table table-zebra w-full'>"
-            "<tbody><tr><td class='text-base-content/60 py-4 text-center' colspan='6'>Nenhum produto adicionado.</td></tr></tbody>"
+            "<tbody><tr><td class='text-base-content/60 py-4 text-center' colspan='7'>Nenhum produto adicionado.</td></tr></tbody>"
             "</table>"
         )
 
@@ -579,10 +697,12 @@ def _render_product_lines_html(lines: list[dict[str, object]]) -> str:
         grand_total += total
         description = str(line.get("description") or "")
         description_html = _ncm_warning_html(description=description) if _line_has_invalid_ncm(line) else escape(description)
+        ncm_display = escape(str(line.get("ncm") or "-"))
         rows.append(
             f"""
             <tr>
                 <td class="py-2">{description_html}</td>
+                <td class="py-2 font-mono text-sm">{ncm_display}</td>
                 <td class="py-2 text-center">{line.get('quantity')}</td>
                 <td class="py-2 text-right">{_format_decimal(line.get('cost_value'))}</td>
                 <td class="py-2 text-right">{_format_decimal(line.get('unit_value'))}</td>
@@ -598,6 +718,7 @@ def _render_product_lines_html(lines: list[dict[str, object]]) -> str:
         <thead>
             <tr>
                 <th>Produto</th>
+                <th>NCM</th>
                 <th class="text-center">Qtd</th>
                 <th class="text-right">Custo</th>
                 <th class="text-right">Unitário</th>
@@ -608,7 +729,7 @@ def _render_product_lines_html(lines: list[dict[str, object]]) -> str:
         <tbody>{''.join(rows)}</tbody>
         <tfoot>
             <tr>
-                <td colspan="4" class="text-right font-semibold">Total</td>
+                <td colspan="5" class="text-right font-semibold">Total</td>
                 <td class="text-right font-bold">{_format_decimal(grand_total)}</td>
                 <td></td>
             </tr>

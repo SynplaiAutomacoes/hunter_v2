@@ -6,7 +6,7 @@
             <h1 class="text-3xl font-bold text-base-content">Emitir Nota</h1>
             <p class="mt-1 text-base-content/70">
                 {% if gateway_step == 'document' %}
-                    Escolha se a nota será de produto ou de serviço.
+                    Escolha se a nota avulsa será de produto ou de serviço.
                 {% elif gateway_step == 'linkage' %}
                     Escolha o fluxo de emissão da Nota Fiscal.
                 {% else %}
@@ -23,7 +23,7 @@
                     <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 3 de 3</p>
                     <h2 class="mt-1 text-2xl font-bold text-base-content">Tipo de documento</h2>
                     <p class="mt-2 text-base-content/70">
-                        Fluxo selecionado: {{ selected_linkage_label }}. Agora escolha se a emissão será de produto (NF-e) ou serviço (NFS-e).
+                        Emissão avulsa. Escolha se a nota será de produto (NF-e) ou serviço (NFS-e).
                     </p>
                 </div>
 
@@ -72,9 +72,11 @@
                 </form>
             {% elif gateway_step == 'linkage' %}
                 <div>
-                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 2 de 3</p>
+                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 2</p>
                     <h2 class="mt-1 text-2xl font-bold text-base-content">Como deseja emitir a Nota Fiscal?</h2>
-                    <p class="mt-2 text-base-content/70">Selecione se a nota será vinculada a uma Ordem de Serviço ou emitida de forma avulsa.</p>
+                    <p class="mt-2 text-base-content/70">
+                        Vinculada a uma O.S. segue para o assistente de emissão. Avulsa pede o tipo de documento na próxima etapa.
+                    </p>
                 </div>
 
                 <form method="post" class="mt-6 space-y-6">
@@ -121,7 +123,7 @@
                 </form>
             {% else %}
                 <div>
-                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 1 de 3</p>
+                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 1</p>
                     <h2 class="mt-1 text-2xl font-bold text-base-content">Tipo de operação</h2>
                     <p class="mt-2 text-base-content/70">Selecione uma opção para continuar com a emissão ou operação fiscal.</p>
                 </div>
