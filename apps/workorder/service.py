@@ -4,7 +4,11 @@ from apps.core.domain.contracts.documents import SignatureRecipient
 from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult, SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.workorder.documents.provider import render_workorder_signature_html_document
-from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
+from apps.workshops.services.synplaisign import (
+    WorkshopSynplaiSignError,
+    _organization_name_for_workshop,
+    get_workshop_synplaisign_api_key,
+)
 
 
 WORKORDER_SIGNATURE_TOKEN_SALT = "workorder-signature-file"
@@ -88,6 +92,7 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
         raise WorkOrderSignatureError(str(exc)) from exc
 
     whatsapp_instance = str(getattr(workorder.workshop, "whatsapp_instance_name", "") or "").strip()
+    sender_name = _organization_name_for_workshop(workorder.workshop)
 
     try:
         result = get_signature_service().send_document(
@@ -103,6 +108,7 @@ def send_workorder_for_signature(*, workorder) -> SignatureSendResult:
                 api_key=api_key,
                 whatsapp_instance=whatsapp_instance,
                 content_type="text/html",
+                sender_name=sender_name,
             )
         )
     except SignatureServiceError as exc:

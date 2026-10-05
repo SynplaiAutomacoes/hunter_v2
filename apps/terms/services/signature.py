@@ -6,7 +6,11 @@ from apps.core.infrastructure.providers import get_signature_service
 from apps.terms.documents.provider import render_term_signature_html_document
 from apps.terms.models import BudgetTermSigning, WorkOrderTermSigning
 from apps.terms.pdf_context import build_term_pdf_context
-from apps.workshops.services.synplaisign import WorkshopSynplaiSignError, get_workshop_synplaisign_api_key
+from apps.workshops.services.synplaisign import (
+    WorkshopSynplaiSignError,
+    _organization_name_for_workshop,
+    get_workshop_synplaisign_api_key,
+)
 
 
 BUDGET_TERM_SIGNATURE_TOKEN_SALT = "budget-term-signature-file"
@@ -83,6 +87,7 @@ def send_budget_term_for_signature(*, signing: BudgetTermSigning) -> SignatureSe
         raise TermSignatureError(str(exc)) from exc
 
     whatsapp_instance = str(getattr(budget.workshop, "whatsapp_instance_name", "") or "").strip()
+    sender_name = _organization_name_for_workshop(budget.workshop)
 
     try:
         return get_signature_service().send_document(
@@ -98,6 +103,7 @@ def send_budget_term_for_signature(*, signing: BudgetTermSigning) -> SignatureSe
                 api_key=api_key,
                 whatsapp_instance=whatsapp_instance,
                 content_type="text/html",
+                sender_name=sender_name,
             )
         )
     except SignatureServiceError as exc:
@@ -138,6 +144,7 @@ def send_workorder_term_for_signature(*, signing: WorkOrderTermSigning) -> Signa
         raise TermSignatureError(str(exc)) from exc
 
     whatsapp_instance = str(getattr(workorder.workshop, "whatsapp_instance_name", "") or "").strip()
+    sender_name = _organization_name_for_workshop(workorder.workshop)
 
     try:
         return get_signature_service().send_document(
@@ -153,6 +160,7 @@ def send_workorder_term_for_signature(*, signing: WorkOrderTermSigning) -> Signa
                 api_key=api_key,
                 whatsapp_instance=whatsapp_instance,
                 content_type="text/html",
+                sender_name=sender_name,
             )
         )
     except SignatureServiceError as exc:

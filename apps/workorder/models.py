@@ -181,7 +181,7 @@ class WorkOrder(TimeStampedModel):
         null=True,
         blank=True,
     )
-    budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
+    budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("direct_sale", "Venda Direta"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
     stored_total_amount = MoneyField(
         verbose_name="Total armazenado da O.S.",
@@ -231,6 +231,8 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def type_badge(self):
+        if self.budget_type == "direct_sale":
+            return {"text": "Venda Direta", "class": "badge-reopened-after-delivery"}
         if self.budget_type == "warranty":
             return {"text": "Garantia", "class": "badge-error"}
         if self.budget_type == "courtesy":
@@ -421,15 +423,16 @@ class WorkOrder(TimeStampedModel):
     @property
     def signature_blockers(self) -> list[str]:
         blockers: list[str] = []
-        if self.km_final is None:
-            blockers.append("É necessário inserir o Km Final para desbloquear o botão.")
-        else:
-            km_initial = int(getattr(self.budget, "current_km", 0) or 0)
-            if self.km_final < km_initial:
-                blockers.append(
-                    f"O KM final não pode ser menor que o KM inicial ({km_initial:,})."
-                    .replace(",", ".")
-                )
+        if self.budget_type != "direct_sale":
+            if self.km_final is None:
+                blockers.append("É necessário inserir o Km Final para desbloquear o botão.")
+            else:
+                km_initial = int(getattr(self.budget, "current_km", 0) or 0)
+                if self.km_final < km_initial:
+                    blockers.append(
+                        f"O KM final não pode ser menor que o KM inicial ({km_initial:,})."
+                        .replace(",", ".")
+                    )
         payment_reason = self.payment_block_reason
         if payment_reason:
             blockers.append(payment_reason)
@@ -771,6 +774,8 @@ class WorkOrder(TimeStampedModel):
     def _sync_vehicle_km_from_exit(self) -> None:
         from apps.customer.services.vehicle_km import sync_vehicle_km_from_exit
 
+        if self.budget_type == "direct_sale":
+            return
         budget = getattr(self, "budget", None)
         vehicle = getattr(budget, "vehicle", None) if budget is not None else None
         if vehicle is None:
@@ -1049,11 +1054,11 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_base_value(self) -> Money:
-        return self.pricing_snapshot.total_base_value
+        return self.budget.total_base_value
 
     @property
     def total_budget_value(self) -> Money:
-        return self.pricing_snapshot.total_budget_value
+        return self.budget.total_budget_value
 
     @property
     def is_fixed_budget(self) -> bool:
@@ -1189,6 +1194,7 @@ class WorkOrder(TimeStampedModel):
         verbose_name_plural = "Ordens de Serviço"
         permissions = [
             ("reopen_workorder", "Can Reopen Ordem de Serviço"),
+            ("change_delivery_date", "Editar data de entrega do veículo"),
         ]
         indexes = [
             models.Index(fields=["workshop", "status", "delivered_at"], name="workorder_ws_status_deliv_idx"),
@@ -1681,6 +1687,7 @@ class WorkOrderKitItemOverride(TimeStampedModel):
 class WorkOrderHistory(TimeStampedModel):
     class Action(models.TextChoices):
         REOPENED = "reopened", "O.S. reaberta"
+        DELIVERY_DATE_CHANGED = "delivery_date_changed", "Data de entrega alterada"
 
     workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.CASCADE, related_name="history_entries")
     user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="workorder_history_entries", null=True, blank=True)

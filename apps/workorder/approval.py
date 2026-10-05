@@ -21,6 +21,8 @@ class WorkOrderApprovalError(Exception):
 
 
 def workorder_can_finalize_after_signature(workorder: WorkOrder) -> bool:
+    if workorder.budget_type == "direct_sale":
+        return workorder.is_fully_paid or workorder.status == WorkOrderStatus.APPROVED
     can_finalize_workorder = workorder.is_fully_paid or workorder.budget_type in ("warranty", "courtesy")
     has_warranty_plan = bool(workorder.warranty_plan)
     return (can_finalize_workorder and has_warranty_plan) or workorder.status == WorkOrderStatus.APPROVED
@@ -102,7 +104,7 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
     )
 
     with transaction.atomic():
-        locked_workorder = WorkOrder.objects.select_for_update().select_related("workshop", "budget").get(pk=workorder.pk)
+        locked_workorder = WorkOrder.objects.select_for_update(of=("self",)).select_related("workshop", "budget").get(pk=workorder.pk)
 
         logger.info(
             "workorder_stock_approval_locked",

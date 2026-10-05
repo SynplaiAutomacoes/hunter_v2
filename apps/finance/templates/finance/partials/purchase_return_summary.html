@@ -1,9 +1,12 @@
 <div class="mt-6 space-y-5 rounded-xl border border-base-300 bg-base-200/30 p-5">
+    {% if show_origin %}
     <dl class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
         <div><dt class="text-base-content/60">NF-e origem</dt><dd class="font-semibold">{{ document.number|default:source.nf_number_display }} / Série {{ document.series|default:"—" }}</dd></div>
         <div><dt class="text-base-content/60">Fornecedor</dt><dd class="font-semibold">{{ source.supplier_name|default:"—" }}</dd></div>
         <div class="md:col-span-2"><dt class="text-base-content/60">Chave</dt><dd class="break-all font-mono text-xs font-semibold">{{ document.access_key }}</dd></div>
     </dl>
+    {% endif %}
+    {% if show_items %}
     <div class="overflow-x-auto">
         <table class="table table-sm">
             <thead><tr><th>Tipo</th><th>Produto</th><th class="text-right">Quantidade</th><th class="text-right">Valor</th></tr></thead>
@@ -28,9 +31,12 @@
             <tfoot><tr><th colspan="2">Total</th><th class="text-right">{{ total_quantity|floatformat:4 }}</th><th class="text-right">R$ {{ total_value|floatformat:2 }}</th></tr></tfoot>
         </table>
     </div>
+    {% endif %}
+    {% if show_fiscal %}
     <dl class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
         <div><dt class="text-base-content/60">Natureza da operação</dt><dd class="font-semibold">{{ return_request.operation_nature|default:"—" }}</dd></div>
         <div><dt class="text-base-content/60">CFOP</dt><dd class="font-semibold">{{ return_request.cfop|default:"—" }}</dd></div>
+        <div><dt class="text-base-content/60">Inscrição Estadual</dt><dd class="font-semibold">{{ supplier_ie_display|default:"ISENTO" }}</dd></div>
         <div><dt class="text-base-content/60">Classe de imposto</dt><dd class="font-semibold">{{ return_request.tax_class|default:"—" }}</dd></div>
         <div><dt class="text-base-content/60">Volumes</dt><dd class="font-semibold">{{ return_request.volume|default:"—" }}</dd></div>
         <div><dt class="text-base-content/60">Modalidade de frete</dt><dd class="font-semibold">{{ return_request.get_freight_mode_display }}</dd></div>
@@ -41,4 +47,5 @@
         {% if return_request.additional_information %}<div class="md:col-span-2"><dt class="text-base-content/60">Informações complementares</dt><dd>{{ return_request.additional_information }}</dd></div>{% endif %}
         {% if return_request.fisco_information %}<div class="md:col-span-2"><dt class="text-base-content/60">Informações ao fisco</dt><dd>{{ return_request.fisco_information }}</dd></div>{% endif %}
     </dl>
+    {% endif %}
 </div>

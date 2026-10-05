@@ -10,6 +10,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
 from django.http import HttpResponse
 from django.urls import reverse
+from django.utils.decorators import method_decorator
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import TemplateView, View
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -20,9 +22,11 @@ from apps.core.infrastructure.pdf.renderer import build_pdf_http_response, rende
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.workorder_numbers import format_workorder_reference
 from apps.finance.forms.emission_ui import format_money
+from apps.finance.forms.financial_transfer import FinancialTransferForm
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.financial_transfer import FinancialTransfer
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
 from apps.finance.services.reports import FinancialOverview, build_financial_overview, filter_grouped_movements_for_reporting
@@ -33,6 +37,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 _SORTABLE_ATTRS = frozenset({"due_date"})
 _DEFAULT_SORT = "-due_date"
 _PAGE_SIZE = 40
+_TRANSFER_FILTER_VALUE = "TRANSFER"
 
 
 class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -235,6 +240,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         bank_account_id: str | None,
     ) -> list[WorkOrderPaymentMethod]:
         reconciled_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_workorder_payment_movements", {})
+        aggregate_movement_by_workorder_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_aggregate_workorder_movements", {})
         filtered_payments = []
         for payment in payments:
             payment_amount = self._resolve_money_amount(payment.total_paid)
@@ -247,6 +253,8 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             if payment_method_id and str(getattr(payment.payment_method, "pk", "")) != str(payment_method_id):
                 continue
             payment_movement = reconciled_movement_by_payment_id.get(payment.pk)
+            if payment_movement is None:
+                payment_movement = aggregate_movement_by_workorder_id.get(getattr(payment, "workorder_id", None))
             if payment_movement is None:
                 continue
             if bank_account_id:
@@ -261,7 +269,12 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     def _build_workorder_payment_row(self, *, movement: FinancialMovement, payment: WorkOrderPaymentMethod) -> dict[str, object]:
         workorder = movement.workorder
         reconciled_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_workorder_payment_movements", {})
-        payment_movement = reconciled_movement_by_payment_id.get(payment.pk) or movement
+        aggregate_movement_by_workorder_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_aggregate_workorder_movements", {})
+        payment_movement = reconciled_movement_by_payment_id.get(payment.pk)
+        if payment_movement is None and workorder is not None:
+            payment_movement = aggregate_movement_by_workorder_id.get(workorder.pk)
+        if payment_movement is None:
+            payment_movement = movement
         customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
         payment_method = getattr(payment_movement, "payment_method", None) or getattr(payment, "payment_method", None)
         agent, description = resolve_payroll_movement_display(movement=payment_movement, user=self.request.user, workshop=self.workshop, request=self.request)
@@ -278,6 +291,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "account": payment_movement.report_bank_account_display,
             "payment_type": getattr(payment_method, "description", "-") or "-",
             "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": payment_movement.pk}),
+            "sort_created_at": payment_movement.criado_em.timestamp() if payment_movement.criado_em else 0,
             "total": {
                 "text": f"+ {format_money(payment.total_paid)}",
                 "class": "text-success font-semibold whitespace-nowrap",
@@ -291,7 +305,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None:
             return None
-        if not movement.is_reconciled:
+        if not movement.is_paid or not movement.is_reconciled:
             return None
 
         agent, description = resolve_payroll_movement_display(movement=movement, user=self.request.user, workshop=self.workshop, request=self.request)
@@ -308,7 +322,94 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "account": movement.report_bank_account_display,
             "payment_type": movement.report_payment_method_display,
             "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
+            "sort_created_at": movement.criado_em.timestamp() if movement.criado_em else 0,
             "total": movement.report_total_display,
+            "details": [],
+        }
+
+    def _get_financial_transfers_queryset(self):
+        filter_params = self._get_filter_params()
+        # Transfers are not revenues or expenses, therefore the financial-only
+        # filters must not make them look like either kind of movement.
+        if any((filter_params["agent"], filter_params["payment_method_id"], filter_params["budget_plan_id"])):
+            return FinancialTransfer.objects.none()
+        if filter_params["movement_type"] and filter_params["movement_type"] != _TRANSFER_FILTER_VALUE:
+            return FinancialTransfer.objects.none()
+
+        queryset = FinancialTransfer.objects.filter(workshop=self.workshop).select_related("source_account", "destination_account", "reversal_of", "reversal_entry")
+        if filter_params["start_date"]:
+            queryset = queryset.filter(transfer_date__gte=filter_params["start_date"])
+        if filter_params["end_date"]:
+            queryset = queryset.filter(transfer_date__lte=filter_params["end_date"])
+        account_id = filter_params["bank_account_id"]
+        if account_id == "none":
+            return FinancialTransfer.objects.none()
+        if account_id:
+            queryset = queryset.filter(Q(source_account_id=account_id) | Q(destination_account_id=account_id))
+        if filter_params["search"]:
+            queryset = apply_text_search(
+                queryset,
+                search_value=filter_params["search"],
+                lookups=("description", "source_account__bank_name", "source_account__account_number", "destination_account__bank_name", "destination_account__account_number"),
+            )
+        return queryset
+
+    def _build_financial_transfer_row(self, transfer: FinancialTransfer) -> dict[str, object]:
+        account_id = str(self._get_filter_params()["bank_account_id"] or "")
+        source = str(transfer.source_account)
+        destination = str(transfer.destination_account)
+        amount = format_money(transfer.amount)
+        is_reversal = transfer.reversal_of_id is not None
+        is_source = account_id == str(transfer.source_account_id)
+        is_destination = account_id == str(transfer.destination_account_id)
+
+        if is_reversal:
+            type_badge = {"text": "Estorno", "class": "badge-warning"}
+            original_date = transfer.reversal_of.transfer_date if transfer.reversal_of is not None else transfer.transfer_date
+            description = f"Estorno de transferência do dia: {original_date.strftime('%d/%m/%Y')}"
+        elif is_source:
+            type_badge = {"text": "Transferência", "class": "badge-error"}
+            description = f"Transferência interna para {destination}"
+            account = source
+            total = {"text": f"- {amount}", "class": "text-error font-semibold whitespace-nowrap"}
+        elif is_destination:
+            type_badge = {"text": "Transferência", "class": "badge-success"}
+            description = f"Transferência interna de {source}"
+            account = destination
+            total = {"text": f"+ {amount}", "class": "text-success font-semibold whitespace-nowrap"}
+        else:
+            type_badge = {"text": "Transferência", "class": "badge-info"}
+            description = f"Transferência interna: {source} → {destination}"
+            account = f"{source} → {destination}"
+            total = {"text": amount, "class": "text-info font-semibold whitespace-nowrap"}
+
+        if is_source:
+            account = source
+            total = {"text": f"- {amount}", "class": "text-error font-semibold whitespace-nowrap"}
+        elif is_destination:
+            account = destination
+            total = {"text": f"+ {amount}", "class": "text-success font-semibold whitespace-nowrap"}
+        else:
+            account = f"{source} → {destination}"
+            total = {"text": amount, "class": "text-info font-semibold whitespace-nowrap"}
+
+        if transfer.description and not is_reversal:
+            description = f"{description} — {transfer.description}"
+        return {
+            "component": f"financial-transfer-{transfer.pk}-{account_id or 'all'}",
+            "is_expandable": False,
+            "type_badge": type_badge,
+            "due_date": transfer.transfer_date,
+            "agent": "-",
+            "origin": "Estorno de transferência" if is_reversal else "Transferência entre contas",
+            "description": description,
+            "budget_plan": "Não impacta DRE",
+            "account": account,
+            "payment_type": "-",
+            "edit_url": "",
+            "sort_created_at": transfer.criado_em.timestamp() if transfer.criado_em else 0,
+            "reverse_url": "" if transfer.reversal_of_id or hasattr(transfer, "reversal_entry") else reverse("finance:financial_transfer_reverse", kwargs={"pk": transfer.pk}),
+            "total": total,
             "details": [],
         }
 
@@ -316,7 +417,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         sort_attr = sort.lstrip("-")
         reverse = sort.startswith("-")
         if sort_attr == "due_date":
-            rows.sort(key=lambda row: (row["due_date"] or date.min, str(row["component"])), reverse=reverse)
+            rows.sort(key=lambda row: (row["due_date"] or date.min, row.get("sort_created_at", 0), str(row["component"])), reverse=reverse)
         return rows
 
     def _get_financial_movement_report_rows(self) -> list[dict[str, object]]:
@@ -325,22 +426,37 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         movements = list(self._get_financial_movements_queryset())
         workorder_ids = sorted({movement.workorder.pk for movement in movements if movement.workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT})
         reconciled_workorder_payment_movements = FinancialMovement.objects.none()
+        reconciled_aggregate_workorder_movements = FinancialMovement.objects.none()
         if workorder_ids:
+            bank_account_id = filter_params["bank_account_id"]
             reconciled_workorder_payment_movements = FinancialMovement.objects.filter(
                 workshop=self.workshop,
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
                 workorder_id__in=workorder_ids,
                 workorder_payment__isnull=False,
+                is_paid=True,
                 is_reconciled=True,
             ).select_related("payment_method", "budget_plan", "bank_account")
-            bank_account_id = filter_params["bank_account_id"]
+            reconciled_aggregate_workorder_movements = FinancialMovement.objects.filter(
+                workshop=self.workshop,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder_id__in=workorder_ids,
+                workorder_payment__isnull=True,
+                is_paid=True,
+                is_reconciled=True,
+            ).select_related("payment_method", "budget_plan", "bank_account")
             if bank_account_id:
                 if bank_account_id == "none":
                     reconciled_workorder_payment_movements = reconciled_workorder_payment_movements.filter(bank_account__isnull=True)
+                    reconciled_aggregate_workorder_movements = reconciled_aggregate_workorder_movements.filter(bank_account__isnull=True)
                 else:
                     reconciled_workorder_payment_movements = reconciled_workorder_payment_movements.filter(bank_account_id=bank_account_id)
+                    reconciled_aggregate_workorder_movements = reconciled_aggregate_workorder_movements.filter(bank_account_id=bank_account_id)
 
         self._reconciled_workorder_payment_movements = {movement.workorder_payment.pk: movement for movement in reconciled_workorder_payment_movements if movement.workorder_payment is not None}
+        self._reconciled_aggregate_workorder_movements = {
+            movement.workorder_id: movement for movement in reconciled_aggregate_workorder_movements if movement.workorder_id is not None
+        }
 
         processed_workorder_ids: set[int] = set()
         for movement in movements:
@@ -350,22 +466,36 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                     continue
                 processed_workorder_ids.add(workorder.pk)
                 payments = list(workorder.payments.all())
-                rows.extend(
-                    self._build_workorder_payment_row(movement=movement, payment=payment)
-                    for payment in self._filter_workorder_payments_for_rows(
-                        payments=payments,
-                        filter_start_date=filter_params["start_date"],
-                        filter_end_date=filter_params["end_date"],
-                        payment_method_id=filter_params["payment_method_id"],
-                        bank_account_id=filter_params["bank_account_id"],
-                    )
+                filtered_payments = self._filter_workorder_payments_for_rows(
+                    payments=payments,
+                    filter_start_date=filter_params["start_date"],
+                    filter_end_date=filter_params["end_date"],
+                    payment_method_id=filter_params["payment_method_id"],
+                    bank_account_id=filter_params["bank_account_id"],
                 )
+                if filtered_payments:
+                    rows.extend(self._build_workorder_payment_row(movement=movement, payment=payment) for payment in filtered_payments)
                 continue
             row = self._build_financial_movement_row(movement)
             if row is not None:
                 rows.append(row)
 
+        rows.extend(self._build_financial_transfer_row(transfer) for transfer in self._get_financial_transfers_queryset())
+
         return self._sort_rows(rows, sort=filter_params["sort"])
+
+    def _transfer_balance_adjustment(self, *, account_id: str | None) -> Decimal:
+        """Return the signed transfer effect for an account in the active period."""
+        if not account_id:
+            return Decimal("0.00")
+        adjustment = Decimal("0.00")
+        for transfer in self._get_financial_transfers_queryset():
+            amount = self._resolve_money_amount(transfer.amount)
+            if str(transfer.source_account_id) == str(account_id):
+                adjustment -= amount
+            if str(transfer.destination_account_id) == str(account_id):
+                adjustment += amount
+        return adjustment
 
     def _paginate_rows(self, rows: list[dict[str, object]], *, page: int) -> tuple[list[dict[str, object]], bool]:
         start = (page - 1) * _PAGE_SIZE
@@ -395,6 +525,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         account_id = str(filter_params.get("bank_account_id") or "")
         rows = self._get_financial_movement_report_rows()
         overview = build_financial_overview(**self._build_overview_kwargs(filter_params, bank_account_id=account_id or None))
+        total_result = self._resolve_money_amount(overview.confirmed_result) + self._transfer_balance_adjustment(account_id=account_id or None)
         account_title = self._resolve_account_title(account_id=account_id or None)
         start_date = filter_params["start_date"]
         end_date = filter_params["end_date"]
@@ -414,18 +545,19 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "filter_end_date": end_date,
             "financial_movement_report_rows": rows,
             "record_count": len(rows),
-            "total_value": format_money(overview.confirmed_result),
-            "total_tone": self._resolve_result_tone(overview.confirmed_result),
+            "total_value": format_money(total_result),
+            "total_tone": self._resolve_result_tone(total_result),
             "pdf_url": self._build_report_url(view_name="finance:cash_flow_report_pdf", account_id=account_id or None),
             "excel_url": self._build_report_url(view_name="finance:cash_flow_report_excel", account_id=account_id or None),
         }
 
     def _build_account_card(self, *, name: str, account_id: str, overview: FinancialOverview, selected_account_id: str | None) -> dict[str, object]:
+        result = self._resolve_money_amount(overview.confirmed_result) + self._transfer_balance_adjustment(account_id=account_id or None)
         return {
             "name": name,
             "account_id": account_id,
-            "value": format_money(overview.confirmed_result),
-            "tone": self._resolve_result_tone(overview.confirmed_result),
+            "value": format_money(result),
+            "tone": self._resolve_result_tone(result),
             "url": self._build_url(overrides={"conta_bancaria": account_id or None, "page": None}),
             "is_selected": (selected_account_id or "") == account_id,
         }
@@ -500,7 +632,18 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         context["bank_accounts"] = bank_accounts
         context["payment_methods"] = PaymentMethod.objects.filter(workshop=self.workshop).order_by("description")
         context["budget_plans"] = FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key")
-        context["movement_types"] = FinancialMovement.MovementDirection.choices
+        context["movement_types"] = [*FinancialMovement.MovementDirection.choices, (_TRANSFER_FILTER_VALUE, "Transferências internas")]
+        financial_transfer_form = FinancialTransferForm(workshop=self.workshop)
+        context["financial_transfer_form"] = financial_transfer_form
+        context["financial_transfer_balances"] = {
+            str(account_id): {
+                "name": str(financial_transfer_form.fields["source_account"].queryset.get(pk=account_id)),
+                "formatted": format_money(balance),
+                "amount": str(balance.amount),
+                "is_negative": balance.amount < 0,
+            }
+            for account_id, balance in financial_transfer_form.available_balance_by_account_id.items()
+        }
         return context
 
 
@@ -517,6 +660,7 @@ class CashFlowReportModalView(CashFlowView):
         return context
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
 class CashFlowReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = FinancialMovement
     workshop_permission_codename = "view_financialmovement"

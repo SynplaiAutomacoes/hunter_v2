@@ -76,6 +76,7 @@ class ExcelCell:
     value: object = None
     kind: CellKind | None = None
     badge: BadgeKey | None = None
+    row_fill: Literal["white", "zebra"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,7 +310,8 @@ def _write_empty_row(*, worksheet: Any, row: int, column_count: int) -> int:
 
 
 def _write_data_row(*, worksheet: Any, row: int, columns: list[ExcelColumn], cells: list[ExcelCell], zebra: bool) -> None:
-    zebra_fill = FILL_ZEBRA if zebra else FILL_WHITE
+    requested_row_fill = next((cell.row_fill for cell in cells if cell.row_fill is not None), None)
+    zebra_fill = FILL_ZEBRA if requested_row_fill == "zebra" or (requested_row_fill is None and zebra) else FILL_WHITE
     worksheet.row_dimensions[row].height = 18
     for column_index, column in enumerate(columns, start=1):
         spec = cells[column_index - 1] if column_index - 1 < len(cells) else ExcelCell()

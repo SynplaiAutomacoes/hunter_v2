@@ -1,6 +1,5 @@
 import json
 from decimal import Decimal
-from html import escape
 from typing import Any, Protocol, cast
 
 from django import forms
@@ -951,35 +950,12 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             oil_half_class = "col-span-12 sm:col-span-4 oil-field-half"
             oil_plan_class = "col-span-12 sm:col-span-4 oil-field-plan"
 
-        delivered_at = getattr(self.workorder, "delivered_at", None) if self.workorder is not None else None
-        if delivered_at is not None:
-            delivered_at_local = timezone.localtime(delivered_at)
-            delivered_at_display = escape(delivered_at_local.strftime("%d/%m/%Y %H:%M"))
-        else:
-            delivered_at_display = "Será preenchida ao concluir a entrega."
-
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
                 Div(
                     Field("km_initial", wrapper_class="mb-0"),
-                    HTML(
-                        f"""
-                        <div class="form-control mt-4">
-                            <label class="label" for="workorder-delivered-at-display">
-                                <span class="label-text font-medium">Data de saída</span>
-                            </label>
-                            <input
-                                id="workorder-delivered-at-display"
-                                type="text"
-                                class="input-theme"
-                                value="{delivered_at_display}"
-                                readonly
-                            >
-                        </div>
-                        """
-                    ),
                     css_class="col-span-12 lg:col-span-6",
                 ),
                 Div(
@@ -1074,6 +1050,29 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         if getattr(self, "is_courtesy_or_warranty", False) and not reason_type:
             raise ValidationError("Selecione o motivo da cortesia/garantia para concluir a entrega.")
         return reason_type
+
+
+class WorkOrderDeliveryDateForm(CoreForm):
+    delivered_at = forms.DateTimeField(
+        label="Data e hora da entrega",
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M",
+            attrs={"type": "datetime-local", "class": "input-theme"},
+        ),
+    )
+
+    def __init__(self, *args, workorder: WorkOrder, **kwargs) -> None:
+        self.workorder = workorder
+        super().__init__(*args, **kwargs)
+        if not self.is_bound and workorder.delivered_at is not None:
+            self.fields["delivered_at"].initial = timezone.localtime(workorder.delivered_at)
+
+    def clean_delivered_at(self):
+        delivered_at = self.cleaned_data["delivered_at"]
+        if timezone.is_naive(delivered_at):
+            delivered_at = timezone.make_aware(delivered_at, timezone.get_current_timezone())
+        return delivered_at
 
 
 class WorkOrderReopenForm(CoreForm):

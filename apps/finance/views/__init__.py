@@ -6,9 +6,11 @@ from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWo
 from .fiscal_gateway import FiscalOperationGatewayView
 from .standalone_emission import StandaloneEmissionCreateView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
-from .commissions import CommissionReportPdfView, CommissionReportView
+from .issued_documents_report import IssuedDocumentsReportExcelView, IssuedDocumentsReportPdfView
+from .commissions import CommissionReportExcelView, CommissionReportPdfView, CommissionReportView
 from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
+from .fiscal_request_soft_delete import NfeRequestSoftDeleteView, NfseRequestSoftDeleteView, PurchaseReturnSoftDeleteView
 from .payroll import (
     PayrollAddManualBenefitView,
     PayrollAddManualCommissionView,
@@ -21,7 +23,16 @@ from .payroll import (
     PayrollListView,
     PayrollSyncComponentView,
 )
-from .purchase_return import PurchaseReturnCreateView, PurchaseReturnPreviewPdfView, PurchaseReturnPreviewView, PurchaseReturnTransmitView, PurchaseReturnWorkflowView
+from .purchase_return import (
+    PurchaseReturnCreateView,
+    PurchaseReturnDocumentDownloadView,
+    PurchaseReturnPreviewPdfView,
+    PurchaseReturnPreviewView,
+    PurchaseReturnReconcileView,
+    PurchaseReturnReissueView,
+    PurchaseReturnTransmitView,
+    PurchaseReturnWorkflowView,
+)
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassDeleteView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -67,15 +78,22 @@ __all__ = [
     "PayrollListView",
     "PayrollSyncComponentView",
     "PurchaseReturnCreateView",
+    "PurchaseReturnDocumentDownloadView",
     "PurchaseReturnPreviewPdfView",
     "PurchaseReturnPreviewView",
+    "PurchaseReturnReconcileView",
+    "PurchaseReturnReissueView",
+    "PurchaseReturnSoftDeleteView",
     "PurchaseReturnTransmitView",
     "PurchaseReturnWorkflowView",
     "FinancialGroupUpdateView",
     "IssuedDocumentsArchiveDownloadView",
     "IssuedDocumentsListView",
+    "IssuedDocumentsReportExcelView",
+    "IssuedDocumentsReportPdfView",
     "CommissionReportView",
     "CommissionReportPdfView",
+    "CommissionReportExcelView",
     "NfeCreateRedirectView",
     "NfeCorrectionDownloadView",
     "NfeCorrectionIssueView",
@@ -87,6 +105,7 @@ __all__ = [
     "NfeRequestInvalidateView",
     "NfeRequestListView",
     "NfeRequestReconcileView",
+    "NfeRequestSoftDeleteView",
     "NfeRequestUpdateView",
     "NfeReturnDownloadView",
     "NfeReturnIssueView",
@@ -98,6 +117,7 @@ __all__ = [
     "NfseRequestDetailView",
     "NfseRequestListView",
     "NfseRequestReconcileView",
+    "NfseRequestSoftDeleteView",
     "NfseRequestUpdateView",
     "TaxClassCreateView",
     "TaxClassDeleteView",

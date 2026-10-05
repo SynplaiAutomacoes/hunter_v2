@@ -10,6 +10,7 @@ from uuid import UUID
 
 import requests
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest
@@ -48,6 +49,7 @@ from apps.finance.services.nfe_events import ensure_fiscal_document_for_nfe_item
 from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_logging import log_webmania_emission_failure, log_webmania_emission_request
 from apps.finance.nfe_transport import NfeTransportValidationError, build_webmania_transport_payload
 
 
@@ -83,6 +85,21 @@ def _build_return_url() -> str:
 
     base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_BASE_URL", "https://webmania.com.br/api")).rstrip("/")
     return f"{base_url}/1/nfe/devolucao/"
+
+
+def _build_generic_nfe_emit_url() -> str:
+    """Return the standard Webmania NF-e endpoint.
+
+    Purchase returns whose source NF-e was received from a supplier need the
+    complete emission model.  The specialised endpoint only resolves notes
+    known to the issuer's Webmania account.
+    """
+    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFE_EMIT_ENDPOINT", ""))
+    if custom_endpoint:
+        return f"{custom_endpoint.rstrip('/')}/"
+
+    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_BASE_URL", "https://webmania.com.br/api")).rstrip("/")
+    return f"{base_url}/1/nfe/emissao/"
 
 
 def _build_consulta_url() -> str:
@@ -265,6 +282,11 @@ def _apply_return_emission_extras(payload: dict[str, Any], extras: Mapping[str, 
             payload["pedido"] = pedido
 
 
+def apply_return_emission_extras(payload: dict[str, Any], extras: Mapping[str, Any] | None) -> None:
+    """Apply the shared return form fields to a complete NF-e payload."""
+    _apply_return_emission_extras(payload, extras)
+
+
 def _decimal(value: Any) -> Decimal:
     try:
         return Decimal(str(value or "0").replace(",", "."))
@@ -383,11 +405,24 @@ def _return_requires_ibs_cbs(*, original_document: FiscalDocument) -> bool:
 
 def _extract_ibs_cbs_payload_from_product(product: dict[str, Any], *, sequence: int) -> dict[str, Any]:
     raw_ibs_cbs = product.get("ibs_cbs")
-    taxes = product.get("impostos")
+    taxes = product.get("impostos") or product.get("taxes")
     if raw_ibs_cbs in (None, "", {}) and isinstance(taxes, dict):
         raw_ibs_cbs = taxes.get("ibs_cbs")
+    if raw_ibs_cbs in (None, "", {}):
+        raw_ibs_cbs = product.get("IBSCBS")
+    if raw_ibs_cbs in (None, "", {}) and isinstance(taxes, dict):
+        raw_ibs_cbs = taxes.get("IBSCBS")
     if not isinstance(raw_ibs_cbs, dict):
         raise NfeReturnError(f"Item fiscal {sequence} nao possui snapshot IBS/CBS confiavel para devolucao ou estorno.")
+
+    # XML imports preserve the SEFAZ field names, while the emission payload
+    # uses the Webmania/internal convention. Only the classification fields
+    # are needed to reconstruct the validated IBS/CBS configuration.
+    if "CST" in raw_ibs_cbs or "cClassTrib" in raw_ibs_cbs:
+        raw_ibs_cbs = {
+            "situacao_tributaria": raw_ibs_cbs.get("CST"),
+            "classificacao_tributaria": raw_ibs_cbs.get("cClassTrib"),
+        }
 
     details = {key: value for key, value in raw_ibs_cbs.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular"}}
     try:
@@ -410,6 +445,12 @@ def _original_products_by_sequence(document: FiscalDocument) -> dict[int, dict[s
     ]
     if document.legacy_nfe_item_id:
         payload_sources.extend([document.legacy_nfe_item.raw_payload, document.legacy_nfe_item.log_payload])
+    try:
+        stock_import = document.purchase_stock_import
+    except ObjectDoesNotExist:
+        stock_import = None
+    if stock_import is not None and isinstance(stock_import.fiscal_snapshot, dict):
+        payload_sources.append(stock_import.fiscal_snapshot)
 
     products_by_sequence: dict[int, dict[str, Any]] = {}
     for payload in payload_sources:
@@ -418,8 +459,19 @@ def _original_products_by_sequence(document: FiscalDocument) -> dict[int, dict[s
                 sequence = _product_sequence(product, fallback_index=index)
             except NfeReturnError:
                 continue
-            products_by_sequence.setdefault(sequence, product)
+            existing = products_by_sequence.get(sequence)
+            if existing is None or _has_ibs_cbs_snapshot(product):
+                products_by_sequence[sequence] = product
     return products_by_sequence
+
+
+def _has_ibs_cbs_snapshot(product: dict[str, Any]) -> bool:
+    taxes = product.get("impostos") or product.get("taxes")
+    return bool(
+        product.get("ibs_cbs")
+        or product.get("IBSCBS")
+        or (isinstance(taxes, dict) and (taxes.get("ibs_cbs") or taxes.get("IBSCBS")))
+    )
 
 
 def _build_products_with_ibs_cbs(
@@ -826,11 +878,22 @@ def download_nfe_return_preview_document(
     )
     payload["previa_danfe"] = True
 
+    return_url = _build_return_url()
+    headers = _build_headers(workshop=original_document.workshop)
+    log_webmania_emission_request(
+        kind="nfe_return",
+        action="preview",
+        url=return_url,
+        payload=payload,
+        headers=headers,
+        fiscal_document_id=getattr(original_document, "pk", None),
+    )
     try:
-        response = requests.post(_build_return_url(), json=payload, headers=_build_headers(workshop=original_document.workshop), timeout=30)
+        response = requests.post(return_url, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao gerar a prévia da Nota de Devolução")
+        log_webmania_emission_failure(kind="nfe_return", action="preview", reason=message)
         raise NfeReturnError(message) from exc
 
     content_type = str(response.headers.get("Content-Type") or "application/pdf")
@@ -852,6 +915,51 @@ def download_nfe_return_preview_document(
         raise NfeReturnError(message)
     try:
         return download_webmania_document(workshop=original_document.workshop, url=preview_url)
+    except WebmaniaDocumentDownloadError as exc:
+        raise NfeReturnError(str(exc)) from exc
+
+
+def download_generic_nfe_return_preview_document(*, workshop: Any, payload: Mapping[str, Any]) -> DownloadedWebmaniaDocument:
+    """Download a DANFE preview for a complete, item-referenced return payload."""
+    preview_payload = dict(payload)
+    preview_payload["previa_danfe"] = True
+    emit_url = _build_generic_nfe_emit_url()
+    headers = _build_headers(workshop=workshop)
+    log_webmania_emission_request(
+        kind="nfe_return",
+        action="preview_generic",
+        url=emit_url,
+        payload=preview_payload,
+        headers=headers,
+        workshop_id=getattr(workshop, "pk", None),
+    )
+    try:
+        response = requests.post(emit_url, json=preview_payload, headers=headers, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao gerar a prévia da Nota de Devolução", scope="nfe")
+        log_webmania_emission_failure(kind="nfe_return", action="preview_generic", reason=message)
+        raise NfeReturnError(message) from exc
+
+    content_type = str(response.headers.get("Content-Type") or "application/pdf")
+    if "application/pdf" in content_type.lower() or response.content.startswith(b"%PDF"):
+        return DownloadedWebmaniaDocument(
+            content=response.content,
+            content_type=content_type,
+            content_disposition=str(response.headers.get("Content-Disposition") or ""),
+        )
+    try:
+        response_payload = response.json()
+    except ValueError as exc:
+        raise NfeReturnError("A Webmania não retornou uma prévia válida da Nota de Devolução.") from exc
+    if not isinstance(response_payload, dict):
+        raise NfeReturnError("A Webmania não retornou uma prévia válida da Nota de Devolução.")
+    preview_url = _extract_return_preview_url(response_payload)
+    if not preview_url:
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "A Webmania não retornou a URL da prévia da Nota de Devolução."
+        raise NfeReturnError(message)
+    try:
+        return download_webmania_document(workshop=workshop, url=preview_url)
     except WebmaniaDocumentDownloadError as exc:
         raise NfeReturnError(str(exc)) from exc
 
@@ -896,6 +1004,17 @@ def _mark_document_uncertain(*, document: FiscalDocument, error_message: str, re
     document.response_payload = sanitize_fiscal_payload(response_payload if response_payload is not None else {"error": error_message})
     document.remote_status = FiscalDocumentStatus.UNCERTAIN
     document.save(update_fields=["status", "response_payload", "remote_status", "atualizado_em"])
+
+
+def _mark_document_reproved(*, document: FiscalDocument, error_message: str, response_payload: dict[str, Any] | None = None) -> None:
+    document.status = FiscalDocumentStatus.REPROVED
+    document.response_payload = sanitize_fiscal_payload(response_payload if response_payload is not None else {"error": error_message})
+    document.remote_status = str((response_payload or {}).get("status") or FiscalDocumentStatus.REPROVED).strip()
+    document.save(update_fields=["status", "response_payload", "remote_status", "atualizado_em"])
+
+
+def _identity_error_is_missing_safe_identifier(exc: NfeReturnError) -> bool:
+    return "nao possui identificador seguro" in str(exc)
 
 
 def _return_attempt_for_document(*, document: FiscalDocument) -> FiscalEmissionAttempt | None:
@@ -980,7 +1099,7 @@ def _assert_transmittable(*, document: FiscalDocument) -> None:
     raise NfeReturnError("Esta intencao de devolucao ou estorno ja possui tentativa fiscal registrada.")
 
 
-def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
+def transmit_nfe_return_document(*, document: FiscalDocument, use_generic_emit_endpoint: bool = False) -> FiscalDocument:
     with transaction.atomic():
         locked_document = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=document.pk)
         _assert_transmittable(document=locked_document)
@@ -1007,21 +1126,43 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
         except FiscalEmissionAttemptBlocked as exc:
             raise NfeReturnError(str(exc)) from exc
 
-    headers = _build_headers(workshop=locked_document.workshop)
+    try:
+        headers = _build_headers(workshop=locked_document.workshop)
+    except NfeReturnError as exc:
+        # No request was sent to Webmania when authentication/configuration
+        # fails, so this attempt must not remain indefinitely in processing.
+        mark_attempt_failed(attempt=attempt, error_message=str(exc))
+        locked_document.status = FiscalDocumentStatus.REPROVED
+        locked_document.response_payload = sanitize_fiscal_payload({"error": str(exc)})
+        locked_document.save(update_fields=["status", "response_payload", "atualizado_em"])
+        raise
     mark_attempt_sent(attempt=attempt)
 
     try:
-        response = requests.post(_build_return_url(), json=payload, headers=headers, timeout=30)
+        endpoint = _build_generic_nfe_emit_url() if use_generic_emit_endpoint else _build_return_url()
+        action = "emit_generic" if use_generic_emit_endpoint else "emit"
+        log_webmania_emission_request(
+            kind="nfe_return",
+            action=action,
+            url=endpoint,
+            payload=payload,
+            headers=headers,
+            fiscal_document_id=getattr(locked_document, "pk", None),
+            fiscal_attempt_id=getattr(attempt, "pk", None),
+        )
+        response = requests.post(endpoint, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
         message = "Timeout ao emitir devolucao ou estorno; estado remoto incerto."
         logger.warning("nfe_return_timeout", extra={"fiscal_document_id": locked_document.pk, "fiscal_attempt_id": attempt.pk})
+        log_webmania_emission_failure(kind="nfe_return", action="emit", reason=message, fiscal_document_id=locked_document.pk)
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeReturnError(message) from exc
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao emitir devolucao ou estorno", scope="nfe")
         logger.warning("nfe_return_request_failed", extra={"fiscal_document_id": locked_document.pk, "fiscal_attempt_id": attempt.pk})
+        log_webmania_emission_failure(kind="nfe_return", action="emit", reason=message, fiscal_document_id=locked_document.pk)
         mark_attempt_failed(attempt=attempt, error_message=message)
         locked_document.status = FiscalDocumentStatus.REPROVED
         locked_document.response_payload = sanitize_fiscal_payload({"error": message})
@@ -1051,6 +1192,13 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
     try:
         validate_nfe_return_payload_identity(document=locked_document, payload=response_payload, require_safe_identifier=True)
     except NfeReturnError as exc:
+        if _identity_error_is_missing_safe_identifier(exc):
+            # Without uuid/chave there is no reconcile/webhook path. Treat as recoverable failure
+            # so the user can reissue instead of remaining stuck in UNCERTAIN forever.
+            message = f"Resposta inconclusiva da Webmania ao emitir devolucao ou estorno. {exc}"
+            mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
+            _mark_document_reproved(document=locked_document, error_message=message, response_payload=response_payload)
+            raise NfeReturnError(message) from exc
         message = f"Resposta inconclusiva da Webmania ao emitir devolucao ou estorno; estado remoto incerto. {exc}"
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message, response_payload=response_payload)

@@ -8,6 +8,7 @@ from typing import Any
 from djmoney.money import Money
 
 from apps.budget.pricing import (
+    _distribute_money_by_weights,
     _distribute_totals,
     _is_better_service_source,
     _is_better_source,
@@ -18,6 +19,7 @@ from apps.budget.pricing import (
 )
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.discount import split_budget_discount
+from apps.budget.service_costs import displayed_service_mechanic_cost
 from apps.workorder.models import WorkOrderDiscountType
 
 
@@ -114,6 +116,8 @@ def _selected_product_merge_key(row: dict) -> tuple[object, ...]:
 
 
 def _selected_service_merge_key(row: dict) -> tuple[object, ...]:
+    if row.get("is_excluded_from_composition"):
+        return ("excluded_service", id(row))
     service_id = row.get("id")
     if service_id is None:
         return (None, str(row.get("description") or ""))
@@ -248,7 +252,7 @@ def _build_snapshot_service_rows(*, snapshot) -> list[dict[str, Any]]:
     return servicos
 
 
-def _explode_kit_product_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
+def _explode_kit_product_rows(*, kit_line, kit_item, snapshot: Any | None = None) -> list[dict[str, Any]]:
     kit_quantity = kit_item.quantity
     product_entries: list[tuple[Any, int, Money]] = []
     for override in kit_item._iter_frozen_kit_product_overrides():
@@ -257,10 +261,25 @@ def _explode_kit_product_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
             continue
         product_entries.append((override, total_quantity, override.product_selling_price * total_quantity))
 
-    allocated_bases = _distribute_totals(
-        base_values=[raw_base for _, _, raw_base in product_entries],
-        target_total=kit_line.allocated_product_base,
-    )
+    snap_by_product_id: dict[int, Any] = {}
+    if snapshot is not None:
+        for line in getattr(snapshot, "product_lines", []):
+            if getattr(line, "entity_id", None) is not None:
+                snap_by_product_id[line.entity_id] = line
+
+    if snap_by_product_id:
+        allocated_bases = []
+        for override, total_quantity, raw_base in product_entries:
+            snap_line = snap_by_product_id.get(override.product_id)
+            if snap_line is not None:
+                allocated_bases.append(snap_line.adjusted_unit_price * total_quantity)
+            else:
+                allocated_bases.append(raw_base)
+    else:
+        allocated_bases = _distribute_totals(
+            base_values=[raw_base for _, _, raw_base in product_entries],
+            target_total=kit_line.allocated_product_base,
+        )
 
     produtos: list[dict[str, Any]] = []
     for (override, total_quantity, _), allocated_base in zip(product_entries, allocated_bases, strict=False):
@@ -297,8 +316,6 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
     third_party_entries: list[tuple[Any, int]] = []
 
     for override in kit_item._iter_frozen_kit_service_overrides():
-        if getattr(override, "excluded_from_composition", False):
-            continue
         total_quantity = int(override.quantity or 0) * int(kit_quantity or 0)
         if total_quantity <= 0:
             continue
@@ -318,8 +335,17 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
         base_values=[raw_total for _, _, raw_total, _ in labor_entries],
         target_total=kit_line.allocated_labor_total,
     )
-    allocated_labor_costs = _distribute_totals(
-        base_values=[raw_cost for _, _, _, raw_cost in labor_entries],
+    cost_weights = [
+        raw_cost.amount if raw_cost.amount > 0 else (
+            Decimal(int(override.duration.total_seconds() * total_quantity)) if override.duration else Decimal(0)
+        )
+        for override, total_quantity, _, raw_cost in labor_entries
+    ]
+    if not any(weight > 0 for weight in cost_weights):
+        cost_weights = [Decimal(total_quantity) for _, total_quantity, _, _ in labor_entries]
+
+    allocated_labor_costs = _distribute_money_by_weights(
+        weights=cost_weights,
         target_total=kit_line.allocated_labor_cost,
     )
 
@@ -350,6 +376,7 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
             "item_benefit_type": kit_item.item_benefit_type,
             "shipping": service_shipping,
             "is_third_party": False,
+            "is_excluded_from_composition": bool(getattr(override, "excluded_from_composition", False)),
         }
         if servico["item_benefit_type"] != "normal":
             servico["profit_value"] = -servico["service_mechanic_cost_price"]
@@ -396,6 +423,7 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
                 "item_benefit_type": kit_item.item_benefit_type,
                 "shipping": service_shipping,
                 "is_third_party": True,
+                "is_excluded_from_composition": bool(getattr(override, "excluded_from_composition", False)),
             }
         )
 
@@ -497,7 +525,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             produtos.append(produto)
 
         for line in review_display.direct_services:
-            service_mechanic_cost_price = line.warranty_total_price
+            service_mechanic_cost_price = displayed_service_mechanic_cost(budget=budget, item=line.item)
             item_service_shipping = getattr(line.item, "service_shipping", Money(0, "BRL"))
             service_sale_total = line.total_price + item_service_shipping
             servico = {
@@ -524,12 +552,13 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
         for line in review_display.kits:
             kit_item = line.item
-            for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+            for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item, snapshot=snapshot):
                 if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                     continue
                 produtos.append(exploded)
             for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-                if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+                is_excluded = bool(exploded.get("is_excluded_from_composition"))
+                if not is_excluded and winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                     continue
                 servicos.append(exploded)
         produtos, servicos = _merge_selected_pdf_rows(produtos=produtos, servicos=servicos)
@@ -540,6 +569,32 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
     _apply_pdf_gestor_cost_rules(produtos=produtos, servicos=servicos)
 
+    if presentation == "selected_items":
+        # O cabecalho do PDF deve fechar com a soma das linhas exibidas
+        # (vencedoras, sem duplicados de kit e sem itens nao cobrados),
+        # igual a tabela do step 6 — nao com o snapshot.
+        total_produtos = sum(
+            (
+                row.get("total_price")
+                for row in produtos
+                if not row.get("is_customer_supplied", False)
+                and str(row.get("item_benefit_type") or "normal") in ("normal", "")
+            ),
+            zero_money(),
+        )
+        total_servicos = sum(
+            (
+                row.get("total_price")
+                for row in servicos
+                if str(row.get("item_benefit_type") or "normal") in ("normal", "")
+            ),
+            zero_money(),
+        )
+        net_total = total_produtos + total_servicos - desconto
+        if net_total.amount < _ZERO_DECIMAL:
+            net_total = zero_money()
+        total_geral = zero_money() if is_warranty_or_courtesy else net_total
+
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     expected_delivery_at = resolve_expected_delivery_at(budget=budget)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
@@ -549,8 +604,14 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     total_products_effective_cost_value = sum(
         (line["product_cost_price"] for line in produtos if not line.get("is_customer_supplied", False)),
         Money(0, "BRL"),
+    ) + sum(
+        (_pdf_row_shipping(line) for line in produtos if not line.get("is_customer_supplied", False)),
+        Money(0, "BRL"),
     )
-    total_services_effective_cost_value = total_services_mechanic_cost_value
+    total_services_effective_cost_value = total_services_mechanic_cost_value + sum(
+        (_pdf_row_shipping(line) for line in servicos),
+        Money(0, "BRL"),
+    )
     soma_markup = budget.get_mlo
 
     benefit_total = Money(0, "BRL")

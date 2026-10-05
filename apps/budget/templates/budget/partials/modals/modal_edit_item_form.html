@@ -1,4 +1,5 @@
-{% if form.item_benefit_type and item.budget.budget_type == "sale" %}
+{% if form.item_benefit_type %}
+{% if item.budget.budget_type == "sale" or item.budget.budget_type == "direct_sale" %}
 <div class="form-control w-full md:col-span-2" id="div_id_item_benefit_type">
     <label class="label">
         <span class="label-text font-semibold flex items-center gap-2">
@@ -17,6 +18,7 @@
     </label>
     {% endif %}
 </div>
+{% endif %}
 {% endif %}
 
 {% for field in form %}

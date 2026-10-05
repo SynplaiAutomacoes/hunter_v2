@@ -46,8 +46,8 @@ def _default_webhook_url() -> str:
 def _organization_name_for_workshop(workshop: Workshop) -> str:
     """Nome fantasia da empresa fiscal; fallback razao social; depois nome da oficina."""
     try:
-        company = workshop.webmania_company
-    except ObjectDoesNotExist:
+        company = getattr(workshop, "webmania_company", None)
+    except (ObjectDoesNotExist, AttributeError):
         company = None
 
     if company is not None:
@@ -58,7 +58,11 @@ def _organization_name_for_workshop(workshop: Workshop) -> str:
         if razao:
             return razao
 
-    return str(workshop.name or "").strip() or f"Oficina {workshop.pk}"
+    workshop_name = str(getattr(workshop, "name", "") or "").strip()
+    if workshop_name:
+        return workshop_name
+    pk = getattr(workshop, "pk", "")
+    return f"Oficina {pk}".strip()
 
 
 def _resolve_account_owner(workshop: Workshop) -> Any:

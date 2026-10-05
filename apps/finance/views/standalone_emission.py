@@ -14,6 +14,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.services.webmania.webmania_logging import log_emission_view_failure
 from apps.finance.forms.emission import EmissionNfeConfigForm, EmissionNfseConfigForm
 from apps.finance.forms.standalone_emission import (
     StandaloneAddProductForm,
@@ -28,6 +29,7 @@ from apps.finance.forms.standalone_emission import (
 )
 from apps.finance.models.finance import NfeRequestStatus, NfseRequestStatus
 from apps.finance.services.standalone_emission import (
+    _coerce_consumidor_final,
     default_standalone_state,
     get_or_create_standalone_nfe_request,
     get_or_create_standalone_nfse_request,
@@ -97,6 +99,16 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         if isinstance(stored_state, dict):
             state.update(stored_state)
 
+        if not isinstance(state.get("nfse_config"), dict):
+            state["nfse_config"] = dict(default_standalone_state()["nfse_config"])
+        else:
+            state["nfse_config"] = {**default_standalone_state()["nfse_config"], **state["nfse_config"]}
+            if state.get("nfse_config_version", 1) < 2:
+                if state["nfse_config"].get("consumidor_final") is True:
+                    state["nfse_config"]["consumidor_final"] = None
+                state["nfse_config_version"] = 2
+                self._write_state(state)
+
         state["note_mode"] = normalize_note_mode(state.get("note_mode"))
         state["nfe_done"] = bool(state.get("nfe_done"))
         state["nfse_done"] = bool(state.get("nfse_done"))
@@ -117,6 +129,14 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
     def _clear_state(self) -> None:
         self.request.session.pop(self._session_key(), None)
         self.request.session.modified = True
+
+    def _soft_delete_session_drafts(self) -> None:
+        from apps.finance.services.fiscal_request_soft_delete import soft_delete_wizard_draft_requests
+
+        stored_state = self.request.session.get(self._session_key(), {})
+        if not isinstance(stored_state, dict):
+            return
+        soft_delete_wizard_draft_requests(workshop=self.workshop, state=stored_state, user=self.request.user)
 
     def _current_step(self) -> int:
         state = self._load_state()
@@ -232,6 +252,7 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         context["submit_button_label"] = self._submit_button_label(state=state, step_key=current_step_key)
         context["submit_button_intent"] = self._submit_button_intent(state=state, step_key=current_step_key)
         context["close_emission_url"] = f"{reverse('finance:standalone_emission')}?close=1"
+        context["reset_emission_url"] = f"{reverse('finance:standalone_emission')}?reset=1"
         context["note_mode"] = note_mode
         context["nfe_lines"] = list(state.get("nfe_lines") or [])
         context["nfse_lines"] = list(state.get("nfse_lines") or [])
@@ -443,7 +464,12 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             self._write_state(state)
             return True, None
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NF-e avulsa", extra={"nfe_request_id": getattr(nfe_request, "pk", None)})
+            log_emission_view_failure(
+                logger,
+                "Falha ao emitir NF-e avulsa",
+                exc,
+                nfe_request_id=getattr(nfe_request, "pk", None),
+            )
             state["nfe_done"] = False
             state["nfe_request_id"] = nfe_request.pk
             self._write_state(state)
@@ -461,7 +487,12 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
             self._write_state(state)
             return True, None
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NFS-e avulsa", extra={"nfse_request_id": getattr(nfse_request, "pk", None)})
+            log_emission_view_failure(
+                logger,
+                "Falha ao emitir NFS-e avulsa",
+                exc,
+                nfse_request_id=getattr(nfse_request, "pk", None),
+            )
             state["nfse_done"] = False
             state["nfse_request_id"] = nfse_request.pk
             self._write_state(state)
@@ -566,6 +597,7 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
         if request.GET.get("close") == "1":
             return self._close_wizard()
         if request.GET.get("reset") == "1":
+            self._soft_delete_session_drafts()
             self._clear_state()
             note_mode = normalize_note_mode(request.GET.get("note_mode") or request.GET.get("tipo"))
             if note_mode:
@@ -630,6 +662,7 @@ class StandaloneEmissionCreateView(LoginRequiredMixin, WorkshopScopedMixin, Form
                 "service_description": form.cleaned_data["service_description"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
                 "codigo_nbs": form.cleaned_data.get("codigo_nbs", ""),
+                "consumidor_final": _coerce_consumidor_final(form.cleaned_data.get("consumidor_final")),
             }
             self._write_state(state)
             if self.request.POST.get("intent") == "preview":

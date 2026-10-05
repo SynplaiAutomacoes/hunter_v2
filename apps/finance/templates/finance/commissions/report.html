@@ -89,12 +89,17 @@
 
                 <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
                     {% url 'finance:commission_report_pdf' as commission_report_pdf_url %}
+                    {% url 'finance:commission_report_excel' as commission_report_excel_url %}
                         <button type="button"
                                 class="btn btn-secondary gap-2"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Relatório de Comissões', url: '{{ commission_report_pdf_url }}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}', downloadUrl: '{{ commission_report_pdf_url }}?download=1{% if request.GET.urlencode %}&{{ request.GET.urlencode }}{% endif %}' } }))">
                             <span class="material-icons text-sm">picture_as_pdf</span>
                             Exportar PDF
                         </button>
+                        <a href="{{ commission_report_excel_url }}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-success gap-2">
+                            <span class="material-icons text-sm">table_view</span>
+                            Exportar Excel
+                        </a>
                         {% if has_active_filters %}
                             <a href="{{ clear_filters_url }}" class="btn btn-error text-white">Limpar</a>
                         {% endif %}

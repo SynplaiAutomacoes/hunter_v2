@@ -179,3 +179,82 @@ class WorkOrderSignatureTriggerTests(SimpleTestCase):
         self.assertEqual(toast_type, "error")
         self.assertIn("Falha ao enviar", message)
         workorder.mark_signature_failed.assert_called_once()
+
+
+class WorkOrderDirectSignatureSendTests(SimpleTestCase):
+    @patch("apps.workorder.service.get_workshop_synplaisign_api_key", return_value="sk_test")
+    @patch("apps.workorder.service.get_signature_service")
+    @patch("apps.workorder.service.render_workorder_signature_html_document")
+    def test_send_workorder_uses_nome_fantasia_as_sender_name(
+        self,
+        render_mock: Mock,
+        get_service_mock: Mock,
+        _api_key_mock: Mock,
+    ) -> None:
+        from apps.workorder.service import send_workorder_for_signature
+
+        render_mock.return_value = SimpleNamespace(content=b"<html><div sign-box></div></html>")
+        service = Mock()
+        service.build_signatory_and_observers.return_value = ({"name": "Cliente"}, [])
+        service.send_document.return_value = SimpleNamespace(envelope_id="env-wo-1", document_id="env-wo-1")
+        get_service_mock.return_value = service
+
+        workshop = SimpleNamespace(
+            pk=11,
+            name="Oficina WO Razao",
+            whatsapp_instance_name="ws_11",
+            webmania_company=SimpleNamespace(nome_fantasia="Auto Mecanica WO Fantasia"),
+        )
+        workorder = SimpleNamespace(
+            id=5,
+            get_id=5,
+            workshop=workshop,
+            budget=SimpleNamespace(
+                service_expected_completion_at="2026-10-10",
+                customer=SimpleNamespace(name="Cliente", email="c@example.com", phone="+5511999999999"),
+            ),
+        )
+
+        result = send_workorder_for_signature(workorder=workorder)
+        self.assertEqual(result.envelope_id, "env-wo-1")
+        send_req = service.send_document.call_args.args[0]
+        self.assertEqual(send_req.sender_name, "Auto Mecanica WO Fantasia")
+
+    @patch("apps.workorder.service.get_workshop_synplaisign_api_key", return_value="sk_test")
+    @patch("apps.workorder.service.get_signature_service")
+    @patch("apps.workorder.service.render_workorder_signature_html_document")
+    def test_send_workorder_falls_back_to_workshop_name(
+        self,
+        render_mock: Mock,
+        get_service_mock: Mock,
+        _api_key_mock: Mock,
+    ) -> None:
+        from apps.workorder.service import send_workorder_for_signature
+
+        render_mock.return_value = SimpleNamespace(content=b"<html><div sign-box></div></html>")
+        service = Mock()
+        service.build_signatory_and_observers.return_value = ({"name": "Cliente"}, [])
+        service.send_document.return_value = SimpleNamespace(envelope_id="env-wo-1", document_id="env-wo-1")
+        get_service_mock.return_value = service
+
+        workshop = SimpleNamespace(
+            pk=11,
+            name="Oficina WO Sem Fantasia",
+            whatsapp_instance_name="ws_11",
+            webmania_company=None,
+        )
+        workorder = SimpleNamespace(
+            id=5,
+            get_id=5,
+            workshop=workshop,
+            budget=SimpleNamespace(
+                service_expected_completion_at="2026-10-10",
+                customer=SimpleNamespace(name="Cliente", email="c@example.com", phone="+5511999999999"),
+            ),
+        )
+
+        result = send_workorder_for_signature(workorder=workorder)
+        self.assertEqual(result.envelope_id, "env-wo-1")
+        send_req = service.send_document.call_args.args[0]
+        self.assertEqual(send_req.sender_name, "Oficina WO Sem Fantasia")
+

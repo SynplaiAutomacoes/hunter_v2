@@ -45,6 +45,10 @@ class PurchaseReturnRequest(TimeStampedModel):
     operation_nature = models.CharField(max_length=255, default="Devolução de mercadoria", verbose_name="Natureza da operação")
     cfop = models.CharField(max_length=8, blank=True, default="", verbose_name="CFOP")
     tax_class = models.CharField(max_length=120, blank=True, default="", verbose_name="Classe de imposto")
+    icms_situacao_tributaria = models.CharField(max_length=3, blank=True, default="", verbose_name="Situação tributária do ICMS (CST/CSOSN)")
+    ipi_situacao_tributaria = models.CharField(max_length=2, blank=True, default="", verbose_name="Situação tributária do IPI")
+    ipi_codigo_enquadramento = models.CharField(max_length=3, blank=True, default="", verbose_name="Código de enquadramento do IPI")
+    ipi_aliquota = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, verbose_name="Alíquota do IPI")
     additional_information = models.TextField(blank=True, default="", verbose_name="Informações complementares")
     fisco_information = models.TextField(blank=True, default="", verbose_name="Informações ao fisco")
     volume = models.PositiveBigIntegerField(null=True, blank=True, verbose_name="Quantidade de volumes")
@@ -71,10 +75,14 @@ class PurchaseReturnRequest(TimeStampedModel):
     departure_at = models.DateTimeField(null=True, blank=True, verbose_name="Data de entrada/saída")
     delivery_forecast = models.DateField(null=True, blank=True, verbose_name="Previsão de entrega")
     transport_snapshot = models.JSONField(default=dict, blank=True, verbose_name="Snapshot de transporte")
+    supplier_ie = models.CharField(max_length=14, blank=True, null=True, verbose_name="Inscrição Estadual do fornecedor")
     FISCAL_CONFIGURATION_FIELDS: tuple[str, ...] = (
         "operation_nature",
         "cfop",
-        "tax_class",
+        "icms_situacao_tributaria",
+        "ipi_situacao_tributaria",
+        "ipi_codigo_enquadramento",
+        "ipi_aliquota",
         "additional_information",
         "fisco_information",
         "volume",
@@ -101,10 +109,20 @@ class PurchaseReturnRequest(TimeStampedModel):
         "departure_at",
         "delivery_forecast",
         "transport_snapshot",
+        "supplier_ie",
     )
     stock_status = models.CharField(max_length=24, choices=PurchaseReturnStockStatus.choices, default=PurchaseReturnStockStatus.WAITING_AUTHORIZATION, db_index=True, verbose_name="Status do estoque")
     stock_processed_at = models.DateTimeField(null=True, blank=True, verbose_name="Estoque atualizado em")
     stock_error = models.TextField(blank=True, default="", verbose_name="Erro de atualização do estoque")
+    soft_deleted_at = models.DateTimeField(verbose_name="Apagado em", null=True, blank=True, db_index=True)
+    soft_deleted_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="soft_deleted_purchase_return_requests",
+        verbose_name="Apagado por",
+    )
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Intenção de devolução de compra"
@@ -127,6 +145,36 @@ class PurchaseReturnRequest(TimeStampedModel):
             errors["fiscal_document"] = "O documento fiscal de devolução pertence a outra oficina."
         if errors:
             raise ValidationError(errors)
+
+    @property
+    def resume_step(self) -> int:
+        current = max(1, min(int(self.current_step or 1), 4))
+        if self.status == PurchaseReturnRequestStatus.DRAFT:
+            return min(current, 3)
+        return 4
+
+    @property
+    def purchase_return_status_badge(self) -> dict[str, str]:
+        status_color = {
+            PurchaseReturnRequestStatus.DRAFT: "badge-soft badge-ghost",
+            PurchaseReturnRequestStatus.READY: "badge-soft badge-info",
+            PurchaseReturnRequestStatus.PROCESSING: "badge-soft badge-warning",
+            PurchaseReturnRequestStatus.AUTHORIZED: "badge-success",
+            PurchaseReturnRequestStatus.REJECTED: "badge-error",
+            PurchaseReturnRequestStatus.COMMUNICATION_ERROR: "badge-error",
+            PurchaseReturnRequestStatus.CONTINGENCY: "badge-soft badge-warning",
+            PurchaseReturnRequestStatus.UNCERTAIN: "badge-warning",
+            PurchaseReturnRequestStatus.CANCELED: "badge-soft badge-error",
+        }
+        return {
+            "text": str(PurchaseReturnRequestStatus(self.status).label),
+            "class": status_color.get(self.status, "badge-ghost"),
+        }
+
+    @property
+    def workorder_reference(self) -> str:
+        """Compatible label for shared soft-delete modal (purchase returns are standalone)."""
+        return "Avulsa"
 
     def __str__(self) -> str:
         return f"Devolução de compra {self.pk or '---'} - {self.source_stock_import.nf_number_display}"

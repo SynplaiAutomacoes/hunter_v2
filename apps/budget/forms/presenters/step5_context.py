@@ -75,11 +75,11 @@ def build_step5_context(budget) -> Step5PricingContext:
         ts = int(total_td.total_seconds())
         duracao_total = f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
 
-    custo_total_mao_obra = breakdown.labor_cost if breakdown else zerado
+    custo_total_mao_obra = dados.get("custo_total_mao_obra") or (breakdown.labor_cost if breakdown else zerado)
 
     venda_servico_terceiros = budget.display_total_third_party_by_slider
     venda_pecas = budget.display_total_products_by_slider
-    venda_mao_obra = budget.display_total_services_by_slider - venda_servico_terceiros
+    venda_mao_obra = budget.display_total_services_by_slider
 
     metodo_precificacao = dados.get("method_name") or ""
     lucro_operacional = dados.get("lucro_operacional") or zerado

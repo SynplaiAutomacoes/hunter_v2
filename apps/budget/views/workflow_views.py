@@ -61,8 +61,10 @@ from ...core.utils import clean_id
 from ..services.budget_linking_service import (
     LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
     find_oldest_open_budget_for_vehicle,
+    find_recent_duplicate_reference_copy,
     is_budget_linkable,
     linkable_budgets_q,
+    remember_reference_copy,
 )
 
 
@@ -211,6 +213,7 @@ BUDGET_STATUS_BADGE_CLASSES = {
 }
 BUDGET_TYPE_BADGE_CLASSES = {
     BudgetType.SALE: "badge-success min-w-sm",
+    BudgetType.DIRECT_SALE: "badge-reopened-after-delivery min-w-sm",
     BudgetType.COURTESY: "badge-info min-w-sm",
     BudgetType.WARRANTY: "badge-error min-w-sm",
 }
@@ -573,7 +576,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         return f"{reverse('budget:budget_create')}?{urlencode(query_params)}"
 
     def _apply_auto_link(self) -> None:
-        if not self.object or not self.object.vehicle_id:
+        if not self.object or self.object.budget_type == BudgetType.DIRECT_SALE or not self.object.vehicle_id:
             return
         if self.object.reference_budget_id is not None:
             return
@@ -1350,7 +1353,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 cancellation_responsible = self._get_service_responsible(request.POST.get("cancellation_responsible_id"))
                 if cancellation_responsible is None:
-                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento administrativo ativo desta oficina."}, status=400)
+                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento ativo desta oficina (administrativo ou pró-labore)."}, status=400)
                 budget.cancellation_reason = cancellation_reason
                 budget.cancellation_responsible = cancellation_responsible
             elif status == "reject":
@@ -1359,7 +1362,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     return JsonResponse({"success": False, "error": "O motivo da reprovação é obrigatório."}, status=400)
                 rejection_responsible = self._get_service_responsible(request.POST.get("rejection_responsible_id"))
                 if rejection_responsible is None:
-                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento administrativo ativo desta oficina."}, status=400)
+                    return JsonResponse({"success": False, "error": "Selecione um responsável pelo atendimento ativo desta oficina (administrativo ou pró-labore)."}, status=400)
                 budget.rejection_reason = rejection_reason
                 budget.rejection_responsible = rejection_responsible
             elif status == "reopen":
@@ -1396,7 +1399,10 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 pk=int(collaborator_id or 0),
                 workshop=self.workshop,
                 is_active=True,
-                collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+                collaborator_type__in=[
+                    WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+                    WorkshopCollaborator.CollaboratorType.PRO_LABORE,
+                ],
             ).first()
         except (TypeError, ValueError):
             return None
@@ -1446,7 +1452,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         display_products_value = budget.display_total_products_by_slider
         display_third_party_value = budget.display_total_third_party_by_slider
-        display_labor_value = budget.display_total_services_by_slider - display_third_party_value
+        display_labor_value = budget.display_total_services_by_slider
         budget_for_lists = _get_budget_with_prefetched_items(budget)
         products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
         services_list_html = build_step5_services_list_html(budget=budget_for_lists, oob=True)
@@ -1457,7 +1463,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_third_party_services_selling.amount}">
                     {display_third_party_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.pricing_snapshot.total_labor_selling_value.amount}" data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
+                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{budget.total_services_value.amount}" data-cost-val="{budget.pricing_snapshot.total_labor_cost_value.amount}">
                     {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
@@ -1556,35 +1562,66 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "budget/partials/budget_reference_modal.html", context)
 
     def post(self, request, pk):
-        current_budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
-        relate = is_budget_linkable(current_budget) and request.POST.get("relate_budget") == "yes"
+        budget_id = clean_id(pk)
+        new_budget: Budget | None = None
 
         try:
             with transaction.atomic():
-                new_budget = Budget(
-                    workshop=current_budget.workshop,
-                    customer=current_budget.customer,
-                    vehicle=current_budget.vehicle,
-                    cost_estimator=request.user,
-                    collaborator=current_budget.collaborator,
-                    checklist=current_budget.checklist,
-                    expiration_date=current_budget.expiration_date,
-                    entry_date=timezone.now().date(),
-                    problem_description=current_budget.problem_description,
-                    technical_diagnosis=current_budget.technical_diagnosis,
-                    notes=current_budget.notes,
-                    observations=current_budget.observations,
-                    fuel_level=current_budget.fuel_level,
-                    defect=current_budget.defect,
-                    discount_value=current_budget.discount_value,
-                    discount_percentage=current_budget.discount_percentage,
-                    reference_budget=current_budget if relate else None,
+                current_budget = Budget.objects.select_for_update().get(id=budget_id, workshop=self.workshop)
+                relate = is_budget_linkable(current_budget) and request.POST.get("relate_budget") == "yes"
+                reference_budget = current_budget if relate else None
+                reference_budget_id = current_budget.pk if relate else None
+
+                cost_estimator_id = int(request.user.pk)
+                existing = find_recent_duplicate_reference_copy(
+                    source_budget=current_budget,
+                    cost_estimator_id=cost_estimator_id,
+                    reference_budget_id=reference_budget_id,
                 )
-                new_budget.save()
+                if existing is not None:
+                    new_budget = existing
+                    remember_reference_copy(
+                        workshop_id=int(current_budget.workshop_id),
+                        source_budget_id=int(current_budget.pk),
+                        cost_estimator_id=cost_estimator_id,
+                        reference_budget_id=reference_budget_id,
+                        copy_budget_id=int(new_budget.pk),
+                    )
+                else:
+                    new_budget = Budget(
+                        workshop=current_budget.workshop,
+                        customer=current_budget.customer,
+                        vehicle=current_budget.vehicle,
+                        cost_estimator=request.user,
+                        collaborator=current_budget.collaborator,
+                        checklist=current_budget.checklist,
+                        expiration_date=current_budget.expiration_date,
+                        entry_date=timezone.now().date(),
+                        problem_description=current_budget.problem_description,
+                        technical_diagnosis=current_budget.technical_diagnosis,
+                        notes=current_budget.notes,
+                        observations=current_budget.observations,
+                        fuel_level=current_budget.fuel_level,
+                        defect=current_budget.defect,
+                        discount_value=current_budget.discount_value,
+                        discount_percentage=current_budget.discount_percentage,
+                        reference_budget=reference_budget,
+                    )
+                    new_budget.save()
+                    remember_reference_copy(
+                        workshop_id=int(current_budget.workshop_id),
+                        source_budget_id=int(current_budget.pk),
+                        cost_estimator_id=cost_estimator_id,
+                        reference_budget_id=reference_budget_id,
+                        copy_budget_id=int(new_budget.pk),
+                    )
+        except Budget.DoesNotExist as exc:
+            raise Http404 from exc
         except Exception as e:
-            logger.exception("budget_reference_copy_failed", extra={"source_budget_id": current_budget.pk})
+            logger.exception("budget_reference_copy_failed", extra={"source_budget_id": budget_id})
             return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
 
+        assert new_budget is not None
         redirect_url = _budget_update_url(new_budget.pk, 1)
         if request.headers.get("HX-Request"):
             response = HttpResponse(status=204)

@@ -6,11 +6,13 @@ from typing import Any
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from djmoney.forms import MoneyField
+from djmoney.money import Money
 
 from apps.core.infrastructure.services.webmania.emission import normalize_codigo_nbs
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.core.workorder_numbers import resolve_workorder_number
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
@@ -18,12 +20,22 @@ from apps.finance.forms.emission_ui import (
     build_step5_pricing_panel_layout,
     build_step5_preview_oob_html,
     format_money,
+    parse_discount_value_override,
     resolve_initial_slider,
 )
 from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfseRequest
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder
+
+
+def consumidor_final_widget_value(value: object) -> str:
+    """Normalize stored/bool values to searchable-select choice keys (empty by default)."""
+    if value is True or str(value).strip().lower() in {"true", "1", "sim"}:
+        return "true"
+    if value is False or str(value).strip().lower() in {"false", "0", "nao", "não", "no"}:
+        return "false"
+    return ""
 
 
 def clean_required_codigo_nbs(value: object) -> str:
@@ -83,9 +95,22 @@ class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
 
 
 class NfseRequestStep3Form(CoreModelForm):
+    CONSUMIDOR_FINAL_CHOICES = (("", "—"), ("true", "Sim"), ("false", "Não"))
+
+    consumidor_final = forms.TypedChoiceField(
+        label="Consumidor final?",
+        required=False,
+        empty_value=None,
+        coerce=lambda value: None if value in ("", None) else str(value).strip().lower() in {"true", "1", "sim"},
+        choices=CONSUMIDOR_FINAL_CHOICES,
+        widget=SearchableSelectInput(choices=CONSUMIDOR_FINAL_CHOICES),
+        help_text="Opcional. Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
+    )
+    discount_value_override = MoneyField(label="Desconto na nota (R$)", max_digits=14, decimal_places=2, required=False, widget=MoneyInput)
+
     class Meta:
         model = NfseRequest
-        fields = ["pricing_slider", "tax_class", "codigo_nbs", "service_description", "additional_information"]
+        fields = ["pricing_slider", "discount_value_override", "tax_class", "codigo_nbs", "consumidor_final", "service_description", "additional_information"]
         widgets = {
             "tax_class": TextInput(),
             "codigo_nbs": TextInput(attrs={"placeholder": "Ex: 115021000", "maxlength": "9", "inputmode": "numeric"}),
@@ -121,6 +146,28 @@ class NfseRequestStep3Form(CoreModelForm):
             )
         )
 
+        discount_attrs = build_slider_widget_attrs(
+            preview_url=f"{preview_url}&preview=1" if preview_url else "",
+            include_selector="#nfse-form",
+            target_selector="#nfse-preview-block",
+            swap="none",
+            trigger="input changed delay:300ms",
+            sync_selector="#nfse-form:abort",
+        )
+        discount_attrs.pop("type", None)
+        discount_attrs.pop("min", None)
+        discount_attrs.pop("max", None)
+        discount_attrs.pop("step", None)
+        discount_attrs.pop("class", None)
+        self.fields["discount_value_override"].widget = MoneyInput(attrs=discount_attrs)
+
+        if not self.is_bound and "discount_value_override" not in self.initial:
+            existing_override = getattr(self.instance, "discount_value_override", None)
+            if existing_override is not None:
+                self.initial["discount_value_override"] = existing_override
+            elif self.instance and self.instance.workorder_id:
+                self.initial["discount_value_override"] = self.instance.workorder.resolved_discount_value
+
         tax_class_field = self.fields["tax_class"]
         dropdown_choices = [("", "Selecione a classe de imposto")]
         dropdown_choices.extend(self.tax_class_choices)
@@ -131,6 +178,11 @@ class NfseRequestStep3Form(CoreModelForm):
         codigo_nbs_field = self.fields["codigo_nbs"]
         codigo_nbs_field.required = False
         codigo_nbs_field.help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
+
+        if not self.is_bound:
+            self.initial["consumidor_final"] = consumidor_final_widget_value(
+                self.initial.get("consumidor_final", getattr(self.instance, "consumidor_final", None))
+            )
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
         current_tax_class = str(current_tax_class_source or "").strip()
@@ -144,8 +196,18 @@ class NfseRequestStep3Form(CoreModelForm):
         warning_html = ""
         panel_data = None
 
+        discount_override_amount = parse_discount_value_override(
+            raw_amount=self.data.get("discount_value_override_0") if self.is_bound else None,
+            initial_value=None if self.is_bound else self.initial.get("discount_value_override"),
+            workorder=getattr(self.instance, "workorder", None),
+        )
+
         if self.instance and self.instance.workorder_id:
-            panel_data = build_step5_pricing_panel_data(workorder=self.instance.workorder, selected_slider=selected_slider)
+            panel_data = build_step5_pricing_panel_data(
+                workorder=self.instance.workorder,
+                selected_slider=selected_slider,
+                discount_value_override=discount_override_amount,
+            )
             rows, total_services_formatted, default_description = _collect_service_rows(
                 self.instance.workorder,
                 persisted_slider=getattr(self.instance, "pricing_slider", None),
@@ -222,10 +284,22 @@ class NfseRequestStep3Form(CoreModelForm):
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Conferir serviços realizados</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Revise os serviços e finalize a emissão da Nota Fiscal de Serviço.</p>"),
-                build_step5_pricing_panel_layout(prefix="nfse", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#nfse-form") if panel_data is not None else HTML(""),
+                build_step5_pricing_panel_layout(
+                    prefix="nfse",
+                    panel_data=panel_data,
+                    slider_field_name="pricing_slider",
+                    form_selector="#nfse-form",
+                    discount_field_name="discount_value_override",
+                )
+                if panel_data is not None
+                else HTML(""),
                 Div(
-                    Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("tax_class", wrapper_class="col-span-12"),
+                    css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                ),
+                Div(
                     Field("codigo_nbs", wrapper_class="col-span-12 lg:col-span-6"),
+                    Field("consumidor_final", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
                 Field("service_description"),
@@ -241,6 +315,13 @@ class NfseRequestStep3Form(CoreModelForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_discount_value_override(self) -> Money:
+        discount_value = self.cleaned_data.get("discount_value_override")
+        if discount_value is None:
+            return Money(0, "BRL")
+        amount = max(getattr(discount_value, "amount", discount_value), 0)
+        return Money(amount, getattr(discount_value, "currency", None) or "BRL")
 
     def clean_codigo_nbs(self) -> str:
         return clean_required_codigo_nbs(self.cleaned_data.get("codigo_nbs"))

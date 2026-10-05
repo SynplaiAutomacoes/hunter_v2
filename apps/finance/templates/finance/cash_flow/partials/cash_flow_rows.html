@@ -9,6 +9,16 @@
         <td>{{ row.account }}</td>
         <td>{{ row.payment_type }}</td>
         <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
+        <td class="text-right">
+            {% if row.reverse_url %}
+                <form method="post" action="{{ row.reverse_url }}" class="inline" onsubmit="return confirm('Deseja estornar esta transferência? Uma operação inversa será registrada no extrato.');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-ghost btn-xs text-error">Estornar</button>
+                </form>
+            {% else %}
+                <span class="text-base-content/30">—</span>
+            {% endif %}
+        </td>
     </tr>
 {% endfor %}
 {% if has_next_page and next_page_url %}
@@ -19,6 +29,6 @@
         hx-swap="outerHTML"
         hx-target="this"
     >
-        <td colspan="9" class="py-4 text-center text-sm text-base-content/50">Carregando mais movimentações…</td>
+        <td colspan="10" class="py-4 text-center text-sm text-base-content/50">Carregando mais movimentações…</td>
     </tr>
 {% endif %}

@@ -17,6 +17,7 @@ from django.views import View
 from django.views.generic import DetailView, ListView
 
 from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.services.webmania.webmania_logging import log_emission_view_failure
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.infrastructure.services.webmania.emission import compute_service_discount_for_nfse
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
@@ -96,6 +97,11 @@ def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
     service_discount = compute_service_discount_for_nfse(
         workorder=nfse_request.workorder,
         discount_type_override=str(getattr(nfse_request, "discount_type_override", "") or ""),
+        discount_value_override=(
+            Decimal(str(nfse_request.discount_value_override.amount))
+            if getattr(nfse_request, "discount_value_override", None) is not None
+            else None
+        ),
     )
     net_amount = (gross_amount - service_discount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -234,13 +240,20 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
     context_object_name = "nfse_request"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle").prefetch_related("items", "batches")
+        from apps.finance.services.fiscal_request_soft_delete import active_nfse_requests
+
+        return active_nfse_requests(queryset=super().get_queryset()).select_related(
+            "workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle"
+        ).prefetch_related("items", "batches")
 
     def get_context_data(self, **kwargs):
+        from apps.finance.services.fiscal_request_soft_delete import is_nfse_request_soft_deletable
+
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
         latest_batch = self.object.batches.order_by("-id").first()
         can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "agendado", "contingencia"})
+        can_soft_delete = is_nfse_request_soft_deletable(nfse_request=self.object)
         fallback_back_url = build_issued_documents_list_url(note_type="nfse")
         context.update(
             {
@@ -248,12 +261,17 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                 "latest_item": latest_item,
                 "latest_batch": latest_batch,
                 "can_cancel": can_cancel,
+                "can_soft_delete": can_soft_delete,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
                     _build_field("Ordem de serviço", self.object.workorder_reference),
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),
                     _build_field("Código NBS", self.object.codigo_nbs),
+                    _build_field(
+                        "Consumidor final",
+                        {True: "Sim", False: "Não"}.get(self.object.consumidor_final, "—"),
+                    ),
                     _build_field("Número da Nota Fiscal de Serviço", self.object.reserved_rps_number),
                     _build_field("Série da Nota Fiscal de Serviço", self.object.reserved_rps_series),
                     _build_field("Discriminação", self.object.service_description),
@@ -406,7 +424,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     partial_template_name = "finance/partials/nfse_step_content.html"
     preview_template_name = "finance/partials/nfse_step3_preview.html"
     step3_form_class = NfseRequestStep3Form
-    preview_initial_fields = ("pricing_slider", "tax_class", "codigo_nbs", "service_description", "additional_information")
+    preview_initial_fields = ("pricing_slider", "tax_class", "codigo_nbs", "consumidor_final", "service_description", "additional_information")
     tax_class_kind = "nfse"
     tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal de Serviço: {error}"
     success_redirect_name = "finance:issued_documents_list"
@@ -446,7 +464,12 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
             )
             return True
         except FiscalServiceError as exc:
-            logger.exception("Falha ao emitir NFS-e", extra={"nfse_request_id": self.object.pk})
+            log_emission_view_failure(
+                logger,
+                "Falha ao emitir NFS-e",
+                exc,
+                nfse_request_id=self.object.pk,
+            )
             messages.error(self.request, str(exc))
             return False
 

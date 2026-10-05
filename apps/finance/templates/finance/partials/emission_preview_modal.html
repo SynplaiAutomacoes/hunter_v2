@@ -81,6 +81,12 @@
             setLoadingState(true);
         });
 
+        document.body.addEventListener('htmx:afterRequest', function (event) {
+            if (event.detail && event.detail.elt === form) {
+                setLoadingState(false);
+            }
+        });
+
         document.body.addEventListener('htmx:responseError', function (event) {
             if (event.detail && event.detail.elt === form) {
                 setLoadingState(false);

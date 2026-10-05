@@ -59,6 +59,7 @@ from apps.workorder.documents.provider import (
 from apps.workorder.forms import (
     WorkOrderCustomerApprovalForm,
     WorkOrderCollaboratorForm,
+    WorkOrderDeliveryDateForm,
     WorkOrderItemEditForm,
     WorkOrderKitProductEditRowForm,
     WorkOrderKitServiceEditRowForm,
@@ -66,7 +67,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WORKORDER_OPEN_STATUSES, WORKORDER_STATUS_BADGE_CLASSES, WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WORKORDER_OPEN_STATUSES, WORKORDER_STATUS_BADGE_CLASSES, WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderError, WorkOrderHistory, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -159,6 +160,7 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         allowed_values=frozenset(
             {
                 BudgetType.SALE,
+                BudgetType.DIRECT_SALE,
                 BudgetType.WARRANTY,
                 BudgetType.COURTESY,
             }
@@ -320,7 +322,7 @@ class WorkOrderStatusReportDataMixin:
             value = str(raw_value or "").strip()
             if not value or value in seen_values:
                 continue
-            if value not in {BudgetType.SALE, BudgetType.WARRANTY, BudgetType.COURTESY}:
+            if value not in {BudgetType.SALE, BudgetType.DIRECT_SALE, BudgetType.WARRANTY, BudgetType.COURTESY}:
                 continue
             seen_values.add(value)
             selected.append(value)
@@ -939,6 +941,68 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
 
+class UpdateWorkOrderDeliveryDateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_delivery_date"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
+
+        if workorder.delivered_at is None:
+            return JsonResponse(
+                {"ok": False, "error": "A data de entrega só pode ser alterada após a entrega do veículo."},
+                status=409,
+            )
+
+        form = WorkOrderDeliveryDateForm(request.POST, workorder=workorder)
+        if not form.is_valid():
+            return render(
+                request,
+                "workorder/partials/delivery_date_form.html",
+                {"workorder": workorder, "delivery_date_form": form},
+            )
+
+        previous_delivered_at = workorder.delivered_at
+        delivered_at = form.cleaned_data["delivered_at"]
+        previous_delivery_minute = timezone.localtime(previous_delivered_at).replace(second=0, microsecond=0)
+        requested_delivery_minute = timezone.localtime(delivered_at).replace(second=0, microsecond=0)
+        if previous_delivery_minute != requested_delivery_minute:
+            with transaction.atomic():
+                locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
+                previous_delivered_at = locked_workorder.delivered_at
+                if previous_delivered_at is None:
+                    return JsonResponse(
+                        {"ok": False, "error": "A data de entrega só pode ser alterada após a entrega do veículo."},
+                        status=409,
+                    )
+                locked_workorder.delivered_at = delivered_at
+                locked_workorder.save(update_fields=["delivered_at"])
+                WorkOrderHistory.objects.create(
+                    workorder=locked_workorder,
+                    user=request.user,
+                    action=WorkOrderHistory.Action.DELIVERY_DATE_CHANGED,
+                    reason=(
+                        f"Data de entrega alterada de {timezone.localtime(previous_delivered_at):%d/%m/%Y %H:%M} "
+                        f"para {timezone.localtime(delivered_at):%d/%m/%Y %H:%M}."
+                    ),
+                )
+            workorder.refresh_from_db()
+
+        response = render(
+            request,
+            "workorder/partials/delivery_date_update_response.html",
+            {
+                "workorder": workorder,
+                "delivery_date_form": WorkOrderDeliveryDateForm(workorder=workorder),
+                "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
+            },
+        )
+        response["HX-Trigger"] = json.dumps({"showToast": {"message": "Data de entrega atualizada.", "type": "success"}})
+        return response
+
+
 class UpdateWorkOrderObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkOrder
     workshop_permission_codename = "change_workorder"
@@ -1520,33 +1584,40 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": f"{msg} {detail}", "type": "error"}})
                 return response
 
-            approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
+            is_direct_sale = workorder.budget_type == "direct_sale"
+            approval_form = WorkOrderCustomerApprovalForm(
+                request.POST,
+                workorder=workorder,
+                require_km_final=not is_direct_sale,
+                require_warranty_plan=not is_direct_sale,
+                require_unsigned_delivery_reason=not is_direct_sale,
+            )
             if not approval_form.is_valid():
                 context = _build_customer_approvement_context(workorder, request=request)
                 context["approval_form"] = approval_form
                 return render(request, "workorder/partials/customer_approvement_section.html", context)
 
             try:
-                km_final = approval_form.cleaned_data["km_final"]
-                assert km_final is not None
-                unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
-                delivery_kwargs: dict[str, object] = {
-                    "km_final": km_final,
-                    "unsigned_delivery_reason": unsigned_delivery_reason,
-                    "last_oil_change_date": approval_form.cleaned_data.get("last_oil_change_date"),
-                    "last_oil_change_km": approval_form.cleaned_data.get("last_oil_change_km"),
-                    "review_plan": approval_form.cleaned_data.get("review_plan"),
-                    "warranty_plan": approval_form.cleaned_data.get("warranty_plan"),
-                }
-                if workorder.budget_type in ("warranty", "courtesy"):
-                    delivery_kwargs["previous_mechanic_id"] = workorder.previous_mechanic_id
-                    delivery_kwargs["courtesy_reason_type"] = approval_form.cleaned_data.get("courtesy_reason_type")
-                    delivery_kwargs["courtesy_reason_description"] = approval_form.cleaned_data.get("courtesy_reason_description") or ""
+                km_final = approval_form.cleaned_data.get("km_final")
+                unsigned_delivery_reason = approval_form.cleaned_data.get("unsigned_delivery_reason", "")
+                if not is_direct_sale:
+                    assert km_final is not None
+                    delivery_kwargs: dict[str, object] = {
+                        "km_final": km_final,
+                        "unsigned_delivery_reason": unsigned_delivery_reason,
+                        "last_oil_change_date": approval_form.cleaned_data.get("last_oil_change_date"),
+                        "last_oil_change_km": approval_form.cleaned_data.get("last_oil_change_km"),
+                        "review_plan": approval_form.cleaned_data.get("review_plan"),
+                        "warranty_plan": approval_form.cleaned_data.get("warranty_plan"),
+                    }
                     if workorder.budget_type in ("warranty", "courtesy"):
+                        delivery_kwargs["previous_mechanic_id"] = workorder.previous_mechanic_id
+                        delivery_kwargs["courtesy_reason_type"] = approval_form.cleaned_data.get("courtesy_reason_type")
+                        delivery_kwargs["courtesy_reason_description"] = approval_form.cleaned_data.get("courtesy_reason_description") or ""
                         warranty_origin = approval_form.cleaned_data.get("warranty_origin")
                         delivery_kwargs["warranty_origin_id"] = warranty_origin.pk if warranty_origin else None
-                    delivery_kwargs["update_courtesy_fields"] = True
-                workorder.complete_delivery(**delivery_kwargs)
+                        delivery_kwargs["update_courtesy_fields"] = True
+                    workorder.complete_delivery(**delivery_kwargs)
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)
@@ -1563,9 +1634,10 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     )
                     return response
 
-                from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
+                if not is_direct_sale:
+                    from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
 
-                handle_workorder_delivery_oil_and_mileage(workorder=workorder)
+                    handle_workorder_delivery_oil_and_mileage(workorder=workorder)
 
                 from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
 

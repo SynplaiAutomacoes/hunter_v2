@@ -25,7 +25,14 @@ from apps.finance.models.finance import (
     NfseRequest,
     WebmaniaWebhookEvent,
 )
-from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, reconcile_cce_event, validate_correction_text
+from apps.finance.services.nfe_events import (
+    NfeCorrectionError,
+    emit_nfe_correction,
+    ensure_fiscal_document_for_nfe_item,
+    reconcile_cce_event,
+    reserve_cce_event_attempt,
+    validate_correction_text,
+)
 from apps.finance.views.nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeRequestDetailView
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
@@ -170,7 +177,7 @@ class NfeCorrectionOperationalTests(TestCase):
             patch("apps.finance.services.nfe_events._build_headers", return_value={}),
             patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(payload)),
         ):
-            with self.assertRaisesMessage(NfeCorrectionError, "Carta de correcao rejeitada"):
+            with self.assertRaisesMessage(NfeCorrectionError, "Rejeicao do evento"):
                 emit_nfe_correction(nfe_item=self.item, correction_text=CORRECTION_TEXT, requested_by=self.user)
 
         event = FiscalDocumentEvent.objects.get(document__legacy_nfe_item=self.item)
@@ -514,3 +521,117 @@ class NfeCorrectionOperationalTests(TestCase):
                 NfeCorrectionDownloadView.as_view()(cross_workshop_request, pk=self.item.request_id, event_pk=event.pk, document="xml")
 
         self.assertEqual(WebmaniaWebhookEvent.objects.count(), 0)
+
+
+class FiscalDocumentEventSchemaRepairTests(TestCase):
+    ORPHAN_COLUMNS = ("event_code", "event_payload_type", "related_event_id")
+
+    def setUp(self) -> None:
+        self.account = Account.objects.create(name="Conta CC-e schema")
+        self.workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina CC-e schema",
+            cnpj="12.345.678/0001-99",
+            phone="+5511999999999",
+            address="Rua CC-e schema, 1",
+        )
+        self.user = User.objects.create_user(username="fiscal-cce-schema", password="test", cpf="98765432101")
+        self.user.account = self.account
+        self.user.save(update_fields=["account"])
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.localdate())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        self.item = NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid=uuid4(),
+            status="aprovado",
+            access_key="35123456789012345678901234567890123456789012",
+            number="1999",
+            series="1",
+            xml_url="https://example.test/nfe-schema.xml",
+        )
+
+    def _load_repair_module(self):
+        from importlib.util import module_from_spec, spec_from_file_location
+        from pathlib import Path
+
+        from django.apps import apps
+
+        migration_path = Path(apps.get_app_config("finance").path) / "migrations" / "0069_repair_fiscal_document_event_orphan_columns.py"
+        spec = spec_from_file_location("repair_fiscal_document_event_orphan_columns", migration_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+
+    def _table_columns(self) -> set[str]:
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            description = connection.introspection.get_table_description(cursor, "finance_fiscaldocumentevent")
+        return {getattr(col, "name", col[0]) for col in description}
+
+    def _inject_orphan_columns(self) -> None:
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                ALTER TABLE finance_fiscaldocumentevent
+                ADD COLUMN IF NOT EXISTS event_code varchar(20) NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS event_payload_type varchar(40) NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS related_event_id bigint NULL
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE finance_fiscaldocumentevent
+                ALTER COLUMN event_code DROP DEFAULT,
+                ALTER COLUMN event_payload_type DROP DEFAULT
+                """
+            )
+
+    def test_repair_drops_orphan_not_null_columns_and_allows_cce_create(self) -> None:
+        from django.apps import apps
+        from django.db import connection
+
+        self._inject_orphan_columns()
+        columns_before = self._table_columns()
+        self.assertTrue({"event_code", "event_payload_type", "related_event_id"}.issubset(columns_before))
+
+        module = self._load_repair_module()
+        with connection.schema_editor() as schema_editor:
+            module.drop_orphan_fiscal_event_columns(apps, schema_editor)
+
+        columns_after = self._table_columns()
+        for column_name in self.ORPHAN_COLUMNS:
+            self.assertNotIn(column_name, columns_after)
+
+        document = ensure_fiscal_document_for_nfe_item(item=self.item)
+        event, attempt, payload = reserve_cce_event_attempt(
+            document=document,
+            correction_text=CORRECTION_TEXT,
+            requested_by=self.user,
+        )
+        self.assertEqual(event.event_sequence, 1)
+        self.assertEqual(event.status, FiscalDocumentEventStatus.STARTED)
+        self.assertEqual(attempt.request_id, event.pk)
+        self.assertIn("correcao", payload)
+
+    def test_repair_is_idempotent_on_clean_table(self) -> None:
+        from django.apps import apps
+        from django.db import connection
+
+        module = self._load_repair_module()
+        with connection.schema_editor() as schema_editor:
+            module.drop_orphan_fiscal_event_columns(apps, schema_editor)
+            module.drop_orphan_fiscal_event_columns(apps, schema_editor)
+
+        columns = self._table_columns()
+        for column_name in self.ORPHAN_COLUMNS:
+            self.assertNotIn(column_name, columns)
+

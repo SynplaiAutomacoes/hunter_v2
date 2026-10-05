@@ -38,6 +38,12 @@ Representam os canais financeiros da operacao.
 
 Registram creditos e debitos com contexto suficiente para leitura operacional e gerencial.
 
+A tela de relatorio (`finance:reports_home`, `/finance/reports/`) permite filtrar por valor exato e ordenar a listagem por qualquer coluna:
+
+- `?valor=` aceita formatos pt-BR/en (`R$ 121,00`, `121,00`, `121.00`, `121`) e compara o valor liquido em duas casas decimais. Em linhas de OS, o valor considerado e o `total_paid` de cada pagamento.
+- `?ordering=<coluna>` / `?ordering=-<coluna>` alterna ascendente/descendente. Chaves validas: `pago`, `conciliado`, `tipo`, `lancamento`, `vencimento`, `agente`, `descricao`, `plano`, `pagamento`, `total`. Valor ausente ou invalido mantem o padrao `-pk`.
+- A ordenacao e aplicada apos a expansao das linhas de OS (em memoria) e antes da paginacao, e o PDF de exportacao reutiliza a mesma logica.
+
 ### Fluxo de caixa
 
 Consolida visao temporal da operacao financeira.
