@@ -61,8 +61,10 @@ from ...core.utils import clean_id
 from ..services.budget_linking_service import (
     LINKED_COPY_CLOSED_WORKORDER_MESSAGE,
     find_oldest_open_budget_for_vehicle,
+    find_recent_duplicate_reference_copy,
     is_budget_linkable,
     linkable_budgets_q,
+    remember_reference_copy,
 )
 
 
@@ -1560,35 +1562,66 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "budget/partials/budget_reference_modal.html", context)
 
     def post(self, request, pk):
-        current_budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
-        relate = is_budget_linkable(current_budget) and request.POST.get("relate_budget") == "yes"
+        budget_id = clean_id(pk)
+        new_budget: Budget | None = None
 
         try:
             with transaction.atomic():
-                new_budget = Budget(
-                    workshop=current_budget.workshop,
-                    customer=current_budget.customer,
-                    vehicle=current_budget.vehicle,
-                    cost_estimator=request.user,
-                    collaborator=current_budget.collaborator,
-                    checklist=current_budget.checklist,
-                    expiration_date=current_budget.expiration_date,
-                    entry_date=timezone.now().date(),
-                    problem_description=current_budget.problem_description,
-                    technical_diagnosis=current_budget.technical_diagnosis,
-                    notes=current_budget.notes,
-                    observations=current_budget.observations,
-                    fuel_level=current_budget.fuel_level,
-                    defect=current_budget.defect,
-                    discount_value=current_budget.discount_value,
-                    discount_percentage=current_budget.discount_percentage,
-                    reference_budget=current_budget if relate else None,
+                current_budget = Budget.objects.select_for_update().get(id=budget_id, workshop=self.workshop)
+                relate = is_budget_linkable(current_budget) and request.POST.get("relate_budget") == "yes"
+                reference_budget = current_budget if relate else None
+                reference_budget_id = current_budget.pk if relate else None
+
+                cost_estimator_id = int(request.user.pk)
+                existing = find_recent_duplicate_reference_copy(
+                    source_budget=current_budget,
+                    cost_estimator_id=cost_estimator_id,
+                    reference_budget_id=reference_budget_id,
                 )
-                new_budget.save()
+                if existing is not None:
+                    new_budget = existing
+                    remember_reference_copy(
+                        workshop_id=int(current_budget.workshop_id),
+                        source_budget_id=int(current_budget.pk),
+                        cost_estimator_id=cost_estimator_id,
+                        reference_budget_id=reference_budget_id,
+                        copy_budget_id=int(new_budget.pk),
+                    )
+                else:
+                    new_budget = Budget(
+                        workshop=current_budget.workshop,
+                        customer=current_budget.customer,
+                        vehicle=current_budget.vehicle,
+                        cost_estimator=request.user,
+                        collaborator=current_budget.collaborator,
+                        checklist=current_budget.checklist,
+                        expiration_date=current_budget.expiration_date,
+                        entry_date=timezone.now().date(),
+                        problem_description=current_budget.problem_description,
+                        technical_diagnosis=current_budget.technical_diagnosis,
+                        notes=current_budget.notes,
+                        observations=current_budget.observations,
+                        fuel_level=current_budget.fuel_level,
+                        defect=current_budget.defect,
+                        discount_value=current_budget.discount_value,
+                        discount_percentage=current_budget.discount_percentage,
+                        reference_budget=reference_budget,
+                    )
+                    new_budget.save()
+                    remember_reference_copy(
+                        workshop_id=int(current_budget.workshop_id),
+                        source_budget_id=int(current_budget.pk),
+                        cost_estimator_id=cost_estimator_id,
+                        reference_budget_id=reference_budget_id,
+                        copy_budget_id=int(new_budget.pk),
+                    )
+        except Budget.DoesNotExist as exc:
+            raise Http404 from exc
         except Exception as e:
-            logger.exception("budget_reference_copy_failed", extra={"source_budget_id": current_budget.pk})
+            logger.exception("budget_reference_copy_failed", extra={"source_budget_id": budget_id})
             return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
 
+        assert new_budget is not None
         redirect_url = _budget_update_url(new_budget.pk, 1)
         if request.headers.get("HX-Request"):
             response = HttpResponse(status=204)
