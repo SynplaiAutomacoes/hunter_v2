@@ -4,6 +4,8 @@ from apps.collaborators.views import (
     CollaboratorBenefitDeleteView,
     CollaboratorPayrollMarkPaidView,
     CollaboratorPayrollReceiptView,
+    ManagedCollaboratorEditRedirectView,
+    ManagedCollaboratorListView,
     WorkshopCollaboratorCreateView,
     WorkshopCollaboratorDeleteView,
     WorkshopCollaboratorGenerateMovementsView,
@@ -29,4 +31,6 @@ urlpatterns = [
     path("<int:pk>/delete/", WorkshopCollaboratorDeleteView.as_view(), name="collaborator_delete"),
     path("create/modal/", WorkshopCollaboratorModalCreateView.as_view(), name="collaborator_create_modal"),
     path("update/modal/<int:pk>/", WorkshopCollaboratorModalUpdateView.as_view(), name="collaborator_update_modal"),
+    path("manage/", ManagedCollaboratorListView.as_view(), name="collaborator_manage"),
+    path("manage/<int:pk>/edit/", ManagedCollaboratorEditRedirectView.as_view(), name="collaborator_manage_edit"),
 ]

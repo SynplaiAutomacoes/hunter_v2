@@ -145,3 +145,20 @@ class WorkOrderPdfContextTests(TestCase):
         self.assertIn(paid_service.name, service_names)
         free_row = next(row for row in context["servicos"] if row["description"] == free_service.name)
         self.assertEqual(free_row["total_price"], Money("0.00", "BRL"))
+
+    def test_os_cliente_pdf_shows_budget_observations(self) -> None:
+        workorder = _create_workorder(suffix=5)
+        workorder.budget.observations = "Observação da O.S. no PDF do cliente."
+        workorder.budget.save(update_fields=["observations"])
+        workorder.budget.workshop.pdf_observation = "Texto fixo da oficina no PDF."
+        workorder.budget.workshop.save(update_fields=["pdf_observation"])
+
+        context = build_workorder_pdf_context(workorder=workorder)
+        html = render_to_string("workorder/partials/pdf/visualizarPDF.html", context)
+
+        self.assertEqual(context["observations"], workorder.budget.observations)
+        self.assertEqual(context["fixed_observation"], workorder.budget.workshop.pdf_observation)
+        self.assertIn("Observações", html)
+        self.assertIn(workorder.budget.observations, html)
+        self.assertIn(workorder.budget.workshop.pdf_observation, html)
+        self.assertLess(html.index("Observações"), html.index("Produtos"))
