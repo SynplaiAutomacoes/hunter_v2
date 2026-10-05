@@ -169,6 +169,7 @@ INSTALLED_APPS = [
     "apps.messaging",
     "apps.terms",
     "apps.notifications",
+    "apps.tickets",
 ]
 
 MIDDLEWARE = [
@@ -234,6 +235,7 @@ EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
 MESSAGE_WORKER_BASE_URL = os.getenv("MESSAGE_WORKER_BASE_URL", "").strip()
 MESSAGE_DISPATCH_STATUS_TOKEN = os.getenv("MESSAGE_DISPATCH_STATUS_TOKEN", "").strip()
 MESSAGE_DISPATCH_WS_BASE_URL = os.getenv("MESSAGE_DISPATCH_WS_BASE_URL", "").strip()
+TICKET_CHAT_WS_BASE_URL = os.getenv("TICKET_CHAT_WS_BASE_URL", MESSAGE_DISPATCH_WS_BASE_URL).strip()
 
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))

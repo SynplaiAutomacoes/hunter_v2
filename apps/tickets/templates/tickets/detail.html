@@ -1,0 +1,189 @@
+{% extends 'crud/page.html' %}
+{% load crispy_forms_tags static %}
+
+{% block crud_content %}
+<div class="flex items-start justify-between gap-4 mb-6">
+    <div>
+        <a href="{% url 'tickets:my_list' %}" class="link link-hover text-sm">← Voltar</a>
+        <h1 class="text-3xl font-bold mt-2">#{{ ticket.pk }} — {{ ticket.title }}</h1>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+            <span class="badge {{ ticket.status_badge_class }}">{{ ticket.get_status_display }}</span>
+            <span class="text-sm text-base-content/60">Oficina: {{ ticket.workshop.name }}</span>
+            <span class="text-sm text-base-content/60">Aberto por: {{ ticket.created_by.username }}</span>
+            <span class="text-sm text-base-content/60">Responsável: {% if ticket.assignee %}{{ ticket.assignee.username }}{% else %}—{% endif %}</span>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+    <div class="xl:col-span-2 space-y-6">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body space-y-4">
+                <div>
+                    <h2 class="font-semibold">Qual o problema</h2>
+                    <p class="whitespace-pre-wrap">{{ ticket.problem }}</p>
+                </div>
+                <div>
+                    <h2 class="font-semibold">Como repetir</h2>
+                    <p class="whitespace-pre-wrap">{{ ticket.reproduction_steps }}</p>
+                </div>
+                {% if ticket.cancellation_reason %}
+                    <div class="alert alert-warning">
+                        <div>
+                            <p class="font-semibold">Motivo do cancelamento</p>
+                            <p class="whitespace-pre-wrap">{{ ticket.cancellation_reason }}</p>
+                        </div>
+                    </div>
+                {% endif %}
+                {% if ticket.rejection_reason %}
+                    <div class="alert alert-error">
+                        <div>
+                            <p class="font-semibold">Motivo da recusa</p>
+                            <p class="whitespace-pre-wrap">{{ ticket.rejection_reason }}</p>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow">
+            <div class="card-body space-y-4" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes }}, maxSeconds: {{ max_recording_seconds }} })">
+                <h2 class="font-semibold text-lg">Anexos</h2>
+                <ul class="space-y-2">
+                    {% for item in attachments_with_urls %}
+                        <li class="flex items-center justify-between gap-2 border-b border-base-200 pb-2">
+                            <div>
+                                <p class="font-medium">{{ item.attachment.original_name }}</p>
+                                <p class="text-xs text-base-content/60">{{ item.attachment.get_source_display }} · {{ item.attachment.created_at|date:"d/m/Y H:i" }}</p>
+                            </div>
+                            {% if item.url %}
+                                <a href="{{ item.url }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Baixar</a>
+                            {% endif %}
+                        </li>
+                    {% empty %}
+                        <li class="text-base-content/60">Nenhum anexo.</li>
+                    {% endfor %}
+                </ul>
+
+                {% if can_add_attachments %}
+                    <form method="post" action="{% url 'tickets:attachments_upload' ticket.pk %}" enctype="multipart/form-data" class="space-y-3">
+                        {% csrf_token %}
+                        <input type="file" name="attachments" multiple class="file-input file-input-bordered w-full" @change="onFilesSelected($event)">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button type="button" class="btn btn-outline btn-sm gap-2" @click="toggleRecording()">
+                                <span class="material-icons text-base" x-text="isRecording ? 'stop' : 'videocam'"></span>
+                                <span x-text="isRecording ? 'Parar gravação' : 'Gravar tela'"></span>
+                            </button>
+                            <span class="text-sm text-base-content/60" x-show="recordingLabel" x-text="recordingLabel"></span>
+                        </div>
+                        <input type="file" name="screen_recording" x-ref="screenInput" class="hidden" accept="video/webm,video/mp4">
+                        <button type="submit" class="btn btn-primary btn-sm">Enviar anexos</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow">
+            <div class="card-body space-y-4"
+                 x-data="ticketChat({
+                    ticketId: {{ ticket.pk }},
+                    token: '{{ chat_ws_token|escapejs }}',
+                    baseUrl: '{{ chat_ws_base_url|escapejs }}',
+                    currentUserId: {{ request.user.pk }}
+                 })">
+                <h2 class="font-semibold text-lg">Chat</h2>
+                <div id="ticket-chat-messages" class="max-h-96 overflow-y-auto space-y-3 border border-base-200 rounded-lg p-3" x-ref="messages">
+                    {% include 'tickets/partials/chat_messages.html' with messages=ticket.messages.all %}
+                </div>
+                <form method="post" action="{% url 'tickets:message_create' ticket.pk %}" class="flex gap-2 items-start" @submit="onSubmit($event)">
+                    {% csrf_token %}
+                    <textarea name="body" rows="2" class="textarea textarea-bordered w-full" placeholder="Escreva uma mensagem..." x-model="draft" required></textarea>
+                    <button type="submit" class="btn btn-primary">Enviar</button>
+                </form>
+                <p class="text-xs text-base-content/50" x-text="connectionLabel"></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="space-y-6">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body space-y-4">
+                <h2 class="font-semibold text-lg">Ações</h2>
+
+                {% if can_capture %}
+                    <form method="post" action="{% url 'tickets:capture' ticket.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-warning w-full">Capturar chamado</button>
+                    </form>
+                {% endif %}
+
+                {% if can_reassign %}
+                    <form method="post" action="{% url 'tickets:reassign' ticket.pk %}" class="space-y-2">
+                        {% csrf_token %}
+                        <label class="form-control">
+                            <span class="label-text">Reatribuir para</span>
+                            <select name="assignee_id" class="select select-bordered" required>
+                                <option value="">Selecione</option>
+                                {% for developer in developer_users %}
+                                    <option value="{{ developer.pk }}">{{ developer.username }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <button type="submit" class="btn btn-outline w-full">Reatribuir</button>
+                    </form>
+                {% endif %}
+
+                {% if can_change_status %}
+                    <form method="post" action="{% url 'tickets:status_update' ticket.pk %}" class="space-y-2" x-data="{ status: '' }">
+                        {% csrf_token %}
+                        <label class="form-control">
+                            <span class="label-text">Alterar status</span>
+                            <select name="status" class="select select-bordered" x-model="status" required>
+                                <option value="">Selecione</option>
+                                <option value="em_andamento">Em andamento</option>
+                                <option value="validacao_interna">Validação interna</option>
+                                <option value="aguardando_validacao">Aguardando validação</option>
+                                <option value="reprovado">Reprovado</option>
+                                <option value="cancelado">Cancelado</option>
+                            </select>
+                        </label>
+                        <label class="form-control" x-show="status === 'cancelado'" x-cloak>
+                            <span class="label-text">Motivo do cancelamento</span>
+                            <textarea name="cancellation_reason" class="textarea textarea-bordered" rows="3"></textarea>
+                        </label>
+                        <button type="submit" class="btn btn-primary w-full">Atualizar status</button>
+                    </form>
+                {% endif %}
+
+                {% if can_approve_or_reject %}
+                    <form method="post" action="{% url 'tickets:approve' ticket.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-success w-full">Aprovar solução</button>
+                    </form>
+
+                    <form method="post" action="{% url 'tickets:reject' ticket.pk %}" enctype="multipart/form-data" class="space-y-3" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes }}, maxSeconds: {{ max_recording_seconds }} })">
+                        {% csrf_token %}
+                        <label class="form-control">
+                            <span class="label-text">Motivo da recusa</span>
+                            <textarea name="reason" class="textarea textarea-bordered" rows="3" required></textarea>
+                        </label>
+                        <input type="file" name="attachments" multiple class="file-input file-input-bordered w-full" @change="onFilesSelected($event)">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button type="button" class="btn btn-outline btn-sm gap-2" @click="toggleRecording()">
+                                <span class="material-icons text-base" x-text="isRecording ? 'stop' : 'videocam'"></span>
+                                <span x-text="isRecording ? 'Parar gravação' : 'Gravar tela'"></span>
+                            </button>
+                            <span class="text-sm text-base-content/60" x-show="recordingLabel" x-text="recordingLabel"></span>
+                        </div>
+                        <input type="file" name="screen_recording" x-ref="screenInput" class="hidden" accept="video/webm,video/mp4">
+                        <button type="submit" class="btn btn-error w-full">Reprovar solução</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="{% static 'js/ticket_screen_recorder.js' %}"></script>
+<script src="{% static 'js/ticket_chat.js' %}"></script>
+{% endblock %}

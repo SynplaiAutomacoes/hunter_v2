@@ -1,0 +1,11 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Chamados (geral){% endblock %}
+{% block crud_subtitle %}Todos os chamados do sistema.{% endblock %}
+
+{% block crud_table_wrapper_id %}all-tickets-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'tickets:all_list' %}{% endblock %}
+
+{% block crud_table %}
+    {% include 'tickets/partials/all_table.html' %}
+{% endblock %}

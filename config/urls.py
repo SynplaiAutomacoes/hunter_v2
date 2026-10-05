@@ -47,6 +47,7 @@ urlpatterns = [
     path("messaging/", include("apps.messaging.urls")),
     path("terms/", include("apps.terms.urls")),
     path("notifications/", include(("apps.notifications.urls", "notifications"), namespace="notifications")),
+    path("tickets/", include(("apps.tickets.urls", "tickets"), namespace="tickets")),
     path("review/<str:token>/", PublicSatisfactionReviewView.as_view(), name="public_satisfaction_review"),
 ]
 

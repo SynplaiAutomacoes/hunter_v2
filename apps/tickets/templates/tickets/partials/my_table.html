@@ -1,0 +1,58 @@
+<form method="get" class="mb-4 flex flex-wrap items-end gap-3">
+    <label class="form-control w-full max-w-xs">
+        <span class="label-text">Buscar</span>
+        <input type="search" name="q" value="{{ request.GET.q }}" class="input input-bordered" placeholder="Título ou problema">
+    </label>
+    <label class="form-control w-full max-w-xs">
+        <span class="label-text">Status</span>
+        <select name="status" class="select select-bordered">
+            <option value="" {% if not current_status %}selected{% endif %}>Abertos (não finais)</option>
+            <option value="all" {% if current_status == 'all' %}selected{% endif %}>Todos</option>
+            {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if current_status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <button type="submit" class="btn btn-outline">Filtrar</button>
+</form>
+
+<div class="overflow-x-auto">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Título</th>
+                <th>Status</th>
+                <th>Oficina</th>
+                <th>Responsável</th>
+                <th>Criado em</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ticket in tickets %}
+                <tr class="hover">
+                    <td><a class="link link-primary" href="{% url 'tickets:ticket_detail' ticket.pk %}">{{ ticket.pk }}</a></td>
+                    <td><a class="link" href="{% url 'tickets:ticket_detail' ticket.pk %}">{{ ticket.title }}</a></td>
+                    <td><span class="badge {{ ticket.status_badge_class }}">{{ ticket.get_status_display }}</span></td>
+                    <td>{{ ticket.workshop.name }}</td>
+                    <td>{% if ticket.assignee %}{{ ticket.assignee.username }}{% else %}—{% endif %}</td>
+                    <td>{{ ticket.created_at|date:"d/m/Y H:i" }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="6" class="text-center text-base-content/60 py-8">Nenhum chamado encontrado.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if is_paginated %}
+    <div class="mt-4 flex justify-center gap-2">
+        {% if page_obj.has_previous %}
+            <a class="btn btn-sm" href="?page={{ page_obj.previous_page_number }}&status={{ current_status }}&q={{ request.GET.q }}">Anterior</a>
+        {% endif %}
+        <span class="btn btn-sm btn-ghost">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+            <a class="btn btn-sm" href="?page={{ page_obj.next_page_number }}&status={{ current_status }}&q={{ request.GET.q }}">Próxima</a>
+        {% endif %}
+    </div>
+{% endif %}
