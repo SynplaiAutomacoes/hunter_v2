@@ -181,6 +181,21 @@ class StockPaymentMethod(TimeStampedModel):
         return Money(self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount), "BRL")
 
 
+class SefazManifestationEvent(models.TextChoices):
+    CONFIRMATION = "210200", "Confirmação da Operação"
+    ACKNOWLEDGEMENT = "210210", "Ciência da Operação"
+    UNKNOWN = "210220", "Desconhecimento da Operação"
+    NOT_PERFORMED = "210240", "Operação não Realizada"
+
+
+class SefazManifestationStatus(models.TextChoices):
+    STARTED = "started", "Iniciado"
+    SENT = "sent", "Enviado"
+    APPROVED = "aprovado", "Aprovado"
+    REPROVED = "reprovado", "Reprovado"
+    FAILED = "failed", "Falhou"
+
+
 class SefazZipCache(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="sefaz_caches")
     key = models.CharField(max_length=44, verbose_name="Chave de Acesso")
@@ -190,6 +205,21 @@ class SefazZipCache(TimeStampedModel):
     issuer_cnpj = models.CharField(max_length=20, null=True, blank=True)
     total_value = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
     is_imported = models.BooleanField(default=False)
+    last_manifestation_event = models.CharField(
+        max_length=6,
+        choices=SefazManifestationEvent.choices,
+        blank=True,
+        default="",
+        verbose_name="Último evento de manifestação",
+    )
+    last_manifestation_status = models.CharField(
+        max_length=20,
+        choices=SefazManifestationStatus.choices,
+        blank=True,
+        default="",
+        verbose_name="Status da última manifestação",
+    )
+    last_manifested_at = models.DateTimeField(null=True, blank=True, verbose_name="Manifestado em")
 
     class Meta:
         verbose_name = "Cache do Sefaz (zip)"
@@ -199,6 +229,62 @@ class SefazZipCache(TimeStampedModel):
     @property
     def nf_number_display(self) -> str:
         return self.nf_number or _extract_nf_number_from_access_key(self.key)
+
+    @property
+    def last_manifestation_event_display(self) -> str:
+        if not self.last_manifestation_event:
+            return ""
+        return SefazManifestationEvent(self.last_manifestation_event).label
+
+
+class SefazManifestation(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="sefaz_manifestations")
+    access_key = models.CharField(max_length=44, verbose_name="Chave de Acesso", db_index=True)
+    sefaz_cache = models.ForeignKey(
+        SefazZipCache,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="manifestations",
+        verbose_name="Cache SEFAZ",
+    )
+    event_code = models.CharField(max_length=6, choices=SefazManifestationEvent.choices, verbose_name="Evento")
+    status = models.CharField(
+        max_length=20,
+        choices=SefazManifestationStatus.choices,
+        default=SefazManifestationStatus.STARTED,
+        db_index=True,
+        verbose_name="Status",
+    )
+    remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    justificativa = models.TextField(blank=True, default="", verbose_name="Justificativa")
+    request_payload = models.JSONField(blank=True, default=dict)
+    response_payload = models.JSONField(blank=True, default=dict)
+    xml_url = models.URLField(blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="Solicitante",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sefaz_manifestations",
+    )
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Manifestação do destinatário"
+        verbose_name_plural = "Manifestações do destinatário"
+        indexes = [
+            models.Index(fields=["workshop", "access_key", "event_code"]),
+            models.Index(fields=["workshop", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"MDe[{self.event_code}:{self.status}:{self.access_key}]"
+
+    @property
+    def event_label(self) -> str:
+        return SefazManifestationEvent(self.event_code).label
 
 
 class StockImport(TimeStampedModel):
