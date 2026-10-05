@@ -28,3 +28,66 @@ class NavbarUrlIntegrityTests(SimpleTestCase):
             collect(page)
 
         self.assertEqual(failures, [], msg="; ".join(failures))
+
+    def test_menu_groups_match_production_layout(self) -> None:
+        menus = {menu["label"]: menu for menu in NAVBAR_MENU_DEFINITIONS}
+
+        self.assertIn("items", menus["Agendamentos"])
+        self.assertEqual(
+            [item["label"] for item in menus["Agendamentos"]["items"]],
+            ["Criar Agendamento", "Mensagens WhatsApp", "Grupos de Mensagens", "Avaliações"],
+        )
+        self.assertEqual(
+            [item["label"] for item in menus["Estoque"]["items"]],
+            [
+                "Consulta no Estoque",
+                "Cadastro de Produto",
+                "Exportar Itens",
+                "Importar Itens",
+                "Aprovação",
+                "Reabastecimento",
+                "Relatório",
+                "Movimentações",
+                "Alertas",
+            ],
+        )
+        self.assertEqual(
+            [item["label"] for item in menus["Financeiro"]["items"]],
+            [
+                "Emitir nota",
+                "Central de Notas",
+                "Movimentação Financeira",
+                "Folha de Pagamento",
+                "Apuração de Comissões",
+                "Formas de Pagamento",
+                "Grupos Financeiros",
+                "Gerar DRE",
+                "Fluxo de Contas",
+            ],
+        )
+        self.assertEqual(
+            [item["label"] for item in menus["Cadastros"]["items"]],
+            [
+                "Cliente",
+                "Colaborador",
+                "Fornecedor",
+                "Serviço",
+                "Kit",
+                "Grupo",
+                "Checklist",
+                "Termos",
+                "Planos de Revisão",
+                "Perguntas Investigativas",
+            ],
+        )
+        self.assertEqual(
+            [item["label"] for item in menus["Gestão"]["items"]],
+            [
+                "Central de Relatórios",
+                "Gerenciar Oficinas",
+                "Gerenciar Permissões",
+                "Gerenciar Colaboradores",
+                "Custo Mensal da Oficina",
+                "Gerenciar Sistema",
+            ],
+        )
