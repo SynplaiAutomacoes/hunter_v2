@@ -4,7 +4,7 @@
 {% block crud_subtitle %}Chamados abertos por você.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'tickets:create' %}" class="btn btn-primary gap-2">
+    <a href="{% url 'tickets:create' %}" target="_blank" rel="noopener noreferrer" class="btn btn-primary gap-2">
         <span class="material-icons text-base">add</span>
         Abrir chamado
     </a>

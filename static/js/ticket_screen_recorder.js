@@ -5,6 +5,19 @@ document.addEventListener("alpine:init", () => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  function createMediaRecorder(stream) {
+    const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+    for (const mimeType of candidates) {
+      if (MediaRecorder.isTypeSupported && !MediaRecorder.isTypeSupported(mimeType)) continue;
+      try {
+        return new MediaRecorder(stream, { mimeType });
+      } catch (_err) {
+        // try next candidate
+      }
+    }
+    return new MediaRecorder(stream);
+  }
+
   Alpine.data("ticketAttachments", (options = {}) => {
     const maxBytes = Number(options.maxBytes || 300 * 1024 * 1024);
     const maxSeconds = Number(options.maxSeconds || 300);
@@ -138,21 +151,7 @@ document.addEventListener("alpine:init", () => {
         }
         const combined = new MediaStream(tracks);
         this.recordedChunks = [];
-        const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
-        let recorder = null;
-        for (const mimeType of candidates) {
-          if (MediaRecorder.isTypeSupported && !MediaRecorder.isTypeSupported(mimeType)) continue;
-          try {
-            recorder = new MediaRecorder(combined, { mimeType });
-            break;
-          } catch (_err) {
-            recorder = null;
-          }
-        }
-        if (!recorder) {
-          recorder = new MediaRecorder(combined);
-        }
-        this.mediaRecorder = recorder;
+        this.mediaRecorder = createMediaRecorder(combined);
         this.mediaRecorder.ondataavailable = (event) => {
           if (event.data && event.data.size > 0) {
             this.recordedChunks.push(event.data);

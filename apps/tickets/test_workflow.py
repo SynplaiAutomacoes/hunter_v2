@@ -13,6 +13,7 @@ from apps.collaborators.forms import WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
 from apps.iam.models import WorkshopRole
 from apps.notifications.models import NotificationRecipient
+from apps.tickets.application.services.attachments import attachment_viewer_kind
 from apps.tickets.application.services.chat import post_ticket_message
 from apps.tickets.application.services.workflow import TicketWorkflowError, TicketWorkflowService
 from apps.tickets.application.services.ws_auth import (
@@ -21,7 +22,7 @@ from apps.tickets.application.services.ws_auth import (
     token_can_access_ticket_chat,
     verify_ticket_chat_ws_token,
 )
-from apps.tickets.models import Ticket, TicketStatus
+from apps.tickets.models import Ticket, TicketAttachment, TicketAttachmentSource, TicketStatus
 from apps.tickets.permissions import can_access_all_tickets, can_view_ticket, is_developer
 from apps.workshops.models.workshops import Workshop
 
@@ -179,7 +180,112 @@ class TicketCreateViewTests(TicketSupportBaseTestCase):
         self.assertContains(response, "maxBytes: 314572800")
         self.assertNotContains(response, "maxBytes: 314.572.800")
         self.assertContains(response, "Prepare-se")
+        self.assertContains(response, "nova aba")
         self.assertContains(response, "videocam")
+
+
+class TicketAttachmentViewerTests(TicketSupportBaseTestCase):
+    def test_attachment_viewer_kind_detects_video_and_pdf(self) -> None:
+        self.assertEqual(attachment_viewer_kind(content_type="video/webm", original_name="gravacao.webm"), "video")
+        self.assertEqual(attachment_viewer_kind(content_type="application/octet-stream", original_name="clip.mp4"), "video")
+        self.assertEqual(attachment_viewer_kind(content_type="application/pdf", original_name="doc.pdf"), "pdf")
+        self.assertEqual(attachment_viewer_kind(content_type="text/plain", original_name="manual.PDF"), "pdf")
+        self.assertIsNone(attachment_viewer_kind(content_type="image/png", original_name="foto.png"))
+
+    def test_detail_renders_viewer_controls_for_previewable_attachments(self) -> None:
+        ticket = self._create_ticket()
+        TicketAttachment.objects.create(
+            ticket=ticket,
+            uploaded_by=self.owner,
+            file_key="tickets/1/1/video.webm",
+            content_type="video/webm",
+            original_name="gravacao.webm",
+            size_bytes=1024,
+            source=TicketAttachmentSource.SCREEN_RECORDING,
+        )
+        TicketAttachment.objects.create(
+            ticket=ticket,
+            uploaded_by=self.owner,
+            file_key="tickets/1/1/doc.pdf",
+            content_type="application/pdf",
+            original_name="evidencia.pdf",
+            size_bytes=2048,
+            source=TicketAttachmentSource.UPLOAD,
+        )
+
+        self._login_with_workshop(self.owner)
+        with patch(
+            "apps.tickets.presentation.views.ticket_views.attachment_download_url",
+            side_effect=lambda **kwargs: f"https://cdn.example/{kwargs['attachment'].original_name}",
+        ):
+            response = self.client.get(reverse("tickets:ticket_detail", kwargs={"pk": ticket.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Visualizar")
+        self.assertContains(response, "open-ticket-attachment-viewer")
+        self.assertContains(response, "ticket-attachment-viewer-modal")
+        self.assertContains(response, "kind: 'video'")
+        self.assertContains(response, "kind: 'pdf'")
+        self.assertContains(response, "Baixar")
+
+
+class TicketDetailActionsPanelTests(TicketSupportBaseTestCase):
+    def test_owner_does_not_see_dev_actions_column(self) -> None:
+        ticket = self._create_ticket()
+        self._login_with_workshop(self.owner)
+        response = self.client.get(reverse("tickets:ticket_detail", kwargs={"pk": ticket.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["show_dev_actions"])
+        self.assertFalse(response.context["is_developer"])
+        self.assertNotContains(response, "Somente desenvolvedores")
+        self.assertNotContains(response, "Capturar chamado")
+
+    def test_developer_sees_capture_actions_on_open_ticket(self) -> None:
+        ticket = self._create_ticket()
+        self._login_with_workshop(self.dev_user)
+        response = self.client.get(reverse("tickets:ticket_detail", kwargs={"pk": ticket.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["show_dev_actions"])
+        self.assertTrue(response.context["can_capture"])
+        self.assertContains(response, "Somente desenvolvedores")
+        self.assertContains(response, "Capturar chamado")
+        self.assertContains(response, "Assume a responsabilidade")
+
+    def test_assignee_sees_reassign_and_status_sections(self) -> None:
+        ticket = self._create_ticket()
+        TicketWorkflowService.capture(ticket=ticket, actor=self.dev_user)
+        self._login_with_workshop(self.dev_user)
+        response = self.client.get(reverse("tickets:ticket_detail", kwargs={"pk": ticket.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["show_dev_actions"])
+        self.assertTrue(response.context["can_reassign"])
+        self.assertTrue(response.context["can_change_status"])
+        self.assertContains(response, "Reatribuir")
+        self.assertContains(response, "Alterar status")
+        self.assertContains(response, "Novo responsável")
+        self.assertContains(response, "Novo status")
+
+    def test_owner_sees_validation_card_outside_dev_column(self) -> None:
+        ticket = self._create_ticket()
+        TicketWorkflowService.capture(ticket=ticket, actor=self.dev_user)
+        TicketWorkflowService.set_operational_status(
+            ticket=ticket,
+            actor=self.dev_user,
+            new_status=TicketStatus.AGUARDANDO_VALIDACAO,
+        )
+        self._login_with_workshop(self.owner)
+        response = self.client.get(reverse("tickets:ticket_detail", kwargs={"pk": ticket.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["show_dev_actions"])
+        self.assertTrue(response.context["can_approve_or_reject"])
+        self.assertContains(response, "Validar solução")
+        self.assertContains(response, "Aprovar solução")
+        self.assertContains(response, "Reprovar solução")
+        self.assertNotContains(response, "Somente desenvolvedores")
 
 
 class TicketPermissionTests(TicketSupportBaseTestCase):
@@ -273,6 +379,13 @@ class TicketNotificationTests(TicketSupportBaseTestCase):
                 notification__metadata__event="status_change",
             ).exists()
         )
+        self.assertFalse(
+            NotificationRecipient.objects.filter(
+                user=self.owner,
+                notification__metadata__event="status_change",
+                notification__message__icontains="Aberto",
+            ).exists()
+        )
 
         TicketWorkflowService.capture(ticket=ticket, actor=self.dev_user)
         self.assertTrue(
@@ -303,6 +416,74 @@ class TicketNotificationTests(TicketSupportBaseTestCase):
                 notification__metadata__event="chat_message",
             ).exists()
         )
+
+    def test_owner_who_is_developer_does_not_get_open_ticket_notification(self) -> None:
+        WorkshopCollaborator.objects.create(
+            workshop=self.workshop,
+            user=self.owner,
+            name="Owner Dev",
+            cpf="11144477735",
+            birth_date=date(1992, 1, 1),
+            sex=WorkshopCollaborator.Sex.MALE,
+            position="Dev",
+            salary=Decimal("1000.00"),
+            admission_date=date(2020, 1, 1),
+            collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+            system_access=True,
+            is_developer=True,
+        )
+        before = NotificationRecipient.objects.filter(user=self.owner).count()
+        ticket = self._create_ticket(created_by=self.owner)
+        self.assertEqual(ticket.status, TicketStatus.ABERTO)
+        self.assertFalse(
+            NotificationRecipient.objects.filter(
+                user=self.owner,
+                notification__metadata__ticket_id=ticket.pk,
+            ).exists()
+        )
+        self.assertEqual(NotificationRecipient.objects.filter(user=self.owner).count(), before)
+        self.assertTrue(
+            NotificationRecipient.objects.filter(
+                user=self.dev_user,
+                notification__metadata__ticket_id=ticket.pk,
+                notification__metadata__event="status_change",
+            ).exists()
+        )
+
+    def test_add_attachments_does_not_notify_anyone(self) -> None:
+        from apps.tickets.application.services.attachments import PreparedAttachment
+
+        ticket = self._create_ticket()
+        TicketWorkflowService.capture(ticket=ticket, actor=self.dev_user)
+        before = NotificationRecipient.objects.count()
+        TicketWorkflowService.add_attachments(
+            ticket=ticket,
+            actor=self.owner,
+            attachments=[
+                PreparedAttachment(
+                    content=b"arquivo",
+                    original_name="nota.txt",
+                    content_type="text/plain",
+                    size_bytes=7,
+                    source=TicketAttachmentSource.UPLOAD,
+                )
+            ],
+        )
+        self.assertEqual(NotificationRecipient.objects.count(), before)
+        TicketWorkflowService.add_attachments(
+            ticket=ticket,
+            actor=self.dev_user,
+            attachments=[
+                PreparedAttachment(
+                    content=b"devfile",
+                    original_name="fix.txt",
+                    content_type="text/plain",
+                    size_bytes=7,
+                    source=TicketAttachmentSource.UPLOAD,
+                )
+            ],
+        )
+        self.assertEqual(NotificationRecipient.objects.count(), before)
 
 
 class TicketWebSocketAuthTests(TicketSupportBaseTestCase):

@@ -16,7 +16,12 @@ from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.tickets.application.services.attachments import TicketAttachmentError, attachment_download_url, prepare_uploaded_file
+from apps.tickets.application.services.attachments import (
+    TicketAttachmentError,
+    attachment_download_url,
+    attachment_viewer_kind,
+    prepare_uploaded_file,
+)
 from apps.tickets.application.services.chat import TicketChatError, post_ticket_message
 from apps.tickets.application.services.ws_auth import issue_ticket_chat_ws_token
 from apps.tickets.application.services.workflow import TicketWorkflowError, TicketWorkflowService
@@ -229,6 +234,10 @@ class TicketDetailView(LoginRequiredMixin, DetailView):
         context["can_reassign"] = is_developer(user) and ticket.assignee_id is not None and not ticket.is_final
         context["can_change_status"] = can_act_as_assignee(user=user, ticket=ticket) and not ticket.is_final
         context["can_approve_or_reject"] = ticket.created_by_id == user.pk and ticket.status == TicketStatus.AGUARDANDO_VALIDACAO
+        context["show_dev_actions"] = bool(
+            is_developer(user)
+            and (context["can_capture"] or context["can_reassign"] or context["can_change_status"])
+        )
         context["can_add_attachments"] = (ticket.created_by_id == user.pk or is_developer(user)) and not ticket.is_final
         context["status_form"] = TicketStatusUpdateForm()
         context["reject_form"] = TicketRejectForm()
@@ -244,6 +253,10 @@ class TicketDetailView(LoginRequiredMixin, DetailView):
             {
                 "attachment": attachment,
                 "url": attachment_download_url(attachment=attachment),
+                "viewer_kind": attachment_viewer_kind(
+                    content_type=attachment.content_type,
+                    original_name=attachment.original_name,
+                ),
             }
             for attachment in ticket.attachments.all()
         ]

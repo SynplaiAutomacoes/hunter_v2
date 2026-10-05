@@ -26,8 +26,22 @@ def _ticket_url(ticket: Ticket) -> str:
     return reverse("tickets:ticket_detail", kwargs={"pk": ticket.pk})
 
 
-def _notify(*, title: str, message: str, sender: User | None, ticket: Ticket, users: list[User], event: str) -> None:
-    unique_users = {user.pk: user for user in users if user is not None and getattr(user, "pk", None)}.values()
+def _notify(
+    *,
+    title: str,
+    message: str,
+    sender: User | None,
+    ticket: Ticket,
+    users: list[User],
+    event: str,
+    exclude_user_ids: set[int] | None = None,
+) -> None:
+    excluded = exclude_user_ids or set()
+    unique_users = {
+        user.pk: user
+        for user in users
+        if user is not None and getattr(user, "pk", None) and int(user.pk) not in excluded
+    }.values()
     targets = [(ticket.workshop, user) for user in unique_users]
     if not targets:
         return
@@ -49,6 +63,13 @@ class TicketNotificationService:
     @staticmethod
     def notify_status_change(*, ticket: Ticket, actor: User | None, new_status: str) -> None:
         label = dict(TicketStatus.choices).get(new_status, new_status)
+        exclude_user_ids: set[int] = set()
+        if actor is not None and getattr(actor, "pk", None):
+            exclude_user_ids.add(int(actor.pk))
+        # Dono não recebe notificação de "chamado aberto" (mesmo se também for desenvolvedor).
+        if new_status == TicketStatus.ABERTO and ticket.created_by_id:
+            exclude_user_ids.add(int(ticket.created_by_id))
+
         if new_status in OWNER_STATUS_NOTIFICATIONS and ticket.created_by_id:
             _notify(
                 title=f"Chamado #{ticket.pk} atualizado",
@@ -57,6 +78,7 @@ class TicketNotificationService:
                 ticket=ticket,
                 users=[ticket.created_by],
                 event="status_change",
+                exclude_user_ids=exclude_user_ids,
             )
         if new_status in DEVELOPER_STATUS_NOTIFICATIONS:
             _notify(
@@ -66,6 +88,7 @@ class TicketNotificationService:
                 ticket=ticket,
                 users=_developer_users(),
                 event="status_change",
+                exclude_user_ids=exclude_user_ids,
             )
 
     @staticmethod
@@ -77,6 +100,7 @@ class TicketNotificationService:
             ticket=ticket,
             users=[ticket.created_by],
             event="capture",
+            exclude_user_ids={int(actor.pk)},
         )
 
     @staticmethod
@@ -88,6 +112,7 @@ class TicketNotificationService:
             ticket=ticket,
             users=[previous_assignee],
             event="reassignment",
+            exclude_user_ids={int(actor.pk)},
         )
 
     @staticmethod
@@ -112,4 +137,5 @@ class TicketNotificationService:
             ticket=ticket,
             users=recipients,
             event="chat_message",
+            exclude_user_ids={int(author.pk)},
         )

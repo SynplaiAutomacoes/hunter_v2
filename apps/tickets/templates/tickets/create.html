@@ -6,7 +6,15 @@
 {% block crud_back_url %}{% url 'tickets:my_list' %}{% endblock %}
 
 {% block crud_form %}
-<form method="post" enctype="multipart/form-data" class="space-y-6" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes|unlocalize }}, maxSeconds: {{ max_recording_seconds|unlocalize }} })">
+<form
+    method="post"
+    enctype="multipart/form-data"
+    class="space-y-6"
+    x-data="ticketAttachments({
+        maxBytes: {{ max_attachment_bytes|unlocalize }},
+        maxSeconds: {{ max_recording_seconds|unlocalize }}
+    })"
+>
     {% csrf_token %}
     {{ form|crispy }}
 
@@ -32,6 +40,9 @@
                 <p class="font-semibold text-base-content">Prepare-se</p>
                 <p class="text-sm text-base-content/70">A gravação começa em <span x-text="countdownSeconds">3</span> segundo(s).</p>
             </div>
+        </div>
+        <div class="rounded-box border border-info/30 bg-info/10 px-4 py-3 text-sm text-base-content/80">
+            <strong>Dica:</strong> os chamados abrem em uma nova aba. Mantenha esta página aberta enquanto grava e reproduza o problema em outra aba/janela do Hunter (compartilhe a tela inteira ou a outra janela).
         </div>
         <input type="file" name="screen_recording" x-ref="screenInput" class="hidden" accept="video/webm,video/mp4">
         <ul class="list-disc pl-5 text-sm" x-show="fileNames.length">

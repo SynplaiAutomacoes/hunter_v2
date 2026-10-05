@@ -103,3 +103,15 @@ def attachment_download_url(*, attachment: TicketAttachment, expires_in: int = 3
         return get_storage_service().generate_presigned_url(attachment.file_key, expires_in=expires_in)
     except (StorageConfigurationError, StorageServiceError):
         return None
+
+
+def attachment_viewer_kind(*, content_type: str = "", original_name: str = "") -> str | None:
+    """Return 'video', 'pdf', or None when the browser cannot preview the file inline."""
+    normalized_type = str(content_type or "").strip().lower()
+    normalized_name = str(original_name or "").strip().lower()
+
+    if normalized_type.startswith("video/") or normalized_name.endswith((".webm", ".mp4", ".mov", ".mkv", ".ogg", ".ogv", ".m4v")):
+        return "video"
+    if normalized_type in {"application/pdf", "application/x-pdf"} or normalized_name.endswith(".pdf"):
+        return "pdf"
+    return None
