@@ -90,6 +90,14 @@ SYNPLAISIGN_MASTER_KEY = os.getenv("SYNPLAISIGN_MASTER_KEY", "")
 SYNPLAISIGN_API_KEY = os.getenv("SYNPLAISIGN_API_KEY", "")
 SYNPLAISIGN_WEBHOOK_SECRET = os.getenv("SYNPLAISIGN_WEBHOOK_SECRET", "")
 
+# Stripe Billing
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_ID_BASIC = os.getenv("STRIPE_PRICE_ID_BASIC", "")
+STRIPE_PRICE_ID_FULL = os.getenv("STRIPE_PRICE_ID_FULL", "")
+STRIPE_PAST_DUE_GRACE_DAYS = int(os.getenv("STRIPE_PAST_DUE_GRACE_DAYS", "3"))
+
 # Legacy SuperSign settings kept for reference during cutover cleanup.
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
 SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
@@ -170,6 +178,7 @@ INSTALLED_APPS = [
     "apps.terms",
     "apps.notifications",
     "apps.tickets",
+    "apps.billing",
 ]
 
 MIDDLEWARE = [
@@ -190,6 +199,7 @@ MIDDLEWARE = [
     "django_htmx.middleware.HtmxMiddleware",
     # Local
     "apps.core.presentation.middlewares.RequestPerformanceLoggingMiddleware",
+    "apps.billing.presentation.middlewares.SubscriptionAccessMiddleware",
     "apps.core.presentation.middlewares.RequireFirstWorkshopMiddleware",
 ]
 

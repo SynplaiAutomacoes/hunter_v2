@@ -1,0 +1,64 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-base-content">Escolha seu plano</h1>
+    <p class="text-base-content/70 mt-1">Selecione o plano ideal para a sua oficina. O pagamento é processado com segurança pela Stripe.</p>
+</div>
+
+{% if subscription and subscription.is_active %}
+<div class="alert alert-info mb-6">
+    <span class="material-icons">info</span>
+    <div>
+        <p class="font-semibold">Plano atual: {{ subscription.get_plan_display }}</p>
+        <p class="text-sm">Status: {{ subscription.get_status_display }}</p>
+    </div>
+    {% if is_account_owner and subscription.stripe_customer_id %}
+    <form method="post" action="{% url 'billing:portal' %}" class="ml-auto">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline">Gerenciar cobrança</button>
+    </form>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl">
+    {% for plan in plans %}
+    <div class="card bg-base-100 shadow-xl border border-base-200 {% if subscription and subscription.plan == plan.key and subscription.is_active %}ring-2 ring-primary{% endif %}">
+        <div class="card-body">
+            <h2 class="card-title text-2xl">{{ plan.name }}</h2>
+            <p class="text-base-content/70">{{ plan.description }}</p>
+            <ul class="mt-4 space-y-2">
+                {% for feature in plan.features %}
+                <li class="flex items-start gap-2 text-sm">
+                    <span class="material-icons text-success text-base mt-0.5">check_circle</span>
+                    <span>{{ feature }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% if plan.price_label %}
+            <p class="mt-4 text-2xl font-bold">
+                {{ plan.price_label }}{% if plan.interval_label %}<span class="text-base font-medium text-base-content/60">{{ plan.interval_label }}</span>{% endif %}
+            </p>
+            {% endif %}
+            <div class="card-actions justify-end mt-6">
+                {% if not is_account_owner %}
+                <p class="text-sm text-base-content/60">Somente o dono da conta pode assinar ou alterar o plano.</p>
+                {% elif subscription and subscription.plan == plan.key and subscription.is_active %}
+                <button type="button" class="btn btn-disabled btn-sm">Plano atual</button>
+                {% else %}
+                <form method="post" action="{% url 'billing:checkout' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="plan" value="{{ plan.key }}">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        {% if subscription and subscription.is_active %}Trocar para este plano{% else %}Assinar{% endif %}
+                        <span class="material-icons text-sm">arrow_forward</span>
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
