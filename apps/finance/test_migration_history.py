@@ -110,6 +110,16 @@ class FinanceMigrationHistoryTests(SimpleTestCase):
             },
         )
 
+    def test_soft_delete_merge_and_ipi_icms_leaf_are_merged_at_tip(self) -> None:
+        deps = _finance_dependencies("0084_merge_staging_soft_delete_and_ipi_icms")
+        self.assertEqual(
+            set(deps),
+            {
+                "0080_merge_staging_and_purchase_return_soft_delete",
+                "0083_purchasereturnrequest_icms_situacao_tributaria",
+            },
+        )
+
 
 class IdempotentMigrationStateTests(SimpleTestCase):
     def test_duplicate_create_add_index_constraint_are_state_safe(self) -> None:
