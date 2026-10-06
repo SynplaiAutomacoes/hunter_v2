@@ -45,6 +45,10 @@ class PurchaseReturnRequest(TimeStampedModel):
     operation_nature = models.CharField(max_length=255, default="Devolução de mercadoria", verbose_name="Natureza da operação")
     cfop = models.CharField(max_length=8, blank=True, default="", verbose_name="CFOP")
     tax_class = models.CharField(max_length=120, blank=True, default="", verbose_name="Classe de imposto")
+    icms_situacao_tributaria = models.CharField(max_length=3, blank=True, default="", verbose_name="Situação tributária do ICMS (CST/CSOSN)")
+    ipi_situacao_tributaria = models.CharField(max_length=2, blank=True, default="", verbose_name="Situação tributária do IPI")
+    ipi_codigo_enquadramento = models.CharField(max_length=3, blank=True, default="", verbose_name="Código de enquadramento do IPI")
+    ipi_aliquota = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, verbose_name="Alíquota do IPI")
     additional_information = models.TextField(blank=True, default="", verbose_name="Informações complementares")
     fisco_information = models.TextField(blank=True, default="", verbose_name="Informações ao fisco")
     volume = models.PositiveBigIntegerField(null=True, blank=True, verbose_name="Quantidade de volumes")
@@ -75,7 +79,10 @@ class PurchaseReturnRequest(TimeStampedModel):
     FISCAL_CONFIGURATION_FIELDS: tuple[str, ...] = (
         "operation_nature",
         "cfop",
-        "tax_class",
+        "icms_situacao_tributaria",
+        "ipi_situacao_tributaria",
+        "ipi_codigo_enquadramento",
+        "ipi_aliquota",
         "additional_information",
         "fisco_information",
         "volume",
@@ -107,6 +114,15 @@ class PurchaseReturnRequest(TimeStampedModel):
     stock_status = models.CharField(max_length=24, choices=PurchaseReturnStockStatus.choices, default=PurchaseReturnStockStatus.WAITING_AUTHORIZATION, db_index=True, verbose_name="Status do estoque")
     stock_processed_at = models.DateTimeField(null=True, blank=True, verbose_name="Estoque atualizado em")
     stock_error = models.TextField(blank=True, default="", verbose_name="Erro de atualização do estoque")
+    soft_deleted_at = models.DateTimeField(verbose_name="Apagado em", null=True, blank=True, db_index=True)
+    soft_deleted_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="soft_deleted_purchase_return_requests",
+        verbose_name="Apagado por",
+    )
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Intenção de devolução de compra"
@@ -154,6 +170,11 @@ class PurchaseReturnRequest(TimeStampedModel):
             "text": str(PurchaseReturnRequestStatus(self.status).label),
             "class": status_color.get(self.status, "badge-ghost"),
         }
+
+    @property
+    def workorder_reference(self) -> str:
+        """Compatible label for shared soft-delete modal (purchase returns are standalone)."""
+        return "Avulsa"
 
     def __str__(self) -> str:
         return f"Devolução de compra {self.pk or '---'} - {self.source_stock_import.nf_number_display}"

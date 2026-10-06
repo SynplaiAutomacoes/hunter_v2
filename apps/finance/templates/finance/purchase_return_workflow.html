@@ -10,8 +10,26 @@
             <h1 class="mt-1 text-3xl font-bold text-base-content">Nota de Devolução</h1>
             <p class="mt-1 text-base-content/70">Localize a nota recebida, selecione os produtos e emita a Nota de Devolução.</p>
         </div>
-        {% if issued_documents_url %}
-            <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+        {% if issued_documents_url or can_soft_delete %}
+            <div class="flex flex-wrap items-center gap-2">
+                {% if can_soft_delete and soft_delete_url %}
+                    <button
+                        type="button"
+                        class="btn btn-ghost text-error"
+                        title="Apagar rascunho"
+                        aria-label="Apagar rascunho"
+                        hx-get="{{ soft_delete_url }}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML"
+                    >
+                        <span class="material-icons text-sm">delete</span>
+                        Apagar
+                    </button>
+                {% endif %}
+                {% if issued_documents_url %}
+                    <a href="{{ issued_documents_url }}" class="btn btn-ghost">Fechar</a>
+                {% endif %}
+            </div>
         {% endif %}
     </div>
 
@@ -231,6 +249,22 @@
                     </dl>
                     {% if return_request.status == 'canceled' and return_request.stock_status == 'processed' %}
                         <div class="alert alert-warning mt-4"><span class="material-icons">warning</span><span>A NF-e foi cancelada após a baixa. O estoque não é estornado automaticamente e exige conferência operacional.</span></div>
+                    {% endif %}
+                    {% if document_xml_url or document_danfe_url %}
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            {% if document_xml_url %}
+                                <a href="{% url 'finance:purchase_return_document_download' return_request.pk 'xml' %}" class="btn btn-outline btn-sm gap-2">
+                                    <span class="material-icons text-sm">code</span>
+                                    Baixar XML
+                                </a>
+                            {% endif %}
+                            {% if document_danfe_url %}
+                                <a href="{% url 'finance:purchase_return_document_download' return_request.pk 'danfe' %}" class="btn btn-outline btn-sm gap-2">
+                                    <span class="material-icons text-sm">picture_as_pdf</span>
+                                    Baixar DANFE
+                                </a>
+                            {% endif %}
+                        </div>
                     {% endif %}
                 {% endif %}
                 <div class="mt-6 flex flex-wrap justify-between gap-3 border-t border-base-200 pt-5">

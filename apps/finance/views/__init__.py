@@ -10,7 +10,7 @@ from .issued_documents_report import IssuedDocumentsReportExcelView, IssuedDocum
 from .commissions import CommissionReportExcelView, CommissionReportPdfView, CommissionReportView
 from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
-from .fiscal_request_soft_delete import NfeRequestSoftDeleteView, NfseRequestSoftDeleteView
+from .fiscal_request_soft_delete import NfeRequestSoftDeleteView, NfseRequestSoftDeleteView, PurchaseReturnSoftDeleteView
 from .payroll import (
     PayrollAddManualBenefitView,
     PayrollAddManualCommissionView,
@@ -25,6 +25,7 @@ from .payroll import (
 )
 from .purchase_return import (
     PurchaseReturnCreateView,
+    PurchaseReturnDocumentDownloadView,
     PurchaseReturnPreviewPdfView,
     PurchaseReturnPreviewView,
     PurchaseReturnReconcileView,
@@ -77,10 +78,12 @@ __all__ = [
     "PayrollListView",
     "PayrollSyncComponentView",
     "PurchaseReturnCreateView",
+    "PurchaseReturnDocumentDownloadView",
     "PurchaseReturnPreviewPdfView",
     "PurchaseReturnPreviewView",
     "PurchaseReturnReconcileView",
     "PurchaseReturnReissueView",
+    "PurchaseReturnSoftDeleteView",
     "PurchaseReturnTransmitView",
     "PurchaseReturnWorkflowView",
     "FinancialGroupUpdateView",
