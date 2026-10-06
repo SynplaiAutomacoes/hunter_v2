@@ -16,6 +16,7 @@
                     <div>
                         <label for="commission-search">Pesquisar</label>
                         <input id="commission-search" type="text" name="search" value="{{ request.GET.search|default:'' }}" placeholder="Colaborador, cliente, OS..." class="input input-bordered w-full" />
+                        <p class="mt-1 text-xs text-base-content/60">Para filtrar por colaboradores específicos utilize a opção no botão 'Filtro'.</p>
                     </div>
 
                     <div class="{% if has_modal_date_filter %}opacity-50{% endif %}">
@@ -62,7 +63,7 @@
                                 <input id="commission-end-date" type="date" name="data_final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
                             </div>
                             <div>
-                                <label for="commission-collaborator">Colaborador</label>
+                                <label for="commission-collaborator">Colaborador Específico</label>
                                 <select id="commission-collaborator" name="collaborator" class="select select-bordered w-full">
                                     <option value="">Todos</option>
                                     {% for collaborator in collaborator_filters %}
