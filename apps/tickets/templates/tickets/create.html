@@ -1,0 +1,61 @@
+{% extends 'crud/form_page.html' %}
+{% load crispy_forms_tags l10n static %}
+
+{% block crud_title %}Abrir chamado{% endblock %}
+{% block crud_subtitle %}Descreva o problema para a equipe de desenvolvimento.{% endblock %}
+{% block crud_back_url %}{% url 'tickets:my_list' %}{% endblock %}
+
+{% block crud_form %}
+<form
+    method="post"
+    enctype="multipart/form-data"
+    class="space-y-6"
+    x-data="ticketAttachments({
+        maxBytes: {{ max_attachment_bytes|unlocalize }},
+        maxSeconds: {{ max_recording_seconds|unlocalize }}
+    })"
+>
+    {% csrf_token %}
+    {{ form|crispy }}
+
+    <div class="space-y-3">
+        <h3 class="font-semibold text-lg">Anexos</h3>
+        <input type="file" name="attachments" multiple class="file-input file-input-bordered w-full" @change="onFilesSelected($event)">
+        <div class="flex flex-wrap items-center gap-3">
+            <button type="button" class="btn btn-outline gap-2" @click="toggleRecording()" :disabled="recordingBusy" :class="isRecording ? 'btn-error' : ''">
+                <span class="material-icons text-base" x-text="buttonIcon" aria-hidden="true">videocam</span>
+                <span x-text="buttonLabel">Gravar tela</span>
+            </button>
+            <span class="text-sm text-base-content/60" x-show="recordingLabel" x-text="recordingLabel"></span>
+        </div>
+        <div
+            x-show="isCountingDown"
+            x-cloak
+            class="flex items-center gap-4 rounded-box border border-warning/40 bg-warning/10 px-4 py-3"
+            role="status"
+            aria-live="polite"
+        >
+            <span class="flex h-14 w-14 items-center justify-center rounded-full bg-warning text-3xl font-bold text-warning-content" x-text="countdownSeconds">3</span>
+            <div>
+                <p class="font-semibold text-base-content">Prepare-se</p>
+                <p class="text-sm text-base-content/70">A gravação começa em <span x-text="countdownSeconds">3</span> segundo(s).</p>
+            </div>
+        </div>
+        <div class="rounded-box border border-info/30 bg-info/10 px-4 py-3 text-sm text-base-content/80">
+            <strong>Dica:</strong> os chamados abrem em uma nova aba. Mantenha esta página aberta enquanto grava e reproduza o problema em outra aba/janela do Hunter (compartilhe a tela inteira ou a outra janela).
+        </div>
+        <input type="file" name="screen_recording" x-ref="screenInput" class="hidden" accept="video/webm,video/mp4">
+        <ul class="list-disc pl-5 text-sm" x-show="fileNames.length">
+            <template x-for="name in fileNames" :key="name">
+                <li x-text="name"></li>
+            </template>
+        </ul>
+        <p class="text-xs text-base-content/50">Limite: 300 MB por arquivo. Gravação de tela: até 5 minutos (tela + áudio). Após autorizar a tela, há 3 segundos de preparação.</p>
+    </div>
+
+    <div class="flex justify-end gap-2">
+        <a href="{% url 'tickets:my_list' %}" class="btn-form-cancel">Cancelar</a>
+        <button type="submit" class="btn-form-save">Abrir chamado</button>
+    </div>
+</form>
+{% endblock %}

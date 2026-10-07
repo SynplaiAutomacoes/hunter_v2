@@ -13,22 +13,19 @@ def navbar(request: HttpRequest) -> dict[str, object]:
 
     navbar_menus = get_navbar_menus(request)
 
+    payload = {
+        "navbar_menus": navbar_menus,
+        "navbar_favorites": [],
+        "navbar_favorite_urls": set(),
+        "unread_count": 0,
+        "can_access_tickets_general": False,
+    }
     if not request.user.is_authenticated:
-        payload = {
-            "navbar_menus": navbar_menus,
-            "navbar_favorites": [],
-            "navbar_favorite_urls": set(),
-        }
         setattr(request, "_navbar_context_payload", payload)
         return payload
 
-    # HTMX partials do not render the navbar; skip the favorites query.
+    # HTMX partials do not render the navbar; skip the favorites & unread count queries.
     if getattr(request, "htmx", False):
-        payload = {
-            "navbar_menus": navbar_menus,
-            "navbar_favorites": [],
-            "navbar_favorite_urls": set(),
-        }
         setattr(request, "_navbar_context_payload", payload)
         return payload
 
@@ -45,10 +42,30 @@ def navbar(request: HttpRequest) -> dict[str, object]:
         if favorite.url in visible_pages
     ]
 
+    unread_count = 0
+    try:
+        from apps.notifications.domain.services.notification_service import NotificationService
+        from apps.workshops.util.workshops import get_active_workshop_or_404
+
+        workshop = get_active_workshop_or_404(request)
+        unread_count = NotificationService.get_unread_count(user=request.user, workshop=workshop)
+    except Exception:
+        unread_count = 0
+
+    can_access_tickets_general = False
+    try:
+        from apps.tickets.permissions import can_access_all_tickets
+
+        can_access_tickets_general = can_access_all_tickets(request.user)
+    except Exception:
+        can_access_tickets_general = False
+
     payload = {
         "navbar_menus": navbar_menus,
         "navbar_favorites": visible_favorites,
         "navbar_favorite_urls": favorite_urls,
+        "unread_count": unread_count,
+        "can_access_tickets_general": can_access_tickets_general,
     }
     setattr(request, "_navbar_context_payload", payload)
     return payload

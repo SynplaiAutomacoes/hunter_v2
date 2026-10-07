@@ -98,6 +98,7 @@ class TableAction:
     aria_label: str = ""
     confirm: str | None = None
     hx_get: str | None = None
+    hx_post: str | None = None
     hx_target: str | None = None
     hx_swap: str | None = None
     hx_select: str | None = None
@@ -715,8 +716,12 @@ def _render_rows(
                 if action.preserve_current_url_as_next:
                     href = _append_query_param(href, param_name="next", value=request.get_full_path())
 
+                hx_post = action.hx_post
+                if hx_post is True or hx_post == "":
+                    hx_post = href
+
                 hx_get = action.hx_get
-                if hx_get in (None, "") and action.hx_target:
+                if hx_post in (None, "") and hx_get in (None, "") and action.hx_target:
                     hx_get = href
 
                 row_actions.append(
@@ -728,6 +733,7 @@ def _render_rows(
                         "aria_label": action.aria_label or action.label,
                         "confirm": action.confirm,
                         "hx_get": hx_get,
+                        "hx_post": hx_post,
                         "hx_target": action.hx_target,
                         "hx_swap": action.hx_swap,
                         "hx_select": action.hx_select,

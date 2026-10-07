@@ -5,11 +5,12 @@ from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db.models import Q
 from django.forms import BaseInlineFormSet, ModelMultipleChoiceField, inlineformset_factory
 from django.urls import reverse
 
 from decimal import Decimal
+
+from django.conf import settings
 
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionRule, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import get_default_transport_budget_plan
@@ -72,6 +73,7 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             "commission_percentage",
             "is_active",
             "system_access",
+            "is_developer",
         ]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Nome do colaborador"}),
@@ -94,16 +96,21 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             "commission_percentage": PercentageInput(),
             "is_active": CheckboxInput(),
             "system_access": CheckboxInput(),
+            "is_developer": CheckboxInput(),
         }
 
-    def __init__(self, *args, account=None, workshop: Workshop | None = None, owner_workshops=None, is_director=False, **kwargs):
+    def __init__(self, *args, account=None, workshop: Workshop | None = None, owner_workshops=None, is_director=False, request_user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.account = account
         self.workshop = workshop
         self.owner_workshops = owner_workshops
         self.is_director = is_director
+        self.request_user = request_user
         # Multiselect de oficinas: só para DIRETOR (não-diretor nem vê o campo).
         self.show_workshops = bool(is_director and owner_workshops is not None)
+        self.can_edit_developer_flag = bool(request_user is not None and getattr(request_user, "username", None) in getattr(settings, "SYSTEM_ADMIN_USERNAMES", []))
+        if not self.can_edit_developer_flag:
+            self.fields.pop("is_developer", None)
 
         self.fields["system_username"].widget = TextInput(attrs={"placeholder": "usuario"})
         self.fields["salary_repeat_count"].help_text = "Informe o total de meses, incluindo o primeiro lançamento."
@@ -125,9 +132,7 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
         transport_budget_plan_field = self.fields["transport_budget_plan"]
         transport_budget_plan_field.required = False
         transport_budget_plan_field.queryset = budget_plan_queryset
-        transport_budget_plan_field.widget = SearchableSelectInput(
-            choices=[("", "Selecione um plano"), *[(str(group.pk), str(group)) for group in budget_plan_queryset]]
-        )
+        transport_budget_plan_field.widget = SearchableSelectInput(choices=[("", "Selecione um plano"), *[(str(group.pk), str(group)) for group in budget_plan_queryset]])
         if not self.is_bound and not getattr(self.instance, "transport_budget_plan_id", None) and default_transport_plan is not None:
             transport_budget_plan_field.initial = default_transport_plan
 
@@ -143,10 +148,14 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
                 # União dos members ativos de TODOS os vínculos do mesmo CPF nas
                 # oficinas do dono (o vínculo editado pode ser um espelho sem
                 # `user`, enquanto o acesso vive no vínculo-irmão).
-                sibling_user_ids = WorkshopCollaborator.objects.filter(
-                    cpf=self.instance.cpf,
-                    workshop__in=owner_workshops,
-                ).exclude(user_id__isnull=True).values_list("user_id", flat=True)
+                sibling_user_ids = (
+                    WorkshopCollaborator.objects.filter(
+                        cpf=self.instance.cpf,
+                        workshop__in=owner_workshops,
+                    )
+                    .exclude(user_id__isnull=True)
+                    .values_list("user_id", flat=True)
+                )
                 initial_workshops = WorkshopMember.objects.filter(
                     user_id__in=sibling_user_ids,
                     workshop__in=owner_workshops,
@@ -210,6 +219,14 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
         if self.show_workshops:
             access_fields.insert(2, Field("workshops", wrapper_class="col-span-12"))
 
+        checkbox_fields = [
+            Field("is_active", wrapper_class="flex items-center gap-2 whitespace-nowrap"),
+            Field("receives_commission", wrapper_class="flex items-center gap-2 whitespace-nowrap", x_model="receives_commission"),
+            Field("system_access", wrapper_class="flex items-center gap-2 whitespace-nowrap", x_model="system_access"),
+        ]
+        if "is_developer" in self.fields:
+            checkbox_fields.append(Field("is_developer", wrapper_class="flex items-center gap-2 whitespace-nowrap"))
+
         return Layout(
             Div(
                 Field("name", wrapper_class="col-span-12 lg:col-span-4"),
@@ -229,10 +246,8 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
                 Field("termination_date", wrapper_class="col-span-12 lg:col-span-4"),
                 #
                 Div(
-                    Field("is_active", wrapper_class="flex items-center gap-2 whitespace-nowrap"),
-                    Field("receives_commission", wrapper_class="flex items-center gap-2 whitespace-nowrap", x_model="receives_commission"),
-                    Field("system_access", wrapper_class="flex items-center gap-2 whitespace-nowrap", x_model="system_access"),
-                    css_class="col-span-12 flex flex-row items-center justify-start gap-8 py-3 px-2 border-y border-gray-100 mb-2",
+                    *checkbox_fields,
+                    css_class="col-span-12 flex flex-row flex-wrap items-center justify-start gap-8 py-3 px-2 border-y border-gray-100 mb-2",
                 ),
                 #
                 Div(
@@ -369,6 +384,12 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
 
         if cleaned.get("transport_budget_plan") is None and self.workshop is not None:
             cleaned["transport_budget_plan"] = get_default_transport_budget_plan(workshop=self.workshop)
+
+        if "is_developer" not in self.fields:
+            cleaned["is_developer"] = bool(getattr(self.instance, "is_developer", False))
+        elif not self.can_edit_developer_flag:
+            cleaned["is_developer"] = bool(getattr(self.instance, "is_developer", False))
+            self.add_error("is_developer", "Apenas administradores do sistema podem alterar esta flag.")
 
         return cleaned
 
@@ -589,9 +610,7 @@ class CollaboratorCommissionScopeForm(CoreModelForm):
         # apply_scope como SearchableSelect
         apply_scope_field = self.fields.get("apply_scope")
         if apply_scope_field is not None:
-            apply_scope_field.widget = SearchableSelectInput(
-                choices=[("", "Selecione"), *list(CollaboratorCommissionRule.ApplyScope.choices)]
-            )
+            apply_scope_field.widget = SearchableSelectInput(choices=[("", "Selecione"), *list(CollaboratorCommissionRule.ApplyScope.choices)])
             apply_scope_field.required = False
         # percentage / fixed_amount opcionais — validação no clean
         if "percentage" in self.fields:

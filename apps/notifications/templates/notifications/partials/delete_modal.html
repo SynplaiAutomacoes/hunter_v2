@@ -1,0 +1,31 @@
+<input type="checkbox" id="{{ modal_id|default:'delete-modal' }}" class="modal-toggle" checked />
+
+<div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-box">
+        <h3 class="text-lg font-bold text-base-content">{{ delete_title|default:'Excluir Notificação' }}</h3>
+        <p class="text-base-content/70 mt-1">{{ delete_subtitle|default:'Esta ação removerá a notificação da sua lista.' }}</p>
+
+        <div class="alert alert-warning mt-4">
+            <span class="material-icons">warning</span>
+            <div>
+                <div class="font-semibold">{{ delete_warning_title|default:'Confirmar exclusão' }}</div>
+                <div class="text-sm">
+                    {{ delete_warning_text|default:'Tem certeza que deseja excluir' }} <span class="font-medium">"{{ object }}"</span>?
+                </div>
+            </div>
+        </div>
+
+        <form
+            method="post"
+            class="modal-action"
+            hx-post="{{ hx_post|default:request.path }}"
+            hx-target="{{ hx_target|default:'#modal-container' }}"
+            hx-swap="{{ hx_swap|default:'innerHTML' }}"
+        >
+            {% csrf_token %}
+            <label for="{{ modal_id|default:'delete-modal' }}" class="btn btn-ghost">Cancelar</label>
+            <button type="submit" class="btn btn-error">Excluir</button>
+        </form>
+    </div>
+    <label class="modal-backdrop" for="{{ modal_id|default:'delete-modal' }}">Fechar</label>
+</div>

@@ -1,0 +1,382 @@
+{% extends 'crud/page.html' %}
+{% load crispy_forms_tags l10n static %}
+
+{% block crud_content %}
+<div class="flex items-start justify-between gap-4 mb-6">
+    <div>
+        <a href="{% url 'tickets:my_list' %}" class="link link-hover text-sm">← Voltar</a>
+        <h1 class="text-3xl font-bold mt-2">#{{ ticket.pk }} — {{ ticket.title }}</h1>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+            <span class="badge {{ ticket.status_badge_class }}">{{ ticket.get_status_display }}</span>
+            <span class="text-sm text-base-content/60">Oficina: {{ ticket.workshop.name }}</span>
+            <span class="text-sm text-base-content/60">Aberto por: {{ ticket.created_by.username }}</span>
+            <span class="text-sm text-base-content/60">Responsável: {% if ticket.assignee %}{{ ticket.assignee.username }}{% else %}—{% endif %}</span>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 gap-6 {% if show_dev_actions %}xl:grid-cols-3{% endif %}">
+    <div class="space-y-6 {% if show_dev_actions %}xl:col-span-2{% endif %}">
+        {% if can_approve_or_reject %}
+            <div class="card border border-info/30 bg-base-100 shadow-sm">
+                <div class="card-body gap-5 p-5 sm:p-6">
+                    <div class="flex items-start gap-3">
+                        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-info/15 text-info">
+                            <span class="material-icons text-xl" aria-hidden="true">fact_check</span>
+                        </span>
+                        <div class="min-w-0">
+                            <h2 class="text-lg font-semibold leading-tight">Validar solução</h2>
+                            <p class="mt-1 text-sm text-base-content/60">O responsável enviou o chamado para a sua validação. Aprove para fechar ou reprove com o motivo.</p>
+                        </div>
+                    </div>
+
+                    <form method="post" action="{% url 'tickets:approve' ticket.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-success gap-2">
+                            <span class="material-icons text-base" aria-hidden="true">check_circle</span>
+                            Aprovar solução
+                        </button>
+                    </form>
+
+                    <div class="divider my-0 text-xs uppercase tracking-wide text-base-content/40">ou</div>
+
+                    <form method="post" action="{% url 'tickets:reject' ticket.pk %}" enctype="multipart/form-data" class="space-y-3" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes|unlocalize }}, maxSeconds: {{ max_recording_seconds|unlocalize }} })">
+                        {% csrf_token %}
+                        <label class="form-control w-full">
+                            <span class="label px-0 py-1">
+                                <span class="label-text font-medium">Motivo da recusa</span>
+                            </span>
+                            <textarea name="reason" class="textarea textarea-bordered w-full" rows="3" required placeholder="Descreva o que ainda não foi resolvido..."></textarea>
+                        </label>
+                        <input type="file" name="attachments" multiple class="file-input file-input-bordered w-full" @change="onFilesSelected($event)">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button type="button" class="btn btn-outline btn-sm gap-2" @click="toggleRecording()" :disabled="recordingBusy" :class="isRecording ? 'btn-error' : ''">
+                                <span class="material-icons text-base" x-text="buttonIcon" aria-hidden="true">videocam</span>
+                                <span x-text="buttonLabel">Gravar tela</span>
+                            </button>
+                            <span class="text-sm text-base-content/60" x-show="recordingLabel" x-text="recordingLabel"></span>
+                        </div>
+                        <div
+                            x-show="isCountingDown"
+                            x-cloak
+                            class="flex items-center gap-3 rounded-box border border-warning/40 bg-warning/10 px-3 py-2"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <span class="flex h-10 w-10 items-center justify-center rounded-full bg-warning text-xl font-bold text-warning-content" x-text="countdownSeconds">3</span>
+                            <p class="text-sm">Prepare-se — gravação em <span x-text="countdownSeconds">3</span>s</p>
+                        </div>
+                        <input type="file" name="screen_recording" x-ref="screenInput" class="hidden" accept="video/webm,video/mp4">
+                        <button type="submit" class="btn btn-error gap-2">
+                            <span class="material-icons text-base" aria-hidden="true">cancel</span>
+                            Reprovar solução
+                        </button>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="card bg-base-100 shadow">
+            <div class="card-body space-y-4">
+                <div>
+                    <h2 class="font-semibold">Qual o problema</h2>
+                    <p class="whitespace-pre-wrap">{{ ticket.problem }}</p>
+                </div>
+                <div>
+                    <h2 class="font-semibold">Como repetir</h2>
+                    <p class="whitespace-pre-wrap">{{ ticket.reproduction_steps }}</p>
+                </div>
+                {% if ticket.cancellation_reason %}
+                    <div class="alert alert-warning">
+                        <div>
+                            <p class="font-semibold">Motivo do cancelamento</p>
+                            <p class="whitespace-pre-wrap">{{ ticket.cancellation_reason }}</p>
+                        </div>
+                    </div>
+                {% endif %}
+                {% if ticket.rejection_reason %}
+                    <div class="alert alert-error">
+                        <div>
+                            <p class="font-semibold">Motivo da recusa</p>
+                            <p class="whitespace-pre-wrap">{{ ticket.rejection_reason }}</p>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow">
+            <div class="card-body space-y-4" x-data="ticketAttachments({ maxBytes: {{ max_attachment_bytes|unlocalize }}, maxSeconds: {{ max_recording_seconds|unlocalize }} })">
+                <h2 class="font-semibold text-lg">Anexos</h2>
+                <ul class="space-y-2">
+                    {% for item in attachments_with_urls %}
+                        <li class="flex items-center justify-between gap-2 border-b border-base-200 pb-2">
+                            <div class="min-w-0">
+                                <p class="font-medium truncate">{{ item.attachment.original_name }}</p>
+                                <p class="text-xs text-base-content/60">{{ item.attachment.get_source_display }} · {{ item.attachment.created_at|date:"d/m/Y H:i" }}</p>
+                            </div>
+                            {% if item.url %}
+                                <div class="flex shrink-0 items-center gap-1">
+                                    {% if item.viewer_kind %}
+                                        <button
+                                            type="button"
+                                            class="btn btn-ghost btn-sm gap-1"
+                                            @click="window.dispatchEvent(new CustomEvent('open-ticket-attachment-viewer', { detail: { kind: '{{ item.viewer_kind|escapejs }}', url: '{{ item.url|escapejs }}', title: '{{ item.attachment.original_name|escapejs }}', downloadUrl: '{{ item.url|escapejs }}' } }))"
+                                        >
+                                            <span class="material-icons text-base" aria-hidden="true">visibility</span>
+                                            Visualizar
+                                        </button>
+                                    {% endif %}
+                                    <a href="{{ item.url }}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm gap-1">
+                                        <span class="material-icons text-base" aria-hidden="true">download</span>
+                                        Baixar
+                                    </a>
+                                </div>
+                            {% endif %}
+                        </li>
+                    {% empty %}
+                        <li class="text-base-content/60">Nenhum anexo.</li>
+                    {% endfor %}
+                </ul>
+
+                {% if can_add_attachments %}
+                    <form method="post" action="{% url 'tickets:attachments_upload' ticket.pk %}" enctype="multipart/form-data" class="space-y-3">
+                        {% csrf_token %}
+                        <input type="file" name="attachments" multiple class="file-input file-input-bordered w-full" @change="onFilesSelected($event)">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button type="button" class="btn btn-outline btn-sm gap-2" @click="toggleRecording()" :disabled="recordingBusy" :class="isRecording ? 'btn-error' : ''">
+                                <span class="material-icons text-base" x-text="buttonIcon" aria-hidden="true">videocam</span>
+                                <span x-text="buttonLabel">Gravar tela</span>
+                            </button>
+                            <span class="text-sm text-base-content/60" x-show="recordingLabel" x-text="recordingLabel"></span>
+                        </div>
+                        <div
+                            x-show="isCountingDown"
+                            x-cloak
+                            class="flex items-center gap-3 rounded-box border border-warning/40 bg-warning/10 px-3 py-2"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <span class="flex h-10 w-10 items-center justify-center rounded-full bg-warning text-xl font-bold text-warning-content" x-text="countdownSeconds">3</span>
+                            <p class="text-sm">Prepare-se — gravação em <span x-text="countdownSeconds">3</span>s</p>
+                        </div>
+                        <input type="file" name="screen_recording" x-ref="screenInput" class="hidden" accept="video/webm,video/mp4">
+                        <button type="submit" class="btn btn-primary btn-sm">Enviar anexos</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow">
+            <div class="card-body space-y-4"
+                 x-data="ticketChat({
+                    ticketId: {{ ticket.pk }},
+                    token: '{{ chat_ws_token|escapejs }}',
+                    baseUrl: '{{ chat_ws_base_url|escapejs }}',
+                    currentUserId: {{ request.user.pk }}
+                 })">
+                <h2 class="font-semibold text-lg">Chat</h2>
+                <div id="ticket-chat-messages" class="max-h-96 overflow-y-auto space-y-3 border border-base-200 rounded-lg p-3" x-ref="messages">
+                    {% include 'tickets/partials/chat_messages.html' with messages=ticket.messages.all %}
+                </div>
+                <form method="post" action="{% url 'tickets:message_create' ticket.pk %}" class="flex gap-2 items-start" @submit="onSubmit($event)">
+                    {% csrf_token %}
+                    <textarea name="body" rows="2" class="textarea textarea-bordered w-full" placeholder="Escreva uma mensagem..." x-model="draft" required></textarea>
+                    <button type="submit" class="btn btn-primary">Enviar</button>
+                </form>
+                <p class="text-xs text-base-content/50" x-text="connectionLabel"></p>
+            </div>
+        </div>
+    </div>
+
+    {% if show_dev_actions %}
+        <aside class="xl:sticky xl:top-4 xl:self-start">
+            <div class="overflow-hidden rounded-2xl border border-base-300/70 bg-base-100 shadow-sm">
+                <div class="border-b border-base-300/70 bg-base-200/40 px-5 py-4">
+                    <div class="flex items-center gap-3">
+                        <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                            <span class="material-icons text-lg" aria-hidden="true">handyman</span>
+                        </span>
+                        <div class="min-w-0">
+                            <h2 class="text-base font-semibold leading-tight">Ações</h2>
+                            <p class="mt-0.5 text-xs text-base-content/55">Somente desenvolvedores</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divide-y divide-base-300/60">
+                    {% if can_capture %}
+                        <section class="space-y-3 px-5 py-5">
+                            <div class="flex items-start gap-2.5">
+                                <span class="material-icons mt-0.5 text-lg text-warning" aria-hidden="true">ads_click</span>
+                                <div>
+                                    <h3 class="text-sm font-semibold">Capturar chamado</h3>
+                                    <p class="mt-0.5 text-xs leading-relaxed text-base-content/55">Assume a responsabilidade e move o status para em andamento.</p>
+                                </div>
+                            </div>
+                            <form method="post" action="{% url 'tickets:capture' ticket.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-warning w-full gap-2">
+                                    <span class="material-icons text-base" aria-hidden="true">ads_click</span>
+                                    Capturar chamado
+                                </button>
+                            </form>
+                        </section>
+                    {% endif %}
+
+                    {% if can_reassign %}
+                        <section class="space-y-3 px-5 py-5">
+                            <div class="flex items-start gap-2.5">
+                                <span class="material-icons mt-0.5 text-lg text-base-content/70" aria-hidden="true">swap_horiz</span>
+                                <div>
+                                    <h3 class="text-sm font-semibold">Reatribuir</h3>
+                                    <p class="mt-0.5 text-xs leading-relaxed text-base-content/55">Transfere o chamado para outro desenvolvedor sem alterar o status.</p>
+                                </div>
+                            </div>
+                            <form method="post" action="{% url 'tickets:reassign' ticket.pk %}" class="space-y-3">
+                                {% csrf_token %}
+                                <label class="form-control w-full">
+                                    <span class="label px-0 py-1">
+                                        <span class="label-text text-xs font-medium text-base-content/70">Novo responsável</span>
+                                    </span>
+                                    <select name="assignee_id" class="select select-bordered w-full" required>
+                                        <option value="">Selecione um desenvolvedor</option>
+                                        {% for developer in developer_users %}
+                                            <option value="{{ developer.pk }}">{{ developer.username }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+                                <button type="submit" class="btn btn-outline w-full gap-2">
+                                    <span class="material-icons text-base" aria-hidden="true">swap_horiz</span>
+                                    Reatribuir
+                                </button>
+                            </form>
+                        </section>
+                    {% endif %}
+
+                    {% if can_change_status %}
+                        <section class="space-y-3 px-5 py-5">
+                            <div class="flex items-start gap-2.5">
+                                <span class="material-icons mt-0.5 text-lg text-primary" aria-hidden="true">sync_alt</span>
+                                <div>
+                                    <h3 class="text-sm font-semibold">Alterar status</h3>
+                                    <p class="mt-0.5 text-xs leading-relaxed text-base-content/55">Atualize o andamento do chamado enquanto for o responsável.</p>
+                                </div>
+                            </div>
+                            <form method="post" action="{% url 'tickets:status_update' ticket.pk %}" class="space-y-3" x-data="{ status: '' }">
+                                {% csrf_token %}
+                                <label class="form-control w-full">
+                                    <span class="label px-0 py-1">
+                                        <span class="label-text text-xs font-medium text-base-content/70">Novo status</span>
+                                    </span>
+                                    <select name="status" class="select select-bordered w-full" x-model="status" required>
+                                        <option value="">Selecione o status</option>
+                                        <option value="em_andamento">Em andamento</option>
+                                        <option value="validacao_interna">Validação interna</option>
+                                        <option value="aguardando_validacao">Aguardando validação</option>
+                                        <option value="reprovado">Reprovado</option>
+                                        <option value="cancelado">Cancelado</option>
+                                    </select>
+                                </label>
+                                <label class="form-control w-full" x-show="status === 'cancelado'" x-cloak>
+                                    <span class="label px-0 py-1">
+                                        <span class="label-text text-xs font-medium text-base-content/70">Motivo do cancelamento</span>
+                                    </span>
+                                    <textarea name="cancellation_reason" class="textarea textarea-bordered w-full" rows="3" placeholder="Informe o motivo..."></textarea>
+                                </label>
+                                <button type="submit" class="btn btn-primary w-full gap-2">
+                                    <span class="material-icons text-base" aria-hidden="true">sync_alt</span>
+                                    Atualizar status
+                                </button>
+                            </form>
+                        </section>
+                    {% endif %}
+                </div>
+            </div>
+        </aside>
+    {% endif %}
+</div>
+
+<dialog
+    id="ticket-attachment-viewer-modal"
+    class="modal"
+    x-data="{
+        kind: '',
+        url: '',
+        title: '',
+        downloadUrl: '',
+        resetViewer() {
+            const video = this.$refs.viewerVideo;
+            if (video) {
+                video.pause();
+                video.removeAttribute('src');
+                video.load();
+            }
+            this.kind = '';
+            this.url = '';
+            this.title = '';
+            this.downloadUrl = '';
+        }
+    }"
+    @open-ticket-attachment-viewer.window="
+        kind = $event.detail.kind || '';
+        url = $event.detail.url || '';
+        title = $event.detail.title || 'Anexo';
+        downloadUrl = $event.detail.downloadUrl || $event.detail.url || '';
+        $el.showModal();
+    "
+    @close="resetViewer()"
+>
+    <div
+        class="modal-box flex w-11/12 flex-col overflow-hidden p-0"
+        :class="kind === 'pdf' ? 'h-[90vh] max-w-5xl' : 'max-h-[90vh] max-w-6xl'"
+    >
+        <div class="flex shrink-0 items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-4 py-3">
+            <h3 class="flex min-w-0 items-center gap-2 text-base font-semibold">
+                <span class="material-icons shrink-0 text-xl text-base-content/70" aria-hidden="true" x-text="kind === 'video' ? 'play_circle' : 'picture_as_pdf'">visibility</span>
+                <span class="truncate" x-text="title">Anexo</span>
+            </h3>
+            <div class="flex shrink-0 items-center gap-2">
+                <a
+                    class="btn btn-sm btn-primary gap-1"
+                    x-show="downloadUrl"
+                    :href="downloadUrl"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    <span class="material-icons text-base" aria-hidden="true">download</span>
+                    Baixar
+                </a>
+                <button type="button" class="btn btn-sm btn-ghost" @click="$root.close()">Fechar</button>
+            </div>
+        </div>
+
+        <div
+            class="relative min-h-0 bg-black"
+            :class="kind === 'pdf' ? 'flex-1' : 'aspect-video w-full max-h-[calc(90vh-3.5rem)]'"
+        >
+            <video
+                x-show="kind === 'video' && url"
+                x-ref="viewerVideo"
+                class="absolute inset-0 h-full w-full object-contain"
+                :src="kind === 'video' ? url : ''"
+                controls
+                playsinline
+                preload="metadata"
+            ></video>
+            <iframe
+                x-show="kind === 'pdf' && url"
+                class="absolute inset-0 h-full w-full border-0 bg-white"
+                :src="kind === 'pdf' ? url : ''"
+                title="Visualizar PDF"
+            ></iframe>
+            <p class="absolute inset-0 flex items-center justify-center text-base-content/60" x-show="!url">Não foi possível carregar o arquivo.</p>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button type="submit">close</button>
+    </form>
+</dialog>
+
+<script src="{% static 'js/ticket_chat.js' %}"></script>
+{% endblock %}

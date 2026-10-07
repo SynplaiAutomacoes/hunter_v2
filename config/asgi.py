@@ -17,7 +17,13 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
 django_asgi_app = get_asgi_application()
 
-from apps.messaging.routing import websocket_urlpatterns  # noqa: E402
+from apps.messaging.routing import websocket_urlpatterns as messaging_websocket_urlpatterns  # noqa: E402
+from apps.tickets.routing import websocket_urlpatterns as tickets_websocket_urlpatterns  # noqa: E402
+
+websocket_urlpatterns = [
+    *messaging_websocket_urlpatterns,
+    *tickets_websocket_urlpatterns,
+]
 
 application = ProtocolTypeRouter(
     {
