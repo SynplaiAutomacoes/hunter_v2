@@ -238,6 +238,86 @@ class CommissionReportVisibilityTests(TestCase):
 
         self.assertEqual(cards[0]["value"], "R$ 1.000,00")
 
+    def test_pdf_queryset_respects_search_filter_like_html_queryset(self) -> None:
+        workshop = create_workshop(suffix=101)
+        collaborator_a = create_collaborator(workshop=workshop, suffix=101)
+        collaborator_b = create_collaborator(workshop=workshop, suffix=102)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        entry_a = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator_a,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(100, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+        CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator_b,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(100, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+
+        params = {"mes": 8, "ano": 2026, "search": collaborator_a.name}
+        html_view = CommissionReportView()
+        html_view.request = RequestFactory().get(reverse("finance:commission_report"), params)
+        html_view.workshop = workshop
+        pdf_view = CommissionReportPdfView()
+        pdf_view.request = RequestFactory().get(reverse("finance:commission_report_pdf"), params)
+        pdf_view.workshop = workshop
+
+        self.assertEqual([entry.pk for entry in html_view._get_queryset()], [entry_a.pk])
+        self.assertEqual([entry.pk for entry in pdf_view._get_queryset()], [entry_a.pk])
+
+    def test_date_filter_uses_workorder_delivery_in_html_and_pdf(self) -> None:
+        from datetime import datetime
+
+        from django.utils import timezone as dj_timezone
+
+        workshop = create_workshop(suffix=103)
+        collaborator = create_collaborator(workshop=workshop, suffix=103)
+        old_workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        old_workorder.delivered_at = dj_timezone.make_aware(datetime(2026, 3, 10, 12, 0))
+        old_workorder.save(update_fields=["delivered_at"])
+        new_workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        new_workorder.delivered_at = dj_timezone.make_aware(datetime(2026, 8, 15, 12, 0))
+        new_workorder.save(update_fields=["delivered_at"])
+
+        for workorder in (old_workorder, new_workorder):
+            CollaboratorCommissionEntry.objects.create(
+                workshop=workshop,
+                collaborator=collaborator,
+                workorder=workorder,
+                reference_year=2026,
+                reference_month=8,
+                percentage=Decimal("0.100000"),
+                base_amount=Money(1000, "BRL"),
+                commission_amount=Money(100, "BRL"),
+                status=CollaboratorCommissionEntry.Status.FORECAST,
+            )
+
+        params = {"data_inicial": "2026-07-01", "data_final": "2026-09-30"}
+        html_view = CommissionReportView()
+        html_view.request = RequestFactory().get(reverse("finance:commission_report"), params)
+        html_view.workshop = workshop
+        pdf_view = CommissionReportPdfView()
+        pdf_view.request = RequestFactory().get(reverse("finance:commission_report_pdf"), params)
+        pdf_view.workshop = workshop
+
+        html_ids = [entry.workorder_id for entry in html_view._get_queryset()]
+        pdf_ids = [entry.workorder_id for entry in pdf_view._get_queryset()]
+
+        self.assertEqual(html_ids, [new_workorder.pk])
+        self.assertEqual(pdf_ids, [new_workorder.pk])
+
     def test_manual_commission_appears_in_report_and_pdf_with_notes(self) -> None:
         workshop = create_workshop(suffix=99)
         collaborator = create_collaborator(workshop=workshop, suffix=99)
