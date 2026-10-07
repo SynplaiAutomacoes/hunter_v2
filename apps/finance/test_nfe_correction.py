@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import requests
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.http import Http404
@@ -14,9 +15,12 @@ from django.utils import timezone
 
 from apps.accounts.models import Account, User
 from apps.budget.models import Budget
+from apps.finance.forms.nfe_correction import NfeExternalCorrectionForm
 from apps.finance.models.finance import (
+    FiscalDocument,
     FiscalDocumentEvent,
     FiscalDocumentEventStatus,
+    FiscalDocumentOrigin,
     FiscalEmissionAttempt,
     FiscalEmissionAttemptStatus,
     NfeItem,
@@ -28,12 +32,20 @@ from apps.finance.models.finance import (
 from apps.finance.services.nfe_events import (
     NfeCorrectionError,
     emit_nfe_correction,
+    emit_nfe_correction_external,
     ensure_fiscal_document_for_nfe_item,
+    parse_nfe_correction_identifier,
     reconcile_cce_event,
     reserve_cce_event_attempt,
     validate_correction_text,
 )
-from apps.finance.views.nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeRequestDetailView
+from apps.finance.views.nfe import (
+    NfeCorrectionDownloadView,
+    NfeCorrectionIssueView,
+    NfeExternalCorrectionDownloadView,
+    NfeExternalCorrectionView,
+    NfeRequestDetailView,
+)
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
@@ -521,6 +533,181 @@ class NfeCorrectionOperationalTests(TestCase):
                 NfeCorrectionDownloadView.as_view()(cross_workshop_request, pk=self.item.request_id, event_pk=event.pk, document="xml")
 
         self.assertEqual(WebmaniaWebhookEvent.objects.count(), 0)
+
+    def test_parse_identifier_accepts_access_key_with_spaces_and_uuid(self) -> None:
+        access_key = "35" + ("7" * 42)
+        spaced = " ".join(access_key[index : index + 4] for index in range(0, 44, 4))
+        kind, value = parse_nfe_correction_identifier(spaced)
+        self.assertEqual(kind, "access_key")
+        self.assertEqual(value, access_key)
+
+        remote_uuid = str(uuid4())
+        kind, value = parse_nfe_correction_identifier(remote_uuid)
+        self.assertEqual(kind, "uuid")
+        self.assertEqual(value, remote_uuid)
+
+        with self.assertRaises(NfeCorrectionError):
+            parse_nfe_correction_identifier("nota-invalida")
+
+    def test_external_emission_uses_explicit_sequence_and_creates_external_document(self) -> None:
+        access_key = "35" + ("6" * 42)
+        remote_uuid = str(uuid4())
+        payload = {
+            "uuid": remote_uuid,
+            "modelo": "cce",
+            "status": "aprovado",
+            "evento": 3,
+            "protocolo": "135260000000333",
+            "xml": "https://example.test/external-cce.xml",
+            "dacce": "https://example.test/external-dacce.pdf",
+        }
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(payload)) as post_mock,
+        ):
+            event = emit_nfe_correction_external(
+                workshop=self.workshop,
+                identifier=access_key,
+                correction_text=CORRECTION_TEXT,
+                event_sequence=3,
+                requested_by=self.user,
+            )
+
+        sent_payload = post_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_payload["chave"], access_key)
+        self.assertEqual(sent_payload["evento"], 3)
+        self.assertEqual(event.event_sequence, 3)
+        self.assertEqual(event.document.origin, FiscalDocumentOrigin.EXTERNAL)
+        self.assertEqual(event.document.access_key, access_key)
+        self.assertIsNone(event.document.legacy_nfe_item_id)
+
+    def test_external_emission_rejects_duplicate_sequence(self) -> None:
+        access_key = "35" + ("5" * 42)
+        first_payload = {
+            "uuid": str(uuid4()),
+            "modelo": "cce",
+            "status": "aprovado",
+            "evento": 1,
+            "protocolo": "135260000000111",
+            "xml": "https://example.test/cce-1.xml",
+            "dacce": "https://example.test/dacce-1.pdf",
+        }
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(first_payload)),
+        ):
+            emit_nfe_correction_external(
+                workshop=self.workshop,
+                identifier=access_key,
+                correction_text=CORRECTION_TEXT,
+                event_sequence=1,
+                requested_by=self.user,
+            )
+
+        with self.assertRaisesMessage(NfeCorrectionError, "Já existe uma carta de correção com o evento 1"):
+            emit_nfe_correction_external(
+                workshop=self.workshop,
+                identifier=access_key,
+                correction_text=CORRECTION_TEXT,
+                event_sequence=1,
+                requested_by=self.user,
+            )
+
+    def test_external_form_validates_identifier_and_event_choices(self) -> None:
+        form = NfeExternalCorrectionForm(
+            {
+                "access_key_or_uuid": "invalido",
+                "event_sequence": "1",
+                "correction": CORRECTION_TEXT,
+                "confirm_legal_restrictions": True,
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("access_key_or_uuid", form.errors)
+
+        access_key = "35" + ("4" * 42)
+        form = NfeExternalCorrectionForm(
+            {
+                "access_key_or_uuid": access_key,
+                "event_sequence": "21",
+                "correction": CORRECTION_TEXT,
+                "confirm_legal_restrictions": True,
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("event_sequence", form.errors)
+
+        form = NfeExternalCorrectionForm(
+            {
+                "access_key_or_uuid": access_key,
+                "event_sequence": "2",
+                "correction": CORRECTION_TEXT,
+                "confirm_legal_restrictions": True,
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["event_sequence"], 2)
+
+    def test_external_view_emits_and_external_download_is_workshop_scoped(self) -> None:
+        access_key = "35" + ("3" * 42)
+        remote_uuid = str(uuid4())
+        payload = {
+            "uuid": remote_uuid,
+            "modelo": "cce",
+            "status": "aprovado",
+            "evento": 2,
+            "protocolo": "135260000000222",
+            "xml": "https://example.test/view-cce.xml",
+            "dacce": "https://example.test/view-dacce.pdf",
+        }
+        request = RequestFactory().post(
+            "/",
+            {
+                "access_key_or_uuid": access_key,
+                "event_sequence": "2",
+                "correction": CORRECTION_TEXT,
+                "confirm_legal_restrictions": "on",
+            },
+        )
+        request.user = self.user
+        request.session = {}
+        setattr(request, "_messages", FallbackStorage(request))
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(payload)),
+        ):
+            response = NfeExternalCorrectionView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        event = FiscalDocumentEvent.objects.get(document__access_key=access_key, event_sequence=2)
+        self.assertEqual(event.document.origin, FiscalDocumentOrigin.EXTERNAL)
+        self.assertContains(response, "Carta de Correção enviada")
+        self.assertContains(response, str(event.event_sequence))
+
+        downloaded = SimpleNamespace(content=b"documento-cce-externa", content_type="application/octet-stream")
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.download_webmania_document", return_value=downloaded) as download_mock,
+        ):
+            download_request = RequestFactory().get("/")
+            download_request.user = self.user
+            download_response = NfeExternalCorrectionDownloadView.as_view()(download_request, event_pk=event.pk, document="xml")
+            self.assertEqual(download_response.status_code, 200)
+            download_mock.assert_called_with(workshop=self.workshop, url=event.xml_url)
+
+        cross_workshop_request = RequestFactory().get("/")
+        cross_workshop_request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeExternalCorrectionDownloadView.as_view()(cross_workshop_request, event_pk=event.pk, document="xml")
+
+        self.assertEqual(FiscalDocument.objects.filter(workshop=self.workshop, access_key=access_key).count(), 1)
 
 
 class FiscalDocumentEventSchemaRepairTests(TestCase):

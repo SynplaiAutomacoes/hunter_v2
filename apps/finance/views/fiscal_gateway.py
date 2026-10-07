@@ -15,6 +15,7 @@ from apps.finance.forms.fiscal_gateway import (
     EMISSION_LINKAGE_CHOICES,
     LINKAGE_VALUES,
     NOTE_DOCUMENTS,
+    CorrectionSource,
     EmissionLinkage,
     FiscalOperation,
     FiscalOperationGatewayForm,
@@ -57,7 +58,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperationCard(
             value=FiscalOperation.CORRECTION,
             label="Carta de Correção",
-            description="Abre a Central de Notas para selecionar a NF-e e emitir a CC-e pelo fluxo existente.",
+            description="Emita CC-e para uma NF-e já cadastrada na Central de Notas ou informe a chave/UUID de uma nota externa.",
             icon="edit_note",
         ),
     )
@@ -89,6 +90,20 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             icon="handyman",
         ),
     )
+    CORRECTION_SOURCE_CARDS: ClassVar[tuple[FiscalOperationCard, ...]] = (
+        FiscalOperationCard(
+            value=CorrectionSource.REGISTERED,
+            label="Já cadastrada",
+            description="Seleciona uma NF-e emitida no Hunter e abre os detalhes para emitir a Carta de Correção.",
+            icon="folder_open",
+        ),
+        FiscalOperationCard(
+            value=CorrectionSource.UNREGISTERED,
+            label="Não cadastrada",
+            description="Informe a chave de acesso ou UUID da NF-e externa e o texto da correção.",
+            icon="edit_note",
+        ),
+    )
     EXISTING_OPERATION_MESSAGES: ClassVar[dict[str, str]] = {
         FiscalOperation.CORRECTION: "Selecione uma NF-e e abra seus detalhes para usar o atalho Carta de Correção.",
     }
@@ -101,13 +116,16 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         return linkage if linkage in LINKAGE_VALUES else ""
 
     def _gateway_step(self) -> str:
+        etapa = str(self.request.GET.get("etapa") or "").strip().lower()
+        if etapa == GatewayStep.CORRECTION_SOURCE:
+            return GatewayStep.CORRECTION_SOURCE
         selected_linkage = self._selected_linkage()
         # Workorder-linked emission skips the document step; tipo is chosen on the OS summary.
         if selected_linkage == EmissionLinkage.STANDALONE:
             return GatewayStep.DOCUMENT
         if selected_linkage == EmissionLinkage.WORKORDER:
             return GatewayStep.LINKAGE
-        if str(self.request.GET.get("etapa") or "").strip().lower() == GatewayStep.LINKAGE:
+        if etapa == GatewayStep.LINKAGE:
             return GatewayStep.LINKAGE
         # Backward-compatible query used by older links.
         legacy_fluxo = str(self.request.GET.get("fluxo") or "").strip().lower()
@@ -120,6 +138,13 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
 
     def _document_step_url(self, *, linkage: str) -> str:
         return f"{reverse('finance:emission_create')}?{urlencode({'etapa': GatewayStep.DOCUMENT, 'vinculo': linkage})}"
+
+    def _correction_source_step_url(self) -> str:
+        return f"{reverse('finance:emission_create')}?{urlencode({'etapa': GatewayStep.CORRECTION_SOURCE})}"
+
+    def _registered_correction_url(self) -> str:
+        query = urlencode({"tipo": "nfe", "operacao": FiscalOperation.CORRECTION})
+        return f"{reverse('finance:issued_documents_list')}?{query}"
 
     def _normal_wizard_url(self, *, preserve_query: bool = False, note_mode: str = "") -> str:
         url = reverse("finance:emission_normal")
@@ -150,6 +175,8 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         initial["gateway_step"] = gateway_step
         if gateway_step in {GatewayStep.LINKAGE, GatewayStep.DOCUMENT}:
             initial["operation"] = FiscalOperation.EMISSION
+        if gateway_step == GatewayStep.CORRECTION_SOURCE:
+            initial["operation"] = FiscalOperation.CORRECTION
         selected_linkage = self._selected_linkage()
         if selected_linkage:
             initial["linkage"] = selected_linkage
@@ -162,20 +189,30 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         context["operation_cards"] = self.OPERATION_CARDS
         context["linkage_cards"] = self.LINKAGE_CARDS
         context["document_cards"] = self.DOCUMENT_CARDS
+        context["correction_source_cards"] = self.CORRECTION_SOURCE_CARDS
         context["gateway_step"] = gateway_step
         context["selected_linkage"] = selected_linkage
-        context["selected_linkage_label"] = (
-            next((label for value, label in EMISSION_LINKAGE_CHOICES if value == selected_linkage), "")
-        )
+        context["selected_linkage_label"] = next((label for value, label in EMISSION_LINKAGE_CHOICES if value == selected_linkage), "")
         context["operation_step_url"] = reverse("finance:emission_create")
         context["linkage_step_url"] = self._linkage_step_url()
+        context["correction_source_step_url"] = self._correction_source_step_url()
         return context
 
     def form_valid(self, form: FiscalOperationGatewayForm) -> HttpResponse:
         operation = str(form.cleaned_data["operation"])
         linkage = str(form.cleaned_data.get("linkage") or "")
         note_document = str(form.cleaned_data.get("note_document") or "")
+        correction_source = str(form.cleaned_data.get("correction_source") or "")
         gateway_step = str(form.cleaned_data.get("gateway_step") or GatewayStep.OPERATION)
+
+        if operation == FiscalOperation.CORRECTION and gateway_step == GatewayStep.OPERATION:
+            return HttpResponseRedirect(self._correction_source_step_url())
+
+        if operation == FiscalOperation.CORRECTION and gateway_step == GatewayStep.CORRECTION_SOURCE:
+            if correction_source == CorrectionSource.UNREGISTERED:
+                return HttpResponseRedirect(reverse("finance:nfe_correction_external"))
+            messages.info(self.request, self.EXISTING_OPERATION_MESSAGES[FiscalOperation.CORRECTION])
+            return HttpResponseRedirect(self._registered_correction_url())
 
         if operation in DOCUMENT_OPERATIONS and gateway_step == GatewayStep.OPERATION:
             return HttpResponseRedirect(self._linkage_step_url())

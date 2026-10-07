@@ -9,6 +9,8 @@
                     Escolha se a nota será de produto ou de serviço.
                 {% elif gateway_step == 'linkage' %}
                     Escolha o fluxo de emissão da Nota Fiscal.
+                {% elif gateway_step == 'correction_source' %}
+                    Escolha se a Carta de Correção será emitida para uma NF-e já cadastrada ou externa.
                 {% else %}
                     Escolha a operação fiscal que deseja realizar.
                 {% endif %}
@@ -18,7 +20,58 @@
 
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8">
-            {% if gateway_step == 'document' %}
+            {% if gateway_step == 'correction_source' %}
+                <div>
+                    <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 2 de 2</p>
+                    <h2 class="mt-1 text-2xl font-bold text-base-content">Origem da NF-e</h2>
+                    <p class="mt-2 text-base-content/70">
+                        A Carta de Correção é emitida apenas para NF-e. Informe se a nota já está no Hunter ou se você vai usar a chave/UUID de uma nota externa.
+                    </p>
+                </div>
+
+                <form method="post" class="mt-6 space-y-6">
+                    {% csrf_token %}
+                    <input type="hidden" name="operation" value="correction">
+                    <input type="hidden" name="gateway_step" value="correction_source">
+
+                    {% if form.correction_source.errors %}
+                        <div class="alert alert-error">
+                            {% for error in form.correction_source.errors %}<span>{{ error }}</span>{% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        {% for card in correction_source_cards %}
+                            <label class="group flex cursor-pointer items-start gap-4 rounded-2xl border border-base-300 bg-base-100 p-5 transition hover:border-primary/60 hover:shadow-md has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+                                <input
+                                    type="radio"
+                                    name="{{ form.correction_source.html_name }}"
+                                    value="{{ card.value }}"
+                                    class="radio radio-primary mt-1 shrink-0"
+                                    {% if form.correction_source.value == card.value %}checked{% endif %}
+                                    required
+                                >
+                                <span class="material-icons rounded-xl bg-base-200 p-3 text-primary transition group-hover:bg-primary/10">{{ card.icon }}</span>
+                                <span>
+                                    <span class="block text-lg font-semibold text-base-content">{{ card.label }}</span>
+                                    <span class="mt-1 block text-sm leading-relaxed text-base-content/70">{{ card.description }}</span>
+                                </span>
+                            </label>
+                        {% endfor %}
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-t border-base-200 pt-5">
+                        <a href="{{ operation_step_url }}" class="btn btn-outline gap-2">
+                            <span class="material-icons text-sm">arrow_back</span>
+                            Voltar
+                        </a>
+                        <button type="submit" class="btn btn-primary gap-2">
+                            Continuar
+                            <span class="material-icons text-sm">arrow_forward</span>
+                        </button>
+                    </div>
+                </form>
+            {% elif gateway_step == 'document' %}
                 <div>
                     <p class="text-sm font-medium uppercase tracking-wide text-primary">Etapa 3 de 3</p>
                     <h2 class="mt-1 text-2xl font-bold text-base-content">Tipo de documento</h2>
