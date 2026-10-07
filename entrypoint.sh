@@ -10,6 +10,7 @@ PORT="${PORT:-8000}"
 OUTBOUND_POLLER_INTERVAL_SECONDS="${OUTBOUND_POLLER_INTERVAL_SECONDS:-60}"
 OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS="${OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS:-55}"
 OUTBOUND_POLLER_MAX_CONSECUTIVE_FAILURES="${OUTBOUND_POLLER_MAX_CONSECUTIVE_FAILURES:-5}"
+SEFAZ_SYNC_INTERVAL_SECONDS="${SEFAZ_SYNC_INTERVAL_SECONDS:-300}"
 
 echo "Running migrations..."
 uv run python manage.py migrate --noinput
@@ -26,11 +27,23 @@ case "$APP_PROCESS" in
     exec uv run gunicorn config.wsgi:application --config gunicorn.conf.py
     ;;
   realtime)
-    echo "Starting outbound poller (every ${OUTBOUND_POLLER_INTERVAL_SECONDS}s, tick timeout ${OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS}s)..."
+    echo "Starting outbound poller (every ${OUTBOUND_POLLER_INTERVAL_SECONDS}s, tick timeout ${OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS}s) and SEFAZ sync (every ${SEFAZ_SYNC_INTERVAL_SECONDS}s)..."
     REALTIME_SHELL_PID=$$
     (
       consecutive_failures=0
+      sefaz_elapsed_seconds="${SEFAZ_SYNC_INTERVAL_SECONDS}"
       while true; do
+        if [ "${sefaz_elapsed_seconds}" -ge "${SEFAZ_SYNC_INTERVAL_SECONDS}" ]; then
+          if uv run python manage.py sync_sefaz_documents; then
+            echo "sefaz_sync_tick_ok"
+          else
+            # A falha de uma oficina não pode derrubar o realtime; a próxima
+            # execução tentará novamente e o comando registra o motivo.
+            echo "sefaz_sync_tick_failed"
+          fi
+          sefaz_elapsed_seconds=0
+        fi
+
         if timeout "${OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS}" uv run python manage.py run_due_outbound_messages; then
           consecutive_failures=0
           echo "outbound_poller_tick_ok"
@@ -44,6 +57,7 @@ case "$APP_PROCESS" in
           fi
         fi
         sleep "${OUTBOUND_POLLER_INTERVAL_SECONDS}"
+        sefaz_elapsed_seconds=$((sefaz_elapsed_seconds + OUTBOUND_POLLER_INTERVAL_SECONDS))
       done
     ) &
     OUTBOUND_POLLER_PID=$!

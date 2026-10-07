@@ -1,0 +1,27 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Assinantes Stripe{% endblock %}
+{% block crud_subtitle %}Acompanhe quem está assinando, quem cancelou e quem está com pagamento em atraso.{% endblock %}
+
+{% block crud_header_actions %}
+<a href="{{ system_manage_url }}" class="btn btn-ghost btn-sm">
+    <span class="material-icons text-sm">arrow_back</span>
+    Voltar
+</a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}subscribers-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'billing:subscriber_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}subscribers-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {% for stat in status_stats %}
+        <div class="rounded-box border border-base-200 bg-base-200/40 px-4 py-3">
+            <p class="text-xs text-base-content/60">{{ stat.label }}</p>
+            <p class="text-2xl font-bold mt-1">{{ stat.total }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% include 'billing/partials/subscriber_table.html' %}
+{% endblock %}

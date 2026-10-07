@@ -1,0 +1,17 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="max-w-xl mx-auto text-center py-16">
+    <span class="material-icons text-6xl text-warning mb-4">lock</span>
+    <h1 class="text-3xl font-bold text-base-content">Recurso do plano Completo</h1>
+    <p class="text-base-content/70 mt-2">
+        Esta área faz parte do plano Completo. Faça o upgrade para liberar ordens de serviço, estoque, financeiro e o restante do sistema.
+    </p>
+    <div class="mt-8 flex items-center justify-center gap-3">
+        {% if is_account_owner %}
+        <a href="{% url 'billing:plans' %}" class="btn btn-primary">Ver planos</a>
+        {% endif %}
+        <a href="{% url 'budget:budget_list' %}" class="btn btn-ghost">Voltar aos orçamentos</a>
+    </div>
+</div>
+{% endblock %}

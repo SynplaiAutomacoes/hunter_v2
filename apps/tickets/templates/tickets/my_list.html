@@ -1,0 +1,18 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Meus chamados{% endblock %}
+{% block crud_subtitle %}Chamados abertos por você.{% endblock %}
+
+{% block crud_header_actions %}
+    <a href="{% url 'tickets:create' %}" target="_blank" rel="noopener noreferrer" class="btn btn-primary gap-2">
+        <span class="material-icons text-base">add</span>
+        Abrir chamado
+    </a>
+{% endblock %}
+
+{% block crud_table_wrapper_id %}my-tickets-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'tickets:my_list' %}{% endblock %}
+
+{% block crud_table %}
+    {% include 'tickets/partials/my_table.html' %}
+{% endblock %}

@@ -1,0 +1,101 @@
+{% load static %}
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Assinar Hunter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{% static 'css/landing.css' %}" />
+    <link rel="stylesheet" href="{% static 'css/subscribe.css' %}" />
+    <script src="https://js.stripe.com/v3/"></script>
+  </head>
+  <body class="subscribe-page">
+    <header class="landing-header">
+      <div class="landing-header-inner">
+        <a class="landing-header-brand" href="{{ landing_url }}">
+          <img src="https://universidadehunter.com.br/wp-content/uploads/2026/01/logo.png" alt="Hunter" />
+          <span>Hunter</span>
+        </a>
+        <a class="landing-header-login" href="{{ login_url }}">Entrar</a>
+      </div>
+    </header>
+
+    <main class="subscribe-main">
+      <div class="subscribe-wrap">
+        <section class="subscribe-summary">
+          <p class="subscribe-kicker">Plano selecionado</p>
+          <h1>{{ selected_plan.name|default:"Plano Hunter" }}</h1>
+          <p class="subscribe-price">
+            <strong>{{ selected_plan.price_label|default:"Consulte" }}</strong>
+            {% if selected_plan.interval_label %}<span>{{ selected_plan.interval_label }}</span>{% endif %}
+          </p>
+          <p class="subscribe-desc">{{ selected_plan.description|default:"" }}</p>
+          <ul class="plan-features">
+            {% for feature in selected_plan.features %}
+            <li>{{ feature }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        <section class="subscribe-card">
+          <h2>Crie sua conta e pague</h2>
+          <p class="subscribe-note">Sua conta só é criada depois da confirmação do pagamento.</p>
+
+          <form id="subscribe-form" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="plan" value="{{ plan_key }}" />
+
+            <div class="subscribe-grid">
+              <label>
+                Nome
+                <input type="text" name="first_name" required />
+              </label>
+              <label>
+                Sobrenome
+                <input type="text" name="last_name" />
+              </label>
+              <label>
+                Usuário
+                <input type="text" name="username" required autocomplete="username" />
+              </label>
+              <label>
+                E-mail
+                <input type="email" name="email" required autocomplete="email" />
+              </label>
+              <label>
+                CPF
+                <input type="text" name="cpf" id="subscribe-cpf" inputmode="numeric" autocomplete="off" maxlength="14" placeholder="000.000.000-00" required />
+              </label>
+              <label>
+                Senha
+                <input type="password" name="password1" required autocomplete="new-password" />
+              </label>
+              <label>
+                Confirmar senha
+                <input type="password" name="password2" required autocomplete="new-password" />
+              </label>
+            </div>
+
+            <div id="payment-element" class="payment-element"></div>
+            <div id="subscribe-error" class="subscribe-error" hidden></div>
+            <button id="subscribe-submit" type="submit" class="btn">Pagar e criar conta</button>
+          </form>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      window.SUBSCRIBE_CONFIG = {
+        startUrl: "{{ start_url|escapejs }}",
+        statusUrlTemplate: "{{ status_url_template|escapejs }}",
+        completeUrl: "{{ complete_url|escapejs }}",
+        publishableKey: "{{ stripe_publishable_key|escapejs }}",
+        csrfToken: "{{ csrf_token|escapejs }}",
+      };
+    </script>
+    <script src="{% static 'js/subscribe.js' %}" defer></script>
+  </body>
+</html>
