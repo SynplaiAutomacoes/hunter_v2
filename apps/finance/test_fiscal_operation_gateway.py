@@ -13,6 +13,7 @@ from apps.finance.forms.fiscal_gateway import (
     EMISSION_LINKAGE_CHOICES,
     FISCAL_OPERATION_CHOICES,
     NOTE_DOCUMENT_CHOICES,
+    CorrectionSource,
     EmissionLinkage,
     FiscalOperation,
     FiscalOperationGatewayForm,
@@ -238,20 +239,80 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         as_view_mock.assert_called_once_with()
         handler.assert_called_once_with(request)
 
-    def test_reference_operations_redirect_to_nfe_central(self) -> None:
-        operations = (FiscalOperation.CORRECTION,)
+    def test_correction_continue_opens_source_step(self) -> None:
+        request = self.factory.post(
+            "/finance/emissao/",
+            {"operation": FiscalOperation.CORRECTION, "gateway_step": "operation"},
+        )
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
 
-        for operation in operations:
-            with self.subTest(operation=operation):
-                request = self.factory.post("/finance/emissao/", {"operation": operation})
-                view = self._build_view(request)
-                form = FiscalOperationGatewayForm(request.POST)
-                self.assertTrue(form.is_valid(), form.errors)
+        response = view.form_valid(form)
 
-                response = view.form_valid(form)
+        self.assertRedirects(
+            response,
+            f"{reverse('finance:emission_create')}?etapa=correction_source",
+            fetch_redirect_response=False,
+        )
 
-                expected_url = f"{reverse('finance:issued_documents_list')}?tipo=nfe&operacao={operation}"
-                self.assertRedirects(response, expected_url, fetch_redirect_response=False)
+    def test_correction_source_step_renders_two_cards(self) -> None:
+        request = self.factory.get("/finance/emissao/", {"etapa": "correction_source"})
+        view = self._build_view(request)
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context_data["gateway_step"], "correction_source")
+        self.assertEqual(len(response.context_data["correction_source_cards"]), 2)
+        self.assertEqual(
+            [card.value for card in response.context_data["correction_source_cards"]],
+            [CorrectionSource.REGISTERED, CorrectionSource.UNREGISTERED],
+        )
+
+    def test_correction_registered_redirects_to_nfe_central(self) -> None:
+        request = self.factory.post(
+            "/finance/emissao/?etapa=correction_source",
+            {
+                "operation": FiscalOperation.CORRECTION,
+                "correction_source": CorrectionSource.REGISTERED,
+                "gateway_step": "correction_source",
+            },
+        )
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        response = view.form_valid(form)
+
+        expected_url = f"{reverse('finance:issued_documents_list')}?tipo=nfe&operacao=correction"
+        self.assertRedirects(response, expected_url, fetch_redirect_response=False)
+
+    def test_correction_unregistered_redirects_to_external_form(self) -> None:
+        request = self.factory.post(
+            "/finance/emissao/?etapa=correction_source",
+            {
+                "operation": FiscalOperation.CORRECTION,
+                "correction_source": CorrectionSource.UNREGISTERED,
+                "gateway_step": "correction_source",
+            },
+        )
+        view = self._build_view(request)
+        form = FiscalOperationGatewayForm(request.POST)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        response = view.form_valid(form)
+
+        self.assertRedirects(response, reverse("finance:nfe_correction_external"), fetch_redirect_response=False)
+
+    def test_correction_source_step_requires_choice(self) -> None:
+        form = FiscalOperationGatewayForm(
+            {
+                "operation": FiscalOperation.CORRECTION,
+                "gateway_step": "correction_source",
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("correction_source", form.errors)
 
     def test_return_operation_redirects_to_stock_purchase_return_workflow(self) -> None:
         request = self.factory.post("/finance/emissao/", {"operation": FiscalOperation.RETURN})

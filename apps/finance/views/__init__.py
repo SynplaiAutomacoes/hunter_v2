@@ -8,7 +8,23 @@ from .standalone_emission import StandaloneCustomerSearchView, StandaloneEmissio
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .issued_documents_report import IssuedDocumentsReportExcelView, IssuedDocumentsReportPdfView
 from .commissions import CommissionReportExcelView, CommissionReportPdfView, CommissionReportView
-from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
+from .nfe import (
+    NfeCorrectionDownloadView,
+    NfeCorrectionIssueView,
+    NfeDocumentDownloadView,
+    NfeExternalCorrectionDownloadView,
+    NfeExternalCorrectionView,
+    NfePreviewPdfView,
+    NfeRequestCancelView,
+    NfeRequestCreateView,
+    NfeRequestDetailView,
+    NfeRequestInvalidateView,
+    NfeRequestListView,
+    NfeRequestReconcileView,
+    NfeRequestUpdateView,
+    NfeReturnDownloadView,
+    NfeReturnIssueView,
+)
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .fiscal_request_soft_delete import NfeRequestSoftDeleteView, NfseRequestSoftDeleteView, PurchaseReturnSoftDeleteView
 from .payroll import (
@@ -98,6 +114,8 @@ __all__ = [
     "NfeCreateRedirectView",
     "NfeCorrectionDownloadView",
     "NfeCorrectionIssueView",
+    "NfeExternalCorrectionDownloadView",
+    "NfeExternalCorrectionView",
     "NfeDocumentDownloadView",
     "NfePreviewPdfView",
     "NfeRequestCancelView",

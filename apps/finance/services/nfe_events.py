@@ -18,6 +18,8 @@ from apps.finance.models.finance import (
     FiscalDocumentEvent,
     FiscalDocumentEventStatus,
     FiscalDocumentEventType,
+    FiscalDocumentOrigin,
+    FiscalDocumentPurpose,
     FiscalDocumentStatus,
     FiscalDocumentType,
     FiscalEmissionAttempt,
@@ -189,8 +191,23 @@ def _next_cce_sequence(*, document: FiscalDocument) -> int:
     current_max = document.events.filter(event_type=FiscalDocumentEventType.CCE).aggregate(max_sequence=Max("event_sequence"))["max_sequence"] or 0
     next_sequence = int(current_max) + 1
     if next_sequence > CCE_MAX_SEQUENCE:
-        raise NfeCorrectionError("Limite de 20 cartas de correcao atingido para esta NF-e.")
+        raise NfeCorrectionError("Limite de 20 cartas de correção atingido para esta NF-e.")
     return next_sequence
+
+
+def _normalize_cce_sequence(event_sequence: int) -> int:
+    try:
+        sequence = int(event_sequence)
+    except (TypeError, ValueError) as exc:
+        raise NfeCorrectionError("Informe um número de evento entre 1 e 20.") from exc
+    if sequence < 1 or sequence > CCE_MAX_SEQUENCE:
+        raise NfeCorrectionError("Informe um número de evento entre 1 e 20.")
+    return sequence
+
+
+def _assert_cce_sequence_available(*, document: FiscalDocument, event_sequence: int) -> None:
+    if document.events.filter(event_type=FiscalDocumentEventType.CCE, event_sequence=event_sequence).exists():
+        raise NfeCorrectionError(f"Já existe uma carta de correção com o evento {event_sequence} para esta NF-e.")
 
 
 def _assert_no_active_cce_attempt(*, document: FiscalDocument) -> None:
@@ -201,7 +218,61 @@ def _assert_no_active_cce_attempt(*, document: FiscalDocument) -> None:
         FiscalDocumentEventStatus.UNCERTAIN,
     ]
     if document.events.filter(event_type=FiscalDocumentEventType.CCE, status__in=active_statuses).exists():
-        raise NfeCorrectionError("Ja existe uma carta de correcao em processamento ou estado incerto para esta NF-e.")
+        raise NfeCorrectionError("Já existe uma carta de correção em processamento ou estado incerto para esta NF-e.")
+
+
+def parse_nfe_correction_identifier(value: str) -> tuple[str, str]:
+    normalized = re.sub(r"\s+", "", str(value or "").strip())
+    if len(normalized) == 44 and normalized.isdigit():
+        return "access_key", normalized
+    try:
+        return "uuid", str(UUID(normalized))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise NfeCorrectionError("Informe a chave de acesso com 44 dígitos ou o UUID válido da NF-e.") from exc
+
+
+def ensure_external_document_for_cce(
+    *,
+    workshop: Any,
+    access_key: str = "",
+    remote_uuid: str = "",
+    requested_by: Any | None = None,
+) -> FiscalDocument:
+    access_key = str(access_key or "").strip()
+    remote_uuid = str(remote_uuid or "").strip()
+    if bool(access_key) == bool(remote_uuid):
+        raise NfeCorrectionError("Informe a chave de acesso ou o UUID da NF-e, não ambos.")
+
+    existing_queryset = FiscalDocument.objects.filter(workshop=workshop, document_type=FiscalDocumentType.NFE)
+    if access_key:
+        existing = existing_queryset.filter(access_key=access_key).first()
+    else:
+        existing = existing_queryset.filter(remote_uuid=remote_uuid).first()
+    if existing is not None:
+        return existing
+
+    try:
+        return FiscalDocument.objects.create(
+            workshop=workshop,
+            account=getattr(workshop, "account", None),
+            document_type=FiscalDocumentType.NFE,
+            origin=FiscalDocumentOrigin.EXTERNAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+            complementary_type="",
+            access_key=access_key,
+            remote_uuid=remote_uuid,
+            environment=str(getattr(settings, "WEBMANIA_AMBIENT", "2") or "2").strip(),
+            status=FiscalDocumentStatus.APPROVED,
+            remote_status="external_cce",
+            requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
+            external_confirmation=True,
+            external_confirmed_at=timezone.now(),
+            response_payload=sanitize_fiscal_payload({"origin": "external_cce", "validated_remotely": False}),
+        )
+    except IntegrityError:
+        if access_key:
+            return FiscalDocument.objects.get(workshop=workshop, document_type=FiscalDocumentType.NFE, access_key=access_key)
+        return FiscalDocument.objects.get(workshop=workshop, document_type=FiscalDocumentType.NFE, remote_uuid=remote_uuid)
 
 
 def _build_cce_payload(*, document: FiscalDocument, correction_text: str, event_sequence: int, request: HttpRequest | None = None) -> dict[str, Any]:
@@ -222,33 +293,47 @@ def _build_cce_payload(*, document: FiscalDocument, correction_text: str, event_
     return payload
 
 
-def reserve_cce_event_attempt(*, document: FiscalDocument, correction_text: str, requested_by: Any | None, request: HttpRequest | None = None) -> tuple[FiscalDocumentEvent, FiscalEmissionAttempt, dict[str, Any]]:
+def reserve_cce_event_attempt(
+    *,
+    document: FiscalDocument,
+    correction_text: str,
+    requested_by: Any | None,
+    request: HttpRequest | None = None,
+    event_sequence: int | None = None,
+) -> tuple[FiscalDocumentEvent, FiscalEmissionAttempt, dict[str, Any]]:
     correction_text = validate_correction_text(correction_text)
 
     with transaction.atomic():
         locked_document = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=document.pk)
         _assert_no_active_cce_attempt(document=locked_document)
-        event_sequence = _next_cce_sequence(document=locked_document)
-        payload = _build_cce_payload(document=locked_document, correction_text=correction_text, event_sequence=event_sequence, request=request)
+        if event_sequence is None:
+            resolved_sequence = _next_cce_sequence(document=locked_document)
+        else:
+            resolved_sequence = _normalize_cce_sequence(event_sequence)
+            _assert_cce_sequence_available(document=locked_document, event_sequence=resolved_sequence)
+        payload = _build_cce_payload(document=locked_document, correction_text=correction_text, event_sequence=resolved_sequence, request=request)
         sanitized_payload = sanitize_fiscal_payload(payload)
 
-        event = FiscalDocumentEvent.objects.create(
-            document=locked_document,
-            event_type=FiscalDocumentEventType.CCE,
-            event_sequence=event_sequence,
-            status=FiscalDocumentEventStatus.STARTED,
-            correction_text=correction_text,
-            request_payload=sanitized_payload,
-            requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
-            legal_confirmation=True,
-            confirmed_at=timezone.now(),
-        )
+        try:
+            event = FiscalDocumentEvent.objects.create(
+                document=locked_document,
+                event_type=FiscalDocumentEventType.CCE,
+                event_sequence=resolved_sequence,
+                status=FiscalDocumentEventStatus.STARTED,
+                correction_text=correction_text,
+                request_payload=sanitized_payload,
+                requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
+                legal_confirmation=True,
+                confirmed_at=timezone.now(),
+            )
+        except IntegrityError as exc:
+            raise NfeCorrectionError(f"Já existe uma carta de correção com o evento {resolved_sequence} para esta NF-e.") from exc
 
         idempotency_key = build_fiscal_operation_idempotency_key(
             workshop_id=locked_document.workshop_id,
             document_id=locked_document.pk,
             operation_type=FiscalEmissionOperationType.CCE,
-            sequence=event_sequence,
+            sequence=resolved_sequence,
         )
         attempt = begin_emission_attempt(
             workshop=locked_document.workshop,
@@ -426,13 +511,13 @@ def _replay_pending_cce_webhooks_for_uuid(*, event_uuid: str) -> None:
     process_pending_webhook_events(model="cce", event_uuid=event_uuid)
 
 
-def emit_nfe_correction(*, nfe_item: NfeItem, correction_text: str, requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
-    document = ensure_fiscal_document_for_nfe_item(item=nfe_item)
-    try:
-        event, attempt, payload = reserve_cce_event_attempt(document=document, correction_text=correction_text, requested_by=requested_by, request=request)
-    except FiscalEmissionAttemptBlocked as exc:
-        raise NfeCorrectionError(str(exc)) from exc
-
+def _transmit_cce_event(
+    *,
+    document: FiscalDocument,
+    event: FiscalDocumentEvent,
+    attempt: FiscalEmissionAttempt,
+    payload: dict[str, Any],
+) -> FiscalDocumentEvent:
     headers = _build_headers(workshop=document.workshop)
     mark_attempt_sent(attempt=attempt)
     event.status = FiscalDocumentEventStatus.SENT
@@ -442,13 +527,13 @@ def emit_nfe_correction(*, nfe_item: NfeItem, correction_text: str, requested_by
         response = requests.post(_build_cce_url(), json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
-        message = "Timeout ao emitir carta de correcao; estado remoto incerto."
+        message = "Timeout ao emitir carta de correção; estado remoto incerto."
         logger.warning("nfe_cce_timeout", extra={"fiscal_document_event_id": event.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_cce_event_uncertain(event=event, error_message=message)
         raise NfeCorrectionError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao emitir carta de correcao", scope="nfe")
+        message = build_webmania_request_exception_message(exc, default="Falha ao emitir carta de correção", scope="nfe")
         logger.warning("nfe_cce_request_failed", extra={"fiscal_document_event_id": event.pk, "fiscal_attempt_id": attempt.pk})
         mark_attempt_failed(attempt=attempt, error_message=message)
         event.status = FiscalDocumentEventStatus.FAILED
@@ -459,27 +544,27 @@ def emit_nfe_correction(*, nfe_item: NfeItem, correction_text: str, requested_by
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao emitir carta de correcao; estado remoto incerto."
+        message = "Resposta inválida da Webmania ao emitir carta de correção; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_cce_event_uncertain(event=event, error_message=message)
         raise NfeCorrectionError(message) from exc
 
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao emitir carta de correcao; estado remoto incerto."
+        message = "Resposta inválida da Webmania ao emitir carta de correção; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_cce_event_uncertain(event=event, error_message=message)
         raise NfeCorrectionError(message)
 
     if _is_failed_cce_response(response_payload):
         event = apply_cce_event_payload(event=event, response_payload=response_payload)
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correcao rejeitada pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correção rejeitada pela Webmania."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeCorrectionError(message)
 
     try:
         validate_cce_payload_identity(event=event, payload=response_payload, require_uuid=True, require_sequence=True)
     except NfeCorrectionError as exc:
-        message = f"Resposta inconsistente da Webmania ao emitir carta de correcao; estado remoto incerto. {exc}"
+        message = f"Resposta inconsistente da Webmania ao emitir carta de correção; estado remoto incerto. {exc}"
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_cce_event_uncertain(event=event, error_message=message, response_payload=response_payload)
         raise NfeCorrectionError(message) from exc
@@ -489,3 +574,60 @@ def emit_nfe_correction(*, nfe_item: NfeItem, correction_text: str, requested_by
     if event.remote_uuid:
         _replay_pending_cce_webhooks_for_uuid(event_uuid=event.remote_uuid)
     return event
+
+
+def emit_nfe_correction_for_document(
+    *,
+    document: FiscalDocument,
+    correction_text: str,
+    requested_by: Any | None = None,
+    request: HttpRequest | None = None,
+    event_sequence: int | None = None,
+) -> FiscalDocumentEvent:
+    try:
+        event, attempt, payload = reserve_cce_event_attempt(
+            document=document,
+            correction_text=correction_text,
+            requested_by=requested_by,
+            request=request,
+            event_sequence=event_sequence,
+        )
+    except FiscalEmissionAttemptBlocked as exc:
+        raise NfeCorrectionError(str(exc)) from exc
+    return _transmit_cce_event(document=document, event=event, attempt=attempt, payload=payload)
+
+
+def emit_nfe_correction(*, nfe_item: NfeItem, correction_text: str, requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
+    document = ensure_fiscal_document_for_nfe_item(item=nfe_item)
+    return emit_nfe_correction_for_document(
+        document=document,
+        correction_text=correction_text,
+        requested_by=requested_by,
+        request=request,
+    )
+
+
+def emit_nfe_correction_external(
+    *,
+    workshop: Any,
+    identifier: str,
+    correction_text: str,
+    event_sequence: int,
+    requested_by: Any | None = None,
+    request: HttpRequest | None = None,
+) -> FiscalDocumentEvent:
+    kind, value = parse_nfe_correction_identifier(identifier)
+    document = ensure_external_document_for_cce(
+        workshop=workshop,
+        access_key=value if kind == "access_key" else "",
+        remote_uuid=value if kind == "uuid" else "",
+        requested_by=requested_by,
+    )
+    return emit_nfe_correction_for_document(
+        document=document,
+        correction_text=correction_text,
+        requested_by=requested_by,
+        request=request,
+        event_sequence=event_sequence,
+    )
+
