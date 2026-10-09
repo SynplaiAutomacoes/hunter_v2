@@ -18,7 +18,7 @@ from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
-from apps.budget.review_totals import Step4PricingBreakdown, build_step4_pricing_breakdown, build_step6_table_totals
+from apps.budget.review_totals import Step4PricingBreakdown, build_step4_pricing_breakdown
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -350,6 +350,10 @@ class Budget(TimeStampedModel):
         total = self.stored_total_source_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
+        if self.budget_type == "sale":
+            # A WorkOrder espelha o Budget: propaga o total cobrado para as
+            # O.S. de venda vinculadas (as de garantia/cortesia têm base própria).
+            WorkOrder.objects.filter(budget_id=self.pk, budget_type="sale").update(stored_total_amount=total)
 
     class Meta:
         verbose_name = "Orçamento"
@@ -1034,8 +1038,7 @@ class Budget(TimeStampedModel):
         """Canonical value persisted into ``stored_total_amount``."""
         if self.is_fixed_budget:
             return self.summary_total_before_benefit_value
-        totals = build_step6_table_totals(budget=self)
-        return totals["products"].sale + totals["services"].sale
+        return self.total_budget_value
 
     @property
     def display_total_budget_value(self) -> Money:

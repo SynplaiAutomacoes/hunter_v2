@@ -157,6 +157,9 @@ class PricingSnapshot:
     resolved_discount_value: Money
     resolved_discount_percentage: Decimal
     total_budget_value: Money
+    benefit_products_cost_value: Money = field(default_factory=zero_money)
+    benefit_labor_cost_value: Money = field(default_factory=zero_money)
+    benefit_third_party_cost_value: Money = field(default_factory=zero_money)
 
 
 def resolve_discount_fields(
@@ -443,6 +446,65 @@ def kit_component_winning_item_ids(items: list[Any]) -> tuple[dict[int, int], di
     )
 
 
+def _benefit_item_costs(
+    *,
+    item: Any,
+    item_quantity: int,
+    local_product_check: Callable[[Any], bool],
+    local_service_check: Callable[[Any], bool],
+) -> tuple[Money, Money, Money]:
+    """Custos de itens de benefício (cortesia/garantia): (produtos, mão de obra, terceiros).
+
+    A venda permanece zerada (sem linhas), mas o custo é real para a oficina e
+    deve compor os totais de custo.
+    """
+    products_cost = zero_money()
+    labor_cost = zero_money()
+    third_party_cost = zero_money()
+    if item_quantity <= 0 or bool(getattr(item, "is_customer_supplied", False)):
+        return products_cost, labor_cost, third_party_cost
+
+    product_id = getattr(item, "product_id", None)
+    service_id = getattr(item, "service_id", None)
+    kit_id = getattr(item, "kit_id", None)
+
+    if product_id is not None or local_product_check(item):
+        products_cost += _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
+        return products_cost, labor_cost, third_party_cost
+
+    if service_id is not None or local_service_check(item):
+        cost = _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
+        service = getattr(item, "service", None)
+        if bool(getattr(service, "is_third_party", False)):
+            third_party_cost += cost
+        else:
+            labor_cost += cost
+        return products_cost, labor_cost, third_party_cost
+
+    if kit_id is None:
+        return products_cost, labor_cost, third_party_cost
+
+    for override in item._iter_frozen_kit_product_overrides():
+        per_kit_quantity = int(getattr(override, "quantity", 0) or 0)
+        if per_kit_quantity <= 0:
+            continue
+        products_cost += _coerce_money(getattr(override, "product_cost_price", None)) * per_kit_quantity * item_quantity
+
+    for override in item._iter_frozen_kit_service_overrides():
+        if getattr(override, "excluded_from_composition", False):
+            continue
+        per_kit_quantity = int(getattr(override, "quantity", 0) or 0)
+        if per_kit_quantity <= 0:
+            continue
+        cost = _coerce_money(getattr(override, "service_cost_price", None)) * per_kit_quantity * item_quantity
+        service = getattr(override, "service", None)
+        if bool(getattr(service, "is_third_party", False)):
+            third_party_cost += cost
+        else:
+            labor_cost += cost
+    return products_cost, labor_cost, third_party_cost
+
+
 def build_pricing_snapshot(
     *,
     items: Iterable[Any],
@@ -464,6 +526,9 @@ def build_pricing_snapshot(
 
     product_aggregates: dict[str, _ProductAggregate] = {}
     service_aggregates: dict[str, _ServiceAggregate] = {}
+    benefit_products_cost = zero_money()
+    benefit_labor_cost = zero_money()
+    benefit_third_party_cost = zero_money()
 
     for sort_order, item in enumerate(items):
         item_quantity = int(getattr(item, "quantity", 0) or 0)
@@ -471,6 +536,15 @@ def build_pricing_snapshot(
             continue
 
         if not include_benefit_items and getattr(item, "item_benefit_type", "normal") not in ("normal", ""):
+            item_benefit_costs = _benefit_item_costs(
+                item=item,
+                item_quantity=item_quantity,
+                local_product_check=local_product_check,
+                local_service_check=local_service_check,
+            )
+            benefit_products_cost += item_benefit_costs[0]
+            benefit_labor_cost += item_benefit_costs[1]
+            benefit_third_party_cost += item_benefit_costs[2]
             continue
 
         item_id = getattr(item, "id", None)
@@ -821,7 +895,7 @@ def build_pricing_snapshot(
 
     total_products_shipping = sum((line.shipping for line in chargeable_product_lines), zero_money())
     total_services_shipping = sum((line.shipping for line in service_lines), zero_money())
-    total_costs_products_value = sum((line.cost_total for line in chargeable_product_lines), zero_money())
+    total_costs_products_value = sum((line.cost_total for line in chargeable_product_lines), zero_money()) + benefit_products_cost
     total_products_value = sum((line.raw_total for line in chargeable_product_lines), zero_money())
     labor_service_lines = [line for line in service_lines if not line.third_party]
     third_party_service_lines = [line for line in service_lines if line.third_party]
@@ -829,7 +903,7 @@ def build_pricing_snapshot(
     total_third_party_services_selling = sum((line.raw_total for line in third_party_service_lines), zero_money())
     total_services_value = sum((line.raw_total for line in service_lines), zero_money())
 
-    total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money())
+    total_third_party_services_cost = sum((line.cost_total for line in third_party_service_lines), zero_money()) + benefit_third_party_cost
     total_labor_selling_value = (
         labor_selling_value_override
         if labor_selling_value_override is not None
@@ -875,7 +949,9 @@ def build_pricing_snapshot(
         line.cost_total = allocated_cost
 
     effective_labor_cost_value = labor_cost_allocation_target
-    total_costs_services_value = total_third_party_services_cost + effective_labor_cost_value
+    # Custos de benefício (cortesia/garantia) compõem o custo total, mas não
+    # participam do rateio entre as linhas cobráveis (alvo de alocação inalterado).
+    total_costs_services_value = total_third_party_services_cost + effective_labor_cost_value + benefit_labor_cost
 
     slider_decimal = Decimal(int(slider or 0)) / Decimal(100)
     total_products_by_slider = total_products_value
@@ -978,4 +1054,7 @@ def build_pricing_snapshot(
         resolved_discount_value=resolved_discount_value,
         resolved_discount_percentage=resolved_discount_percentage,
         total_budget_value=total_budget_value,
+        benefit_products_cost_value=benefit_products_cost,
+        benefit_labor_cost_value=benefit_labor_cost,
+        benefit_third_party_cost_value=benefit_third_party_cost,
     )
