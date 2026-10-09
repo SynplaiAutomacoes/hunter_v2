@@ -57,7 +57,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         self.assertEqual(card_values, [value for value, _label in FISCAL_OPERATION_CHOICES])
         self.assertEqual(
             {value for value, _label in FISCAL_OPERATION_CHOICES},
-            {"emission", "return", "correction", "complementary", "adjustment"},
+            {"emission", "return", "correction"},
         )
         self.assertNotIn("nfe", card_values)
         self.assertNotIn("nfse", card_values)
@@ -241,11 +241,7 @@ class FiscalOperationGatewayTests(SimpleTestCase):
         handler.assert_called_once_with(request)
 
     def test_reference_operations_redirect_to_nfe_central(self) -> None:
-        operations = (
-            FiscalOperation.CORRECTION,
-            FiscalOperation.COMPLEMENTARY,
-            FiscalOperation.ADJUSTMENT,
-        )
+        operations = (FiscalOperation.CORRECTION,)
 
         for operation in operations:
             with self.subTest(operation=operation):

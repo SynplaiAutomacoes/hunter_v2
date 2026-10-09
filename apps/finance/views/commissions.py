@@ -75,6 +75,38 @@ def visible_commission_report_filter() -> Q:
     )
 
 
+def apply_commission_date_filter(queryset, start_date: date | None, end_date: date | None):
+    """Filtra comissões pelo período de entrega da O.S.
+
+    Usa `delivered_at` da O.S. (a data exibida como "Entrega" no relatório);
+    lançamentos manuais, sem O.S., usam a data de criação como fallback.
+    """
+    if start_date is not None:
+        queryset = queryset.filter(Q(workorder__delivered_at__date__gte=start_date) | Q(workorder__isnull=True, criado_em__date__gte=start_date))
+    if end_date is not None:
+        queryset = queryset.filter(Q(workorder__delivered_at__date__lte=end_date) | Q(workorder__isnull=True, criado_em__date__lte=end_date))
+    return queryset
+
+
+def apply_commission_search_filter(queryset, search: str | None):
+    """Aplica o filtro de texto (colaborador, cliente, OS...) ao queryset de comissões."""
+    search = str(search or "").strip()
+    if not search:
+        return queryset
+    search_query = build_text_search_query(
+        search_value=search,
+        lookups=(
+            "collaborator__name",
+            "workorder__budget__customer__name",
+            "workorder__budget__problem_description",
+            "workorder__budget__notes",
+            "notes",
+        ),
+    )
+    workorder_query = Q(workorder__id__icontains=search) | Q(workorder__budget__number__icontains=search) | Q(workorder__budget__id__icontains=search)
+    return queryset.filter(search_query | workorder_query if search_query.children else workorder_query)
+
+
 class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = CollaboratorCommissionEntry
     template_name = "finance/commissions/report.html"
@@ -150,10 +182,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         )
         filter_params = self._get_filter_params()
 
-        if filter_params["start_date"] is not None:
-            queryset = queryset.filter(criado_em__date__gte=filter_params["start_date"])
-        if filter_params["end_date"] is not None:
-            queryset = queryset.filter(criado_em__date__lte=filter_params["end_date"])
+        queryset = apply_commission_date_filter(queryset, filter_params["start_date"], filter_params["end_date"])
         if not filter_params["has_modal_date_filter"]:
             queryset = queryset.filter(reference_month=filter_params["month"], reference_year=filter_params["year"])
         if filter_params["collaborator_id"] is not None:
@@ -162,19 +191,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             queryset = queryset.filter(status=filter_params["status"])
 
         search = str(self.request.GET.get("search") or "").strip()
-        if search:
-            search_query = build_text_search_query(
-                search_value=search,
-                lookups=(
-                    "collaborator__name",
-                    "workorder__budget__customer__name",
-                    "workorder__budget__problem_description",
-                    "workorder__budget__notes",
-                    "notes",
-                ),
-            )
-            workorder_query = Q(workorder__id__icontains=search) | Q(workorder__budget__number__icontains=search) | Q(workorder__budget__id__icontains=search)
-            queryset = queryset.filter(search_query | workorder_query if search_query.children else workorder_query)
+        queryset = apply_commission_search_filter(queryset, search)
 
         return queryset
 
@@ -364,16 +381,14 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         collaborator_id = self._get_selected_collaborator_id()
         status = self._get_selected_status()
 
-        if start_date is not None:
-            queryset = queryset.filter(criado_em__date__gte=start_date)
-        if end_date is not None:
-            queryset = queryset.filter(criado_em__date__lte=end_date)
-        if start_date is None and end_date is None:
-            queryset = queryset.filter(reference_month=selected_month, reference_year=selected_year)
         if collaborator_id is not None:
             queryset = queryset.filter(collaborator_id=collaborator_id)
         if status:
             queryset = queryset.filter(status=status)
+        if start_date is None and end_date is None:
+            queryset = queryset.filter(reference_month=selected_month, reference_year=selected_year)
+        queryset = apply_commission_date_filter(queryset, start_date, end_date)
+        queryset = apply_commission_search_filter(queryset, self.request.GET.get("search"))
 
         return queryset
 
@@ -437,7 +452,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         collaborator_filter = None
         if collaborator_id:
             try:
-                collaborator_filter = WorkshopCollaborator.objects.get(pk=collaborator_id).name
+                collaborator_filter = WorkshopCollaborator.objects.get(pk=collaborator_id, workshop=self.workshop).name
             except WorkshopCollaborator.DoesNotExist:
                 pass
 

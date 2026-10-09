@@ -28,12 +28,29 @@ from apps.finance.forms.emission_ui import (
     parse_discount_value_override,
 )
 from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
+from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
 from apps.finance.forms.nfse import clean_required_codigo_nbs, consumidor_final_widget_value
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.finance.models.finance import NfeRequest, NfseRequest
 from apps.workorder.models import WorkOrder, WorkOrderStatus
+
+
+def _workorder_has_billable_product_and_service_totals(workorder: WorkOrder) -> bool:
+    """Indica se a OS possui valor de produto e de serviço para emissão fiscal.
+
+    Retorna True quando ambos os totais são positivos. Em caso de falha ao
+    apurar os totais, mantém a OS na listagem (comportamento anterior).
+    """
+    try:
+        products_total = workorder.total_products_value
+        services_total = workorder.total_services_value
+    except Exception:
+        return True
+    products_amount = getattr(products_total, "amount", products_total) or Decimal("0")
+    services_amount = getattr(services_total, "amount", services_total) or Decimal("0")
+    return Decimal(str(products_amount)) > 0 and Decimal(str(services_amount)) > 0
 
 
 EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal de Produto"), ("nfse", "Nota Fiscal de Serviço")]
@@ -514,12 +531,15 @@ class EmissionStep1Form(CoreForm):
             queryset = (
                 WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED)
                 .select_related("budget", "budget__customer", "budget__vehicle")
+                .prefetch_related(workorder_items_with_kit_prefetch())
                 .annotate(
                     has_nfe=Exists(nfe_exists),
                     has_nfse=Exists(nfse_exists),
                 )
                 .exclude(has_nfe=True, has_nfse=True)
             )
+            billable_ids = [item.pk for item in queryset.order_by("-id") if _workorder_has_billable_product_and_service_totals(item)]
+            queryset = queryset.filter(pk__in=billable_ids)
 
         field = self.fields["workorder"]
         field.queryset = queryset.order_by("-id")

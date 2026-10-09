@@ -310,6 +310,26 @@ def _explode_kit_product_rows(*, kit_line, kit_item, snapshot: Any | None = None
     return produtos
 
 
+def _service_sale_weights(entries: list[tuple[Any, int, Money]]) -> list[Decimal]:
+    """Rateio da venda alocada do kit entre seus serviços.
+
+    Usa o valor bruto; quando ele é zero (serviços gratuitos com custo
+    mecânico alocado), recorre à duração e, por fim, à quantidade — sem esse
+    fallback o valor alocado some das linhas explodidas.
+    """
+    weights: list[Decimal] = []
+    for override, total_quantity, raw_total in entries:
+        if raw_total.amount > 0:
+            weights.append(raw_total.amount)
+            continue
+        duration = getattr(override, "duration", None)
+        if duration:
+            weights.append(Decimal(int(duration.total_seconds() * total_quantity)))
+            continue
+        weights.append(Decimal(total_quantity))
+    return weights
+
+
 def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
     kit_quantity = kit_item.quantity
     labor_entries: list[tuple[Any, int, Money, Money]] = []
@@ -331,8 +351,10 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
             )
         )
 
-    allocated_labor_totals = _distribute_totals(
-        base_values=[raw_total for _, _, raw_total, _ in labor_entries],
+    allocated_labor_totals = _distribute_money_by_weights(
+        weights=_service_sale_weights(
+            [(override, total_quantity, raw_total) for override, total_quantity, raw_total, _ in labor_entries]
+        ),
         target_total=kit_line.allocated_labor_total,
     )
     cost_weights = [
@@ -389,8 +411,8 @@ def _explode_kit_service_rows(*, kit_line, kit_item) -> list[dict[str, Any]]:
     third_party_net_target = kit_line.allocated_third_party_total - third_party_shipping_total
     if third_party_net_target.amount < 0:
         third_party_net_target = Money(0, "BRL")
-    allocated_third_party_totals = _distribute_totals(
-        base_values=third_party_raw_bases,
+    allocated_third_party_totals = _distribute_money_by_weights(
+        weights=_service_sale_weights([(override, total_quantity, raw) for raw, (override, total_quantity) in zip(third_party_raw_bases, third_party_entries)]),
         target_total=third_party_net_target,
     )
     allocated_third_party_costs = _distribute_totals(
