@@ -101,6 +101,71 @@ def _has_importable_nf_items(nf_data: dict[str, Any] | None) -> bool:
     return bool(nf_data and nf_data.get("items"))
 
 
+def get_sefaz_cached_notes_page(*, workshop, request):
+    """Pagina a lista de notas do cache SEFAZ (reutilizado pela etapa unificada)."""
+    queryset = SefazZipCache.objects.filter(workshop=workshop).order_by("-issue_date", "-criado_em")
+
+    page_number = request.GET.get("page", 1) if request else 1
+    paginator = Paginator(queryset, 10)
+    page_obj = paginator.get_page(page_number)
+
+    imported_keys = StockImport.objects.filter(workshop=workshop).values_list("nf_key", flat=True)
+    for nota in page_obj:
+        nota.is_imported = nota.key in imported_keys
+
+    return page_obj
+
+
+def fill_import_from_sefaz_key(*, instance, key: str, workshop) -> None:
+    """Baixa a NF completa da SEFAZ e preenche a importação (sem salvar por padrão do chamador)."""
+    with workshop_certificate_temp_path(workshop) as certificate_path:
+        xml_completo = get_sefaz_service().consultar_distribuicao(
+            certificado_path=certificate_path,
+            certificado_senha=workshop.certificate_password,
+            uf=workshop.uf,
+            cnpj=re.sub(r"\D", "", workshop.cnpj),
+            chave=key,
+        )
+
+    nf_data = NFParser.parse_nfe_xml_to_dict(workshop, xml_completo)
+
+    if not nf_data:
+        raise forms.ValidationError("Não foi possível interpretar o XML retornado pela SEFAZ.")
+
+    if not _has_importable_nf_items(nf_data):
+        raise forms.ValidationError(NF_WITHOUT_ITEMS_MESSAGE)
+
+    nfe_xml = _extract_nfe_xml_from_sefaz_response(xml_completo)
+    stored = save_import_xml_file(
+        content=nfe_xml,
+        filename=f"NF-{key}.xml",
+        content_type="application/xml",
+        workshop_id=workshop.id,
+        nf_key=key,
+    )
+
+    nf_data["xml_file_key"] = stored.file_id
+    resolved_nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
+    instance.nf_number = resolved_nf_number
+    instance.nf_key = nf_data["nf_key"]
+    instance.supplier_cnpj = nf_data["supplier_cnpj"]
+    instance.supplier_name = nf_data["supplier_name"]
+    instance.items_data = nf_data["items"]
+    instance.payments_data = nf_data["payments"]
+    instance.xml_file_key = nf_data.get("xml_file_key", "")
+    instance.fiscal_snapshot = nf_data.get("fiscal_snapshot", {})
+    if instance.fiscal_snapshot:
+        instance.fiscal_validation_status = StockImport.FiscalValidationStatus.VALIDATED
+        instance.fiscal_validated_at = timezone.now()
+    instance.method = "SEFAZ"
+
+    SefazZipCache.objects.filter(workshop=workshop, key=instance.nf_key).update(
+        nf_number=resolved_nf_number or None,
+        issuer_name=instance.supplier_name,
+        issuer_cnpj=instance.supplier_cnpj,
+    )
+
+
 # Stock
 
 
@@ -1066,17 +1131,7 @@ class ImportSefazListForm(CoreModelForm):
         self.import_payments = kwargs.pop("import_payments", [])
         super().__init__(*args, **kwargs)
 
-        queryset = SefazZipCache.objects.filter(workshop=self.workshop).order_by("-issue_date", "-criado_em")
-
-        page_number = self.request.GET.get("page", 1) if self.request else 1
-        paginator = Paginator(queryset, 10)
-        self.page_obj = paginator.get_page(page_number)
-
-        imported_keys = StockImport.objects.filter(workshop=self.workshop).values_list("nf_key", flat=True)
-
-        for nota in self.page_obj:
-            nota.is_imported = nota.key in imported_keys
-
+        self.page_obj = get_sefaz_cached_notes_page(workshop=self.workshop, request=self.request)
         self.notas = self.page_obj
 
         self.helper = FormHelper()
@@ -1155,52 +1210,7 @@ class ImportSefazListForm(CoreModelForm):
 
         if key:
             try:
-                with workshop_certificate_temp_path(self.workshop) as certificate_path:
-                    xml_completo = get_sefaz_service().consultar_distribuicao(
-                        certificado_path=certificate_path,
-                        certificado_senha=self.workshop.certificate_password,
-                        uf=self.workshop.uf,
-                        cnpj=re.sub(r"\D", "", self.workshop.cnpj),
-                        chave=key,
-                    )
-
-                nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo)
-
-                if not nf_data:
-                    raise forms.ValidationError("Não foi possível interpretar o XML retornado pela SEFAZ.")
-
-                if not _has_importable_nf_items(nf_data):
-                    raise forms.ValidationError(NF_WITHOUT_ITEMS_MESSAGE)
-
-                nfe_xml = _extract_nfe_xml_from_sefaz_response(xml_completo)
-                stored = save_import_xml_file(
-                    content=nfe_xml,
-                    filename=f"NF-{key}.xml",
-                    content_type="application/xml",
-                    workshop_id=self.workshop.id,
-                    nf_key=key,
-                )
-
-                nf_data["xml_file_key"] = stored.file_id
-                resolved_nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
-                instance.nf_number = resolved_nf_number
-                instance.nf_key = nf_data["nf_key"]
-                instance.supplier_cnpj = nf_data["supplier_cnpj"]
-                instance.supplier_name = nf_data["supplier_name"]
-                instance.items_data = nf_data["items"]
-                instance.payments_data = nf_data["payments"]
-                instance.xml_file_key = nf_data.get("xml_file_key", "")
-                instance.fiscal_snapshot = nf_data.get("fiscal_snapshot", {})
-                if instance.fiscal_snapshot:
-                    instance.fiscal_validation_status = StockImport.FiscalValidationStatus.VALIDATED
-                    instance.fiscal_validated_at = timezone.now()
-                instance.method = "SEFAZ"
-
-                SefazZipCache.objects.filter(workshop=self.workshop, key=instance.nf_key).update(
-                    nf_number=resolved_nf_number or None,
-                    issuer_name=instance.supplier_name,
-                    issuer_cnpj=instance.supplier_cnpj,
-                )
+                fill_import_from_sefaz_key(instance=instance, key=key, workshop=self.workshop)
             except forms.ValidationError:
                 raise
             except Exception as e:
@@ -1226,6 +1236,90 @@ class ImportSefazListForm(CoreModelForm):
             self.add_error(None, "Selecione uma NF antes de avançar.")
 
         return cleaned_data
+
+
+class ImportMethodStepForm(ImportStep1Form):
+    """Etapa 1 unificada: seleção do método + conteúdo do método (SEFAZ padrão).
+
+    Mantém o método já escolhido pelo usuário (rascunhos) e só usa SEFAZ como
+    padrão para novas importações. A troca de método re-renderiza a etapa via HTMX.
+    """
+
+    selected_key = forms.CharField(widget=forms.HiddenInput(), required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        valid_methods = {choice for choice, _label in StockImport.ImportMethods.choices}
+        requested_method = (self.request.GET.get("method") if self.request else "") or ""
+        if requested_method in valid_methods:
+            selected_method = requested_method
+        elif self.instance and self.instance.method:
+            selected_method = self.instance.method
+        else:
+            selected_method = StockImport.ImportMethods.SEFAZ
+        self.fields["method"].initial = selected_method
+
+        if self.instance and self.instance.pk:
+            method_url = f"{reverse('stock:stock_update', kwargs={'pk': self.instance.pk})}?step=1"
+        else:
+            method_url = f"{reverse('stock:import')}?step=1"
+        self.fields["method"].widget = SearchableSelectInput(
+            choices=StockImport.ImportMethods.choices,
+            attrs={
+                "x-model": "method",
+                "hx-get": method_url,
+                "hx-target": "#step-container",
+                "hx-push-url": "true",
+                "hx-trigger": "change",
+                "hx-indicator": "#loading-spinner",
+            },
+        )
+
+        self.page_obj = get_sefaz_cached_notes_page(workshop=self.workshop, request=self.request)
+        self.notas = self.page_obj
+
+        self.helper.layout = Layout(
+            Div(
+                Div(
+                    HTML('<h2 class="text-2xl font-bold mb-6">Método de Importação</h2>'),
+                    Field("method"),
+                    css_class="col-span-12 lg:col-span-5",
+                ),
+                Div(css_class="hidden lg:block lg:col-span-2"),
+                Div(
+                    Div(Field("xml_file", css_class="file-input file-input-bordered w-full"), x_show="method == 'XML'"),
+                    Div(Field("access_key", css_class="input input-bordered w-full"), x_show="method == 'KEY'"),
+                    HTML('<p class="text-base-content/70" x-show="method == \'MANUAL\'">Informe o fornecedor e os itens manualmente nas próximas etapas.</p>'),
+                    css_class="col-span-12 lg:col-span-5",
+                ),
+                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+            ),
+            Div(
+                Field("selected_key", id="id_selected_key"),
+                HTML("{% include 'stock/partials/sefaz_table.html' %}"),
+                x_show="method == 'SEFAZ'",
+            ),
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        method = cleaned_data.get("method")
+        if method == "SEFAZ" and not cleaned_data.get("selected_key"):
+            self.add_error(None, "Selecione uma NF antes de avançar.")
+        return cleaned_data
+
+    def save(self, commit=True):
+        method = self.cleaned_data.get("method")
+        selected_key = self.cleaned_data.get("selected_key")
+        if method == "SEFAZ" and selected_key:
+            try:
+                fill_import_from_sefaz_key(instance=self.instance, key=selected_key, workshop=self.workshop)
+            except forms.ValidationError:
+                raise
+            except Exception as e:
+                raise forms.ValidationError(f"Erro ao baixar nota completa: {e}")
+        return super().save(commit=commit)
 
 
 class ImportStepSupplierManualForm(CoreModelForm):

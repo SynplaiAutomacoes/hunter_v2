@@ -34,8 +34,8 @@ from .forms import (
     AdditionalChargeSessionForm,
     ManualLinkItemEditForm,
     ImportManualItemsForm,
+    ImportMethodStepForm,
     ImportSefazListForm,
-    ImportStep1Form,
     ImportStepItemsForm,
     ImportStepPaymentForm,
     ImportStepSummaryForm,
@@ -728,13 +728,10 @@ class StockImportCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScope
         obj = self.get_object()
 
         base_steps = [
-            {"title": "Método de Importação", "form_class": ImportStep1Form},
+            {"title": "Importação de NF", "form_class": ImportMethodStepForm},
         ]
 
         if obj:
-            if obj.method == "SEFAZ":
-                base_steps.append({"title": "Seleção de NF", "form_class": ImportSefazListForm})
-
             if obj.method == "MANUAL":
                 base_steps.extend(
                     [
