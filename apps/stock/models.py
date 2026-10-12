@@ -316,7 +316,7 @@ class StockImport(TimeStampedModel):
     current_step = models.PositiveIntegerField(default=1)
     items_data = models.JSONField(default=list)
     payments_data = models.JSONField(default=list)
-    method = models.CharField(verbose_name="Selecione o método de Importação de Itens", max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
+    method = models.CharField(verbose_name="Selecione o método de Importação de Itens", max_length=30, choices=ImportMethods.choices, default=ImportMethods.SEFAZ)
     xml_file_key = models.CharField(max_length=1024, blank=True, default="", db_index=True, verbose_name="XML no Bucket")
     fiscal_document = models.OneToOneField("finance.FiscalDocument", on_delete=models.PROTECT, null=True, blank=True, related_name="purchase_stock_import", verbose_name="Documento fiscal externo")
     fiscal_snapshot = models.JSONField(default=dict, blank=True, verbose_name="Snapshot fiscal normalizado")
