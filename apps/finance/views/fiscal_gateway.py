@@ -60,18 +60,6 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             description="Abre a Central de Notas para selecionar a NF-e e emitir a CC-e pelo fluxo existente.",
             icon="edit_note",
         ),
-        FiscalOperationCard(
-            value=FiscalOperation.COMPLEMENTARY,
-            label="Nota Complementar",
-            description="Abre a Central de Notas para selecionar a NF-e e usar a emissão complementar existente.",
-            icon="add_notes",
-        ),
-        FiscalOperationCard(
-            value=FiscalOperation.ADJUSTMENT,
-            label="Nota de Ajuste",
-            description="Abre a Central de Notas para acessar a operação de ajuste já disponível no detalhe da NF-e.",
-            icon="tune",
-        ),
     )
     LINKAGE_CARDS: ClassVar[tuple[FiscalOperationCard, ...]] = (
         FiscalOperationCard(
@@ -103,8 +91,6 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
     )
     EXISTING_OPERATION_MESSAGES: ClassVar[dict[str, str]] = {
         FiscalOperation.CORRECTION: "Selecione uma NF-e e abra seus detalhes para usar o atalho Carta de Correção.",
-        FiscalOperation.COMPLEMENTARY: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota Complementar.",
-        FiscalOperation.ADJUSTMENT: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota de Ajuste.",
     }
 
     def _is_legacy_wizard_request(self) -> bool:

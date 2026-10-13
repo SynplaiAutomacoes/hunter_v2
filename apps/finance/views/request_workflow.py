@@ -1,16 +1,33 @@
 from __future__ import annotations
 
+import json
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.html import strip_tags
 from django.views.generic import CreateView
 
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
+
+
+def _first_form_error_message(form) -> str:
+    """Extrai o primeiro erro do formulário em texto puro para exibição em toast."""
+    for field_name, errors in form.errors.items():
+        error_text = str(errors[0]) if errors else ""
+        if field_name == "__all__":
+            return strip_tags(error_text).strip()
+        try:
+            label = str(form.fields[field_name].label or field_name)
+        except KeyError:
+            label = str(field_name)
+        return strip_tags(f"{label}: {error_text}").strip()
+    return ""
 
 
 def build_preview_hidden_fields(*, cleaned_data: dict[str, object]) -> list[dict[str, str]]:
@@ -203,6 +220,14 @@ class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
             response["HX-Redirect"] = success_url
             return response
         return redirect(success_url)
+
+    def form_invalid(self, form):
+        response = super().form_invalid(form)
+        if getattr(self.request, "htmx", False):
+            error_message = _first_form_error_message(form)
+            if error_message:
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": error_message, "type": "error"}})
+        return response
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
