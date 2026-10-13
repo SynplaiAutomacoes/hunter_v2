@@ -225,6 +225,7 @@ Indice completo: [abrir documentacao tecnica](docs/README.md).
 | [Fiscal, NFe/NFSe e Webmania](docs/09-fiscal-nfe-nfse-e-webmania.md) | para emissao, webhook, certificado e integracao fiscal |
 | [Deploy, build e operacao](docs/10-deploy-build-e-operacao.md) | para Docker, Railway, startup e troubleshooting operacional |
 | [Glossario](docs/11-glossario.md) | para termos do dominio e nomenclaturas internas |
+| [Chat de suporte](docs/13-chat-de-suporte.md) | para o assistente Hunter, a API externa e o controle de acesso |
 
 ## Arquivos-chave para entender o sistema
 

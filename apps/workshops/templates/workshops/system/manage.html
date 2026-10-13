@@ -38,5 +38,20 @@
             </div>
         </div>
     </div>
+    <div class="card bg-base-100 shadow-xl border border-base-200 hover:shadow-2xl transition-shadow">
+        <div class="card-body">
+            <div class="flex items-center gap-3 mb-2 text-primary">
+                <span class="material-icons text-3xl">support_agent</span>
+                <h2 class="card-title text-lg">Acesso ao Chat</h2>
+            </div>
+            <p class="text-sm text-base-content/70">Defina quais usuários estão bloqueados e quais oficinas estão com o chat desabilitado.</p>
+            <div class="card-actions justify-end mt-4">
+                <a href="{% url 'workshops:system_chat_access' %}" class="btn btn-primary btn-sm">
+                    Gerenciar Acesso
+                    <span class="material-icons text-sm">arrow_forward</span>
+                </a>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

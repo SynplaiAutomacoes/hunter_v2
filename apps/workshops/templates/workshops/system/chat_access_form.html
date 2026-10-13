@@ -1,0 +1,131 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+{{ blocked_users_map|json_script:"chat-blocked-users" }}
+{{ disabled_workshops_map|json_script:"chat-disabled-workshops" }}
+{{ users_map|json_script:"chat-users-map" }}
+{{ workshops_map|json_script:"chat-workshops-map" }}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-base-content">Acesso ao Chat</h1>
+    <p class="text-base-content/70 mt-1">Todos têm acesso por padrão. Adicione abaixo os usuários bloqueados e as oficinas com chat desabilitado.</p>
+</div>
+
+<form method="post" x-data="chatAccessForm()" x-init="init()" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    {% csrf_token %}
+
+    <div class="card bg-base-100 shadow-xl border border-base-200">
+        <div class="card-body space-y-2">
+            <div class="flex items-center gap-3 text-error">
+                <span class="material-icons text-3xl">person_off</span>
+                <h2 class="card-title text-lg">Usuários Bloqueados</h2>
+            </div>
+            <p class="text-xs text-base-content/70">Usuário bloqueado perde o chat em todas as oficinas.</p>
+            <div class="flex items-center gap-2" @searchable-change="pendingUserId = $event.detail ? String($event.detail.value || '') : ''">
+                <div class="flex-1">{{ form.blocked_user_select }}</div>
+                <button type="button" class="btn btn-error btn-sm gap-1 shrink-0" @click="addUser()" :disabled="!pendingUserId">
+                    <span class="material-icons text-sm">add</span>
+                    Bloquear
+                </button>
+            </div>
+            <template x-for="u in blockedUsers" :key="'h-bu-' + u.id">
+                <input type="hidden" name="blocked_users" :value="u.id">
+            </template>
+            <div class="min-h-24 p-3 bg-base-200/50 rounded-lg border border-base-200">
+                <span class="text-xs font-semibold text-base-content/70">Bloqueados (<span x-text="blockedUsers.length"></span>):</span>
+                <template x-if="blockedUsers.length === 0">
+                    <span class="text-xs text-base-content/40 italic block p-2">Nenhum usuário bloqueado.</span>
+                </template>
+                <div class="flex flex-col gap-2 mt-2" x-show="blockedUsers.length > 0">
+                    <template x-for="u in blockedUsers" :key="u.id">
+                        <div class="flex items-center justify-between p-2 rounded-lg bg-base-100 border border-base-200 shadow-sm">
+                            <span class="text-xs font-semibold truncate" x-text="u.name"></span>
+                            <button type="button" @click="removeUser(u.id)" class="btn btn-ghost btn-xs btn-circle text-error" title="Desbloquear">
+                                <span class="material-icons text-sm">close</span>
+                            </button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl border border-base-200">
+        <div class="card-body space-y-2">
+            <div class="flex items-center gap-3 text-warning">
+                <span class="material-icons text-3xl">store</span>
+                <h2 class="card-title text-lg">Oficinas sem Chat</h2>
+            </div>
+            <p class="text-xs text-base-content/70">Oficina desabilitada remove o chat de todos os seus membros.</p>
+            <div class="flex items-center gap-2" @searchable-change="pendingWorkshopId = $event.detail ? String($event.detail.value || '') : ''">
+                <div class="flex-1">{{ form.disabled_workshop_select }}</div>
+                <button type="button" class="btn btn-warning btn-sm gap-1 shrink-0" @click="addWorkshop()" :disabled="!pendingWorkshopId">
+                    <span class="material-icons text-sm">add</span>
+                    Desabilitar
+                </button>
+            </div>
+            <template x-for="w in disabledWorkshops" :key="'h-dw-' + w.id">
+                <input type="hidden" name="disabled_workshops" :value="w.id">
+            </template>
+            <div class="min-h-24 p-3 bg-base-200/50 rounded-lg border border-base-200">
+                <span class="text-xs font-semibold text-base-content/70">Desabilitadas (<span x-text="disabledWorkshops.length"></span>):</span>
+                <template x-if="disabledWorkshops.length === 0">
+                    <span class="text-xs text-base-content/40 italic block p-2">Nenhuma oficina desabilitada.</span>
+                </template>
+                <div class="flex flex-col gap-2 mt-2" x-show="disabledWorkshops.length > 0">
+                    <template x-for="w in disabledWorkshops" :key="w.id">
+                        <div class="flex items-center justify-between p-2 rounded-lg bg-base-100 border border-base-200 shadow-sm">
+                            <span class="text-xs font-semibold truncate" x-text="w.name"></span>
+                            <button type="button" @click="removeWorkshop(w.id)" class="btn btn-ghost btn-xs btn-circle text-error" title="Habilitar">
+                                <span class="material-icons text-sm">close</span>
+                            </button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="md:col-span-2 flex justify-end gap-2">
+        <a href="{% url 'workshops:system_manage' %}" class="btn btn-ghost">Voltar</a>
+        <button type="submit" class="btn btn-primary gap-1">
+            <span class="material-icons text-sm">save</span>
+            Salvar
+        </button>
+    </div>
+</form>
+
+<script>
+    function chatAccessForm() {
+        return {
+            pendingUserId: '',
+            pendingWorkshopId: '',
+            blockedUsers: [],
+            disabledWorkshops: [],
+            usersMap: {},
+            workshopsMap: {},
+            init() {
+                const users = JSON.parse(document.getElementById('chat-blocked-users').textContent || '{}');
+                this.blockedUsers = Object.entries(users).map(([id, name]) => ({ id: String(id), name }));
+                const workshops = JSON.parse(document.getElementById('chat-disabled-workshops').textContent || '{}');
+                this.disabledWorkshops = Object.entries(workshops).map(([id, name]) => ({ id: String(id), name }));
+                this.usersMap = JSON.parse(document.getElementById('chat-users-map').textContent || '{}');
+                this.workshopsMap = JSON.parse(document.getElementById('chat-workshops-map').textContent || '{}');
+            },
+            addUser() {
+                if (!this.pendingUserId || this.blockedUsers.some(u => u.id === this.pendingUserId)) return;
+                const name = this.usersMap[this.pendingUserId] || this.pendingUserId;
+                this.blockedUsers.push({ id: this.pendingUserId, name });
+                this.pendingUserId = '';
+            },
+            removeUser(id) { this.blockedUsers = this.blockedUsers.filter(u => u.id !== id); },
+            addWorkshop() {
+                if (!this.pendingWorkshopId || this.disabledWorkshops.some(w => w.id === this.pendingWorkshopId)) return;
+                const name = this.workshopsMap[this.pendingWorkshopId] || this.pendingWorkshopId;
+                this.disabledWorkshops.push({ id: this.pendingWorkshopId, name });
+                this.pendingWorkshopId = '';
+            },
+            removeWorkshop(id) { this.disabledWorkshops = this.disabledWorkshops.filter(w => w.id !== id); },
+        };
+    }
+</script>
+{% endblock %}
