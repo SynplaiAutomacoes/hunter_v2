@@ -56,6 +56,8 @@
     backBtn.classList.toggle("hidden", name !== "session");
     navHome.classList.toggle("btn-active", name === "home");
     navMessages.classList.toggle("btn-active", name === "messages");
+    navHome.classList.toggle("text-primary", name === "home");
+    navMessages.classList.toggle("text-primary", name === "messages");
     if (name === "session") input.focus();
   }
   function addMessage(role, text) {

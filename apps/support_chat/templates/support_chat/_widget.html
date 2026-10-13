@@ -6,12 +6,12 @@
     class="btn btn-circle btn-primary shadow-lg fixed bottom-6 right-6 z-[150] text-2xl">💬</button>
   <div id="support-chat-panel" class="hidden fixed bottom-24 right-6 z-[150] w-[380px] max-w-[calc(100vw-3rem)] h-[560px] max-h-[70vh] card bg-base-100 shadow-2xl border border-base-300 flex-col overflow-hidden">
     <div class="flex items-center gap-2 px-4 py-3 bg-primary text-primary-content">
-      <button id="support-chat-back" class="btn btn-ghost btn-xs text-primary-content hidden" aria-label="Voltar para a Home">←</button>
+      <button id="support-chat-back" class="btn btn-ghost btn-sm text-primary-content hidden" aria-label="Voltar para a Home"><span class="material-icons text-3xl leading-none">arrow_back</span></button>
       <div class="flex-1">
         <div class="font-semibold">Assistente Hunter</div>
         <div class="text-xs opacity-80">Suporte e dados da oficina</div>
       </div>
-      <button id="support-chat-close" class="btn btn-ghost btn-xs text-primary-content" aria-label="Fechar chat">✕</button>
+      <button id="support-chat-close" class="btn btn-ghost btn-sm text-primary-content text-xl" aria-label="Fechar chat">✕</button>
     </div>
 
     <div class="flex-1 overflow-hidden flex flex-col">
@@ -41,8 +41,8 @@
     </div>
 
     <div class="border-t border-base-300 grid grid-cols-2">
-      <button id="support-chat-nav-home" type="button" class="btn btn-ghost btn-sm rounded-none">Home</button>
-      <button id="support-chat-nav-messages" type="button" class="btn btn-ghost btn-sm rounded-none">Mensagens</button>
+      <button id="support-chat-nav-home" type="button" class="btn btn-ghost rounded-none h-14 gap-2 hover:text-primary"><span class="material-icons">home</span>Home</button>
+      <button id="support-chat-nav-messages" type="button" class="btn btn-ghost rounded-none h-14 gap-2 hover:text-primary"><span class="material-icons">message</span>Mensagens</button>
     </div>
   </div>
 </div>
