@@ -4,7 +4,7 @@
 
 ## Objetivo
 
-O chat de suporte e um assistente em linguagem natural embutido em uma API externa. O usuario de oficina faz perguntas sobre os dados (DRE, clientes, orcamentos, OS, financeiro, estoque) e sobre o sistema (regras, telas, campos), e recebe respostas geradas pela API externa **Chat Hunter**, que consulta o mesmo Postgres do Hunter em modo somente leitura.
+O **Hunter Boss** e o assistente em linguagem natural embutido em uma API externa. O usuario de oficina faz perguntas sobre os dados (DRE, clientes, orcamentos, OS, financeiro, estoque) e sobre o sistema (regras, telas, campos), e recebe respostas geradas pela API externa **Chat Hunter**, que consulta o mesmo Postgres do Hunter em modo somente leitura.
 
 Principios do desenho:
 
@@ -73,7 +73,7 @@ Todos exigem login, oficina ativa com vinculo (`WorkshopMember` ativo), flag `SU
 
 ## Widget frontend
 
-Partial `support_chat/_widget.html` incluida em `templates/base.html`, visivel apenas quando `SUPPORT_CHAT_VISIBLE` e verdadeiro. FAB circular inferior direito; modal com 3 visoes:
+Partial `support_chat/_widget.html` incluida em `templates/base.html`, visivel apenas quando `SUPPORT_CHAT_VISIBLE` e verdadeiro. Botao flutuante circular ampliado (80px) com a imagem `static/image/assistent_chat_image.png`; header do modal exibe **Hunter Boss**; modal com 3 visoes:
 
 - **Home:** "Olá, como posso te ajudar?" + botao "Envie uma mensagem para nós" (icone `send`) — abre sessao nova.
 - **Sessao:** header com back-arrow (volta a Home) + bolhas usuario/assistente, markdown via `marked` + `DOMPurify` (CDN), chips de sugestoes no estado vazio, typing indicator, botao Cancelar (`AbortController`), `Esc` fecha.

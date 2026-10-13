@@ -1,14 +1,17 @@
+{% load static %}
 {% if SUPPORT_CHAT_VISIBLE %}
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js" crossorigin="anonymous"></script>
 <div id="support-chat-root">
   <button id="support-chat-fab" aria-label="Abrir chat de suporte"
-    class="btn btn-circle btn-primary shadow-lg fixed bottom-6 right-6 z-[150] text-2xl">💬</button>
+    class="btn btn-circle btn-primary shadow-lg fixed bottom-6 right-6 z-[150] w-20 h-20 p-1">
+    <img src="{% static 'image/assistent_chat_image.png' %}" alt="Hunter Boss" class="w-full h-full rounded-full object-cover" />
+  </button>
   <div id="support-chat-panel" class="hidden fixed bottom-24 right-6 z-[150] w-[380px] max-w-[calc(100vw-3rem)] h-[560px] max-h-[70vh] card bg-base-100 shadow-2xl border border-base-300 flex-col overflow-hidden">
     <div class="flex items-center gap-2 px-4 py-3 bg-primary text-primary-content">
       <button id="support-chat-back" class="btn btn-ghost btn-sm text-primary-content hidden" aria-label="Voltar para a Home"><span class="material-icons text-3xl leading-none">arrow_back</span></button>
       <div class="flex-1">
-        <div class="font-semibold">Assistente Hunter</div>
+        <div class="font-semibold">Hunter Boss</div>
         <div class="text-xs opacity-80">Suporte e dados da oficina</div>
       </div>
       <button id="support-chat-close" class="btn btn-ghost btn-sm text-primary-content text-xl" aria-label="Fechar chat">✕</button>
