@@ -36,6 +36,10 @@ def _resolve_member_and_workshop(request) -> tuple[Any, Any]:
         member = WorkshopMember.objects.get(user=request.user, workshop=workshop, is_active=True)
     except WorkshopMember.DoesNotExist as exc:
         raise ChatHunterError(status=403, message="Você não tem acesso ao chat nesta oficina.") from exc
+    from apps.support_chat.application.access_policy import can_use_chat
+
+    if not can_use_chat(user=request.user, workshop=workshop):
+        raise ChatHunterError(status=403, message="Você não tem acesso ao chat nesta oficina.")
     return member, workshop
 
 

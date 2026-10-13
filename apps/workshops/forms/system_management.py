@@ -80,3 +80,36 @@ class NotificationBroadcastForm(forms.Form):
             raise forms.ValidationError("Selecione pelo menos uma oficina ou um usuário destinatário para enviar a notificação.")
 
         return cleaned_data
+
+
+class SupportChatAccessForm(forms.Form):
+    """Blocklist do chat: usuários bloqueados (global) + oficinas com chat desabilitado."""
+
+    blocked_user_select = forms.ChoiceField(
+        required=False,
+        label="Bloquear Usuário",
+        widget=SearchableSelectInput(choices=[]),
+        help_text="Pesquise e selecione usuários para remover o acesso ao chat em todas as oficinas.",
+    )
+    disabled_workshop_select = forms.ChoiceField(
+        required=False,
+        label="Desabilitar Oficina",
+        widget=SearchableSelectInput(choices=[]),
+        help_text="Pesquise e selecione oficinas para remover o acesso ao chat de todos os seus membros.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        user_choices = [("", "Pesquisar usuário...")] + [
+            (str(u.id), f"{u.get_full_name()} ({u.username})" if u.get_full_name() else u.username)
+            for u in User.objects.filter(is_active=True).order_by("username")
+        ]
+        self.fields["blocked_user_select"].choices = user_choices
+        self.fields["blocked_user_select"].widget.choices = user_choices
+
+        workshop_choices = [("", "Pesquisar oficina...")] + [
+            (str(w.id), w.name) for w in Workshop.objects.filter(is_active=True).order_by("name")
+        ]
+        self.fields["disabled_workshop_select"].choices = workshop_choices
+        self.fields["disabled_workshop_select"].widget.choices = workshop_choices

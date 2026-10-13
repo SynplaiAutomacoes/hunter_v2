@@ -1,4 +1,4 @@
-{% if request.user.is_authenticated and active_workshop_id and SUPPORT_CHAT_ENABLED %}
+{% if SUPPORT_CHAT_VISIBLE %}
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js" crossorigin="anonymous"></script>
 <div id="support-chat-root">
