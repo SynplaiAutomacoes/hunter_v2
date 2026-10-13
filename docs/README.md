@@ -36,7 +36,7 @@ Este arquivo centraliza a navegacao da documentacao tecnica interna do projeto.
 | [10 - Deploy, build e operacao](10-deploy-build-e-operacao.md) | Docker, Railway, startup e manutencao |
 | [11 - Glossario](11-glossario.md) | termos do dominio e nomenclatura recorrente |
 | [12 - Observabilidade e telemetria](12-observabilidade-e-telemetria.md) | arquitetura de logs, traces, metrics e dashboards |
-| [13 - Chat de suporte](13-chat-de-suporte.md) | assistente Hunter, API externa e controle de acesso |
+| [13 - Chat de suporte](13-chat-de-suporte.md) | Hunter Boss, API externa e controle de acesso |
 
 ## Atalhos por necessidade
 
