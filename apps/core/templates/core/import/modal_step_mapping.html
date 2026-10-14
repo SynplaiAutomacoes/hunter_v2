@@ -1,0 +1,75 @@
+<dialog id="data-import-modal" class="modal" open>
+    <div class="modal-box w-11/12 max-w-3xl max-h-[90vh] overflow-y-auto bg-base-100 shadow-2xl border border-base-300">
+        <h3 class="font-bold text-xl mb-2 flex items-center gap-2">
+            <span class="material-icons">swap_horiz</span>
+            De-para — {{ adapter.label }}
+        </h3>
+        <p class="text-sm text-base-content/70 mb-4">
+            Arquivo <strong>{{ filename }}</strong> · {{ row_count }} linha{{ row_count|pluralize:"s" }}.
+            Associe cada coluna do sistema a uma coluna do arquivo.
+            Campos em <em>Ignorar</em> ficam vazios; valores monetários inválidos usam R$&nbsp;0,00 e o grupo ausente usa «Importação».
+        </p>
+
+        {% if error %}
+            <div class="alert alert-error mb-4">
+                <span>{{ error }}</span>
+            </div>
+        {% endif %}
+
+        <form
+            hx-post="{% url 'core:data_import_confirm' entity=entity_key %}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+            hx-indicator="find button[type=submit]"
+            hx-disabled-elt="find button[type=submit]"
+            class="space-y-3"
+        >
+            {% csrf_token %}
+            <input type="hidden" name="token" value="{{ token }}">
+
+            <div class="space-y-2">
+                {% for item in mapped_fields %}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 items-center border-b border-base-200 pb-2">
+                        <div>
+                            <span class="font-medium">{{ item.field.label }}</span>
+                            {% if item.field.required %}<span class="text-error">*</span>{% endif %}
+                            {% if item.field.help_text %}
+                                <div class="text-xs text-base-content/60">{{ item.field.help_text }}</div>
+                            {% endif %}
+                        </div>
+                        <select name="map_{{ item.field.key }}" class="select select-bordered select-sm w-full">
+                            <option value="">— Ignorar —</option>
+                            {% for header in headers %}
+                                <option value="{{ header }}" {% if item.selected == header %}selected{% endif %}>
+                                    {{ header }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="modal-action items-center">
+                <button
+                    type="button"
+                    class="btn btn-ghost"
+                    hx-get="{% url 'core:data_import_modal' entity=entity_key %}"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML"
+                    hx-disabled-elt="this"
+                >
+                    Voltar
+                </button>
+                <button type="submit" class="btn btn-primary gap-2">
+                    <span class="htmx-btn-spinner" aria-hidden="true">
+                        <span class="loading loading-spinner loading-xs"></span>
+                    </span>
+                    Revisar
+                </button>
+            </div>
+        </form>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''">fechar</button>
+    </form>
+</dialog>
