@@ -61,6 +61,16 @@ def _price_id_to_plan(price_id: str) -> str:
     return ""
 
 
+def _product_id_to_plan(product_id: str) -> str:
+    from django.conf import settings
+
+    if product_id and product_id == str(getattr(settings, "STRIPE_PRODUCT_ID_FULL", "") or ""):
+        return Plan.FULL
+    if product_id and product_id == str(getattr(settings, "STRIPE_PRODUCT_ID_BASIC", "") or ""):
+        return Plan.BASIC
+    return ""
+
+
 def _extract_account_id(data: dict[str, Any]) -> int | None:
     metadata = data.get("metadata") or {}
     raw = metadata.get("account_id") or data.get("client_reference_id")
@@ -114,13 +124,28 @@ def _extract_price_id(data: dict[str, Any]) -> str:
     return str(data.get("stripe_price_id") or "")
 
 
+def _extract_product_id(data: dict[str, Any]) -> str:
+    items = data.get("items") or {}
+    item_data = items.get("data") if isinstance(items, dict) else None
+    if isinstance(item_data, list) and item_data:
+        price = item_data[0].get("price") or {}
+        if isinstance(price, dict):
+            product = price.get("product")
+            if isinstance(product, dict):
+                return str(product.get("id") or "")
+            return str(product or "")
+    return str(data.get("stripe_product_id") or "")
+
+
 def _plan_from_data(data: dict[str, Any]) -> str:
     metadata = data.get("metadata") or {}
     plan = str(metadata.get("plan") or "")
     if plan in (Plan.BASIC, Plan.FULL):
         return plan
-    price_id = _extract_price_id(data)
-    mapped = _price_id_to_plan(price_id)
+    mapped = _product_id_to_plan(_extract_product_id(data))
+    if mapped:
+        return mapped
+    mapped = _price_id_to_plan(_extract_price_id(data))
     return mapped or Plan.BASIC
 
 

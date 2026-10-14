@@ -104,6 +104,36 @@ def construct_webhook_event(*, payload: bytes, signature_header: str) -> dict[st
     }
 
 
+def _marketing_features_from_product(product_data: dict[str, Any]) -> list[str]:
+    marketing_features: list[str] = []
+    raw_features = product_data.get("marketing_features") or []
+    if not isinstance(raw_features, list):
+        return marketing_features
+    for feature in raw_features:
+        if isinstance(feature, dict):
+            name = str(feature.get("name") or "").strip()
+        else:
+            name = str(feature or "").strip()
+        if name:
+            marketing_features.append(name)
+    return marketing_features
+
+
+def _plan_payload_from_price_and_product(*, price: dict[str, Any], product: dict[str, Any]) -> dict[str, Any]:
+    recurring_data = _stripe_mapping(price.get("recurring"))
+    unit_amount = price.get("unit_amount")
+    return {
+        "id": str(price.get("id") or ""),
+        "unit_amount": int(unit_amount) if unit_amount is not None else None,
+        "currency": str(price.get("currency") or ""),
+        "interval": str(recurring_data.get("interval") or ""),
+        "product_id": str(product.get("id") or ""),
+        "product_name": str(product.get("name") or ""),
+        "product_description": str(product.get("description") or ""),
+        "marketing_features": _marketing_features_from_product(product),
+    }
+
+
 def retrieve_price(*, price_id: str) -> dict[str, Any]:
     _configure_stripe()
     if not stripe.api_key:
@@ -116,38 +146,69 @@ def retrieve_price(*, price_id: str) -> dict[str, Any]:
     except stripe.StripeError as exc:
         raise BillingServiceError(str(exc)) from exc
 
-    price = price_resource.to_dict()
-    product = price.get("product") or {}
-    if not isinstance(product, dict) and hasattr(product, "to_dict"):
-        product = product.to_dict()
-    product_data = product if isinstance(product, dict) else {}
+    price = _stripe_mapping(price_resource)
+    product_data = _stripe_mapping(price.get("product"))
+    return _plan_payload_from_price_and_product(price=price, product=product_data)
 
-    recurring = price.get("recurring") or {}
-    if not isinstance(recurring, dict) and hasattr(recurring, "to_dict"):
-        recurring = recurring.to_dict()
-    recurring_data = recurring if isinstance(recurring, dict) else {}
 
-    marketing_features: list[str] = []
-    raw_features = product_data.get("marketing_features") or []
-    if isinstance(raw_features, list):
-        for feature in raw_features:
-            if isinstance(feature, dict):
-                name = str(feature.get("name") or "").strip()
-            else:
-                name = str(feature or "").strip()
-            if name:
-                marketing_features.append(name)
+def _active_default_price(product_data: dict[str, Any]) -> dict[str, Any] | None:
+    default_price = product_data.get("default_price")
+    if isinstance(default_price, str) and default_price:
+        try:
+            price_resource = stripe.Price.retrieve(default_price)
+        except stripe.StripeError as exc:
+            raise BillingServiceError(str(exc)) from exc
+        price_data = _stripe_mapping(price_resource)
+        if price_data.get("active", True):
+            return price_data
+        return None
 
-    unit_amount = price.get("unit_amount")
-    return {
-        "id": str(price.get("id") or ""),
-        "unit_amount": int(unit_amount) if unit_amount is not None else None,
-        "currency": str(price.get("currency") or ""),
-        "interval": str(recurring_data.get("interval") or ""),
-        "product_name": str(product_data.get("name") or ""),
-        "product_description": str(product_data.get("description") or ""),
-        "marketing_features": marketing_features,
-    }
+    price_data = _stripe_mapping(default_price)
+    if not price_data:
+        return None
+    if price_data.get("active", True) is False:
+        return None
+    return price_data
+
+
+def _latest_active_recurring_price(*, product_id: str) -> dict[str, Any] | None:
+    try:
+        listed = stripe.Price.list(product=product_id, active=True, type="recurring", limit=100)
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    items = listed.data if hasattr(listed, "data") else (listed.get("data") if isinstance(listed, dict) else [])
+    prices: list[dict[str, Any]] = []
+    for item in items or []:
+        mapped = _stripe_mapping(item)
+        if mapped:
+            prices.append(mapped)
+    if not prices:
+        return None
+    prices.sort(key=lambda item: int(item.get("created") or 0), reverse=True)
+    return prices[0]
+
+
+def retrieve_product_plan(*, product_id: str) -> dict[str, Any]:
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    if not product_id:
+        raise BillingServiceError("Product ID do plano não configurado.")
+
+    try:
+        product_resource = stripe.Product.retrieve(product_id, expand=["default_price"])
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    product_data = _stripe_mapping(product_resource)
+    price_data = _active_default_price(product_data)
+    if price_data is None:
+        price_data = _latest_active_recurring_price(product_id=str(product_data.get("id") or product_id))
+    if price_data is None:
+        raise BillingServiceError("Produto Stripe sem preço recorrente ativo.")
+
+    return _plan_payload_from_price_and_product(price=price_data, product=product_data)
 
 
 def resolve_promotion_code(code: str) -> str:

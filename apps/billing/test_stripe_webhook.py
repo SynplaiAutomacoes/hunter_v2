@@ -108,6 +108,36 @@ class StripeWebhookTests(TestCase):
         self.assertEqual(result.status, SubscriptionStatus.ACTIVE)
         self.assertEqual(result.stripe_customer_id, "cus_new")
 
+    @override_settings(
+        STRIPE_PRODUCT_ID_FULL="prod_full",
+        STRIPE_PRODUCT_ID_BASIC="prod_basic",
+        STRIPE_PRICE_ID_FULL="price_full_legacy",
+        STRIPE_PRICE_ID_BASIC="price_basic_legacy",
+    )
+    def test_subscription_updated_resolves_plan_from_product_id(self) -> None:
+        result = process_stripe_event(
+            event_type="customer.subscription.updated",
+            data={
+                "id": "sub_product",
+                "customer": "cus_product",
+                "status": "active",
+                "metadata": {"account_id": str(self.account.pk)},
+                "items": {
+                    "data": [
+                        {
+                            "price": {
+                                "id": "price_full_new",
+                                "product": "prod_full",
+                            }
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.plan, SubscriptionPlan.FULL)
+
     def test_subscription_updated_reads_renewal_from_item(self) -> None:
         period_end = 1792608307
         result = process_stripe_event(
