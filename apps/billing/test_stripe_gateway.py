@@ -10,6 +10,7 @@ from apps.billing.infrastructure.gateways.stripe import (
     create_incomplete_subscription,
     resolve_promotion_code,
     retrieve_price,
+    retrieve_product_plan,
 )
 
 
@@ -39,6 +40,95 @@ class StripeGatewayTests(SimpleTestCase):
         self.assertEqual(result["interval"], "month")
         self.assertEqual(result["product_name"], "Hunter Orçamento")
         self.assertEqual(result["marketing_features"], ["Clientes e veículos", "Orçamentos"])
+        self.assertEqual(result["product_id"], "")
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Product.retrieve")
+    def test_retrieve_product_plan_uses_expanded_default_price(self, retrieve_product: Mock) -> None:
+        product_resource = Mock()
+        product_resource.to_dict.return_value = {
+            "id": "prod_full",
+            "name": "Hunter Completo",
+            "description": "Sistema completo.",
+            "marketing_features": [{"name": "OS"}, {"name": "Estoque"}],
+            "default_price": {
+                "id": "price_full_new",
+                "unit_amount": 24900,
+                "currency": "brl",
+                "active": True,
+                "recurring": {"interval": "month"},
+            },
+        }
+        retrieve_product.return_value = product_resource
+
+        result = retrieve_product_plan(product_id="prod_full")
+
+        retrieve_product.assert_called_once_with("prod_full", expand=["default_price"])
+        self.assertEqual(result["id"], "price_full_new")
+        self.assertEqual(result["unit_amount"], 24900)
+        self.assertEqual(result["product_id"], "prod_full")
+        self.assertEqual(result["product_name"], "Hunter Completo")
+        self.assertEqual(result["marketing_features"], ["OS", "Estoque"])
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Price.list")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Product.retrieve")
+    def test_retrieve_product_plan_falls_back_to_latest_active_price(
+        self,
+        retrieve_product: Mock,
+        list_prices: Mock,
+    ) -> None:
+        product_resource = Mock()
+        product_resource.to_dict.return_value = {
+            "id": "prod_full",
+            "name": "Hunter Completo",
+            "description": "",
+            "marketing_features": [],
+            "default_price": {"id": "price_inactive", "active": False, "unit_amount": 100},
+        }
+        retrieve_product.return_value = product_resource
+        list_prices.return_value = Mock(
+            data=[
+                {
+                    "id": "price_old",
+                    "created": 100,
+                    "unit_amount": 16000,
+                    "currency": "brl",
+                    "recurring": {"interval": "month"},
+                },
+                {
+                    "id": "price_new",
+                    "created": 200,
+                    "unit_amount": 24900,
+                    "currency": "brl",
+                    "recurring": {"interval": "month"},
+                },
+            ]
+        )
+
+        result = retrieve_product_plan(product_id="prod_full")
+
+        list_prices.assert_called_once_with(product="prod_full", active=True, type="recurring", limit=100)
+        self.assertEqual(result["id"], "price_new")
+        self.assertEqual(result["unit_amount"], 24900)
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Price.list")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Product.retrieve")
+    def test_retrieve_product_plan_raises_without_prices(
+        self,
+        retrieve_product: Mock,
+        list_prices: Mock,
+    ) -> None:
+        product_resource = Mock()
+        product_resource.to_dict.return_value = {
+            "id": "prod_empty",
+            "name": "Vazio",
+            "default_price": None,
+            "marketing_features": [],
+        }
+        retrieve_product.return_value = product_resource
+        list_prices.return_value = Mock(data=[])
+
+        with self.assertRaises(BillingServiceError):
+            retrieve_product_plan(product_id="prod_empty")
 
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")

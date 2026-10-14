@@ -30,22 +30,33 @@ from apps.billing.infrastructure.gateways import stripe as stripe_gateway
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_PLANS_CACHE_KEY = "billing:public_plans:v2"
+PUBLIC_PLANS_CACHE_KEY = "billing:public_plans:v3"
 PUBLIC_PLANS_CACHE_TTL_SECONDS = 300
 
 
 class StripeBillingService(IBillingService):
-    def _price_id_for_plan(self, plan: str) -> str:
+    def _product_id_for_plan(self, plan: str) -> str:
+        if plan == Plan.FULL:
+            return str(getattr(settings, "STRIPE_PRODUCT_ID_FULL", "") or "")
+        return str(getattr(settings, "STRIPE_PRODUCT_ID_BASIC", "") or "")
+
+    def _legacy_price_id_for_plan(self, plan: str) -> str:
         if plan == Plan.FULL:
             return str(getattr(settings, "STRIPE_PRICE_ID_FULL", "") or "")
         return str(getattr(settings, "STRIPE_PRICE_ID_BASIC", "") or "")
+
+    def _resolve_price_id(self, plan: str) -> str:
+        for card in self.list_public_plans():
+            if card.key == plan and card.stripe_price_id:
+                return card.stripe_price_id
+        return self._legacy_price_id_for_plan(plan)
 
     def create_checkout_session(self, request: CheckoutSessionRequest) -> CheckoutSessionResult:
         if request.plan not in (Plan.BASIC, Plan.FULL):
             raise BillingServiceError("Plano inválido.")
 
         result = stripe_gateway.create_checkout_session(
-            price_id=self._price_id_for_plan(request.plan),
+            price_id=self._resolve_price_id(request.plan),
             success_url=request.success_url,
             cancel_url=request.cancel_url,
             customer_email=request.customer_email,
@@ -83,12 +94,56 @@ class StripeBillingService(IBillingService):
         cache.set(PUBLIC_PLANS_CACHE_KEY, plans, PUBLIC_PLANS_CACHE_TTL_SECONDS)
         return plans
 
+    def _apply_stripe_plan_payload(
+        self,
+        *,
+        payload: dict[str, Any],
+        fallback_name: str,
+        fallback_description: str,
+        fallback_features: tuple[str, ...],
+    ) -> tuple[str, str, tuple[str, ...], str, str, str, int | None, str]:
+        name = str(payload.get("product_name") or fallback_name)
+        description = fallback_description
+        features = fallback_features
+        marketing_features = [str(item) for item in payload.get("marketing_features") or []]
+        product_description = str(payload.get("product_description") or "")
+        stripe_features = features_from_stripe_product(
+            description=product_description,
+            marketing_features=marketing_features,
+        )
+        if stripe_features:
+            features = stripe_features
+            description = description_for_plan_card(
+                description=product_description,
+                features=stripe_features,
+                used_marketing_features=bool(marketing_features),
+            )
+        unit_amount = payload.get("unit_amount")
+        currency = str(payload.get("currency") or "")
+        price_label = format_money_label(
+            unit_amount=unit_amount if isinstance(unit_amount, int) else None,
+            currency=currency,
+        )
+        interval_label = interval_label_for(str(payload.get("interval") or ""))
+        price_id = str(payload.get("id") or "")
+        return (
+            name,
+            description,
+            features,
+            price_label,
+            interval_label,
+            currency,
+            unit_amount if isinstance(unit_amount, int) else None,
+            price_id,
+        )
+
     def _build_plan_card(self, entry: dict[str, Any]) -> PublicPlanCard:
         key = str(entry["key"])
         fallback_name = str(entry["fallback_name"])
         fallback_description = str(entry["fallback_description"])
         fallback_features = tuple(str(item) for item in entry["features"])  # type: ignore[index]
-        price_id = self._price_id_for_plan(key)
+        product_id = self._product_id_for_plan(key)
+        legacy_price_id = self._legacy_price_id_for_plan(key)
 
         name = fallback_name
         description = fallback_description
@@ -97,30 +152,27 @@ class StripeBillingService(IBillingService):
         interval_label = ""
         currency = ""
         unit_amount: int | None = None
+        price_id = legacy_price_id
 
-        if price_id:
-            try:
-                price = stripe_gateway.retrieve_price(price_id=price_id)
-                name = str(price.get("product_name") or fallback_name)
-                marketing_features = [str(item) for item in price.get("marketing_features") or []]
-                product_description = str(price.get("product_description") or "")
-                stripe_features = features_from_stripe_product(
-                    description=product_description,
-                    marketing_features=marketing_features,
+        try:
+            if product_id:
+                payload = stripe_gateway.retrieve_product_plan(product_id=product_id)
+                name, description, features, price_label, interval_label, currency, unit_amount, price_id = self._apply_stripe_plan_payload(
+                    payload=payload,
+                    fallback_name=fallback_name,
+                    fallback_description=fallback_description,
+                    fallback_features=fallback_features,
                 )
-                if stripe_features:
-                    features = stripe_features
-                    description = description_for_plan_card(
-                        description=product_description,
-                        features=stripe_features,
-                        used_marketing_features=bool(marketing_features),
-                    )
-                unit_amount = price.get("unit_amount")
-                currency = str(price.get("currency") or "")
-                price_label = format_money_label(unit_amount=unit_amount if isinstance(unit_amount, int) else None, currency=currency)
-                interval_label = interval_label_for(str(price.get("interval") or ""))
-            except BillingServiceError as exc:
-                logger.warning("Falha ao carregar preço Stripe do plano %s: %s", key, exc)
+            elif legacy_price_id:
+                payload = stripe_gateway.retrieve_price(price_id=legacy_price_id)
+                name, description, features, price_label, interval_label, currency, unit_amount, price_id = self._apply_stripe_plan_payload(
+                    payload=payload,
+                    fallback_name=fallback_name,
+                    fallback_description=fallback_description,
+                    fallback_features=fallback_features,
+                )
+        except BillingServiceError as exc:
+            logger.warning("Falha ao carregar plano Stripe %s: %s", key, exc)
 
         return PublicPlanCard(
             key=key,
@@ -130,14 +182,14 @@ class StripeBillingService(IBillingService):
             price_label=price_label,
             interval_label=interval_label,
             currency=currency,
-            unit_amount=unit_amount if isinstance(unit_amount, int) else None,
+            unit_amount=unit_amount,
             stripe_price_id=price_id,
         )
 
     def create_incomplete_subscription(self, request: IncompleteSubscriptionRequest) -> IncompleteSubscriptionResult:
         if request.plan not in (Plan.BASIC, Plan.FULL):
             raise BillingServiceError("Plano inválido.")
-        price_id = request.price_id or self._price_id_for_plan(request.plan)
+        price_id = request.price_id or self._resolve_price_id(request.plan)
         result = stripe_gateway.create_incomplete_subscription(
             email=request.email,
             customer_name=request.customer_name,
