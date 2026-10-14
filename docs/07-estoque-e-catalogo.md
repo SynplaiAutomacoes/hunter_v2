@@ -92,6 +92,17 @@ Abra `apps.stock` quando a demanda envolver:
 - importacao de documentos/itens
 - divergencia entre item vendido e item disponivel
 
+## Importacao de NF-e via SEFAZ (stock)
+
+Fluxo de entrada por nota fiscal de compra (`SEFAZ → Fornecedor → Itens → Pagamento → Revisao`):
+
+- **Manual:** `StockImportCreateView` + botao "Atualizar Lista" (`RefreshSefazListView`) consultam a Distribuicao DF-e (`consulta_distribuicao` com certificado A1 via `pynfe`) e populam o cache `SefazZipCache`. O usuario escolhe a NF no wizard e so entao baixa o XML completo e cria o `StockImport`.
+- **Automatico:** `manage.py sync_stock_sefaz_distribuicao` (Cron externo, ver [Deploy](10-deploy-build-e-operacao.md)) executa a mesma sincronizacao de lista via `apps/stock/services/sefaz_distribution.py::sync_sefaz_distribution_for_workshop`. Persiste **somente** `SefazZipCache` + carimbos `Workshop.last_nsu_sefaz` / `last_sefaz_search_date`. **Nunca** cria `StockImport`, `StockMovement`, `StockProduct`, `FinancialMovement` ou `FiscalDocument`.
+- **Throttle compartilhado:** 1 consulta/hora por oficina (`Workshop.can_search_sefaz`), valido para manual e automatico. Se o Cron rodou ha menos de 1h, o botao manual exibe "Aguarde..." e vice-versa (lock transacional com `select_for_update` no comando).
+- **Janela do automatico:** default ~12:00 (±15min) + 19h–06h (`America/Sao_Paulo`), configuravel via `SEFAZ_AUTO_SYNC_*`. Fora da janela o comando encerra com `skipped_outside_window` sem chamar o SEFAZ.
+- **Resumos sem itens:** `resNFe` continua gerando `SefazZipCache` e exige manifestacao/download manual posterior (fora do escopo da automacao).
+- **Nao confundir:** `apps/scheduling` e agendamento de servicos da oficina (dominio), nao infraestrutura de scheduler. O auto-sync usa Cron externo, nao `apps/scheduling`.
+
 ## Checklist para mudancas nesse dominio
 
 - o item precisa existir no catalogo ou pode ser local?
