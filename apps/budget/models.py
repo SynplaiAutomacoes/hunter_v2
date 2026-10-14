@@ -176,7 +176,7 @@ class Budget(TimeStampedModel):
 
     # Status e Controle
     status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
-    cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
+    cancellation_reason = models.TextField(verbose_name="Motivo do Cancelamento", blank=True, null=True)
     cancellation_responsible = models.ForeignKey(
         "collaborators.WorkshopCollaborator",
         verbose_name="Responsável pelo atendimento no cancelamento",
@@ -185,7 +185,7 @@ class Budget(TimeStampedModel):
         null=True,
         blank=True,
     )
-    rejection_reason = models.CharField(verbose_name="Motivo da Reprovação", max_length=255, blank=True, null=True)
+    rejection_reason = models.TextField(verbose_name="Motivo da Reprovação", blank=True, null=True)
     rejection_responsible = models.ForeignKey(
         "collaborators.WorkshopCollaborator",
         verbose_name="Responsável pelo atendimento na reprovação",

@@ -183,7 +183,24 @@ uv run python manage.py migrate
 uv run python manage.py webhook
 uv run python manage.py reconcile_webmania_documents
 uv run python manage.py collectstatic --noinput
+uv run python manage.py sync_stock_sefaz_distribuicao --dry-run
+uv run python manage.py sync_stock_sefaz_distribuicao --force --workshop-id <id>
 ```
+
+## SEFAZ auto-sync do stock (Cron externo)
+
+A sincronizacao automatica da lista de NF-e (`SefazZipCache`) roda como **processo efemero de Cron**, nao dentro do `web` nem do `realtime`:
+
+- **Comando:** `uv run --env-file .env python manage.py sync_stock_sefaz_distribuicao` (em prod, sem `--env-file`, usando as envs do servico).
+- **Schedule sugerido na Railway** (servico Cron separado, mesma imagem/docker, `timeout 300`, sem sobreposicao):
+  - `*/15 12 * * *` (janela do meio-dia; o throttle de 1h garante no maximo 1 execucao efetiva)
+  - `*/20 19-23,0-6 * * *` (ciclo noturno)
+- **Fallback cron do SO/self-host:** mesma logica em `crontab -e` (nao commitar segredos).
+- **Envs:** `SEFAZ_AUTO_SYNC_ENABLED` (`1`), `SEFAZ_AUTO_SYNC_MIDDAY_HOUR` (`12`), `SEFAZ_AUTO_SYNC_MIDDAY_TOLERANCE_MINUTES` (`15`), `SEFAZ_AUTO_SYNC_NIGHT_START_HOUR` (`19`), `SEFAZ_AUTO_SYNC_NIGHT_END_HOUR` (`6`), `SEFAZ_AUTO_SYNC_LIMIT` (`100`), `SEFAZ_AUTO_SYNC_TIMEZONE` (`America/Sao_Paulo`). Ver [Configuracao do ambiente](03-configuracao-do-ambiente.md).
+- **Flags operacionais:** `--workshop-id`, `--limit`, `--dry-run` (lista sem chamar SEFAZ/sem salvar), `--force` (ignora a janela, nunca ignora throttle de 1h nem ausencia de certificado).
+- **Como verificar:** logs do Cron mostram `sefaz_auto_sync_summary processed=X skipped=Y failed=Z` e por oficina `cnpj_mask`, `cStat`, `cached_count`, `duration_ms`, `skipped_reason`. `Workshop.last_sefaz_search_date` deve avancar sem navegador aberto (prova de independencia de sessao) e continuar avancando apos restart do web (prova de sobrevivencia a restart).
+- **Se o certificado bloquear:** o SEFAZ pode throttlar por excesso de chamadas. O comando ja protege com 1 chamada/oficina/ciclo + throttle de 1h + sequencial. Se bloquear, confira se ha outro processo consultando (manual excessivo ou 2 Crons sobrepostos), revise `last_sefaz_search_date` e reduza a frequencia do schedule. Nunca logue senha/PFX (os logs usam `cnpj_mask`).
+- **Nao estender o poller `realtime`** (`run_due_outbound_messages`) para o SEFAZ: separacao de responsabilidades e SLA de 60s do outbound.
 
 ## Leitura complementar
 

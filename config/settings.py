@@ -287,6 +287,16 @@ DATABASES = {
     }
 }
 
+# SEFAZ auto-sync (stock): rotina server-side via `manage.py sync_stock_sefaz_distribuicao`,
+# agendada por Cron externo (Railway Cron / cron do SO). Sincroniza só a lista
+SEFAZ_AUTO_SYNC_ENABLED = os.getenv("SEFAZ_AUTO_SYNC_ENABLED", "1").lower() in ("1", "true", "yes")
+SEFAZ_AUTO_SYNC_MIDDAY_HOUR = int(os.getenv("SEFAZ_AUTO_SYNC_MIDDAY_HOUR", "12"))
+SEFAZ_AUTO_SYNC_MIDDAY_TOLERANCE_MINUTES = int(os.getenv("SEFAZ_AUTO_SYNC_MIDDAY_TOLERANCE_MINUTES", "15"))
+SEFAZ_AUTO_SYNC_NIGHT_START_HOUR = int(os.getenv("SEFAZ_AUTO_SYNC_NIGHT_START_HOUR", "19"))
+SEFAZ_AUTO_SYNC_NIGHT_END_HOUR = int(os.getenv("SEFAZ_AUTO_SYNC_NIGHT_END_HOUR", "6"))
+SEFAZ_AUTO_SYNC_LIMIT = int(os.getenv("SEFAZ_AUTO_SYNC_LIMIT", "100"))
+SEFAZ_AUTO_SYNC_TIMEZONE = os.getenv("SEFAZ_AUTO_SYNC_TIMEZONE", "America/Sao_Paulo")
+
 # Seconds before a PROCESSING outbound row is reclaimed to PENDING by the poller.
 OUTBOUND_PROCESSING_RECLAIM_SECONDS = int(os.getenv("OUTBOUND_PROCESSING_RECLAIM_SECONDS", "600"))
 

@@ -1,5 +1,13 @@
 from apps.core.infrastructure.models.abstract import TimeStampedModel, Address
 from apps.core.infrastructure.models.dashboard_monthly_snapshot import DashboardMonthlySnapshot
+from apps.core.infrastructure.models.data_import import DataImportBatch, DataImportBatchItem
 from apps.core.infrastructure.models.editing_lock import EditingLock
 
-__all__ = ["TimeStampedModel", "Address", "DashboardMonthlySnapshot", "EditingLock"]
+__all__ = [
+    "TimeStampedModel",
+    "Address",
+    "DashboardMonthlySnapshot",
+    "DataImportBatch",
+    "DataImportBatchItem",
+    "EditingLock",
+]

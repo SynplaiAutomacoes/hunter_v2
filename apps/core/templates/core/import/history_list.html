@@ -1,0 +1,69 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Histórico de importações{% endblock %}
+{% block crud_subtitle %}
+    {% if entity_label %}
+        Lotes de {{ entity_label }} nesta oficina.
+    {% else %}
+        Lotes de importação da oficina ativa.
+    {% endif %}
+{% endblock %}
+
+{% block crud_header_actions %}
+    {% if entity_filter %}
+        <a href="{% url 'core:data_import_history' %}" class="btn btn-ghost btn-sm">Ver todos</a>
+    {% endif %}
+{% endblock %}
+
+{% block crud_table %}
+    <div class="overflow-x-auto">
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Entidade</th>
+                    <th>Arquivo</th>
+                    <th>Criados</th>
+                    <th>Erros</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>{{ row.batch.criado_em|date:"d/m/Y H:i" }}</td>
+                        <td>{{ row.entity_label }}</td>
+                        <td class="max-w-xs truncate" title="{{ row.batch.filename }}">{{ row.batch.filename|default:"—" }}</td>
+                        <td>{{ row.batch.success_count }}</td>
+                        <td>{{ row.batch.error_count }}</td>
+                        <td>{{ row.batch.get_status_display }}</td>
+                        <td class="text-right whitespace-nowrap">
+                            <a href="{% url 'core:data_import_history_detail' batch_id=row.batch.pk %}" class="btn btn-ghost btn-xs">Detalhes</a>
+                            {% if row.can_rollback %}
+                                <button
+                                    type="button"
+                                    class="btn btn-warning btn-xs gap-1"
+                                    hx-get="{% url 'core:data_import_rollback_modal' batch_id=row.batch.pk %}"
+                                    hx-target="#modal-container"
+                                    hx-swap="innerHTML"
+                                    hx-indicator="this"
+                                    hx-disabled-elt="this"
+                                >
+                                    <span class="htmx-btn-spinner" aria-hidden="true">
+                                        <span class="loading loading-spinner loading-xs"></span>
+                                    </span>
+                                    Desfazer
+                                </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-base-content/60 py-8">Nenhuma importação registrada.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

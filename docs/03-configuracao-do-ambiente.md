@@ -204,6 +204,18 @@ Usado para envio de e-mails transacionais (fluxos de autenticacao por codigo). O
 | `DJANGO_LOG_LEVEL` | nivel de log de loggers especificos |
 | `DJANGO_ROOT_LOG_LEVEL` | nivel do root logger |
 
+### SEFAZ auto-sync (stock)
+
+| Variavel                                   | Uso                                                                                         |
+|--------------------------------------------|---------------------------------------------------------------------------------------------|
+| `SEFAZ_AUTO_SYNC_ENABLED`                  | liga/desliga o comando `sync_stock_sefaz_distribuicao` (`1`, default `1`; `--force` ignora) |
+| `SEFAZ_AUTO_SYNC_MIDDAY_HOUR`              | hora da janela do meio-dia (default `12`)                                                   |
+| `SEFAZ_AUTO_SYNC_MIDDAY_TOLERANCE_MINUTES` | tolerancia em minutos ao redor do meio-dia (default `15`)                                   |
+| `SEFAZ_AUTO_SYNC_NIGHT_START_HOUR`         | inicio da janela noturna, inclusivo (default `19`)                                          |
+| `SEFAZ_AUTO_SYNC_NIGHT_END_HOUR`           | fim da janela noturna, exclusivo, atravessa a meia-noite (default `6`)                      |
+| `SEFAZ_AUTO_SYNC_LIMIT`                    | maximo de oficinas por ciclo (default `100`)                                                |
+| `SEFAZ_AUTO_SYNC_TIMEZONE`                 | zona da janela (default `America/Sao_Paulo`)                                                |
+
 ### Variavel extra fora de `settings.py`
 
 | Variavel | Uso |
@@ -245,6 +257,14 @@ FIPE_SYNC_ACCESS_INTERVAL=500
 FIPE_FUEL_CACHE_TTL_HOURS=168
 FIPE_DEV_MODE=0
 FIPE_API_TOKEN=
+
+SEFAZ_AUTO_SYNC_ENABLED=1
+SEFAZ_AUTO_SYNC_MIDDAY_HOUR=12
+SEFAZ_AUTO_SYNC_MIDDAY_TOLERANCE_MINUTES=15
+SEFAZ_AUTO_SYNC_NIGHT_START_HOUR=19
+SEFAZ_AUTO_SYNC_NIGHT_END_HOUR=6
+SEFAZ_AUTO_SYNC_LIMIT=100
+SEFAZ_AUTO_SYNC_TIMEZONE=America/Sao_Paulo
 
 WEBMANIA_AMBIENT=2
 WEBMANIA_API_KEY=

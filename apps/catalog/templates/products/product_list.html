@@ -4,9 +4,13 @@
 {% block crud_subtitle %}Gerenciamento de peças e produtos do estoque.{% endblock %}
 
 {% block crud_header_actions %}
-    {% url 'catalog:product_create' as product_create_url %}
-    {% include 'favorites/partials/favoritable_action_link.html' with action_url=product_create_url action_label='Novo Produto' favorite_url=product_create_url favorite_label='Novo Produto' %}
+    <div class="flex items-center gap-2">
+        {% include 'core/import/partials/import_button.html' with entity_key='products' button_label='Importar' %}
+        {% url 'catalog:product_create' as product_create_url %}
+        {% include 'favorites/partials/favoritable_action_link.html' with action_url=product_create_url action_label='Novo Produto' favorite_url=product_create_url favorite_label='Novo Produto' %}
+    </div>
 {% endblock %}
+
 
 {% block crud_table_wrapper_id %}products-table-wrapper{% endblock %}
 {% block crud_table_hx_get %}{% url 'catalog:product_list' %}{% endblock %}

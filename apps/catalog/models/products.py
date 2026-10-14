@@ -64,7 +64,7 @@ class Product(TimeStampedModel):
     )
 
     # --- Dados de Identificação ---
-    code = models.CharField(verbose_name="Código", max_length=50)
+    code = models.CharField(verbose_name="Código", max_length=255)
     name = models.TextField(verbose_name="Produto")
     description = models.TextField(verbose_name="Descrição", blank=True)
     unit = models.CharField(verbose_name="Unidade", max_length=5, choices=Unit.choices)
@@ -74,7 +74,7 @@ class Product(TimeStampedModel):
     model = models.CharField(verbose_name="Modelo", max_length=100, blank=True)
 
     # --- Estoque e Localização ---
-    sku = models.CharField(verbose_name="SKU", max_length=50, blank=True)
+    sku = models.CharField(verbose_name="SKU", max_length=255, blank=True)
     barcode = models.CharField(verbose_name="Código de Barras", max_length=14, blank=True, validators=[validate_ean], help_text="EAN-13 ou EAN-8")
     location = models.CharField(verbose_name="Localização", max_length=100, blank=True)
 

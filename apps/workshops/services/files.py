@@ -39,6 +39,42 @@ class WorkshopFileStorageError(Exception):
     pass
 
 
+_STORAGE_AUTH_ERROR_CODES = frozenset(
+    {
+        "SignatureDoesNotMatch",
+        "InvalidAccessKeyId",
+        "InvalidSignatureException",
+        "InvalidClientTokenId",
+        "InvalidToken",
+        "ExpiredToken",
+        "AccessDenied",
+        "Forbidden",
+        "Unauthorized",
+    }
+)
+_STORAGE_NOT_FOUND_ERROR_CODES = frozenset({"NoSuchKey", "NotFound"})
+
+
+def _storage_client_error_code(exc: BaseException) -> str:
+    """Extrai o codigo de erro do provider (ex.: `NoSuchKey`) da cadeia de causas, sem expor segredos."""
+    current: BaseException | None = exc
+    for _ in range(5):
+        if current is None:
+            break
+        response = getattr(current, "response", None)
+        if isinstance(response, dict):
+            error = response.get("Error") or {}
+            code = str(error.get("Code") or "").strip()
+            if code:
+                return code
+            status = (response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+            if status in (403, 404):
+                return str(status)
+        next_exc = current.__cause__ or current.__context__
+        current = next_exc if next_exc is not current else None
+    return ""
+
+
 class WorkshopFileSyncError(Exception):
     pass
 
@@ -105,7 +141,16 @@ class WorkshopS3FileService:
         try:
             stored_object = get_storage_service().read_file(normalized_file_id)
         except (StorageConfigurationError, StorageServiceError) as exc:
-            raise WorkshopFileStorageError("Arquivo nao encontrado no bucket configurado. Envie o arquivo novamente na gestao da oficina.") from exc
+            code = _storage_client_error_code(exc)
+            if code in _STORAGE_AUTH_ERROR_CODES or code == "403":
+                raise WorkshopFileStorageError(
+                    "Falha de autenticacao no bucket configurado. Confira ACCESS_KEY_ID, SECRET_ACCESS_KEY, "
+                    f"REGION e ENDPOINT do ambiente. Detalhe tecnico: {code}."
+                ) from exc
+            if code in _STORAGE_NOT_FOUND_ERROR_CODES or code == "404":
+                raise WorkshopFileStorageError("Arquivo nao encontrado no bucket configurado. Envie o arquivo novamente na gestao da oficina.") from exc
+            detail = f" Detalhe tecnico: {code}." if code else ""
+            raise WorkshopFileStorageError(f"Falha ao ler arquivo do bucket configurado.{detail}") from exc
 
         metadata = stored_object.metadata
         filename = _normalize_filename(metadata.get("filename"), fallback_name=_fallback_filename(kind=kind))

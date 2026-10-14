@@ -537,6 +537,22 @@ Os datasources usados sao:
 
 Para importar: Grafana > Dashboards > Import > carregar o JSON e selecionar os datasources corretos.
 
+## SEFAZ auto-sync do stock (logs e queries)
+
+Com `PERF_LOGGING_ENABLED=1`, cada ciclo do Cron `sync_stock_sefaz_distribuicao` emite:
+
+- por oficina (logger `apps.stock.services.sefaz_distribution` + `performance.external`): `sefaz_distribution_sync` / `external_call service=sefaz_consulta_distribuicao` com `workshop_id`, `cnpj_mask` (CNPJ mascarado, nunca completo), `cStat`, `cached_count`, `duration_ms`, `success`. Em falha: `skipped_reason` ou `error` (sem senha/PFX).
+- resumo do ciclo: `sefaz_auto_sync_summary result=done|skipped_outside_window|skipped_disabled|nothing_eligible|dry_run processed=X skipped=Y failed=Z skipped_reasons=...`.
+
+Queries uteis no Loki/Grafana (responder "quando rodou, para quais oficinas, quantas notas, quanto tempo, qual `cStat`, o que foi pulado e por que"):
+
+- `{service="hunter-web"} |= "sefaz_auto_sync_summary"`
+- `{service="hunter-web"} |= "sefaz_distribution_sync" |= "success=false"`
+- `{service="hunter-web"} |= "external_call service=sefaz_consulta_distribuicao" |= "cStat=137"`
+- `{service="hunter-web"} |= "sefaz_auto_sync_workshop" |= "skipped_reason=throttle"`
+
+Alerta sugerido: job critico com `failed > 0` ou `duration_ms` acima do baseline (ver [secao de alertas](#alertas-iniciais)); certificado expirado/senha invalida aparece como `failed` isolado por oficina sem abortar o lote.
+
 ## Definicao de pronto para observabilidade
 
 Uma area do sistema so e considerada bem instrumentada quando possui:
