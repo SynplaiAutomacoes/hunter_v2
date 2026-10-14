@@ -82,11 +82,20 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 
 | Variavel | Uso |
 | --- | --- |
-| `DJANGO_SECRET_KEY` | secret key do Django |
+| `DJANGO_SECRET_KEY` | secret key do Django (obrigatorio e diferente do default quando `DJANGO_DEBUG=0`) |
 | `DJANGO_DEBUG` | ativa/desativa modo debug |
-| `DJANGO_ALLOWED_HOSTS` | hosts permitidos, separados por virgula |
+| `DJANGO_ALLOWED_HOSTS` | hosts permitidos, separados por virgula (obrigatorio quando `DJANGO_DEBUG=0`) |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | origens confiaveis para CSRF |
 | `APP_BASE_URL` | URL publica usada por integracoes como webhook/assinatura |
+| `REDIS_URL` | URL do Redis para cache compartilhado e rate limit (ex.: `redis://localhost:6379/0`); obrigatorio quando `DJANGO_DEBUG=0` |
+| `RATE_LIMIT_ENABLED` | liga rate limit de aplicacao (default `1`) |
+| `RATE_LIMIT_GLOBAL_PER_MINUTE` | limite global por IP (default `120`) |
+| `RATE_LIMIT_AUTH_PER_MINUTE` | limite para `/accounts/` e `/admin/` (default `20`) |
+| `RATE_LIMIT_CEP_PER_MINUTE` | limite para `/core/cep-lookup/` (default `10`) |
+| `RATE_LIMIT_PUBLIC_TOKEN_PER_MINUTE` | limite para rotas publicas com token (default `30`) |
+| `RATE_LIMIT_WEBHOOK_AUTH_FAIL_PER_MINUTE` | limite de falhas de auth em webhooks por IP (default `30`) |
+| `BOT_PROTECTION_ENABLED` | liga bloqueio de UAs de scrapers e `X-Robots-Tag` (default `1`) |
+| `BOT_BLOCKED_USER_AGENTS` | lista separada por virgula de substrings de UA bloqueadas |
 
 ### Banco de dados
 
@@ -108,7 +117,7 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `OUTBOUND_POLLER_MAX_CONSECUTIVE_FAILURES` | falhas consecutivas (timeout/exit != 0) antes de derrubar o processo realtime (default `5`) |
 | `OUTBOUND_PROCESSING_RECLAIM_SECONDS` | TTL para reclaim de rows `PROCESSING` stale de volta a `PENDING` (default `600`) |
 | `MESSAGE_WORKER_BASE_URL` | base URL do worker de envio WhatsApp; o cancelamento usa `POST {BASE}/stop` |
-| `MESSAGE_DISPATCH_STATUS_TOKEN` | token esperado no header `X-Dispatch-Status-Token` na ingestao de status do worker |
+| `MESSAGE_DISPATCH_STATUS_TOKEN` | token esperado no header `X-Dispatch-Status-Token` na ingestao de status do worker (obrigatorio em producao; sem token e com `DEBUG=0` a ingestao retorna 401) |
 | `MESSAGE_DISPATCH_WS_BASE_URL` | base URL do servico ASGI de WebSocket (ex.: `wss://realtime.example.com`); se vazio, o front usa o host atual |
 
 No Railway, use a **mesma imagem** em dois services:
@@ -231,6 +240,7 @@ DJANGO_DEBUG=1
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
 DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8000
 APP_BASE_URL=http://localhost:8000
+REDIS_URL=redis://localhost:6379/0
 
 DB_NAME=meu_crm
 DB_USER=usuario_crm

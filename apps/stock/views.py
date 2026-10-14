@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
 from django import forms
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
@@ -17,6 +18,7 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
+from django.views.decorators.http import require_POST
 from django.views.generic import ListView, CreateView, DeleteView, TemplateView, UpdateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
@@ -2110,8 +2112,26 @@ def _get_user_transfer_workshops(request) -> models.QuerySet[Workshop]:
     return Workshop.objects.filter(account_id=request.user.account_id, is_active=True, members__user=request.user, members__is_active=True).distinct().order_by("name")
 
 
+def _transfer_queryset_for_user(request) -> models.QuerySet[StockTransfer]:
+    allowed = _get_user_transfer_workshops(request)
+    return StockTransfer.objects.filter(Q(source_workshop__in=allowed) | Q(destination_workshop__in=allowed))
+
+
+@login_required
+@require_POST
 def update_transfer_reason(request, pk):
-    transfer = get_object_or_404(StockTransfer, pk=pk)
+    active_workshop = get_active_workshop_or_404(request)
+    if not has_workshop_perm(
+        user=request.user,
+        workshop=active_workshop,
+        app_label="stock",
+        model="stockmovement",
+        codename="change_stockmovement",
+        request=request,
+    ):
+        raise PermissionDenied
+
+    transfer = get_object_or_404(_transfer_queryset_for_user(request), pk=pk)
     reason = request.POST.get("reason", "").strip()
 
     transfer.reason = reason
@@ -2139,6 +2159,12 @@ class StockTransferAccessMixin(LoginRequiredMixin):
     def get_allowed_workshops(self):
         return _get_user_transfer_workshops(self.request)
 
+    def get_transfer_queryset(self):
+        return _transfer_queryset_for_user(self.request)
+
+    def get_transfer_or_404(self, pk):
+        return get_object_or_404(self.get_transfer_queryset(), pk=pk)
+
     def get_allowed_workshop(self, workshop_id):
         if not workshop_id:
             return None
@@ -2162,7 +2188,7 @@ class StockTransferCreateView(StockTransferAccessMixin, MultiStepFormMixin, Crea
     def get_object(self, queryset=None):
         pk = self.request.GET.get("pk") or self.kwargs.get("pk")
         if pk:
-            return get_object_or_404(StockTransfer, id=pk)
+            return self.get_transfer_or_404(pk)
         return None
 
     def get_form_kwargs(self):
@@ -2238,7 +2264,7 @@ class StockTransferUpdateView(StockTransferCreateView):
     def get_object(self, queryset=None):
         pk = self.kwargs.get("pk") or self.request.GET.get("pk")
         if pk:
-            return get_object_or_404(StockTransfer, pk=pk)
+            return self.get_transfer_or_404(pk)
         return None
 
     def form_valid(self, form):
@@ -2275,7 +2301,7 @@ class StockTransferUpdateView(StockTransferCreateView):
 class TransferSourceProductPickerView(StockTransferAccessMixin, View):
     def get(self, request):
         pk = clean_id(request.GET.get("pk"))
-        transfer = get_object_or_404(StockTransfer, pk=pk)
+        transfer = self.get_transfer_or_404(pk)
         context = {"pk": transfer.pk, "source_workshop": transfer.source_workshop}
         return render(request, "stock/partials/modal/transfer_source_picker_modal.html", context)
 
@@ -2304,7 +2330,7 @@ class AddTransferSourceItemView(StockTransferAccessMixin, View):
         product_id = clean_id(request.POST.get("product_id"))
         pk = clean_id(request.POST.get("pk"))
         raw_quantity = request.POST.get("quantity") or "1"
-        transfer = get_object_or_404(StockTransfer, pk=pk)
+        transfer = self.get_transfer_or_404(pk)
         source_product = get_object_or_404(Product, id=product_id, workshop=transfer.source_workshop)
 
         clear_others = request.POST.get("clear_others") == "true"
@@ -2345,7 +2371,7 @@ class TransferDestinationLinkView(StockTransferAccessMixin, View):
     def get(self, request):
         item_idx = clean_id(request.GET.get("item_idx"))
         pk = clean_id(request.GET.get("pk"))
-        transfer = get_object_or_404(StockTransfer, pk=pk)
+        transfer = self.get_transfer_or_404(pk)
         context = {"item_idx": item_idx, "pk": transfer.pk, "destination_workshop": transfer.destination_workshop}
         return render(request, "stock/partials/modal/transfer_destination_link_modal.html", context)
 
@@ -2355,7 +2381,7 @@ class TransferDestinationLinkView(StockTransferAccessMixin, View):
         product_id = clean_id(request.POST.get("product_id"))
         pk = clean_id(request.POST.get("pk"))
 
-        transfer = get_object_or_404(StockTransfer, pk=pk)
+        transfer = self.get_transfer_or_404(pk)
         destination_product = get_object_or_404(Product, id=product_id, workshop=transfer.destination_workshop)
         items = list(transfer.items_data)
 
@@ -2396,7 +2422,7 @@ class CreateTransferDestinationProductView(StockTransferAccessMixin, View):
     def post(self, request):
         item_idx = clean_id(request.POST.get("item_idx") or request.GET.get("item_idx"))
         pk = clean_id(request.POST.get("pk") or request.GET.get("pk"))
-        transfer = get_object_or_404(StockTransfer, pk=pk)
+        transfer = self.get_transfer_or_404(pk)
         items = list(transfer.items_data)
 
         try:
@@ -2446,7 +2472,7 @@ class TransferUnlinkDestinationView(StockTransferAccessMixin, View):
     def post(self, request):
         item_idx = clean_id(request.POST.get("item_idx") or request.GET.get("item_idx"))
         pk = clean_id(request.POST.get("pk") or request.GET.get("pk"))
-        transfer = get_object_or_404(StockTransfer, pk=pk)
+        transfer = self.get_transfer_or_404(pk)
         items = list(transfer.items_data)
 
         try:
@@ -2469,7 +2495,7 @@ class RemoveTransferItemView(StockTransferAccessMixin, View):
         item_idx = clean_id(request.POST.get("item_idx") or request.GET.get("item_idx"))
         source_product_id = clean_id(request.POST.get("source_product_id") or request.GET.get("source_product_id"))
         pk = clean_id(request.POST.get("pk") or request.GET.get("pk"))
-        transfer = get_object_or_404(StockTransfer, pk=pk)
+        transfer = self.get_transfer_or_404(pk)
         items = list(transfer.items_data)
 
         if source_product_id is not None:
@@ -2491,7 +2517,7 @@ class RemoveTransferItemView(StockTransferAccessMixin, View):
 class UpdateTransferItemDataView(StockTransferAccessMixin, View):
     @transaction.atomic
     def post(self, request, pk):
-        transfer = get_object_or_404(StockTransfer, id=pk)
+        transfer = self.get_transfer_or_404(pk)
         item_idx = request.POST.get("item_idx")
         source_product_id = request.POST.get("source_product_id")
         if item_idx is None and source_product_id is None:

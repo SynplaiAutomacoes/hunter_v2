@@ -14,10 +14,13 @@ import os
 from pathlib import Path
 import sys
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
+_DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION"
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", _DEFAULT_SECRET_KEY)
 
 DEBUG = os.getenv("DJANGO_DEBUG", "1").lower() in ("1", "true", "yes")
 
@@ -27,6 +30,10 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
+
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_HTTPONLY = True
 
 # Utilize o ngrok para desenvolvimento local, se não o webhook não funciona
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
@@ -45,8 +52,8 @@ PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 TAX_CLASS_DEBUG_LOGS = os.getenv("TAX_CLASS_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
-# Log full JSON body of Webmania emission/preview POSTs (NF-e, NFS-e, devolução). Default on.
-WEBMANIA_EMISSION_REQUEST_LOGS = os.getenv("WEBMANIA_EMISSION_REQUEST_LOGS", "1").lower() in ("1", "true", "yes")
+# Log full JSON body of Webmania emission/preview POSTs (NF-e, NFS-e, devolução). Default off.
+WEBMANIA_EMISSION_REQUEST_LOGS = os.getenv("WEBMANIA_EMISSION_REQUEST_LOGS", "0").lower() in ("1", "true", "yes")
 
 # Notifications System Config
 SYSTEM_ADMIN_USERNAMES = [u.strip() for u in os.getenv("SYSTEM_ADMIN_USERNAMES", "").split(",") if u.strip()]
@@ -115,14 +122,38 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1").lower() in ("1", "true", "yes")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "")
 
 if not DEBUG:
+    if not SECRET_KEY or SECRET_KEY == _DEFAULT_SECRET_KEY:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY must be set to a non-default value when DEBUG is false.")
+    if not ALLOWED_HOSTS:
+        raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must be set when DEBUG is false.")
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "3600"))
+    SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "31536000"))
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+
+# Rate limiting (application-layer; Redis-backed via CACHES["default"])
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").lower() in ("1", "true", "yes")
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_GLOBAL_PER_MINUTE = int(os.getenv("RATE_LIMIT_GLOBAL_PER_MINUTE", "120"))
+RATE_LIMIT_AUTH_PER_MINUTE = int(os.getenv("RATE_LIMIT_AUTH_PER_MINUTE", "20"))
+RATE_LIMIT_CEP_PER_MINUTE = int(os.getenv("RATE_LIMIT_CEP_PER_MINUTE", "10"))
+RATE_LIMIT_PUBLIC_TOKEN_PER_MINUTE = int(os.getenv("RATE_LIMIT_PUBLIC_TOKEN_PER_MINUTE", "30"))
+RATE_LIMIT_WEBHOOK_AUTH_FAIL_PER_MINUTE = int(os.getenv("RATE_LIMIT_WEBHOOK_AUTH_FAIL_PER_MINUTE", "30"))
+
+# Bot / crawler protection
+BOT_PROTECTION_ENABLED = os.getenv("BOT_PROTECTION_ENABLED", "1").lower() in ("1", "true", "yes")
+BOT_BLOCKED_USER_AGENTS = [
+    ua.strip().lower()
+    for ua in os.getenv(
+        "BOT_BLOCKED_USER_AGENTS",
+        "scrapy,ahrefs,semrush,mj12bot,dotbot,petalbot,bytespider,gptbot,ccbot,claudebot,amazonbot,dataforseo",
+    ).split(",")
+    if ua.strip()
+]
 
 # Application definition
 
@@ -174,6 +205,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     # Local (must be first)
     "apps.core.presentation.middlewares.RequestIdMiddleware",
+    "apps.core.presentation.middlewares.RateLimitMiddleware",
+    "apps.core.presentation.middlewares.BotProtectionMiddleware",
     # Django
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -285,18 +318,40 @@ OUTBOUND_MAX_DELAY_MINUTES = int(os.getenv("OUTBOUND_MAX_DELAY_MINUTES", "15"))
 # Cache
 # https://docs.djangoproject.com/en/5.2/topics/cache/
 
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "default-cache",
-        "TIMEOUT": 300,
-    },
-    "fipe": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "fipe-cache",
-        "TIMEOUT": 86400,
-    },
-}
+REDIS_URL = os.getenv("REDIS_URL", "").strip()
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+            "TIMEOUT": 300,
+            "KEY_PREFIX": "hunter",
+        },
+        "fipe": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "fipe-cache",
+            "TIMEOUT": 86400,
+        },
+    }
+elif DEBUG:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "default-cache",
+            "TIMEOUT": 300,
+        },
+        "fipe": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "fipe-cache",
+            "TIMEOUT": 86400,
+        },
+    }
+else:
+    raise ImproperlyConfigured("REDIS_URL must be set when DEBUG is false (shared cache required for rate limiting).")
 
 
 # Password validation

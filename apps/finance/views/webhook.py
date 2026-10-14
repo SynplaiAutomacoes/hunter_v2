@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
+from apps.core.infrastructure.rate_limit import check_webhook_auth_failure_limit
 from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_token
 from apps.core.infrastructure.services.webmania.webmania_webhooks import extract_event_uuid, process_webhook_event, store_webhook_event
 
@@ -33,6 +34,15 @@ class WebhookView(View):
         expected_token = build_webmania_webhook_token()
         provided_token = self._request_webhook_token(request)
         return bool(provided_token) and constant_time_compare(provided_token, expected_token)
+
+    @staticmethod
+    def _unauthorized_response(request) -> JsonResponse:
+        fail_limit = check_webhook_auth_failure_limit(request)
+        if not fail_limit.allowed:
+            response = JsonResponse({"ok": False, "message": "Too Many Requests"}, status=429)
+            response["Retry-After"] = str(fail_limit.retry_after)
+            return response
+        return JsonResponse({"ok": False, "message": "Unauthorized webhook request"}, status=403)
 
     @staticmethod
     def _deserialize_form_value(value: Any) -> Any:
@@ -68,7 +78,7 @@ class WebhookView(View):
     def post(self, request):
         if not self._is_authorized_request(request):
             logger.warning("webmania_webhook_auth_failed", extra={"ip": request.META.get("REMOTE_ADDR")})
-            return JsonResponse({"ok": False, "message": "Unauthorized webhook request"}, status=403)
+            return self._unauthorized_response(request)
 
         try:
             payload = self._parse_payload(request)

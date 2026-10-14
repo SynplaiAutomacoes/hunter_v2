@@ -158,17 +158,32 @@ def validate_signature_webhook_hmac(*, body: bytes, secret: str, received_signat
 
 def validate_signature_webhook_request(request: HttpRequest, *, workshop_secret: str = "") -> HttpResponse | None:
     """Validate HMAC using workshop secret, with optional global fallback."""
+    from apps.core.infrastructure.rate_limit import check_webhook_auth_failure_limit
+
     secrets: list[str] = []
     for candidate in (workshop_secret, getattr(settings, "SYNPLAISIGN_WEBHOOK_SECRET", "")):
         normalized = str(candidate or "").strip()
         if normalized and normalized not in secrets:
             secrets.append(normalized)
     if not secrets:
-        return None
+        if settings.DEBUG:
+            return None
+        logger.warning("signature_webhook_missing_secrets", extra={"ip": request.META.get("REMOTE_ADDR")})
+        fail_limit = check_webhook_auth_failure_limit(request)
+        if not fail_limit.allowed:
+            response = JsonResponse({"error": "too_many_requests"}, status=429)
+            response["Retry-After"] = str(fail_limit.retry_after)
+            return response
+        return JsonResponse({"error": "invalid_signature"}, status=401)
 
     received = str(request.headers.get("x-synplai-signature") or "").strip()
     if not received:
         logger.warning("signature_webhook_missing_hmac", extra={"ip": request.META.get("REMOTE_ADDR")})
+        fail_limit = check_webhook_auth_failure_limit(request)
+        if not fail_limit.allowed:
+            response = JsonResponse({"error": "too_many_requests"}, status=429)
+            response["Retry-After"] = str(fail_limit.retry_after)
+            return response
         return JsonResponse({"error": "invalid_signature"}, status=403)
 
     body = request.body or b""
@@ -176,6 +191,11 @@ def validate_signature_webhook_request(request: HttpRequest, *, workshop_secret:
         return None
 
     logger.warning("signature_webhook_hmac_failed", extra={"ip": request.META.get("REMOTE_ADDR")})
+    fail_limit = check_webhook_auth_failure_limit(request)
+    if not fail_limit.allowed:
+        response = JsonResponse({"error": "too_many_requests"}, status=429)
+        response["Retry-After"] = str(fail_limit.retry_after)
+        return response
     return JsonResponse({"error": "invalid_signature"}, status=403)
 
 

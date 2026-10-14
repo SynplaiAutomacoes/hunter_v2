@@ -279,6 +279,10 @@ class UserSignUpView(FormView):
     success_url = reverse_lazy("accounts:login")
 
     def form_valid(self, form):
+        # Honeypot filled: pretend success without creating an account.
+        if getattr(form, "honeypot_triggered", False):
+            return super().form_valid(form)
+
         with transaction.atomic():
             user = form.save()
             user.is_account_owner = True

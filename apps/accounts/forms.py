@@ -28,9 +28,20 @@ def _phone_lookup_q(identifier: str) -> Q | None:
     return phone_q
 
 
+_HONEYPOT_WIDGET = forms.TextInput(
+    attrs={
+        "autocomplete": "off",
+        "tabindex": "-1",
+        "aria-hidden": "true",
+        "class": "absolute left-[-9999px] h-0 w-0 opacity-0",
+    }
+)
+
+
 class LoginForm(AuthenticationForm):
     username = UsernameField(label="Usuário", widget=TextInput(attrs=USER_PLACEHOLDER))
     password = forms.CharField(label="Senha", widget=PasswordInput())
+    website = forms.CharField(required=False, label="", widget=_HONEYPOT_WIDGET)
 
     def __init__(self, request=None, *args, **kwargs):
         super().__init__(request=request, *args, **kwargs)
@@ -50,12 +61,18 @@ class LoginForm(AuthenticationForm):
                 return username
         return username
 
+    def clean(self):
+        if str(self.data.get("website") or "").strip():
+            raise forms.ValidationError("Usuário ou senha inválidos.")
+        return super().clean()
+
 
 class SignUpForm(UserCreationForm):
     first_name = forms.CharField(label="Nome", widget=TextInput(attrs={"placeholder": "Nome"}))
     last_name = forms.CharField(label="Sobrenome", widget=TextInput(attrs={"placeholder": "Sobrenome"}), required=False)
     email = forms.EmailField(label="E-mail", widget=EmailInput())
     cpf = forms.CharField(label="CPF", widget=CPForCNPJInput(mode="cpf"))
+    website = forms.CharField(required=False, label="", widget=_HONEYPOT_WIDGET)
 
     class Meta(UserCreationForm.Meta):  # type: ignore[attr-defined]
         model = User
@@ -66,6 +83,7 @@ class SignUpForm(UserCreationForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.honeypot_triggered = False
 
         # Ajusta classes dos campos de senha (UserCreationForm define widgets próprios)
         self.fields["password1"].widget = PasswordInput()
@@ -91,6 +109,11 @@ class SignUpForm(UserCreationForm):
                 raise forms.ValidationError("Este e-mail já está em uso.")
             return email
         return email
+
+    def clean(self):
+        cleaned = super().clean()
+        self.honeypot_triggered = bool(str(self.data.get("website") or "").strip())
+        return cleaned
 
 
 class UserIdentificationForm(forms.Form):

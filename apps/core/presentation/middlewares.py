@@ -8,10 +8,12 @@ from typing import Any
 
 from django.conf import settings
 from django.db import connections
+from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect
 from django.urls import resolve, reverse
 from django.urls.exceptions import Resolver404
 
+from apps.core.infrastructure.rate_limit import check_rate_limit, client_ip_from_request
 from apps.core.logging_filters import (
     clear_request_context,
     get_dependency_timing,
@@ -28,6 +30,7 @@ from apps.core.observability import (
 
 
 logger = logging.getLogger("performance.request")
+security_logger = logging.getLogger("security")
 
 
 def _resolve_route(request: Any) -> str:
@@ -104,6 +107,118 @@ class RequestIdMiddleware:
             return response
         finally:
             clear_request_context()
+
+
+class RateLimitMiddleware:
+    """Application-layer fixed-window rate limits by path bucket and client IP."""
+
+    _STATIC_PREFIXES = ("/static/", "/media/")
+    _WEBHOOK_PREFIXES = (
+        "/finance/webmania/webhook",
+        "/budget/signature/webhook",
+        "/budget/supersign/webhook",
+        "/messaging/dispatch/status",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if not getattr(settings, "RATE_LIMIT_ENABLED", True):
+            return self.get_response(request)
+
+        path = request.path or ""
+        if path.startswith(self._STATIC_PREFIXES):
+            return self.get_response(request)
+        # Webhooks: do not apply path rate limits here; auth-failure limits live in the views.
+        if any(path.startswith(prefix) for prefix in self._WEBHOOK_PREFIXES):
+            return self.get_response(request)
+
+        ip = client_ip_from_request(request)
+        window = int(getattr(settings, "RATE_LIMIT_WINDOW_SECONDS", 60))
+        buckets = self._buckets_for_path(path)
+
+        for bucket_name, limit in buckets:
+            result = check_rate_limit(bucket=bucket_name, key=ip, limit=limit, window_seconds=window)
+            if not result.allowed:
+                security_logger.warning(
+                    "rate_limit_exceeded",
+                    extra={
+                        "bucket": bucket_name,
+                        "ip": ip,
+                        "path": path,
+                        "request_id": getattr(request, "request_id", None),
+                        "limit": result.limit,
+                        "retry_after": result.retry_after,
+                    },
+                )
+                response = HttpResponse("Too Many Requests", status=429, content_type="text/plain; charset=utf-8")
+                response["Retry-After"] = str(result.retry_after or window)
+                if getattr(request, "request_id", None):
+                    response["X-Request-ID"] = request.request_id
+                return response
+
+        return self.get_response(request)
+
+    @staticmethod
+    def _buckets_for_path(path: str) -> list[tuple[str, int]]:
+        global_limit = int(getattr(settings, "RATE_LIMIT_GLOBAL_PER_MINUTE", 120))
+        buckets: list[tuple[str, int]] = [("global", global_limit)]
+
+        if path.startswith("/accounts/") or path.startswith("/admin/"):
+            buckets.append(("auth", int(getattr(settings, "RATE_LIMIT_AUTH_PER_MINUTE", 20))))
+        elif path.startswith("/core/cep-lookup"):
+            buckets.append(("cep", int(getattr(settings, "RATE_LIMIT_CEP_PER_MINUTE", 10))))
+        elif (
+            "/signature-preview/" in path
+            or "/signature-file/" in path
+            or path.startswith("/workshops/logo/public/")
+            or path.startswith("/review/")
+        ):
+            buckets.append(("public_token", int(getattr(settings, "RATE_LIMIT_PUBLIC_TOKEN_PER_MINUTE", 30))))
+
+        return buckets
+
+
+class BotProtectionMiddleware:
+    """Block known scraper user-agents and advertise noindex for HTML responses."""
+
+    _SENSITIVE_PREFIXES = ("/accounts/", "/admin/")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if not getattr(settings, "BOT_PROTECTION_ENABLED", True):
+            return self.get_response(request)
+
+        path = request.path or ""
+        if path.startswith("/static/") or path.startswith("/media/") or path == "/robots.txt":
+            return self.get_response(request)
+
+        user_agent = (request.META.get("HTTP_USER_AGENT") or "").strip()
+        ua_lower = user_agent.lower()
+        blocked = getattr(settings, "BOT_BLOCKED_USER_AGENTS", []) or []
+
+        if any(token in ua_lower for token in blocked if token):
+            security_logger.warning(
+                "bot_user_agent_blocked",
+                extra={"ip": client_ip_from_request(request), "path": path, "user_agent": user_agent[:200], "request_id": getattr(request, "request_id", None)},
+            )
+            return HttpResponseForbidden("Forbidden")
+
+        if not user_agent and path.startswith(self._SENSITIVE_PREFIXES):
+            security_logger.warning(
+                "bot_empty_user_agent_blocked",
+                extra={"ip": client_ip_from_request(request), "path": path, "request_id": getattr(request, "request_id", None)},
+            )
+            return HttpResponseForbidden("Forbidden")
+
+        response = self.get_response(request)
+        content_type = (response.get("Content-Type") or "").lower()
+        if "text/html" in content_type:
+            response.setdefault("X-Robots-Tag", "noindex, nofollow")
+        return response
 
 
 class RequestPerformanceLoggingMiddleware:

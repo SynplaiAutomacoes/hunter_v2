@@ -121,17 +121,36 @@ Antes de liberar trafego, confirme o valor atual no Railway/host versus o alvo:
 | Variavel | Alvo em producao | Observacao |
 | --- | --- | --- |
 | `DJANGO_DEBUG` | `0` | Obrigatorio |
+| `DJANGO_SECRET_KEY` | valor forte, nao default | Boot falha se ausente/default com `DEBUG=0` |
+| `DJANGO_ALLOWED_HOSTS` | hosts reais | Boot falha se vazio com `DEBUG=0` |
+| `REDIS_URL` | Redis acessivel | Obrigatorio com `DEBUG=0` (cache + rate limit entre workers) |
+| `MESSAGE_DISPATCH_STATUS_TOKEN` | token forte | Sem token a ingestao de status retorna 401 |
+| `SYNPLAISIGN_WEBHOOK_SECRET` / segredo por oficina | configurado | Sem segredo o webhook de assinatura retorna 401 |
 | `ENVIRONMENT` | `production` | Filtra dashboards e força default de log `INFO` se nivel nao for setado |
 | `DJANGO_LOG_LEVEL` | `INFO` ou `WARNING` | Evitar `DEBUG` em prod |
 | `DJANGO_ROOT_LOG_LEVEL` | `INFO` ou `WARNING` | Idem |
 | `NFSE_DEBUG_LOGS` | `0` | Payload fiscal sensivel |
 | `TAX_CLASS_DEBUG_LOGS` | `0` | Dump de API fiscal |
+| `WEBMANIA_EMISSION_REQUEST_LOGS` | `0` | Default off; evita logar JSON fiscal completo |
 | `PERF_LOGGING_ENABLED` | `1` | Necessario para baseline e paineis Loki de request |
 | `PERF_LOG_QUERIES` | `0` | Ligar so em janela curta de diagnostico |
 | `PERF_LOG_MIN_MS` | `300` | Warning so de lentidao (status &lt; 500); 5xx vao em `ERROR`; requests rapidas em `INFO` |
 | `OTLP_AUTH_HEADER` / `OTEL_EXPORTER_OTLP_ENDPOINT` | configurados | Necessarios para metrics/traces OTEL |
 | `GUNICORN_WORKERS` | medir e ajustar | Default `2` via `gunicorn.conf.py` |
 | `GUNICORN_THREADS` | medir e ajustar | Default `4` |
+
+## Rate limit e protecao de bots
+
+O app aplica rate limit e protecao basica de bots no Django (middleware em `apps.core`):
+
+- rate limit por IP (global, auth, CEP, tokens publicos) via cache Redis
+- falhas de autenticacao de webhooks contam em bucket separado
+- `robots.txt` com `Disallow: /`, header `X-Robots-Tag: noindex, nofollow`, bloqueio de UAs de scrapers conhecidos
+- honeypot nos formularios de login/cadastro
+
+Isso mitiga abuso e brute-force na camada de aplicacao. **Nao substitui** WAF/CDN (ex.: Cloudflare) contra DDoS volumetrico L3/L4. Para producao sob ataque de volume, coloque um edge/WAF na frente do Railway como follow-up operacional.
+
+Redis local: `docker compose up -d redis` (porta `6379`).
 
 ## Checklist operacional de subida
 

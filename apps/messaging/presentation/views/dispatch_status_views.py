@@ -6,10 +6,12 @@ from typing import Any
 
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
+from django.utils.crypto import constant_time_compare
+from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 
+from apps.core.infrastructure.rate_limit import check_webhook_auth_failure_limit
 from apps.messaging.application.services.dispatch_realtime import ingest_dispatch_status
 from apps.messaging.models import MessageDispatchLog
 
@@ -24,6 +26,11 @@ class MessageDispatchStatusIngestView(View):
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
         if not self._is_authorized(request):
+            fail_limit = check_webhook_auth_failure_limit(request)
+            if not fail_limit.allowed:
+                response = JsonResponse({"ok": False, "error": "too_many_requests"}, status=429)
+                response["Retry-After"] = str(fail_limit.retry_after)
+                return response
             return JsonResponse({"ok": False, "error": "unauthorized"}, status=401)
 
         try:
@@ -67,8 +74,8 @@ class MessageDispatchStatusIngestView(View):
         expected = str(getattr(settings, "MESSAGE_DISPATCH_STATUS_TOKEN", "") or "").strip()
         if not expected:
             # Allow local/dev when token is not configured; require token in real envs.
-            return True
+            return bool(settings.DEBUG)
         header = request.headers.get("X-Dispatch-Status-Token") or request.headers.get("Authorization") or ""
         if header.startswith("Bearer "):
             header = header[7:].strip()
-        return header == expected
+        return bool(header) and constant_time_compare(header, expected)
