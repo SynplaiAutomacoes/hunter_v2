@@ -14,7 +14,8 @@ from apps.catalog.models.kits import Kit, KitProduct
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.infrastructure.importing.mapper import apply_mapping, coerce_value, parse_decimal, parse_duration, suggest_mapping
-from apps.core.infrastructure.importing.schema import FieldType, ImportEntitySchema, ImportField, ImportRowError
+from apps.core.infrastructure.importing.schema import FieldType, ImportEntitySchema, ImportField, ImportRowError, ParsedSpreadsheet
+from apps.core.infrastructure.importing.session_store import create_import_session, get_import_session
 from apps.core.infrastructure.importing.spreadsheet import SpreadsheetParseError, parse_csv_bytes, parse_xls_bytes, parse_xlsx_bytes
 from apps.customer.importing import CustomerImportAdapter
 from apps.customer.models import Customer
@@ -97,6 +98,12 @@ class MapperTests(SimpleTestCase):
         self.assertEqual(parse_duration("1:30"), timedelta(hours=1, minutes=30))
         self.assertEqual(parse_duration("90"), timedelta(minutes=90))
 
+    def test_parse_duration_accepts_hh_mm_ss_and_ignores_seconds(self) -> None:
+        self.assertEqual(parse_duration("00:00:00"), timedelta(0))
+        self.assertEqual(parse_duration("01:00:00"), timedelta(hours=1))
+        self.assertEqual(parse_duration("1:30:45"), timedelta(hours=1, minutes=30))
+        self.assertEqual(parse_duration("02:15:59.999"), timedelta(hours=2, minutes=15))
+
     def test_apply_mapping_allows_ignored_required_fields(self) -> None:
         schema = ImportEntitySchema(
             entity_key="demo",
@@ -115,6 +122,31 @@ class MapperTests(SimpleTestCase):
         self.assertEqual(coerce_value("", money_field), Decimal("0"))
         self.assertEqual(coerce_value("abc", money_field), Decimal("0"))
         self.assertEqual(coerce_value("10,50", money_field), Decimal("10.50"))
+
+
+class ImportSessionStoreTests(TestCase):
+    def test_create_and_get_session_persists_in_database(self) -> None:
+        from django.contrib.auth import get_user_model
+
+        workshop = create_workshop(suffix=90)
+        user = get_user_model().objects.create_user(username="import-session", password="x")
+        spreadsheet = ParsedSpreadsheet(
+            headers=["Nome"],
+            rows=[{"Nome": "A"}],
+            filename="a.csv",
+            source_format="csv",
+        )
+        token = create_import_session(
+            entity_key="customers",
+            workshop_id=int(workshop.pk),
+            user_id=int(user.pk),
+            spreadsheet=spreadsheet,
+        )
+        payload = get_import_session(token)
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload["filename"], "a.csv")
+        self.assertEqual(payload["rows"], [{"Nome": "A"}])
 
 
 class CustomerImportAdapterTests(TestCase):

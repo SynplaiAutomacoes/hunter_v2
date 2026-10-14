@@ -87,3 +87,37 @@ class DataImportBatchItem(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"Lote {self.batch_id} linha {self.row_number}"
+
+
+class DataImportDraft(TimeStampedModel):
+    """Rascunho da importação entre upload → mapeamento → confirmação (sobrevive a reload)."""
+
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    workshop = models.ForeignKey(
+        "workshops.Workshop",
+        on_delete=models.CASCADE,
+        related_name="data_import_drafts",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="data_import_drafts",
+    )
+    entity_key = models.CharField(max_length=64)
+    filename = models.CharField(max_length=255, blank=True, default="")
+    source_format = models.CharField(max_length=16, blank=True, default="")
+    headers = models.JSONField(default=list, blank=True)
+    rows = models.JSONField(default=list, blank=True)
+    options = models.JSONField(default=dict, blank=True)
+    mapping = models.JSONField(default=dict, blank=True)
+    expires_at = models.DateTimeField()
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Rascunho de importação"
+        verbose_name_plural = "Rascunhos de importação"
+        indexes = [
+            models.Index(fields=["expires_at"], name="core_impdraft_expires_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Draft {self.entity_key} · {self.token[:8]}"

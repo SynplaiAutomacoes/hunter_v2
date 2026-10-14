@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -35,13 +35,27 @@ def _normalize_header(value: object, index: int) -> str:
     return text
 
 
+def _format_duration_hm(hours: int, minutes: int) -> str:
+    return f"{hours:02d}:{minutes:02d}"
+
+
 def _cell_to_str(value: object) -> str:
     if value is None:
         return ""
+    if isinstance(value, timedelta):
+        total_seconds = int(value.total_seconds())
+        hours, remainder = divmod(abs(total_seconds), 3600)
+        minutes = remainder // 60
+        return _format_duration_hm(hours, minutes)
+    if isinstance(value, time):
+        return _format_duration_hm(value.hour, value.minute)
     if isinstance(value, datetime):
         if value.time() == datetime.min.time():
             return value.date().strftime("%d/%m/%Y")
-        return value.strftime("%d/%m/%Y %H:%M:%S")
+        # Células de duração no Excel costumam vir como datetime no epoch da planilha.
+        if value.year <= 1900:
+            return _format_duration_hm(value.hour, value.minute)
+        return value.strftime("%d/%m/%Y %H:%M")
     if isinstance(value, date):
         return value.strftime("%d/%m/%Y")
     if isinstance(value, float) and value.is_integer():

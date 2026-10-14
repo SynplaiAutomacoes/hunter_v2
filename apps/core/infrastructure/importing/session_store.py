@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any
 
-from django.core.cache import cache
+from django.db import transaction
+from django.utils import timezone
 
 from apps.core.infrastructure.importing.schema import ParsedSpreadsheet
+from apps.core.infrastructure.models.data_import import DataImportDraft
 
 IMPORT_CACHE_TTL_SECONDS = 60 * 60
-IMPORT_CACHE_PREFIX = "data_import:"
-
-
-def _cache_key(token: str) -> str:
-    return f"{IMPORT_CACHE_PREFIX}{token}"
 
 
 def create_import_session(
@@ -24,40 +22,61 @@ def create_import_session(
     options: dict[str, Any] | None = None,
 ) -> str:
     token = uuid.uuid4().hex
-    payload = {
-        "entity_key": entity_key,
-        "workshop_id": workshop_id,
-        "user_id": user_id,
-        "filename": spreadsheet.filename,
-        "source_format": spreadsheet.source_format,
-        "headers": spreadsheet.headers,
-        "rows": spreadsheet.rows,
-        "options": options or {},
-        "mapping": {},
-    }
-    cache.set(_cache_key(token), payload, timeout=IMPORT_CACHE_TTL_SECONDS)
+    now = timezone.now()
+    with transaction.atomic():
+        DataImportDraft.objects.filter(expires_at__lt=now).delete()
+        DataImportDraft.objects.create(
+            token=token,
+            workshop_id=workshop_id,
+            user_id=user_id,
+            entity_key=entity_key,
+            filename=spreadsheet.filename,
+            source_format=spreadsheet.source_format,
+            headers=list(spreadsheet.headers),
+            rows=list(spreadsheet.rows),
+            options=options or {},
+            mapping={},
+            expires_at=now + timedelta(seconds=IMPORT_CACHE_TTL_SECONDS),
+        )
     return token
 
 
 def get_import_session(token: str) -> dict[str, Any] | None:
     if not token:
         return None
-    payload = cache.get(_cache_key(token))
-    return payload if isinstance(payload, dict) else None
+    draft = DataImportDraft.objects.filter(token=token).first()
+    if draft is None:
+        return None
+    if draft.expires_at < timezone.now():
+        draft.delete()
+        return None
+    return _draft_to_payload(draft)
 
 
 def update_import_session(token: str, **updates: Any) -> dict[str, Any] | None:
-    payload = get_import_session(token)
-    if payload is None:
+    draft = DataImportDraft.objects.filter(token=token).first()
+    if draft is None:
         return None
-    payload.update(updates)
-    cache.set(_cache_key(token), payload, timeout=IMPORT_CACHE_TTL_SECONDS)
-    return payload
+    if draft.expires_at < timezone.now():
+        draft.delete()
+        return None
+
+    allowed = {"mapping", "options", "headers", "rows", "filename", "source_format"}
+    update_fields = ["atualizado_em", "expires_at"]
+    for key, value in updates.items():
+        if key not in allowed:
+            continue
+        setattr(draft, key, value)
+        update_fields.append(key)
+
+    draft.expires_at = timezone.now() + timedelta(seconds=IMPORT_CACHE_TTL_SECONDS)
+    draft.save(update_fields=update_fields)
+    return _draft_to_payload(draft)
 
 
 def delete_import_session(token: str) -> None:
     if token:
-        cache.delete(_cache_key(token))
+        DataImportDraft.objects.filter(token=token).delete()
 
 
 def spreadsheet_from_session(payload: dict[str, Any]) -> ParsedSpreadsheet:
@@ -67,3 +86,17 @@ def spreadsheet_from_session(payload: dict[str, Any]) -> ParsedSpreadsheet:
         filename=str(payload.get("filename") or ""),
         source_format=str(payload.get("source_format") or ""),
     )
+
+
+def _draft_to_payload(draft: DataImportDraft) -> dict[str, Any]:
+    return {
+        "entity_key": draft.entity_key,
+        "workshop_id": draft.workshop_id,
+        "user_id": draft.user_id,
+        "filename": draft.filename,
+        "source_format": draft.source_format,
+        "headers": list(draft.headers or []),
+        "rows": list(draft.rows or []),
+        "options": dict(draft.options or {}),
+        "mapping": dict(draft.mapping or {}),
+    }
