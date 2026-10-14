@@ -53,6 +53,154 @@ MESES_PT: list[str] = [
 ]
 
 
+WHATSAPP_CONTACT_PHONE = "5511998058438"
+WHATSAPP_CONTACT_MESSAGE = "Quero conhecer melhor o sistema."
+LEGAL_DETAILS = {
+    "supplier_legal_name": "Boss Ensino e Consultoria LTDA",
+    "supplier_address": "Av Guacy Fernandes Domingues, 85, Embu Mirim, Itapecerica da Serra SP",
+    "supplier_cnpj": "52.198.562/0001-95",
+    "privacy_email": "bossensino@gmail.com",
+    "retention_years": 2,
+}
+
+
+class LandingPageView(TemplateView):
+    template_name = "core/landing.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        from django.templatetags.static import static
+
+        from apps.core.presentation.landing_forms import CONSENT_TEXT, EMPLOYEE_OPTIONS, REVENUE_OPTIONS
+
+        context = super().get_context_data(**kwargs)
+        product_tabs = [
+            {
+                "label": "Orçamentos inteligentes",
+                "image": "img/landing/orcamento.png",
+                "imageUrl": static("img/landing/orcamento.png"),
+                "title": "O lucro começa antes de o serviço começar.",
+                "description": "Elabore seus orçamentos, acompanhe as aprovações e analise a rentabilidade com o Método Hunter. Mais clareza para negociar sem perder de vista suas margens.",
+            },
+            {
+                "label": "Indicadores",
+                "image": "img/landing/dashboard.png",
+                "imageUrl": static("img/landing/dashboard.png"),
+                "title": "Os números certos para decidir melhor.",
+                "description": "Acompanhe faturamento, ticket médio, aprovação de orçamentos, rentabilidade, metas e projeções em uma visão integrada da oficina.",
+            },
+            {
+                "label": "Agendamentos",
+                "image": "img/landing/agenda.png",
+                "imageUrl": static("img/landing/agenda.png"),
+                "title": "Uma rotina organizada, do início ao fim.",
+                "description": "Visualize os agendamentos e organize a entrada e a saída de veículos. O sistema reúne comunicação, mensagens e alertas pelo WhatsApp.",
+            },
+            {
+                "label": "Financeiro",
+                "image": "img/landing/custos.png",
+                "imageUrl": static("img/landing/custos.png"),
+                "title": "Conheça os custos da sua operação.",
+                "description": "Centralize movimentações financeiras, custos, folha de pagamento, comissões, DRE e fluxo de contas para uma gestão mais segura.",
+            },
+            {
+                "label": "Notas fiscais",
+                "image": "img/landing/notas.png",
+                "imageUrl": static("img/landing/notas.png"),
+                "title": "A operação fiscal também faz parte da gestão.",
+                "description": "Acesse emissão de notas fiscais, notas de devolução, cartas de correção e central de notas dentro do Hunter Auto.",
+            },
+        ]
+        faqs = [
+            {
+                "question": "O Hunter Auto serve para qualquer oficina mecânica?",
+                "answer": "O Hunter Auto foi desenvolvido para donos e gestores de oficinas mecânicas que desejam organizar a operação e profissionalizar o controle financeiro e a precificação. Nossa equipe pode apresentar o sistema e avaliar as necessidades da sua oficina.",
+            },
+            {
+                "question": "Como funciona a precificação inteligente?",
+                "answer": "O sistema considera informações da estrutura, equipe, custos e metas cadastradas. Ao informar peças, serviços e tempos previstos no orçamento, você recebe uma análise de rentabilidade conforme os parâmetros configurados.",
+            },
+            {
+                "question": "O sistema permite controlar estoque e financeiro?",
+                "answer": "Sim. O Hunter Auto reúne cadastro e movimentações de produtos, reabastecimento, alertas e relatórios de estoque, além de movimentações financeiras, DRE e fluxo de contas.",
+            },
+            {
+                "question": "Consigo emitir notas fiscais?",
+                "answer": "Sim. O sistema possui emissão de notas fiscais e central de notas, além de operações de devolução e carta de correção.",
+            },
+            {
+                "question": "Posso administrar mais de uma oficina?",
+                "answer": "Sim. A gestão de múltiplas unidades está disponível mediante contratação compatível. Converse com nossa equipe sobre a estrutura do seu negócio.",
+            },
+            {
+                "question": "É possível controlar o acesso dos funcionários?",
+                "answer": "Sim. É possível gerenciar os acessos e as permissões dos colaboradores no sistema.",
+            },
+            {
+                "question": "Como faço para conhecer o sistema?",
+                "answer": "Clique em um dos botões para conhecer o Hunter Auto, preencha seus dados e autorize o contato. Nossa equipe comercial entrará em contato para apresentar o sistema.",
+            },
+        ]
+        from urllib.parse import quote
+
+        context["product_tabs"] = product_tabs
+        context["product_tabs_json"] = json.dumps(product_tabs, ensure_ascii=False)
+        context["faqs"] = faqs
+        context["employee_options"] = EMPLOYEE_OPTIONS
+        context["revenue_options"] = REVENUE_OPTIONS
+        context["consent_text"] = CONSENT_TEXT
+        context["lead_url"] = reverse("marketing_lead_submit")
+        context["whatsapp_href"] = f"https://wa.me/{WHATSAPP_CONTACT_PHONE}?text={quote(WHATSAPP_CONTACT_MESSAGE)}"
+        return context
+
+
+class MarketingLeadSubmitView(View):
+    def post(self, request, *args: Any, **kwargs: Any) -> JsonResponse:
+        from apps.core.infrastructure.models import MarketingLead
+        from apps.core.presentation.landing_forms import MarketingLeadForm
+
+        form = MarketingLeadForm(request.POST)
+        if not form.is_valid():
+            first_error = next(iter(form.errors.values()))[0] if form.errors else "Confira seus dados."
+            return JsonResponse({"ok": False, "message": first_error}, status=400)
+
+        submission_id = form.cleaned_data["submission_id"]
+        existing = MarketingLead.objects.filter(submission_id=submission_id).first()
+        if existing is not None:
+            return JsonResponse({"ok": True, "duplicate": True})
+
+        MarketingLead.objects.create(
+            submission_id=submission_id,
+            name=form.cleaned_data["name"],
+            workshop=form.cleaned_data["workshop"],
+            email=form.cleaned_data["email"],
+            whatsapp=form.cleaned_data["whatsapp"],
+            employees=form.cleaned_data["employees"],
+            revenue=form.cleaned_data["revenue"],
+            consent=form.cleaned_data["consent"],
+            source=str(form.cleaned_data.get("source") or "")[:2048],
+            utm=form.build_utm(),
+        )
+        return JsonResponse({"ok": True})
+
+
+class PrivacyPolicyView(TemplateView):
+    template_name = "core/privacy.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["legal"] = LEGAL_DETAILS
+        return context
+
+
+class TermsOfUseView(TemplateView):
+    template_name = "core/terms.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["legal"] = LEGAL_DETAILS
+        return context
+
+
 class DashboardView(HtmxTemplateResponseMixin, TemplateView):
     template_name = "partials/dashboard.html"
 

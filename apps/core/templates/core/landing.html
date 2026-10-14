@@ -1,0 +1,360 @@
+{% load static %}
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hunter Auto | Sistema de Gestão para Oficinas Mecânicas</title>
+    <meta name="description" content="Conheça o Sistema Hunter Auto, desenvolvido de mecânico para mecânico para ajudar sua oficina a precificar serviços, organizar a gestão e aumentar a lucratividade." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{% static 'css/landing.css' %}" />
+    <script src="{% static 'js/landing.js' %}" defer></script>
+  </head>
+  <body class="landing-page">
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="#inicio" aria-label="Hunter Auto, início">
+          <img class="brand-logo" src="{% static 'img/landing/logo_sistema_hunter.png' %}" alt="Hunter Auto" width="1920" height="768" />
+        </a>
+        <nav class="desktop-nav" aria-label="Navegação principal">
+          <a href="#diferenciais">Diferenciais</a>
+          <a href="#funcionalidades">Funcionalidades</a>
+          <a href="#como-funciona">Como funciona</a>
+          <a href="#sidney">Sobre o Sidney</a>
+          <a href="#perguntas">FAQ</a>
+        </nav>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <a class="btn-outline header-client" href="{% url 'accounts:login' %}">Já sou cliente</a>
+          <button type="button" class="btn-conversion header-cta" data-open-lead>Conhecer o Hunter Auto</button>
+          <button type="button" class="btn-ghost menu-toggle" id="menu-toggle" aria-label="Abrir menu" aria-expanded="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+        </div>
+      </div>
+      <nav class="mobile-nav" id="mobile-nav" aria-label="Navegação móvel">
+        <a href="#diferenciais">Diferenciais</a>
+        <a href="#funcionalidades">Funcionalidades</a>
+        <a href="#como-funciona">Como funciona</a>
+        <a href="#sidney">Sobre o Sidney</a>
+        <a href="#perguntas">FAQ</a>
+        <a class="mobile-client" href="{% url 'accounts:login' %}">Já sou cliente</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="inicio">
+        <img class="hero-photo" src="{% static 'img/landing/sidney_oficina.jpeg' %}" alt="Sidney Gomes, idealizador do Hunter Auto, em sua oficina mecânica" fetchpriority="high" />
+        <div class="container hero-inner">
+          <div class="hero-copy">
+            <div class="hero-eyebrow">
+              <svg class="eyebrow-flash" viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true"><rect x="1" y="1" width="238" height="38" rx="4" pathLength="100"/></svg>
+              <span></span> DE MECÂNICO PARA MECÂNICO
+            </div>
+            <h1>Sistema Hunter Auto.<br/>Sua oficina organizada.<br/><em>Seu lucro em foco.</em></h1>
+            <p class="hero-description">Sua oficina pode lucrar mais. E tudo começa com uma gestão inteligente, criada por quem vive a mesma realidade que você.</p>
+            <div class="hero-actions">
+              <button type="button" class="btn-conversion hero-cta" data-open-lead>Quero aumentar o lucro da minha oficina</button>
+              <a class="watch-link" href="#funcionalidades">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                Veja o sistema
+              </a>
+            </div>
+            <p class="hero-assurance">Conheça o sistema. Nossa equipe conversa com você.</p>
+          </div>
+          <div class="hero-indicators" aria-label="Indicadores de gestão demonstrativos">
+            <div class="hero-indicator-window">
+              <div class="hero-proof hero-metric hero-revenue">
+                <div class="hero-proof-head">Faturamento</div>
+                <div class="hero-proof-label">Evolução mensal</div>
+                <svg class="revenue-line" viewBox="0 0 160 52" aria-hidden="true">
+                  <path class="chart-grid" d="M0 16H160 M0 34H160 M0 51H160"/>
+                  <path class="chart-line" pathLength="1" d="M3 43 L28 36 L52 39 L78 23 L102 28 L129 12 L157 4"/>
+                </svg>
+              </div>
+              <div class="hero-proof hero-pricing">
+                <div class="hero-proof-head">Precificação inteligente</div>
+                <div class="hero-proof-label">Rentabilidade do orçamento</div>
+                <div class="hero-proof-value">76,66% <span>Ótimo</span></div>
+                <div class="mini-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              </div>
+              <div class="hero-proof hero-metric hero-goals">
+                <div class="hero-proof-head">Metas da oficina</div>
+                <div class="goal-summary">
+                  <div class="goal-ring">
+                    <svg viewBox="0 0 64 64" aria-hidden="true"><circle class="ring-track" cx="32" cy="32" r="27"/><circle class="ring-progress" cx="32" cy="32" r="27" pathLength="100"/></svg>
+                    <strong>72%</strong>
+                  </div>
+                  <div class="hero-proof-label">Acompanhamento<br/>das metas</div>
+                </div>
+              </div>
+              <div class="hero-proof hero-metric hero-performance">
+                <div class="hero-proof-head">Desempenho</div>
+                <div class="hero-proof-label">Aprovação de orçamentos</div>
+                <div class="performance-value"><strong>68%</strong></div>
+                <div class="performance-track" aria-hidden="true"><i></i></div>
+              </div>
+            </div>
+          </div>
+          <div class="founder-caption">
+            <span class="line"></span>
+            <div>
+              <strong>Sidney Gomes</strong>
+              <small>Mecânico, empresário e idealizador do Hunter Auto</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="trust-band">
+        <div class="container trust-grid">
+          <p class="trust-intro">Tecnologia com os pés na oficina.<br/><strong>E os olhos no seu resultado.</strong></p>
+          <div class="trust-item">Criado por um mecânico</div>
+          <div class="trust-item">Mais segurança ao precificar</div>
+          <div class="trust-item">Gestão em um só lugar</div>
+        </div>
+      </div>
+
+      <section class="section workshop-section">
+        <img class="workshop-photo" src="{% static 'img/landing/hunter_oficina_fachada.jpeg' %}" alt="" loading="lazy" />
+        <div class="container">
+          <div class="problem-heading">
+            <div class="section-header">
+              <span class="eyebrow">OFICINA CHEIA NÃO É SINÔNIMO DE LUCRO</span>
+              <h2>Muito trabalho.<br/>Mas quanto realmente<br/><span class="highlight">sobra para você?</span></h2>
+            </div>
+            <p class="section-description">Você conhece cada detalhe de um motor. Mas ter a mesma clareza sobre os números da oficina pode ser um desafio. O Hunter Auto aproxima a gestão da sua realidade.</p>
+          </div>
+          <div class="problem-grid">
+            <article class="problem-card"><span class="icon-surface" aria-hidden="true">$</span><h3>Orçamentos no achismo</h3><p>Sem conhecer os custos e as margens, um serviço pode parecer bom e entregar pouco resultado.</p></article>
+            <article class="problem-card"><span class="icon-surface" aria-hidden="true">$</span><h3>Dinheiro sem destino claro</h3><p>A oficina está movimentada, mas fica difícil entender os custos reais e quanto sobra no fim do mês.</p></article>
+            <article class="problem-card"><span class="icon-surface" aria-hidden="true">i</span><h3>Decisões sem visão do todo</h3><p>Informações dispersas tornam mais difícil acompanhar a equipe, as metas e a saúde do negócio.</p></article>
+          </div>
+          <p class="problem-bottom">O próximo passo não é trabalhar mais. <strong>É administrar com mais clareza.</strong></p>
+        </div>
+      </section>
+
+      <section class="section difference" id="diferenciais">
+        <div class="container difference-grid">
+          <div>
+            <span class="eyebrow">O DIFERENCIAL HUNTER AUTO</span>
+            <h2>Não é só organizar.<br/>É proteger sua margem<br/><span class="highlight">antes de negociar.</span></h2>
+            <p class="section-description">A precificação inteligente parte dos custos, da estrutura e das metas da sua oficina. Com peças, serviços e tempos previstos, o Método Hunter ajuda a avaliar a rentabilidade do orçamento.</p>
+            <ul class="difference-list">
+              <li>Conheça os custos que precisam entrar na conta.</li>
+              <li>Analise a rentabilidade antes de fechar o serviço.</li>
+              <li>Negocie com mais informação e segurança.</li>
+            </ul>
+            <button type="button" class="btn-conversion" data-open-lead>Quero precificar com mais segurança</button>
+            <p class="pricing-callout">Errar na execução pode custar dinheiro. Errar no orçamento pode comprometer o lucro antes mesmo de começar o serviço.</p>
+          </div>
+          <div>
+            <div class="screenshot-frame">
+              <div class="browser-bar" aria-hidden="true"><i></i><i></i><i></i><span>Sistema Hunter Auto</span></div>
+              <img src="{% static 'img/landing/orcamento.png' %}" alt="Tela real de precificação do Hunter Auto" loading="lazy" />
+            </div>
+            <p class="image-note">Captura real do sistema. Valores de uma operação específica, sem garantia de resultados para outras oficinas.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="funcionalidades">
+        <div class="container">
+          <div class="section-header center">
+            <span class="eyebrow">CONHEÇA O SISTEMA POR DENTRO</span>
+            <h2>A oficina inteira conectada.<br/><span class="highlight">Você no controle.</span></h2>
+            <p class="section-description">Da primeira conversa com o cliente ao acompanhamento dos resultados, uma gestão que faz sentido para a sua rotina.</p>
+          </div>
+          <div class="product-tabs" role="tablist" aria-label="Módulos do Hunter Auto">
+            {% for tab in product_tabs %}
+            <button type="button" class="product-tab" role="tab" id="tab-{{ forloop.counter0 }}" data-tab="{{ forloop.counter0 }}" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}" aria-controls="product-panel">{{ tab.label }}</button>
+            {% endfor %}
+          </div>
+          <div class="product-preview" id="product-panel" role="tabpanel" aria-labelledby="tab-0">
+            <div class="screenshot-frame">
+              <div class="browser-bar" aria-hidden="true"><i></i><i></i><i></i><span>Sistema Hunter Auto</span></div>
+              <img id="product-image" src="{% static product_tabs.0.image %}" alt="Tela real do Hunter Auto: {{ product_tabs.0.label }}" loading="lazy" />
+            </div>
+            <div class="product-summary">
+              <h3 id="product-title">{{ product_tabs.0.title }}</h3>
+              <p id="product-description">{{ product_tabs.0.description }}</p>
+            </div>
+            <p class="image-note">Telas reais do Hunter Auto. Dados exibidos pertencem a uma operação específica.</p>
+          </div>
+          <div class="module-grid">
+            <article class="module-item"><div><h3>Ordens de serviço</h3><p>Organize as etapas e acompanhe a operação.</p></div></article>
+            <article class="module-item"><div><h3>Estoque e produtos</h3><p>Movimentações, reabastecimento, alertas e relatórios.</p></div></article>
+            <article class="module-item"><div><h3>Cadastros e organização</h3><p>Clientes, equipe, fornecedores, serviços e checklists.</p></div></article>
+            <article class="module-item"><div><h3>Múltiplas oficinas</h3><p>Administre unidades com contratação compatível.</p></div></article>
+            <article class="module-item"><div><h3>Acessos e permissões</h3><p>Defina o acesso de cada colaborador.</p></div></article>
+            <article class="module-item"><div><h3>Documentos e assinaturas</h3><p>Fluxos de assinatura eletrônica para documentos e O.S.</p></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section dashboard-section">
+        <div class="container">
+          <div class="section-header center">
+            <span class="eyebrow">GESTÃO COM FOCO EM RESULTADOS</span>
+            <h2>Pare de administrar<br/>sua oficina no escuro.</h2>
+            <p class="section-description">Enxergue os números que ajudam você a tomar decisões e acompanhar a saúde financeira do seu negócio.</p>
+          </div>
+          <div class="dashboard-tags">
+            <span>Faturamento</span><span>Ticket médio</span><span>Aprovação de orçamentos</span><span>Rentabilidade</span><span>Metas e projeções</span><span>Retornos em garantia</span><span>Valores a receber</span>
+          </div>
+          <div class="screenshot-frame">
+            <div class="browser-bar" aria-hidden="true"><i></i><i></i><i></i><span>Sistema Hunter Auto</span></div>
+            <img src="{% static 'img/landing/dashboard.png' %}" alt="Dashboard real do Hunter Auto" loading="lazy" />
+          </div>
+          <p class="image-note">Os valores desta captura são exemplos de uma operação específica e não representam resultados garantidos.</p>
+        </div>
+      </section>
+
+      <section class="section" id="sidney">
+        <div class="container about-grid">
+          <img class="about-photo" src="{% static 'img/landing/sidney_historia.jpg' %}" alt="Sidney Gomes na oficina" loading="lazy" />
+          <div>
+            <span class="eyebrow">EXPERIÊNCIA REAL, TRANSFORMADA EM TECNOLOGIA</span>
+            <h2>Quem vive a oficina<br/>sabe o que a gestão<br/><span class="highlight">precisa entregar.</span></h2>
+            <p class="section-description">Sidney Gomes é engenheiro, mecânico, empresário e atua há mais de 20 anos nos setores industrial e automotivo. Sua trajetória começou aos 16 anos e passou pela indústria, manutenção, engenharia e gestão, até chegar à construção e administração de três oficinas mecânicas.</p>
+            <p class="section-description">Ao longo dessa jornada, utilizou diferentes sistemas de gestão e percebeu uma necessidade em comum: registrar informações não era suficiente. Faltavam respostas para ajudar o dono da oficina a tomar decisões com foco em lucro.</p>
+            <p class="section-description">O Hunter Auto nasceu dessa necessidade. Uma solução construída a partir da rotina real, que conecta a operação a uma metodologia de precificação desenvolvida nas oficinas Hunter.</p>
+            <p class="section-description">Mais do que um sistema criado para oficinas, o Hunter Auto é um sistema criado dentro de oficinas, por quem vive os mesmos desafios que você.</p>
+            <div class="founder-signature">
+              <span class="icon-surface" aria-hidden="true">W</span>
+              <div><strong>Sidney Gomes</strong><small>Idealizador do Hunter Auto. De mecânico para mecânico.</small></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section steps-section" id="como-funciona">
+        <div class="container">
+          <div class="section-header center">
+            <span class="eyebrow">DA ROTINA AO RESULTADO</span>
+            <h2>Uma gestão mais clara.<br/>Um passo de cada vez.</h2>
+          </div>
+          <div class="steps-grid">
+            <article class="step"><div class="step-number">01</div><h3>Configure sua oficina</h3><p>Cadastre sua estrutura, equipe, custos e parâmetros operacionais.</p></article>
+            <article class="step"><div class="step-number">02</div><h3>Organize a operação</h3><p>Centralize orçamentos, ordens de serviço, estoque, agenda e financeiro.</p></article>
+            <article class="step"><div class="step-number">03</div><h3>Precifique com segurança</h3><p>Analise a rentabilidade antes de concluir a negociação.</p></article>
+            <article class="step"><div class="step-number">04</div><h3>Acompanhe os resultados</h3><p>Use indicadores e metas para orientar as próximas decisões.</p></article>
+          </div>
+          <div class="audience">
+            <strong>Pensado para quem cuida da oficina.</strong>
+            <p>Donos, gestores e equipes administrativas que buscam mais controle financeiro, precificação profissional e organização, em uma oficina ou em múltiplas unidades.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="perguntas">
+        <div class="container faq-grid">
+          <div>
+            <span class="eyebrow">PERGUNTAS FREQUENTES</span>
+            <h2>Vamos tirar<br/><span class="highlight">suas dúvidas.</span></h2>
+            <p class="section-description">Conheça melhor o Hunter Auto e veja como ele pode fazer parte da rotina da sua oficina.</p>
+            <div class="faq-aside">Quer conversar sobre seu negócio?</div>
+            <button type="button" class="btn-link" data-open-lead style="margin-top:8px;">Fale com nossa equipe</button>
+          </div>
+          <div class="faq-list">
+            {% for faq in faqs %}
+            <div class="faq-item">
+              <button type="button" class="faq-question" aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}" aria-controls="faq-{{ forloop.counter0 }}" data-faq="{{ forloop.counter0 }}">
+                {{ faq.question }}
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <p id="faq-{{ forloop.counter0 }}" class="faq-answer{% if not forloop.first %} hidden{% endif %}">{{ faq.answer }}</p>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="final-section">
+        <div class="container final-grid">
+          <h2>Sua oficina já trabalha duro.<br/>Agora é hora de fazer esse<br/>trabalho gerar mais resultado.</h2>
+          <div>
+            <p>Conheça o sistema desenvolvido de mecânico para mecânico para administrar com mais segurança, controle e foco em lucratividade.</p>
+            <button type="button" class="btn-conversion" data-open-lead>Quero conhecer o Hunter Auto</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-top">
+          <a class="brand" href="#inicio"><img class="brand-logo" src="{% static 'img/landing/logo_sistema_hunter.png' %}" alt="Hunter Auto" /></a>
+          <nav class="footer-nav" aria-label="Navegação do rodapé">
+            <a href="#diferenciais">Diferenciais</a>
+            <a href="#funcionalidades">Funcionalidades</a>
+            <a href="#sidney">Sobre o Sidney</a>
+            <a href="{% url 'privacy' %}">Política de Privacidade</a>
+            <a href="{% url 'terms' %}">Termos de Uso</a>
+          </nav>
+        </div>
+        <div class="footer-bottom">
+          <span>© 2026 Hunter Auto. Todos os direitos reservados.</span>
+          <span>De mecânico para mecânico.</span>
+        </div>
+      </div>
+    </footer>
+
+    <a class="whatsapp-contact" href="{{ whatsapp_href }}" target="_blank" rel="noopener noreferrer" aria-label="Falar com atendente pelo WhatsApp" title="Falar com atendente">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.52 3.48A11.9 11.9 0 0 0 12.04 0C5.42 0 .04 5.38.04 12c0 2.12.55 4.19 1.6 6.01L0 24l6.14-1.61A11.94 11.94 0 0 0 12.04 24H12c6.62 0 12-5.38 12-12a11.92 11.92 0 0 0-3.48-8.52ZM12.04 22a9.94 9.94 0 0 1-5.07-1.39l-.36-.21-3.64.96.97-3.55-.24-.37A9.96 9.96 0 0 1 2.04 12c0-5.51 4.49-10 10-10a9.93 9.93 0 0 1 7.07 2.93A9.94 9.94 0 0 1 22 12c0 5.51-4.49 10-9.96 10Zm5.49-7.47c-.3-.15-1.77-.87-2.04-.97-.28-.1-.48-.15-.68.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.67-2.07-.17-.3-.02-.46.13-.61.14-.13.3-.35.45-.52.15-.18.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.68-1.63-.93-2.23-.24-.58-.49-.5-.68-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.5s1.07 2.9 1.22 3.1c.15.2 2.11 3.22 5.12 4.52.71.31 1.27.49 1.71.63.72.23 1.37.2 1.89.12.58-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.18-1.42-.08-.13-.28-.2-.58-.35Z"/></svg>
+    </a>
+
+    <div class="lead-dialog-backdrop" id="lead-modal" data-open="false" role="dialog" aria-modal="true" aria-labelledby="lead-title" hidden>
+      <div class="lead-dialog">
+        <button type="button" class="lead-dialog-close" data-close-lead aria-label="Fechar">×</button>
+        <span class="eyebrow">VAMOS CONVERSAR SOBRE SUA OFICINA</span>
+        <h2 class="modal-title" id="lead-title">Dê o próximo passo para uma oficina mais lucrativa.</h2>
+        <p class="modal-desc">Preencha seus dados e nossa equipe entrará em contato para apresentar o Sistema Hunter Auto.</p>
+        <div id="lead-success" class="lead-success hidden" role="status">
+          <h3>Seu interesse foi recebido.</h3>
+          <p>Nossa equipe entrará em contato para apresentar o Hunter Auto.</p>
+          <button type="button" class="btn-conversion" data-close-lead>Concluir</button>
+        </div>
+        <form id="lead-form" class="lead-form" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="submission_id" id="lead-submission-id" value="" />
+          <div class="form-grid">
+            <label>Nome completo<input name="name" autocomplete="name" required minlength="3" maxlength="120" placeholder="Como podemos chamar você?" /></label>
+            <label>Nome da oficina<input name="workshop" autocomplete="organization" required minlength="2" maxlength="160" placeholder="Sua oficina" /></label>
+            <label>E-mail<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="voce@exemplo.com" /></label>
+            <label>WhatsApp com DDD<input name="whatsapp" id="lead-whatsapp" type="tel" autocomplete="tel-national" required placeholder="(11) 99999-9999" /></label>
+            <label>Quantidade de funcionários
+              <select name="employees" required>
+                <option value="" disabled selected>Selecione</option>
+                {% for option in employee_options %}<option value="{{ option }}">{{ option }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Faturamento mensal
+              <select name="revenue" required>
+                <option value="" disabled selected>Selecione</option>
+                {% for option in revenue_options %}<option value="{{ option }}">{{ option }}</option>{% endfor %}
+              </select>
+            </label>
+          </div>
+          <label class="consent-label">
+            <input type="checkbox" name="consent" value="on" required />
+            <span>{{ consent_text }}</span>
+          </label>
+          <p class="privacy-note">Seus dados serão utilizados para contato sobre o Hunter Auto, conforme nossa <a href="{% url 'privacy' %}" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
+          <p id="lead-error" class="form-error hidden" role="alert"></p>
+          <button type="submit" class="btn-conversion" id="lead-submit">Quero conhecer o Hunter Auto</button>
+          <span class="form-security">Seus dados são tratados com cuidado.</span>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      window.LANDING_CONFIG = {
+        leadUrl: "{{ lead_url|escapejs }}",
+        csrfToken: "{{ csrf_token|escapejs }}",
+        productTabs: {{ product_tabs_json|safe }},
+      };
+    </script>
+  </body>
+</html>

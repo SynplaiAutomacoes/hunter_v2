@@ -1,0 +1,30 @@
+{% load static %}
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Termos de Uso | Hunter Auto</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Sora:wght@700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{% static 'css/landing.css' %}" />
+</head>
+<body class="landing-page">
+  <main class="legal-page">
+    <a href="{% url 'landing' %}" class="text-primary">← Voltar ao Hunter Auto</a>
+    <h1>Termos de Uso</h1>
+    <p class="legal-notice">Estes termos se referem à página de apresentação do Sistema Hunter Auto, não substituindo o contrato de uso do software.</p>
+    <h2>Identificação do fornecedor</h2>
+    <p>O fornecedor responsável pelo Hunter Auto é {{ legal.supplier_legal_name }}, inscrito no CNPJ {{ legal.supplier_cnpj }}, com endereço em {{ legal.supplier_address }}.</p>
+    <h2>Apresentação do sistema</h2>
+    <p>Esta página apresenta o Sistema Hunter Auto e permite solicitar contato da equipe comercial. O envio do formulário não contrata o software nem cria uma obrigação de pagamento.</p>
+    <h2>Telas e resultados</h2>
+    <p>As capturas apresentadas são telas reais do sistema. Valores e indicadores são exemplos de uma operação específica, não uma promessa de faturamento, rentabilidade ou ausência de prejuízos.</p>
+    <h2>Contratação e funcionalidades</h2>
+    <p>Planos, preços, implantação, suporte e demais condições serão esclarecidos pela equipe comercial. A gestão de múltiplas unidades depende de contratação compatível. Os fluxos de assinatura eletrônica estão sujeitos à modalidade implementada e aos requisitos legais aplicáveis.</p>
+    <h2>Dados pessoais</h2>
+    <p>O contato comercial depende dos dados enviados e do consentimento específico. Consulte a <a class="text-primary" href="{% url 'privacy' %}">Política de Privacidade</a> para conhecer as informações disponíveis sobre tratamento de dados. Solicitações de privacidade e exclusão de dados podem ser enviadas para <a class="text-primary" href="mailto:{{ legal.privacy_email }}">{{ legal.privacy_email }}</a>.</p>
+  </main>
+</body>
+</html>
