@@ -101,9 +101,14 @@ def parse_duration(raw: str) -> timedelta | None:
         minutes = int(hour_match.group(2) or 0)
         return timedelta(hours=hours, minutes=minutes)
 
-    if re.match(r"^\d+:\d{1,2}$", text):
-        hours_str, minutes_str = text.split(":")
-        return timedelta(hours=int(hours_str), minutes=int(minutes_str))
+    # HH:MM ou HH:MM:SS (segundos são ignorados; só hora e minuto contam).
+    clock_match = re.match(r"^(\d+):(\d{1,2})(?::\d{1,2}(?:\.\d+)?)?$", text)
+    if clock_match:
+        hours = int(clock_match.group(1))
+        minutes = int(clock_match.group(2))
+        if minutes >= 60:
+            raise ImportRowError(f"Duração inválida: '{raw}'. Use HH:MM, minutos ou 1h30m.")
+        return timedelta(hours=hours, minutes=minutes)
 
     if text.isdigit():
         return timedelta(minutes=int(text))
