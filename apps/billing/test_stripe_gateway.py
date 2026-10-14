@@ -4,7 +4,13 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from apps.billing.infrastructure.gateways.stripe import construct_webhook_event, create_incomplete_subscription, retrieve_price
+from apps.billing.domain.contracts import BillingServiceError
+from apps.billing.infrastructure.gateways.stripe import (
+    construct_webhook_event,
+    create_incomplete_subscription,
+    resolve_promotion_code,
+    retrieve_price,
+)
 
 
 @override_settings(STRIPE_SECRET_KEY="sk_test_example")
@@ -60,6 +66,45 @@ class StripeGatewayTests(SimpleTestCase):
         self.assertEqual(result["subscription_id"], "sub_1")
         expand = create_subscription.call_args.kwargs["expand"]
         self.assertIn("latest_invoice.confirmation_secret", expand)
+        self.assertNotIn("discounts", create_subscription.call_args.kwargs)
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.list")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
+    def test_create_incomplete_subscription_applies_promotion_code(
+        self,
+        create_customer: Mock,
+        create_subscription: Mock,
+        list_promo: Mock,
+    ) -> None:
+        create_customer.return_value = Mock(id="cus_1", to_dict=Mock(return_value={"id": "cus_1"}))
+        list_promo.return_value = Mock(data=[Mock(id="promo_abc")])
+        subscription = Mock()
+        subscription.to_dict.return_value = {
+            "id": "sub_1",
+            "latest_invoice": {
+                "id": "in_1",
+                "confirmation_secret": {"client_secret": "pi_secret_123", "type": "payment_intent"},
+            },
+        }
+        create_subscription.return_value = subscription
+
+        create_incomplete_subscription(
+            email="ana@example.com",
+            customer_name="Ana",
+            plan="basic",
+            price_id="price_basic",
+            pending_signup_id=7,
+            promotion_code="DESCONTO10",
+        )
+
+        self.assertEqual(create_subscription.call_args.kwargs["discounts"], [{"promotion_code": "promo_abc"}])
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.list")
+    def test_resolve_promotion_code_rejects_unknown(self, list_promo: Mock) -> None:
+        list_promo.return_value = Mock(data=[])
+        with self.assertRaises(BillingServiceError):
+            resolve_promotion_code("INVALIDO")
 
 
 class _StripeResource:

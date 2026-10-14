@@ -5,6 +5,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const errorBox = document.getElementById("subscribe-error");
   const paymentMount = document.getElementById("payment-element");
   const accountFields = form ? form.querySelector(".subscribe-grid") : null;
+  const sendCodeButton = document.getElementById("subscribe-send-code");
+  const verifyCodeButton = document.getElementById("subscribe-verify-code");
+  const codeLabel = document.getElementById("subscribe-code-label");
+  const codeInput = document.getElementById("subscribe-email-code");
+  const verifyStatus = document.getElementById("subscribe-verify-status");
 
   if (!form || !config.publishableKey) {
     showError("Stripe não configurado (STRIPE_PUBLISHABLE_KEY ausente).");
@@ -31,6 +36,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let pendingSignupId = null;
   let clientSecret = null;
   let paymentReady = false;
+  let emailVerified = false;
 
   function showError(message) {
     if (!errorBox) return;
@@ -46,8 +52,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setLoading(isLoading, label) {
     if (!submitButton) return;
-    submitButton.disabled = isLoading;
+    submitButton.disabled = isLoading || !emailVerified;
     submitButton.textContent = label || (isLoading ? "Processando..." : "Pagar e criar conta");
+  }
+
+  function setVerifyStatus(message) {
+    if (!verifyStatus) return;
+    verifyStatus.hidden = !message;
+    verifyStatus.textContent = message || "";
   }
 
   async function pollUntilPaid(pendingId) {
@@ -93,11 +105,14 @@ document.addEventListener("DOMContentLoaded", () => {
     elements = stripe.elements({
       clientSecret,
       appearance: {
-        theme: "night",
+        theme: "stripe",
         variables: {
-          colorPrimary: "#05c4ed",
-          colorBackground: "#0a121c",
-          colorText: "#ffffff",
+          colorPrimary: "#3b5bdb",
+          colorBackground: "#ffffff",
+          colorText: "#1c2438",
+          colorDanger: "#c23b2e",
+          fontFamily: "Manrope, sans-serif",
+          borderRadius: "5px",
         },
       },
     });
@@ -114,6 +129,10 @@ document.addEventListener("DOMContentLoaded", () => {
         input.readOnly = true;
       });
     }
+    const couponInput = document.getElementById("subscribe-coupon");
+    if (couponInput) couponInput.readOnly = true;
+    if (sendCodeButton) sendCodeButton.disabled = true;
+    if (verifyCodeButton) verifyCodeButton.disabled = true;
     setLoading(false, "Confirmar pagamento");
   }
 
@@ -154,9 +173,86 @@ document.addEventListener("DOMContentLoaded", () => {
     window.location.href = completePayload.redirect_url;
   }
 
+  if (sendCodeButton) {
+    sendCodeButton.addEventListener("click", async () => {
+      clearError();
+      const email = form.querySelector('input[name="email"]');
+      if (!email || !email.value) {
+        showError("Informe o e-mail antes de solicitar o código.");
+        return;
+      }
+      sendCodeButton.disabled = true;
+      sendCodeButton.textContent = "Enviando...";
+      try {
+        const data = new FormData();
+        data.append("email", email.value);
+        const response = await fetch(config.sendCodeUrl, {
+          method: "POST",
+          headers: { "X-CSRFToken": config.csrfToken, Accept: "application/json" },
+          body: data,
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.message || "Não foi possível enviar o código.");
+        }
+        if (codeLabel) codeLabel.hidden = false;
+        if (verifyCodeButton) verifyCodeButton.hidden = false;
+        setVerifyStatus(`Código enviado para ${payload.masked_email || "seu e-mail"}.`);
+      } catch (error) {
+        showError(error.message || "Erro ao enviar o código.");
+      } finally {
+        sendCodeButton.disabled = false;
+        sendCodeButton.textContent = "Enviar código";
+      }
+    });
+  }
+
+  if (verifyCodeButton) {
+    verifyCodeButton.addEventListener("click", async () => {
+      clearError();
+      const email = form.querySelector('input[name="email"]');
+      if (!email || !email.value || !codeInput || !codeInput.value) {
+        showError("Informe o e-mail e o código recebido.");
+        return;
+      }
+      verifyCodeButton.disabled = true;
+      verifyCodeButton.textContent = "Confirmando...";
+      try {
+        const data = new FormData();
+        data.append("email", email.value);
+        data.append("code", codeInput.value.trim());
+        const response = await fetch(config.verifyCodeUrl, {
+          method: "POST",
+          headers: { "X-CSRFToken": config.csrfToken, Accept: "application/json" },
+          body: data,
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.message || "Código inválido.");
+        }
+        emailVerified = true;
+        setVerifyStatus("E-mail confirmado. Você já pode continuar para o pagamento.");
+        if (submitButton) submitButton.disabled = false;
+        if (email) email.readOnly = true;
+        if (codeInput) codeInput.readOnly = true;
+      } catch (error) {
+        emailVerified = false;
+        if (submitButton) submitButton.disabled = true;
+        showError(error.message || "Não foi possível confirmar o código.");
+      } finally {
+        verifyCodeButton.disabled = false;
+        verifyCodeButton.textContent = "Confirmar código";
+      }
+    });
+  }
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     clearError();
+    if (!emailVerified) {
+      showError("Confirme seu e-mail com o código enviado antes de continuar.");
+      return;
+    }
     setLoading(true, paymentReady ? "Confirmando pagamento..." : "Preparando pagamento...");
 
     try {

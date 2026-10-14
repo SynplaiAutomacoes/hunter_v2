@@ -45,6 +45,8 @@ from apps.workshops.views.system_management import SystemManagementMixin
 logger = logging.getLogger(__name__)
 
 STRIPE_USER_ERROR_MESSAGE = "Não foi possível iniciar o pagamento. Tente novamente."
+SIGNUP_EMAIL_SESSION_KEY = "signup_email_verified"
+SIGNUP_EMAIL_CODE_SUBJECT = "Código de confirmação — Hunter Auto"
 
 SUBSCRIBER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     QueryParamFilter(
@@ -95,11 +97,93 @@ class SubscribeView(TemplateView):
         context["form"] = SubscribeSignupForm(initial={"plan": plan_key})
         context["stripe_publishable_key"] = str(getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") or "")
         context["start_url"] = reverse("billing:subscribe_start")
+        context["send_code_url"] = reverse("billing:subscribe_send_code")
+        context["verify_code_url"] = reverse("billing:subscribe_verify_code")
         context["status_url_template"] = reverse("billing:subscribe_status", kwargs={"pending_id": 0}).replace("/0/", "/{id}/")
         context["complete_url"] = reverse("billing:subscribe_complete")
         context["login_url"] = reverse("accounts:login")
         context["landing_url"] = reverse("landing")
         return context
+
+
+def _mask_email(email: str) -> str:
+    local, _, domain = email.partition("@")
+    if not domain:
+        return "***"
+    visible = local[:2] if len(local) >= 2 else local[:1]
+    return f"{visible}***@{domain}"
+
+
+class SubscribeSendCodeView(View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        from django.contrib.auth import get_user_model
+
+        from apps.billing.models import SignupEmailVerification
+        from apps.core.infrastructure.services.email import get_email_service
+
+        if request.user.is_authenticated:
+            return JsonResponse({"ok": False, "message": "Você já está autenticado."}, status=400)
+
+        email = str(request.POST.get("email") or "").strip().lower()
+        if not email or "@" not in email:
+            return JsonResponse({"ok": False, "message": "Informe um e-mail válido."}, status=400)
+
+        User = get_user_model()
+        if User.objects.filter(email__iexact=email).exists():
+            return JsonResponse({"ok": False, "message": "Este e-mail já está em uso."}, status=400)
+
+        try:
+            token = SignupEmailVerification.create_token(email=email)
+        except ValueError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=429)
+
+        body = (
+            "Olá!\n\n"
+            f"Seu código de confirmação para criar a conta Hunter Auto é: {token.code}\n\n"
+            "O código expira em 15 minutos.\n"
+            "Se você não solicitou este código, ignore este e-mail.\n"
+        )
+        try:
+            get_email_service().send(to_email=email, subject=SIGNUP_EMAIL_CODE_SUBJECT, body=body)
+        except Exception:
+            logger.exception("Falha ao enviar código de confirmação para %s", _mask_email(email))
+            return JsonResponse({"ok": False, "message": "Erro ao enviar o código por e-mail. Tente novamente."}, status=500)
+
+        return JsonResponse({"ok": True, "masked_email": _mask_email(email)})
+
+
+class SubscribeVerifyCodeView(View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        from apps.billing.models import SignupEmailVerification
+
+        if request.user.is_authenticated:
+            return JsonResponse({"ok": False, "message": "Você já está autenticado."}, status=400)
+
+        email = str(request.POST.get("email") or "").strip().lower()
+        code = str(request.POST.get("code") or "").strip()
+        if not email or not code:
+            return JsonResponse({"ok": False, "message": "Informe o e-mail e o código."}, status=400)
+
+        token = (
+            SignupEmailVerification.objects.filter(email__iexact=email, used=False)
+            .order_by("-criado_em")
+            .first()
+        )
+        if token is None:
+            return JsonResponse({"ok": False, "message": "Código inválido. Solicite um novo."}, status=400)
+
+        if not token.is_valid():
+            return JsonResponse({"ok": False, "message": "Código expirado ou bloqueado. Solicite um novo."}, status=400)
+
+        if token.code != code:
+            token.attempts += 1
+            token.save(update_fields=["attempts", "atualizado_em"])
+            return JsonResponse({"ok": False, "message": "Código incorreto."}, status=400)
+
+        token.used = True
+        token.save(update_fields=["used", "atualizado_em"])
+        request.session[SIGNUP_EMAIL_SESSION_KEY] = email
+        return JsonResponse({"ok": True})
 
 
 class SubscribeStartView(View):
@@ -110,6 +194,13 @@ class SubscribeStartView(View):
         form = SubscribeSignupForm(request.POST)
         if not form.is_valid():
             return JsonResponse({"ok": False, "errors": form.errors}, status=400)
+
+        verified_email = str(request.session.get(SIGNUP_EMAIL_SESSION_KEY) or "").strip().lower()
+        if not verified_email or verified_email != form.cleaned_data["email"]:
+            return JsonResponse(
+                {"ok": False, "message": "Confirme seu e-mail com o código enviado antes de continuar."},
+                status=400,
+            )
 
         plan = str(form.cleaned_data["plan"])
         price_id = ""
@@ -138,12 +229,16 @@ class SubscribeStartView(View):
                     plan=plan,
                     price_id=price_id,
                     pending_signup_id=pending.pk,
+                    promotion_code=form.cleaned_data.get("promotion_code") or "",
                 )
             )
-        except BillingServiceError:
+        except BillingServiceError as exc:
             logger.exception("Falha Stripe ao iniciar assinatura pendente %s", pending.pk)
             pending.status = PendingSignupStatus.FAILED
             pending.save(update_fields=["status", "atualizado_em"])
+            error_message = str(exc)
+            if "cupom" in error_message.lower():
+                return JsonResponse({"ok": False, "message": error_message}, status=400)
             return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=500)
 
         pending.stripe_customer_id = result.customer_id

@@ -24,6 +24,12 @@ class SubscribeSignupForm(forms.Form):
     password1 = forms.CharField(label="Senha", widget=PasswordInput())
     password2 = forms.CharField(label="Confirmar senha", widget=PasswordInput())
     plan = forms.ChoiceField(choices=[(Plan.BASIC, "Orçamento"), (Plan.FULL, "Completo")])
+    promotion_code = forms.CharField(
+        label="Cupom",
+        max_length=64,
+        required=False,
+        widget=TextInput(attrs={"placeholder": "Código do cupom (opcional)"}),
+    )
 
     def clean_username(self) -> str:
         username = str(self.cleaned_data.get("username") or "").lower().strip()
@@ -48,6 +54,9 @@ class SubscribeSignupForm(forms.Form):
         if User.objects.filter(cpf=cpf, is_account_owner=True).exists():
             raise forms.ValidationError("Este CPF já está vinculado a uma conta.")
         return cpf
+
+    def clean_promotion_code(self) -> str:
+        return str(self.cleaned_data.get("promotion_code") or "").strip()
 
     def clean(self):
         cleaned = super().clean()

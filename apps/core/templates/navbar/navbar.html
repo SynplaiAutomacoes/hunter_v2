@@ -52,10 +52,9 @@
                       <a class="flex-1" href="{{ item.href }}"
                         >{{ item.label }}</a
                       >
-                      {% if item.favoritable %} {% include
-                      'favorites/partials/favorite_button.html' with
-                      favorite_url=item.href favorite_label=item.label %} {%
-                      endif %}
+                      {% if item.favoritable %}
+                      {% include 'favorites/partials/favorite_button.html' with favorite_url=item.href favorite_label=item.label %}
+                      {% endif %}
                     </div>
                   </li>
                   {% endfor %}
@@ -64,9 +63,9 @@
               {% else %}
               <div class="flex items-center justify-between gap-2">
                 <a class="flex-1" href="{{ menu.href }}">{{ menu.label }}</a>
-                {% if menu.favoritable %} {% include
-                'favorites/partials/favorite_button.html' with
-                favorite_url=menu.href favorite_label=menu.label %} {% endif %}
+                {% if menu.favoritable %}
+                {% include 'favorites/partials/favorite_button.html' with favorite_url=menu.href favorite_label=menu.label %}
+                {% endif %}
               </div>
               {% endif %}
             </li>
@@ -127,10 +126,9 @@
                     <a class="flex-1" href="{{ item.href }}"
                       >{{ item.label }}</a
                     >
-                    {% if item.favoritable %} {% include
-                    'favorites/partials/favorite_button.html' with
-                    favorite_url=item.href favorite_label=item.label %} {% endif
-                    %}
+                    {% if item.favoritable %}
+                    {% include 'favorites/partials/favorite_button.html' with favorite_url=item.href favorite_label=item.label %}
+                    {% endif %}
                   </div>
                 </li>
                 {% endfor %}
@@ -141,11 +139,9 @@
               <a class="flex-1 text-base font-medium" href="{{ menu.href }}"
                 >{{ menu.label }}</a
               >
-              {% if menu.favoritable %} {% include
-              'favorites/partials/favorite_button.html' with
-              favorite_url=menu.href favorite_label=menu.label
-              favorite_button_class='btn btn-ghost btn-circle btn-xs
-              text-navbar-text/80 hover:text-warning' %} {% endif %}
+              {% if menu.favoritable %}
+              {% include 'favorites/partials/favorite_button.html' with favorite_url=menu.href favorite_label=menu.label favorite_button_class='btn btn-ghost btn-circle btn-xs text-navbar-text/80 hover:text-warning' %}
+              {% endif %}
             </div>
             {% endif %}
           </li>

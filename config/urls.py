@@ -20,13 +20,22 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path, include
 
-from apps.core.presentation.views import LandingPageView, permission_denied
+from apps.core.presentation.views import (
+    LandingPageView,
+    MarketingLeadSubmitView,
+    PrivacyPolicyView,
+    TermsOfUseView,
+    permission_denied,
+)
 from apps.messaging.presentation.views.satisfaction_review_views import PublicSatisfactionReviewView
 
 handler403 = permission_denied
 
 urlpatterns = [
     path("", LandingPageView.as_view(), name="landing"),
+    path("leads/", MarketingLeadSubmitView.as_view(), name="marketing_lead_submit"),
+    path("privacidade/", PrivacyPolicyView.as_view(), name="privacy"),
+    path("termos/", TermsOfUseView.as_view(), name="terms"),
     path("admin/", admin.site.urls),
     path("accounts/", include("apps.accounts.urls")),
     path("roles/", include(("apps.iam.urls", "iam"), namespace="iam")),

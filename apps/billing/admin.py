@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from apps.billing.models import AccountSubscription, PendingSignup, StripeWebhookEvent
+from apps.billing.models import AccountSubscription, PendingSignup, SignupEmailVerification, StripeWebhookEvent
 
 
 @admin.register(AccountSubscription)
@@ -25,3 +25,11 @@ class StripeWebhookEventAdmin(admin.ModelAdmin):
     list_filter = ("event_type",)
     search_fields = ("event_id", "event_type")
     readonly_fields = ("event_id", "event_type", "payload", "processed_at", "criado_em", "atualizado_em")
+
+
+@admin.register(SignupEmailVerification)
+class SignupEmailVerificationAdmin(admin.ModelAdmin):
+    list_display = ("email", "used", "attempts", "expires_at", "criado_em")
+    list_filter = ("used",)
+    search_fields = ("email",)
+    readonly_fields = ("code", "criado_em", "atualizado_em")

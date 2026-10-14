@@ -41,6 +41,11 @@ class SubscribeFlowTests(TestCase):
             )
         ]
 
+    def _verify_email(self, email: str) -> None:
+        session = self.client.session
+        session["signup_email_verified"] = email
+        session.save()
+
     def test_register_redirects_to_subscribe(self) -> None:
         response = self.client.get(reverse("accounts:register"))
         self.assertEqual(response.status_code, 302)
@@ -48,7 +53,26 @@ class SubscribeFlowTests(TestCase):
         self.assertEqual(User.objects.count(), 0)
         self.assertEqual(Account.objects.count(), 0)
 
+    def test_subscribe_start_requires_verified_email(self) -> None:
+        response = self.client.post(
+            reverse("billing:subscribe_start"),
+            data={
+                "first_name": "Ana",
+                "last_name": "Silva",
+                "username": "ana.silva",
+                "email": "ana@example.com",
+                "cpf": "52998224725",
+                "password1": "SenhaForte123!",
+                "password2": "SenhaForte123!",
+                "plan": Plan.BASIC,
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("e-mail", response.json()["message"].lower())
+        self.assertEqual(PendingSignup.objects.count(), 0)
+
     def test_subscribe_start_creates_pending_without_account(self) -> None:
+        self._verify_email("ana@example.com")
         with (
             patch("apps.billing.presentation.views.get_billing_service") as get_service,
             patch("apps.billing.infrastructure.providers.get_billing_service") as get_service_provider,
@@ -89,6 +113,7 @@ class SubscribeFlowTests(TestCase):
         self.assertEqual(pending.stripe_subscription_id, "sub_pending")
 
     def test_subscribe_start_replaces_unfinished_pending_signup(self) -> None:
+        self._verify_email("ana@example.com")
         PendingSignup.objects.create(
             email="ana@example.com",
             username="ana.silva",
@@ -135,6 +160,7 @@ class SubscribeFlowTests(TestCase):
         self.assertEqual(User.objects.count(), 0)
 
     def test_stripe_failure_returns_500_without_provider_message(self) -> None:
+        self._verify_email("ana.erro@example.com")
         with patch("apps.billing.presentation.views.get_billing_service") as get_service:
             service = get_service.return_value
             service.list_public_plans.return_value = self.plans
@@ -293,3 +319,42 @@ class SubscribePageTests(TestCase):
         self.assertContains(response, "Completo")
         self.assertContains(response, "R$ 199,00")
         self.assertContains(response, "payment-element")
+        self.assertContains(response, "promotion_code")
+        self.assertContains(response, "subscribe-send-code")
+        self.assertContains(response, "Hunter Auto")
+        self.assertContains(response, "Já sou cliente")
+        self.assertNotContains(response, "universidadehunter.com.br")
+
+
+class SignupEmailVerificationFlowTests(TestCase):
+    @patch("apps.core.infrastructure.services.email.get_email_service")
+    def test_send_and_verify_code(self, get_email: object) -> None:
+        from unittest.mock import Mock
+
+        from apps.billing.models import SignupEmailVerification
+
+        email_service = Mock()
+        get_email.return_value = email_service  # type: ignore[attr-defined]
+
+        send_response = self.client.post(
+            reverse("billing:subscribe_send_code"),
+            data={"email": "nova@example.com"},
+        )
+        self.assertEqual(send_response.status_code, 200)
+        self.assertTrue(send_response.json()["ok"])
+        email_service.send.assert_called_once()
+        token = SignupEmailVerification.objects.get(email="nova@example.com")
+
+        bad = self.client.post(
+            reverse("billing:subscribe_verify_code"),
+            data={"email": "nova@example.com", "code": "XXXXXX"},
+        )
+        self.assertEqual(bad.status_code, 400)
+
+        ok = self.client.post(
+            reverse("billing:subscribe_verify_code"),
+            data={"email": "nova@example.com", "code": token.code},
+        )
+        self.assertEqual(ok.status_code, 200)
+        self.assertTrue(ok.json()["ok"])
+        self.assertEqual(self.client.session.get("signup_email_verified"), "nova@example.com")
