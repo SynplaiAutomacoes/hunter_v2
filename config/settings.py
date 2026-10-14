@@ -161,6 +161,7 @@ INSTALLED_APPS = [
     "apps.quote",
     "apps.checklist",
     "apps.budget",
+    "apps.yard",
     "apps.customer",
     "apps.workorder",
     "apps.scheduling",

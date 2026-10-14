@@ -1,0 +1,50 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="flex items-center justify-between gap-4 w-full">
+    <div>
+        <h1 class="text-3xl font-bold text-base-content">Pátio da Oficina</h1>
+        <p class="text-base-content/70 mt-1">Acompanhe orçamentos e ordens de serviço em tempo real</p>
+    </div>
+    {% if can_edit %}
+    <button
+        type="button"
+        class="btn btn-primary"
+        hx-get="{% url 'yard:config_modal' %}"
+        hx-target="#yard-modal-container"
+        hx-swap="innerHTML"
+        onclick="yard_modal.showModal()">
+        <span class="material-icons" style="vertical-align: middle;">settings</span> Configurar Pátio
+    </button>
+    {% endif %}
+</div>
+
+<div
+    id="yard-board"
+    hx-get="{% url 'yard:board_content' %}"
+    hx-trigger="yard-board-refresh from:body"
+    hx-swap="innerHTML"
+    hx-target="this"
+>
+    {% include 'yard/partials/board_content.html' %}
+</div>
+
+<dialog id="yard_modal" class="modal">
+    <div id="yard-modal-container"></div>
+</dialog>
+
+<script>
+    (function() {
+        if (window.__yardModalBound) {
+            return;
+        }
+        window.__yardModalBound = true;
+        document.body.addEventListener('closeYardModal', function() {
+            const modal = document.getElementById('yard_modal');
+            if (modal && modal.open) {
+                modal.close();
+            }
+        });
+    })();
+</script>
+{% endblock %}

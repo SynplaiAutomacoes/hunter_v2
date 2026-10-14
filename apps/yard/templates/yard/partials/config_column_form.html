@@ -1,0 +1,96 @@
+{% if column %}
+<form
+    hx-post="{% url 'yard:column_update' column.pk %}"
+    hx-target="#yard-modal-container"
+    hx-swap="innerHTML"
+    class="grid grid-cols-1 md:grid-cols-2 gap-4"
+>
+{% else %}
+<form
+    hx-post="{% url 'yard:column_create' %}"
+    hx-target="#yard-modal-container"
+    hx-swap="innerHTML"
+    class="grid grid-cols-1 md:grid-cols-2 gap-4"
+>
+{% endif %}
+    {% csrf_token %}
+    <div>
+        <label class="label"><span class="label-text text-xs">{{ form.target.label }}</span></label>
+        {{ form.target }}
+        {% if form.target.errors %}<p class="text-xs text-error mt-1">{{ form.target.errors.0 }}</p>{% endif %}
+    </div>
+    <div>
+        <label class="label"><span class="label-text text-xs">{{ form.status.label }}</span></label>
+        {{ form.status }}
+        {% if form.status.errors %}<p class="text-xs text-error mt-1">{{ form.status.errors.0 }}</p>{% endif %}
+    </div>
+    <div>
+        <label class="label"><span class="label-text text-xs">{{ form.title.label }}</span></label>
+        {{ form.title }}
+        {% if form.title.errors %}<p class="text-xs text-error mt-1">{{ form.title.errors.0 }}</p>{% endif %}
+    </div>
+    <div class="flex gap-4 items-end">
+        <div>
+            <label class="label"><span class="label-text text-xs">{{ form.color.label }}</span></label>
+            {{ form.color }}
+            {% if form.color.errors %}<p class="text-xs text-error mt-1">{{ form.color.errors.0 }}</p>{% endif %}
+        </div>
+        <label class="flex items-center gap-2 pb-3 text-sm cursor-pointer">
+            {{ form.is_active }} Ativa
+        </label>
+    </div>
+    <div class="md:col-span-2">
+        <label class="label"><span class="label-text text-xs">{{ form.date_base.label }}</span></label>
+        {{ form.date_base }}
+        {% if form.date_base.errors %}<p class="text-xs text-error mt-1">{{ form.date_base.errors.0 }}</p>{% endif %}
+    </div>
+    {% if form.non_field_errors %}
+    <div class="md:col-span-2 alert alert-error text-sm py-2">
+        {% for error in form.non_field_errors %}<span>{{ error }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="md:col-span-2 flex justify-end gap-2">
+        {% if column %}
+        <button
+            type="button"
+            class="btn btn-ghost"
+            hx-get="{% url 'yard:config_modal' %}"
+            hx-target="#yard-modal-container"
+            hx-swap="innerHTML">
+            Nova coluna
+        </button>
+        {% endif %}
+        <button type="submit" class="btn btn-primary">{% if column %}Salvar alterações{% else %}Criar coluna{% endif %}</button>
+    </div>
+</form>
+
+<script>
+    (function() {
+        var targetSelect = document.querySelector('#yard-config-form-wrapper select[name="target"], #yard-modal-container select[name="target"]');
+        var statusSelect = document.querySelector('#yard-config-form-wrapper select[name="status"], #yard-modal-container select[name="status"]');
+        if (!targetSelect || !statusSelect) {
+            return;
+        }
+        function filterStatusOptions() {
+            var target = targetSelect.value;
+            var groups = statusSelect.querySelectorAll('optgroup');
+            groups.forEach(function(group) {
+                var groupLabel = group.getAttribute('label') || '';
+                var show = groupLabel === 'Geral';
+                if (target === 'budget' && groupLabel === 'Orçamentos') {
+                    show = true;
+                }
+                if (target === 'workorder' && groupLabel === 'Ordens de Serviço') {
+                    show = true;
+                }
+                group.style.display = show ? '' : 'none';
+            });
+            var current = statusSelect.querySelector('option:checked');
+            if (current && current.parentElement.tagName === 'OPTGROUP' && current.parentElement.style.display === 'none') {
+                statusSelect.value = 'all';
+            }
+        }
+        targetSelect.addEventListener('change', filterStatusOptions);
+        filterStatusOptions();
+    })();
+</script>

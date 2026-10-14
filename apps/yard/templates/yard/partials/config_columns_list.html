@@ -1,0 +1,30 @@
+<div class="space-y-2">
+    {% for column in columns %}
+    <div class="flex items-center gap-3 rounded-lg border border-base-300 px-3 py-2">
+        <span class="w-4 h-4 rounded-full shrink-0" style="background-color: {{ column.color }};"></span>
+        <div class="min-w-0 flex-1">
+            <p class="font-semibold text-sm truncate">{{ column.title }}</p>
+            <p class="text-xs text-base-content/60">{{ column.get_target_display }} · {{ column.status_label }} · {{ column.get_date_base_display }}{% if not column.is_active %} · Inativa{% endif %}</p>
+        </div>
+        <button
+            type="button"
+            class="btn btn-ghost btn-xs text-info"
+            hx-get="{% url 'yard:column_update' column.pk %}"
+            hx-target="#yard-config-form-wrapper"
+            hx-swap="innerHTML">
+            <span class="material-icons text-sm">edit</span>
+        </button>
+        <button
+            type="button"
+            class="btn btn-ghost btn-xs text-error"
+            hx-post="{% url 'yard:column_delete' column.pk %}"
+            hx-target="#yard-config-columns"
+            hx-swap="innerHTML"
+            hx-confirm="Excluir a coluna '{{ column.title }}'?">
+            <span class="material-icons text-sm">delete</span>
+        </button>
+    </div>
+    {% empty %}
+    <p class="text-sm text-base-content/60 text-center py-4">Nenhuma coluna configurada.</p>
+    {% endfor %}
+</div>
