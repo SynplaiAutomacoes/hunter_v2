@@ -77,10 +77,11 @@
           href="{{ navbar_home_url|default:'/core/' }}"
           class="hidden items-center gap-1 md:flex md:justify-self-center lg:justify-self-auto"
         >
-          <span class="material-icons !text-4xl text-indigo-300"
-            >directions_car</span
-          >
-          <h1 class="text-2xl font-semibold">Hunter</h1>
+          <img
+            src="{% static 'image/logo_sistema_hunter.png' %}"
+            alt="Hunter"
+            class="h-12 w-auto"
+          />
         </a>
       </div>
 
@@ -311,6 +312,24 @@
             tabindex="0"
             class="dropdown-content menu bg-base-100 text-base-content rounded-box mt-3 w-52 p-2 shadow"
           >
+            <li>
+              <a
+                href="{% url 'tickets:my_list' %}"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Meus chamados</a
+              >
+            </li>
+            {% if can_access_tickets_general %}
+            <li>
+              <a
+                href="{% url 'tickets:all_list' %}"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Chamados</a
+              >
+            </li>
+            {% endif %}
             <li>
               <a
                 hx-post="{% url 'accounts:logout' %}"

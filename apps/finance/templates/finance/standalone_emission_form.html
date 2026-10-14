@@ -4,12 +4,12 @@
     <div class="flex items-center justify-between gap-4">
         <div>
             <h1 class="text-3xl font-bold text-base-content">Emissão avulsa</h1>
-            <p class="text-base-content/70 mt-1">Emita NF-e e/ou NFS-e sem Ordem de Serviço. O destinatário não será cadastrado como cliente.</p>
+            <p class="text-base-content/70 mt-1">Emita NF-e e/ou NFS-e sem Ordem de Serviço. Use um cliente cadastrado ou informe um destinatário avulso.</p>
         </div>
     </div>
 
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body p-6 md:p-8" id="step-container">
+    <div class="card bg-base-100 shadow-xl overflow-visible">
+        <div class="card-body p-6 md:p-8 overflow-visible" id="step-container">
             {% include 'finance/partials/standalone_emission_step_content.html' %}
         </div>
     </div>
@@ -57,6 +57,9 @@
                 const target = event.detail ? event.detail.target : null;
                 if (target && target.id === 'modal-container' && formModal && !formModal.open) {
                     formModal.showModal();
+                }
+                if (target && target.id === 'step-container' && window.Alpine && typeof window.Alpine.initTree === 'function') {
+                    window.Alpine.initTree(target);
                 }
             });
         })();

@@ -18,6 +18,7 @@ def navbar(request: HttpRequest) -> dict[str, object]:
         "navbar_favorites": [],
         "navbar_favorite_urls": set(),
         "unread_count": 0,
+        "can_access_tickets_general": False,
         "navbar_home_url": "/core/",
     }
     if not request.user.is_authenticated:
@@ -54,11 +55,20 @@ def navbar(request: HttpRequest) -> dict[str, object]:
     except Exception:
         unread_count = 0
 
+    can_access_tickets_general = False
+    try:
+        from apps.tickets.permissions import can_access_all_tickets
+
+        can_access_tickets_general = can_access_all_tickets(request.user)
+    except Exception:
+        can_access_tickets_general = False
+
     payload = {
         "navbar_menus": navbar_menus,
         "navbar_favorites": visible_favorites,
         "navbar_favorite_urls": favorite_urls,
         "unread_count": unread_count,
+        "can_access_tickets_general": can_access_tickets_general,
         "navbar_home_url": get_post_login_url(request),
     }
     setattr(request, "_navbar_context_payload", payload)

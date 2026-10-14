@@ -1,0 +1,102 @@
+<dialog id="data-import-modal" class="modal" open>
+    <div class="modal-box w-11/12 max-w-6xl max-h-[90vh] p-0 flex flex-col bg-base-100 shadow-2xl border border-base-300 overflow-hidden">
+        <div class="px-6 pt-5 pb-3 border-b border-base-300 shrink-0">
+            <h3 class="font-bold text-xl flex items-center gap-2">
+                <span class="material-icons">fact_check</span>
+                Confirmar importação — {{ adapter.label }}
+            </h3>
+            <p class="text-sm text-base-content/70 mt-1">
+                Arquivo <strong class="break-all">{{ filename }}</strong>
+                · {{ row_count }} linha{{ row_count|pluralize:"s" }} serão processadas.
+                Conflitos de unicidade serão rejeitados no relatório.
+            </p>
+            {% if include_stock %}
+                <div class="alert alert-info py-2 mt-3 text-sm">
+                    <span class="material-icons text-base">inventory_2</span>
+                    <span>Estoque será importado junto com os produtos.</span>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="px-6 py-4 overflow-y-auto flex-1 min-h-0 space-y-4">
+            <section>
+                <h4 class="font-semibold mb-2 text-sm uppercase tracking-wide text-base-content/60">Mapeamento</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {% for item in mapped_fields %}
+                        {% if item.selected %}
+                            <div class="flex items-center gap-2 rounded-lg border border-base-300 bg-base-200/40 px-3 py-2 text-sm min-w-0">
+                                <span class="font-medium shrink-0">{{ item.field.label }}</span>
+                                <span class="text-base-content/40 shrink-0">←</span>
+                                <span class="truncate text-base-content/80" title="{{ item.selected }}">{{ item.selected }}</span>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </section>
+
+            {% if preview_table.headers %}
+                <section>
+                    <h4 class="font-semibold mb-2 text-sm uppercase tracking-wide text-base-content/60">Prévia (até 5 linhas)</h4>
+                    <div class="rounded-lg border border-base-300 overflow-x-auto">
+                        <table class="table table-sm table-zebra w-max min-w-full">
+                            <thead class="bg-base-200 sticky top-0 z-10">
+                                <tr>
+                                    <th class="whitespace-nowrap text-xs font-semibold">#</th>
+                                    {% for header in preview_table.headers %}
+                                        <th class="whitespace-nowrap text-xs font-semibold px-3">{{ header }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for cells in preview_table.rows %}
+                                    <tr class="hover">
+                                        <td class="whitespace-nowrap text-xs text-base-content/50 px-3">{{ forloop.counter }}</td>
+                                        {% for cell in cells %}
+                                            <td class="max-w-[14rem] px-3 py-2 align-middle">
+                                                <span class="block truncate text-sm" title="{{ cell }}">{{ cell|default:"—" }}</span>
+                                            </td>
+                                        {% endfor %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-xs text-base-content/50 mt-2">Passe o mouse sobre uma célula para ver o valor completo. Role horizontalmente se houver muitas colunas.</p>
+                </section>
+            {% endif %}
+        </div>
+
+        <form
+            class="px-6 py-4 border-t border-base-300 shrink-0 bg-base-100"
+            hx-post="{% url 'core:data_import_execute' entity=entity_key %}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+            hx-indicator="find button[type=submit]"
+            hx-disabled-elt="find button[type=submit]"
+        >
+            {% csrf_token %}
+            <input type="hidden" name="token" value="{{ token }}">
+            <div class="flex items-center justify-end gap-2">
+                <button
+                    type="button"
+                    class="btn btn-ghost"
+                    hx-get="{% url 'core:data_import_modal' entity=entity_key %}"
+                    hx-target="#modal-container"
+                    hx-swap="innerHTML"
+                    hx-disabled-elt="this"
+                >
+                    Cancelar
+                </button>
+                <button type="submit" class="btn btn-primary gap-2">
+                    <span class="htmx-btn-spinner" aria-hidden="true">
+                        <span class="loading loading-spinner loading-xs"></span>
+                    </span>
+                    Importar agora
+                </button>
+            </div>
+        </form>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''">fechar</button>
+    </form>
+</dialog>

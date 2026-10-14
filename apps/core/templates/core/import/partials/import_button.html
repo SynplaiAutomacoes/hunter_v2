@@ -1,0 +1,24 @@
+<button
+    type="button"
+    class="btn btn-outline btn-sm gap-2"
+    hx-get="{% url 'core:data_import_modal' entity=entity_key %}"
+    hx-target="#modal-container"
+    hx-swap="innerHTML"
+    hx-indicator="this"
+    hx-disabled-elt="this"
+    title="{{ button_title|default:'Importar planilha' }}"
+>
+    <span class="htmx-btn-spinner" aria-hidden="true">
+        <span class="loading loading-spinner loading-xs"></span>
+    </span>
+    <span class="material-icons text-base">upload_file</span>
+    {{ button_label|default:'Importar' }}
+</button>
+<a
+    href="{% url 'core:data_import_history' %}?entity={{ entity_key }}"
+    class="btn btn-ghost btn-sm gap-1"
+    title="Histórico de importações"
+>
+    <span class="material-icons text-base">history</span>
+    Histórico
+</a>

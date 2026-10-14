@@ -2,193 +2,140 @@ from __future__ import annotations
 
 import base64
 import gzip
-import logging
 import re
-import time
 from dataclasses import dataclass
 from typing import Any
 
-from django.conf import settings
 from django.utils import timezone
 from lxml.etree import fromstring
 
 from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
 from apps.stock.models import SefazZipCache
-from apps.stock.utils import SEFAZ_NFE_NAMESPACE, parse_sefaz_distribution_doc_metadata
+from apps.stock.utils import parse_sefaz_distribution_doc_metadata
 from apps.workshops.services.files import workshop_certificate_temp_path, workshop_has_certificate
 
-external_calls_logger = logging.getLogger("performance.external")
-logger = logging.getLogger(__name__)
+
+SEFAZ_NAMESPACE = {"ns": "http://www.portalfiscal.inf.br/nfe"}
+DOCUMENTS_LOCATED_STATUS = "138"
+NO_DOCUMENTS_STATUS = "137"
+IMPROPER_CONSUMPTION_STATUS = "656"
 
 
 @dataclass(frozen=True)
-class SefazSyncResult:
-    workshop_id: int | None
+class SefazSynchronizationResult:
     success: bool
+    message: str
     cached_count: int = 0
-    cstat: str | None = None
-    ult_nsu: str | None = None
-    skipped_reason: str | None = None
-    duration_ms: float = 0.0
-    error: str | None = None
+    requests: int = 0
 
 
-def mask_cnpj_for_log(cnpj: Any) -> str:
-    """Mascara o CNPJ para logs (nunca expõe a raiz). Ex.: `**.***.***/0001-91`."""
-    digits = re.sub(r"\D", "", str(cnpj or ""))
-    if len(digits) == 14:
-        return f"**.***.***/{digits[8:12]}-{digits[12:14]}"
-    if digits:
-        return "***-****/****-**"
-    return "sem-cnpj"
+def _record_synchronization_status(*, workshop: Any, status: str, message: str, start_cooldown: bool = False) -> None:
+    workshop.last_sefaz_sync_status = status
+    workshop.last_sefaz_sync_message = message
+    workshop.last_sefaz_sync_attempt_at = timezone.now()
+    update_fields = ["last_sefaz_sync_status", "last_sefaz_sync_message", "last_sefaz_sync_attempt_at", "atualizado_em"]
+    if start_cooldown:
+        workshop.last_sefaz_search_date = workshop.last_sefaz_sync_attempt_at
+        update_fields.append("last_sefaz_search_date")
+    workshop.save(update_fields=update_fields)
 
 
-def is_workshop_eligible_for_sefaz_sync(workshop: Any) -> tuple[bool, str]:
-    """Valida elegibilidade estática da oficina (sem checar o throttle de 1h)."""
-    if workshop is None:
-        return False, "no_workshop"
-    if not bool(getattr(workshop, "is_active", False)):
-        return False, "inactive"
-    if not workshop_has_certificate(workshop) or not getattr(workshop, "certificate_password", ""):
-        return False, "missing_certificate"
-    digits = re.sub(r"\D", "", str(getattr(workshop, "cnpj", "") or ""))
-    if len(digits) != 14:
-        return False, "invalid_cnpj"
-    uf = str(getattr(workshop, "uf", "") or "").strip().upper()
-    if len(uf) != 2 or not uf.isalpha():
-        return False, "invalid_uf"
-    return True, ""
+def synchronize_workshop_sefaz_documents(*, workshop: Any) -> SefazSynchronizationResult:
+    """Synchronize all currently available DF-e batches for a workshop.
 
-
-def sync_sefaz_distribution_for_workshop(workshop: Any, *, force_throttle: bool = False) -> SefazSyncResult:
-    """Sincroniza a distribuição SEFAZ (lista/resumos) persistindo só `SefazZipCache`.
-
-    Mesmo comportamento do fluxo manual: respeita o throttle de 1h por oficina
-    (`Workshop.can_search_sefaz`), carimba `last_sefaz_search_date` inclusive
-    quando `cStat != 138`, e só avança `last_nsu_sefaz` quando `cStat == 138`.
-    Nunca cria `StockImport`, movimentos ou documentos fiscais.
+    ``ultNSU`` must be consumed in sequence.  The SEFAZ only requires the
+    one-hour pause once the returned ``ultNSU`` catches up with ``maxNSU`` (or
+    when it returns 137), so pending batches are fetched in the same run.
     """
-    started_at = time.perf_counter()
-    workshop_id = getattr(workshop, "pk", None) or getattr(workshop, "id", None)
+    if not workshop_has_certificate(workshop) or not workshop.certificate_password:
+        message = "Configure certificado e senha da oficina antes de buscar notas na SEFAZ."
+        _record_synchronization_status(workshop=workshop, status="ERROR", message=message)
+        return SefazSynchronizationResult(False, message)
 
-    def _elapsed_ms() -> float:
-        return (time.perf_counter() - started_at) * 1000
+    if not workshop.can_search_sefaz:
+        return SefazSynchronizationResult(False, "A busca da SEFAZ foi executada recentemente. Aguarde até a próxima sincronização automática.")
 
-    if workshop is None:
-        return SefazSyncResult(workshop_id=None, success=False, skipped_reason="no_workshop", duration_ms=_elapsed_ms())
+    cnpj = re.sub(r"\D", "", workshop.cnpj)
+    nsu = str(workshop.last_nsu_sefaz or "0")
+    cached_count = 0
+    requests = 0
 
-    if not force_throttle and not workshop.can_search_sefaz:
-        return SefazSyncResult(
-            workshop_id=workshop_id,
-            success=False,
-            skipped_reason="throttle",
-            duration_ms=_elapsed_ms(),
-        )
-
-    eligible, reason = is_workshop_eligible_for_sefaz_sync(workshop)
-    if not eligible:
-        return SefazSyncResult(
-            workshop_id=workshop_id,
-            success=False,
-            skipped_reason=reason,
-            duration_ms=_elapsed_ms(),
-        )
-
-    cnpj_mask = mask_cnpj_for_log(getattr(workshop, "cnpj", ""))
     try:
-        cnpj = re.sub(r"\D", "", str(workshop.cnpj))
-        nsu = workshop.last_nsu_sefaz or "0"
-
         with workshop_certificate_temp_path(workshop) as certificate_path:
-            xml_content = get_sefaz_service().consultar_distribuicao(
-                certificado_path=certificate_path,
-                certificado_senha=workshop.certificate_password,
-                uf=str(workshop.uf).upper(),
-                cnpj=cnpj,
-                nsu=nsu,
-            )
+            while True:
+                xml_content = get_sefaz_service().consultar_distribuicao(
+                    certificado_path=certificate_path,
+                    certificado_senha=workshop.certificate_password,
+                    uf=workshop.uf.upper(),
+                    cnpj=cnpj,
+                    nsu=nsu,
+                )
+                requests += 1
+                tree = fromstring(xml_content)
+                status_values = tree.xpath("//ns:cStat/text()", namespaces=SEFAZ_NAMESPACE)
+                if not status_values:
+                    message = "A SEFAZ retornou uma resposta sem código de status."
+                    _record_synchronization_status(workshop=workshop, status="ERROR", message=message)
+                    return SefazSynchronizationResult(False, message, cached_count, requests)
 
-        tree = fromstring(xml_content)
-        cstat_nodes = tree.xpath("//ns:cStat/text()", namespaces=SEFAZ_NFE_NAMESPACE)
-        cstat = str(cstat_nodes[0]).strip() if cstat_nodes else None
-        ult_nsu: str | None = None
-        cached_count = 0
+                status = str(status_values[0])
+                if status == NO_DOCUMENTS_STATUS:
+                    message = f"Lista da SEFAZ sincronizada ({cached_count} nota(s) processada(s))."
+                    _record_synchronization_status(workshop=workshop, status="SUCCESS", message=message, start_cooldown=True)
+                    return SefazSynchronizationResult(True, message, cached_count, requests)
 
-        if cstat == "138":
-            ult_nodes = tree.xpath("//ns:ultNSU/text()", namespaces=SEFAZ_NFE_NAMESPACE)
-            ult_nsu = str(ult_nodes[0]).strip() if ult_nodes else None
-            if ult_nsu:
-                workshop.last_nsu_sefaz = ult_nsu
+                if status != DOCUMENTS_LOCATED_STATUS:
+                    reason_values = tree.xpath("//ns:xMotivo/text()", namespaces=SEFAZ_NAMESPACE)
+                    reason = str(reason_values[0]) if reason_values else "status não reconhecido"
+                    if status == IMPROPER_CONSUMPTION_STATUS:
+                        _record_synchronization_status(workshop=workshop, status="ERROR", message=f"A SEFAZ recusou a sincronização ({status}: {reason}).", start_cooldown=True)
+                    else:
+                        _record_synchronization_status(workshop=workshop, status="ERROR", message=f"A SEFAZ recusou a sincronização ({status}: {reason}).")
+                    return SefazSynchronizationResult(False, f"A SEFAZ recusou a sincronização ({status}: {reason}).", cached_count, requests)
 
-            docs = tree.xpath("//ns:docZip", namespaces=SEFAZ_NFE_NAMESPACE)
-            for doc in docs:
-                if not doc.text:
-                    continue
-                content = gzip.decompress(base64.b64decode(doc.text))
-                dados = parse_sefaz_distribution_doc_metadata(content) or {}
+                current_nsu_values = tree.xpath("//ns:ultNSU/text()", namespaces=SEFAZ_NAMESPACE)
+                max_nsu_values = tree.xpath("//ns:maxNSU/text()", namespaces=SEFAZ_NAMESPACE)
+                if not current_nsu_values or not max_nsu_values:
+                    message = "A SEFAZ retornou documentos sem ultNSU/maxNSU."
+                    _record_synchronization_status(workshop=workshop, status="ERROR", message=message)
+                    return SefazSynchronizationResult(False, message, cached_count, requests)
 
-                if dados.get("key"):
+                next_nsu = str(current_nsu_values[0])
+                max_nsu = str(max_nsu_values[0])
+                if next_nsu == nsu:
+                    message = "A SEFAZ não avançou o NSU da consulta; a sincronização foi interrompida para evitar consumo indevido."
+                    _record_synchronization_status(workshop=workshop, status="ERROR", message=message)
+                    return SefazSynchronizationResult(False, message, cached_count, requests)
+
+                for doc in tree.xpath("//ns:docZip", namespaces=SEFAZ_NAMESPACE):
+                    if not doc.text:
+                        continue
+                    content = gzip.decompress(base64.b64decode(doc.text))
+                    data = parse_sefaz_distribution_doc_metadata(content) or {}
+                    if not data.get("key"):
+                        continue
                     SefazZipCache.objects.update_or_create(
-                        key=dados["key"],
+                        key=data["key"],
                         workshop=workshop,
                         defaults={
-                            "nf_number": dados.get("nf_number"),
-                            "issuer_name": dados.get("nome"),
-                            "issuer_cnpj": dados.get("cnpj"),
-                            "total_value": dados.get("valor"),
-                            "issue_date": dados.get("data"),
+                            "nf_number": data.get("nf_number"),
+                            "issuer_name": data.get("nome"),
+                            "issuer_cnpj": data.get("cnpj"),
+                            "total_value": data.get("valor"),
+                            "issue_date": data.get("data"),
                         },
                     )
                     cached_count += 1
 
-        workshop.last_sefaz_search_date = timezone.now()
-        workshop.save(update_fields=["last_nsu_sefaz", "last_sefaz_search_date"])
+                workshop.last_nsu_sefaz = next_nsu
+                workshop.save(update_fields=["last_nsu_sefaz", "atualizado_em"])
+                nsu = next_nsu
 
-        elapsed_ms = _elapsed_ms()
-        if settings.PERF_LOGGING_ENABLED:
-            external_calls_logger.warning(
-                "external_call service=sefaz_consulta_distribuicao duration_ms=%.2f workshop_id=%s cnpj_mask=%s cStat=%s cached_count=%s success=true",
-                elapsed_ms,
-                workshop_id,
-                cnpj_mask,
-                cstat,
-                cached_count,
-            )
-        logger.info(
-            "sefaz_distribution_sync workshop_id=%s cnpj_mask=%s cStat=%s cached_count=%s duration_ms=%.2f success=true",
-            workshop_id,
-            cnpj_mask,
-            cstat,
-            cached_count,
-            elapsed_ms,
-        )
-        return SefazSyncResult(
-            workshop_id=workshop_id,
-            success=True,
-            cached_count=cached_count,
-            cstat=cstat,
-            ult_nsu=ult_nsu,
-            duration_ms=elapsed_ms,
-        )
+                if next_nsu == max_nsu:
+                    message = f"Lista da SEFAZ sincronizada ({cached_count} nota(s) processada(s))."
+                    _record_synchronization_status(workshop=workshop, status="SUCCESS", message=message, start_cooldown=True)
+                    return SefazSynchronizationResult(True, message, cached_count, requests)
     except Exception as exc:
-        elapsed_ms = _elapsed_ms()
-        if settings.PERF_LOGGING_ENABLED:
-            external_calls_logger.warning(
-                "external_call service=sefaz_consulta_distribuicao duration_ms=%.2f workshop_id=%s cnpj_mask=%s success=false",
-                elapsed_ms,
-                workshop_id,
-                cnpj_mask,
-            )
-        logger.warning(
-            "sefaz_distribution_sync workshop_id=%s cnpj_mask=%s duration_ms=%.2f success=false error=%s",
-            workshop_id,
-            cnpj_mask,
-            elapsed_ms,
-            exc,
-        )
-        return SefazSyncResult(
-            workshop_id=workshop_id,
-            success=False,
-            duration_ms=elapsed_ms,
-            error=str(exc),
-        )
+        message = f"Erro ao atualizar lista da SEFAZ: {exc}"
+        _record_synchronization_status(workshop=workshop, status="ERROR", message=message)
+        return SefazSynchronizationResult(False, message, cached_count, requests)

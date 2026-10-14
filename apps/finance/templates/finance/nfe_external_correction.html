@@ -1,0 +1,108 @@
+{% extends 'crud/page.html' %}
+
+{% block crud_content %}
+<div class="space-y-6">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+            <p class="text-sm font-medium uppercase tracking-wide text-primary">NF-e</p>
+            <h1 class="mt-1 text-3xl font-bold text-base-content">Carta de Correção</h1>
+            <p class="mt-1 text-base-content/70">Emita a CC-e para uma NF-e que ainda não está cadastrada no Hunter.</p>
+        </div>
+        <a href="{{ gateway_url }}" class="btn btn-ghost gap-2">
+            <span class="material-icons text-sm">arrow_back</span>
+            Voltar
+        </a>
+    </div>
+
+    {% if issued_event %}
+        <div class="alert alert-success shadow-lg">
+            <span class="material-icons">check_circle</span>
+            <div>
+                <h3 class="font-bold">Carta de Correção enviada</h3>
+                <div class="text-sm">
+                    Evento {{ issued_event.event_sequence }} —
+                    {{ issued_event.get_status_display }}
+                    {% if issued_event.remote_uuid %}
+                        · UUID {{ issued_event.remote_uuid }}
+                    {% endif %}
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                {% if issued_event.xml_url %}
+                    <a href="{% url 'finance:nfe_correction_external_download' event_pk=issued_event.pk document='xml' %}" class="btn btn-sm btn-outline">XML</a>
+                {% endif %}
+                {% if issued_event.dacce_url %}
+                    <a href="{% url 'finance:nfe_correction_external_download' event_pk=issued_event.pk document='dacce' %}" class="btn btn-sm btn-outline">DACCE</a>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-6 md:p-8">
+            <div class="flex flex-wrap items-center gap-3">
+                <h2 class="text-2xl font-bold text-base-content">Dados da correção</h2>
+                <span class="badge badge-primary badge-outline">Modelo: NF-e</span>
+            </div>
+            <p class="mt-2 text-base-content/70">
+                Informe a identificação da nota, o número do evento (1 a 20) e o texto da correção permitida pela legislação.
+            </p>
+
+            <div class="alert alert-warning mt-4 text-sm">
+                <span class="material-icons">warning</span>
+                <span>A Carta de Correção não pode alterar base de cálculo, alíquota, preço, quantidade, remetente, destinatário, data de emissão ou saída, série ou número da NF-e.</span>
+            </div>
+
+            <form method="post" class="mt-6 space-y-5">
+                {% csrf_token %}
+
+                {% if form.non_field_errors %}
+                    <div class="alert alert-error">
+                        {% for error in form.non_field_errors %}<span>{{ error }}</span>{% endfor %}
+                    </div>
+                {% endif %}
+
+                <label class="form-control w-full">
+                    <span class="label"><span class="label-text font-medium">{{ form.access_key_or_uuid.label }} *</span></span>
+                    {{ form.access_key_or_uuid }}
+                    {% if form.access_key_or_uuid.errors %}
+                        <span class="label"><span class="label-text-alt text-error">{{ form.access_key_or_uuid.errors|striptags }}</span></span>
+                    {% endif %}
+                </label>
+
+                <label class="form-control w-full max-w-xs">
+                    <span class="label"><span class="label-text font-medium">{{ form.event_sequence.label }}</span></span>
+                    {{ form.event_sequence }}
+                    {% if form.event_sequence.errors %}
+                        <span class="label"><span class="label-text-alt text-error">{{ form.event_sequence.errors|striptags }}</span></span>
+                    {% endif %}
+                </label>
+
+                <label class="form-control w-full">
+                    <span class="label"><span class="label-text font-medium">{{ form.correction.label }} *</span></span>
+                    {{ form.correction }}
+                    {% if form.correction.errors %}
+                        <span class="label"><span class="label-text-alt text-error">{{ form.correction.errors|striptags }}</span></span>
+                    {% endif %}
+                </label>
+
+                <label class="label cursor-pointer justify-start gap-3">
+                    {{ form.confirm_legal_restrictions }}
+                    <span class="label-text">{{ form.confirm_legal_restrictions.label }}</span>
+                </label>
+                {% if form.confirm_legal_restrictions.errors %}
+                    <p class="text-sm text-error">{{ form.confirm_legal_restrictions.errors|striptags }}</p>
+                {% endif %}
+
+                <div class="flex flex-wrap items-center justify-end gap-3 border-t border-base-200 pt-5">
+                    <a href="{{ gateway_url }}" class="btn btn-outline">Cancelar</a>
+                    <button type="submit" class="btn btn-primary gap-2">
+                        <span class="material-icons text-sm">send</span>
+                        Emitir Carta de Correção
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

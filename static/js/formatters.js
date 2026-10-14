@@ -438,14 +438,15 @@
             return {
                 rawValue: raw ?? '',
                 init() {
-                    const formatted = cep.format(this.rawValue);
-                    this.$refs.value.value = formatted;
-                    this.$refs.display.value = formatted;
+                    // Persist digits-only (like docInput) so masked display never marks the field dirty.
+                    const digits = onlyDigits(this.rawValue).slice(0, 8);
+                    this.$refs.value.value = digits;
+                    this.$refs.display.value = cep.format(digits);
                 },
                 handleInput(e) {
-                    const formatted = cep.format(e.target.value);
-                    this.$refs.value.value = formatted;
-                    e.target.value = formatted;
+                    const digits = onlyDigits(e.target.value).slice(0, 8);
+                    this.$refs.value.value = digits;
+                    e.target.value = cep.format(digits);
                 },
             };
         },
