@@ -64,6 +64,7 @@ class IncompleteSubscriptionRequest:
     plan: str
     price_id: str
     pending_signup_id: int
+    promotion_code: str = ""
 
 
 @dataclass(frozen=True, slots=True)

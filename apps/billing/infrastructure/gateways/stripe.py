@@ -150,6 +150,30 @@ def retrieve_price(*, price_id: str) -> dict[str, Any]:
     }
 
 
+def resolve_promotion_code(code: str) -> str:
+    """Return Stripe promotion_code id for an active user-facing code."""
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    normalized = code.strip()
+    if not normalized:
+        raise BillingServiceError("Informe um cupom válido.")
+    try:
+        result = stripe.PromotionCode.list(code=normalized, active=True, limit=1)
+    except stripe.StripeError as exc:
+        logger.exception("Falha ao consultar cupom Stripe")
+        raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
+
+    data = result.data if hasattr(result, "data") else (result.get("data") if isinstance(result, dict) else [])
+    if not data:
+        raise BillingServiceError("Cupom inválido ou expirado.")
+    first = data[0]
+    promo_id = getattr(first, "id", None) or (first.get("id") if isinstance(first, dict) else None)
+    if not promo_id:
+        raise BillingServiceError("Cupom inválido ou expirado.")
+    return str(promo_id)
+
+
 def create_incomplete_subscription(
     *,
     email: str,
@@ -157,6 +181,7 @@ def create_incomplete_subscription(
     plan: str,
     price_id: str,
     pending_signup_id: int,
+    promotion_code: str = "",
 ) -> dict[str, Any]:
     _configure_stripe()
     if not stripe.api_key:
@@ -165,6 +190,10 @@ def create_incomplete_subscription(
         raise BillingServiceError("Price ID do plano não configurado.")
 
     metadata = {"pending_signup_id": str(pending_signup_id), "plan": plan}
+    discounts: list[dict[str, str]] = []
+    if promotion_code.strip():
+        promo_id = resolve_promotion_code(promotion_code)
+        discounts.append({"promotion_code": promo_id})
 
     try:
         customer = stripe.Customer.create(
@@ -172,14 +201,19 @@ def create_incomplete_subscription(
             name=customer_name or None,
             metadata=metadata,
         )
-        subscription = stripe.Subscription.create(
-            customer=customer.id,
-            items=[{"price": price_id}],
-            payment_behavior="default_incomplete",
-            payment_settings={"save_default_payment_method": "on_subscription"},
-            expand=["latest_invoice.confirmation_secret"],
-            metadata=metadata,
-        )
+        create_kwargs: dict[str, Any] = {
+            "customer": customer.id,
+            "items": [{"price": price_id}],
+            "payment_behavior": "default_incomplete",
+            "payment_settings": {"save_default_payment_method": "on_subscription"},
+            "expand": ["latest_invoice.confirmation_secret"],
+            "metadata": metadata,
+        }
+        if discounts:
+            create_kwargs["discounts"] = discounts
+        subscription = stripe.Subscription.create(**create_kwargs)
+    except BillingServiceError:
+        raise
     except stripe.StripeError as exc:
         logger.exception("Falha ao criar assinatura incompleta na Stripe")
         raise BillingServiceError(str(exc)) from exc

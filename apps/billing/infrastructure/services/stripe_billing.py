@@ -144,6 +144,7 @@ class StripeBillingService(IBillingService):
             plan=request.plan,
             price_id=price_id,
             pending_signup_id=request.pending_signup_id,
+            promotion_code=request.promotion_code,
         )
         return IncompleteSubscriptionResult(
             customer_id=result["customer_id"],
