@@ -199,6 +199,7 @@ VehicleFormSet = inlineformset_factory(
         "type",
         "renavam",
         "chassi",
+        "motor_registry",
         "fipe_value",
         "km",
     ],
@@ -216,6 +217,7 @@ VehicleFormSet = inlineformset_factory(
         "type": TextInput(),
         "renavam": TextInput(),
         "chassi": TextInput(),
+        "motor_registry": TextInput(),
         "fipe_value": MoneyInput(),
         "km": NumberInput(),
     },
@@ -1069,7 +1071,6 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             const brand = String(data.brand || '').trim();
                             const model = String(data.model || '').trim();
                             const fuel = String(data.fuel || '').trim();
-                            const engine = String(data.engine || '').trim();
                             const brandInput = this.getField(container, 'brand');
 
                             this.setSearchableSelection(brandInput, brand, brand, brand ? [{ id: brand, label: brand }] : [], { silent: true });
@@ -1090,14 +1091,13 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                                 this.showToast(fuelPayload.warning);
                             }
 
-                            this.syncEngine(container, engine, { silent: true, modelName: model });
-
                             this.fillTextFields(container, {
                                 year_fabrication: data.year_fabrication,
                                 year_model: data.year_model,
                                 color: data.color,
                                 chassi: data.chassi,
                                 renavam: data.renavam,
+                                motor_registry: data.motor_registry,
                                 type: data.type,
                                 fipe_value: data.fipe_value,
                             });
@@ -1173,7 +1173,6 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                                 await api.fillFromPlate(container, data);
 
                                 const missingFields = [];
-                                if (!data.engine) missingFields.push('Motor');
                                 if (!data.fuel) missingFields.push('Combustível');
 
                                 if (missingFields.length > 0) {

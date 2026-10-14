@@ -42,6 +42,7 @@ def fetch_vehicle_data(plate):
         "color": result.color,
         "chassi": result.chassi,
         "renavam": result.renavam,
+        "motor_registry": result.motor_registry,
         "fuel": result.fuel,
         "engine": result.engine,
         "type": result.type,

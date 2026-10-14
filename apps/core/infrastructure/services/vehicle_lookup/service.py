@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from typing import Any
 
@@ -52,8 +53,11 @@ class VehiclePlateLookupService(IVehiclePlateLookupService):
         if not normalized_plate:
             return None
 
-        wd_raw = self._wd.fetch_raw(normalized_plate)
-        buscars_raw = self._buscars.fetch_raw(normalized_plate)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="vehicle_lookup") as pool:
+            wd_future = pool.submit(self._wd.fetch_raw, normalized_plate)
+            buscars_future = pool.submit(self._buscars.fetch_raw, normalized_plate)
+            wd_raw = wd_future.result()
+            buscars_raw = buscars_future.result()
         if wd_raw is None and buscars_raw is None:
             return None
 
@@ -63,6 +67,10 @@ class VehiclePlateLookupService(IVehiclePlateLookupService):
 
         merged = self._merge_vehicle_data(wd_raw, buscars_raw, sources)
         fipe, fipe_value = self._select_fipe(wd_raw, merged, sources)
+        if fipe is not None:
+            if _is_missing(merged.get("fuel")) and fipe.combustivel:
+                merged["fuel"] = fipe.combustivel
+                sources["fuel"] = f"fipe:{fipe.codigo_fipe or 'selecionada'}"
 
         return VehicleLookupResult(
             brand=merged.get("brand"),
@@ -75,6 +83,7 @@ class VehiclePlateLookupService(IVehiclePlateLookupService):
             type=merged.get("type"),
             chassi=merged.get("chassi"),
             renavam=merged.get("renavam"),
+            motor_registry=merged.get("motor_registry"),
             fipe_value=fipe_value,
             fipe=fipe,
             sources=sources,
@@ -97,6 +106,7 @@ class VehiclePlateLookupService(IVehiclePlateLookupService):
             "type": wd_raw.get("type"),
             "chassi": wd_raw.get("chassi"),
             "renavam": wd_raw.get("renavam"),
+            "motor_registry": None,
         }
         if wd_raw.get("extra_year_fabrication"):
             merged["year_fabrication"] = wd_raw["extra_year_fabrication"]
@@ -124,11 +134,14 @@ class VehiclePlateLookupService(IVehiclePlateLookupService):
                 sources[field_name] = "buscars"
 
         buscars_motor = buscars_raw.get("motor")
-        if buscars_motor not in (None, "") and _is_missing(merged.get("engine")):
-            displacement = _extract_displacement(buscars_motor)
-            if displacement:
-                merged["engine"] = displacement
-                sources["engine"] = "buscars"
+        if buscars_motor not in (None, ""):
+            merged["motor_registry"] = str(buscars_motor).strip()
+            sources["motor_registry"] = "buscars"
+            if _is_missing(merged.get("engine")):
+                displacement = _extract_displacement(buscars_motor)
+                if displacement:
+                    merged["engine"] = displacement
+                    sources["engine"] = "buscars"
 
         for field_name, value in list(merged.items()):
             if isinstance(value, str):

@@ -37,6 +37,7 @@ class VehicleLookupResult:
     type: str | None = None
     chassi: str | None = None
     renavam: str | None = None
+    motor_registry: str | None = None
     fipe_value: Decimal | None = None
     fipe: FipeValuation | None = None
     sources: dict[str, str] = field(default_factory=dict)
