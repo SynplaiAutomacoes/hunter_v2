@@ -231,6 +231,7 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
         kwargs = super().get_form_kwargs()
         kwargs["account"] = self.request.user.account
         kwargs["workshop"] = self.workshop
+        kwargs["request_user"] = self.request.user
         is_director = is_workshop_director(user=self.request.user, workshop=self.workshop, request=self.request)
         kwargs["is_director"] = is_director
         if is_director:
@@ -394,6 +395,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         kwargs = super().get_form_kwargs()
         kwargs["account"] = self.request.user.account
         kwargs["workshop"] = self.workshop
+        kwargs["request_user"] = self.request.user
         is_director = is_workshop_director(user=self.request.user, workshop=self.workshop, request=self.request)
         kwargs["is_director"] = is_director
         if is_director:

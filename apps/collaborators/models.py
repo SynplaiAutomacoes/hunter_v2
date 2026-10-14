@@ -99,6 +99,7 @@ class WorkshopCollaborator(TimeStampedModel):
     commission_percentage = models.DecimalField(verbose_name="Percentual de Comissão", max_digits=7, decimal_places=6, null=True, blank=True)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
     system_access = models.BooleanField(verbose_name="Acesso ao Sistema", default=False)
+    is_developer = models.BooleanField(verbose_name="Desenvolvedor", default=False)
 
     class Meta:
         verbose_name = "Colaborador da Oficina"

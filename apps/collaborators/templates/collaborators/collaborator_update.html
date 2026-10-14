@@ -349,6 +349,9 @@
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                 <div class="col-span-12 lg:col-span-3">{{ form.receives_commission|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-3">{{ form.system_access|as_crispy_field }}</div>
+                {% if 'is_developer' in form.fields %}
+                    <div class="col-span-12 lg:col-span-3">{{ form.is_developer|as_crispy_field }}</div>
+                {% endif %}
             </div>
 
             <div x-show="receives_commission" x-cloak class="rounded-xl border border-base-300 p-4 space-y-4">

@@ -313,6 +313,24 @@
           >
             <li>
               <a
+                href="{% url 'tickets:my_list' %}"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Meus chamados</a
+              >
+            </li>
+            {% if can_access_tickets_general %}
+            <li>
+              <a
+                href="{% url 'tickets:all_list' %}"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Chamados</a
+              >
+            </li>
+            {% endif %}
+            <li>
+              <a
                 hx-post="{% url 'accounts:logout' %}"
                 hx-target="body"
                 hx-swap="outerHTML"
@@ -324,7 +342,7 @@
       </div>
     </div>
 
-    {% if navbar_favorites %}
+{% if navbar_favorites %}
     <div class="px-2 pb-3 md:px-10 xl:px-20">
       <div class="flex flex-col items-center gap-2">
         <div class="w-full overflow-x-auto">
