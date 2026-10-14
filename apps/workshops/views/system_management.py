@@ -14,7 +14,7 @@ from django.views.generic import FormView, TemplateView
 from apps.collaborators.models import WorkshopMember
 from apps.iam.models import WorkshopRole
 from apps.notifications.domain.services.notification_service import NotificationService
-from apps.workshops.forms.system_management import NotificationBroadcastForm
+from apps.workshops.forms.system_management import NotificationBroadcastForm, SupportChatAccessForm
 from apps.workshops.models.workshops import Workshop
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,57 @@ class SystemManagementMixin(LoginRequiredMixin):
 
 class SystemManageDashboardView(SystemManagementMixin, TemplateView):
     template_name = "workshops/system/manage.html"
+
+
+class SupportChatAccessView(SystemManagementMixin, FormView):
+    """Aba de controle de acesso ao chat: blocklist de usuários + oficinas desabilitadas."""
+
+    template_name = "workshops/system/chat_access_form.html"
+    form_class = SupportChatAccessForm
+    success_url = reverse_lazy("workshops:system_manage")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        from apps.support_chat.models import ChatBlockedUser, ChatDisabledWorkshop
+
+        context = super().get_context_data(**kwargs)
+        context.update({
+            "blocked_users_map": {
+                str(b.user_id): (b.user.get_full_name() or b.user.username)
+                for b in ChatBlockedUser.objects.select_related("user").order_by("user__username")
+            },
+            "disabled_workshops_map": {
+                str(d.workshop_id): d.workshop.name
+                for d in ChatDisabledWorkshop.objects.select_related("workshop").order_by("workshop__name")
+            },
+            "users_map": {
+                str(u.id): (u.get_full_name() or u.username)
+                for u in User.objects.filter(is_active=True).order_by("username")
+            },
+            "workshops_map": {
+                str(w.id): w.name for w in Workshop.objects.filter(is_active=True).order_by("name")
+            },
+        })
+        return context
+
+    def form_valid(self, form: SupportChatAccessForm):
+        from apps.support_chat.models import ChatBlockedUser, ChatDisabledWorkshop, bump_access_version
+
+        blocked_ids = {v for v in self.request.POST.getlist("blocked_users") if str(v).isdigit()}
+        disabled_ids = {v for v in self.request.POST.getlist("disabled_workshops") if str(v).isdigit()}
+
+        ChatBlockedUser.objects.exclude(user_id__in=[int(v) for v in blocked_ids]).delete()
+        for user_id in blocked_ids:
+            ChatBlockedUser.objects.get_or_create(
+                user_id=int(user_id), defaults={"blocked_by": self.request.user}
+            )
+        ChatDisabledWorkshop.objects.exclude(workshop_id__in=[int(v) for v in disabled_ids]).delete()
+        for workshop_id in disabled_ids:
+            ChatDisabledWorkshop.objects.get_or_create(
+                workshop_id=int(workshop_id), defaults={"disabled_by": self.request.user}
+            )
+        bump_access_version()
+        messages.success(self.request, "Acesso ao chat atualizado com sucesso.")
+        return super().form_valid(form)
 
 
 class NotificationBroadcastView(SystemManagementMixin, FormView):

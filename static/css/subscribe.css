@@ -1,0 +1,89 @@
+.subscribe-page {
+  min-height: 100vh;
+  background: #080a0e;
+}
+.subscribe-main {
+  padding: 120px 20px 60px;
+}
+.subscribe-wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 28px;
+}
+.subscribe-summary,
+.subscribe-card {
+  background: linear-gradient(180deg, #122033, #0b121c);
+  border: 1px solid #2b92d655;
+  padding: 32px;
+  box-shadow: 0 16px 36px #0006;
+}
+.subscribe-kicker {
+  margin: 0 0 8px;
+  color: var(--cyan);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.subscribe-summary h1,
+.subscribe-card h2 {
+  margin: 0 0 12px;
+}
+.subscribe-price {
+  margin: 0 0 16px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.subscribe-price strong {
+  font-size: 40px;
+}
+.subscribe-desc,
+.subscribe-note {
+  color: #d7e3ef;
+}
+.subscribe-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 24px 0;
+}
+.subscribe-grid label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.subscribe-grid input {
+  width: 100%;
+  border: 1px solid #2b92d655;
+  background: #0a121c;
+  color: #fff;
+  padding: 12px 14px;
+  font-size: 16px;
+}
+.payment-element {
+  margin: 8px 0 18px;
+  min-height: 40px;
+}
+.subscribe-error {
+  background: #3b1220;
+  border: 1px solid #f2295b88;
+  color: #ffd7e1;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.subscribe-card .btn {
+  width: 100%;
+}
+.subscribe-card .btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+@media (max-width: 900px) {
+  .subscribe-wrap,
+  .subscribe-grid {
+    grid-template-columns: 1fr;
+  }
+}

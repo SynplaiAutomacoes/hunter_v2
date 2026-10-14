@@ -4,7 +4,8 @@ import re
 from django.contrib.auth.views import LoginView, LogoutView
 from django.db import transaction
 from django.http import JsonResponse
-from django.urls import reverse_lazy
+from django.shortcuts import redirect
+from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import FormView
 from django_htmx.http import HttpResponseClientRedirect
@@ -270,13 +271,21 @@ class UserLoginView(LoginView):
     redirect_authenticated_user = True
 
     def get_success_url(self):
-        return self.get_redirect_url() or reverse_lazy("core:dashboard")
+        redirect_url = self.get_redirect_url()
+        if redirect_url:
+            return redirect_url
+        from apps.billing.access import get_post_login_url
+
+        return get_post_login_url(self.request)
 
 
 class UserSignUpView(FormView):
     template_name = "register.html"
     form_class = SignUpForm
     success_url = reverse_lazy("accounts:login")
+
+    def dispatch(self, request, *args, **kwargs):
+        return redirect(f"{reverse('billing:subscribe')}?plan=basic")
 
     def form_valid(self, form):
         with transaction.atomic():
@@ -532,7 +541,9 @@ class LoginCodeWizardView(View):
             request.session.pop("login_code_user_id", None)
             request.session.pop("login_code_token_id", None)
 
-            return JsonResponse({"success": True, "step": 3, "redirect_url": str(reverse_lazy("core:dashboard"))})
+            from apps.billing.access import get_post_login_url
+
+            return JsonResponse({"success": True, "step": 3, "redirect_url": get_post_login_url(request)})
 
         logger.warning("login_code_invalid_step", extra={"step": step})
         return JsonResponse({"error": "Step inválido"}, status=400)

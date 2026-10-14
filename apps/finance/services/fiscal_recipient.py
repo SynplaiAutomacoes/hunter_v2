@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from apps.customer.cpf_cnpj_validator import is_valid_cnpj, is_valid_cpf
+from django.db import IntegrityError, transaction
+
+from apps.customer.cpf_cnpj_validator import is_valid_cnpj, is_valid_cpf, normalize_cpf_or_cnpj
+from apps.customer.models import Customer
+from apps.workshops.models.workshops import Workshop
 
 
 @dataclass(slots=True)
@@ -108,6 +112,70 @@ def fiscal_recipient_from_snapshot(snapshot: dict[str, Any] | None) -> FiscalRec
 
 def recipient_name_from_snapshot(snapshot: dict[str, Any]) -> str:
     return str(snapshot.get("name") or "").strip()
+
+
+def recipient_snapshot_from_customer(customer: Customer) -> dict[str, str | int]:
+    return recipient_snapshot_from_form_data(
+        {
+            "customer_type": getattr(customer, "customer_type", "PF"),
+            "name": customer.name,
+            "cpf_or_cnpj": customer.cpf_or_cnpj,
+            "phone": str(customer.phone or ""),
+            "email": customer.email or "",
+            "logradouro": customer.logradouro,
+            "numero": customer.numero,
+            "complemento": customer.complemento or "",
+            "bairro": customer.bairro,
+            "cidade": customer.cidade,
+            "estado": customer.estado,
+            "cep": customer.cep,
+            "state_registration": customer.state_registration or "",
+            "municipal_registration": customer.municipal_registration or "",
+        }
+    )
+
+
+def create_customer_from_recipient_snapshot(*, workshop: Workshop, snapshot: dict[str, Any]) -> Customer:
+    """Create a workshop customer from an avulsa recipient snapshot."""
+    errors = validate_recipient_snapshot(snapshot)
+    email = str(snapshot.get("email") or "").strip()
+    if not email:
+        errors.setdefault("email", []).append("Informe o e-mail para cadastrar o destinatário como cliente.")
+    if errors:
+        messages = []
+        for field_errors in errors.values():
+            messages.extend(field_errors)
+        raise ValueError(" ".join(messages) or "Dados inválidos para cadastrar o cliente.")
+
+    document = normalize_cpf_or_cnpj(str(snapshot.get("cpf_or_cnpj") or ""))
+    existing = Customer.objects.filter(workshop=workshop, cpf_or_cnpj=document).first()
+    if existing is not None:
+        return existing
+
+    try:
+        with transaction.atomic():
+            return Customer.objects.create(
+                workshop=workshop,
+                customer_type=str(snapshot.get("customer_type") or "PF").upper(),
+                name=str(snapshot.get("name") or "").strip(),
+                cpf_or_cnpj=document,
+                phone=str(snapshot.get("phone") or "").strip() or "",
+                email=email,
+                cep=_digits_only(snapshot.get("cep")),
+                logradouro=str(snapshot.get("logradouro") or "").strip(),
+                numero=int(snapshot.get("numero") or 1),
+                complemento=str(snapshot.get("complemento") or "").strip() or None,
+                bairro=str(snapshot.get("bairro") or "").strip(),
+                cidade=str(snapshot.get("cidade") or "").strip(),
+                estado=str(snapshot.get("estado") or "").strip(),
+                state_registration=str(snapshot.get("state_registration") or "").strip() or None,
+                municipal_registration=str(snapshot.get("municipal_registration") or "").strip() or None,
+            )
+    except IntegrityError as exc:
+        existing = Customer.objects.filter(workshop=workshop, cpf_or_cnpj=document).first()
+        if existing is not None:
+            return existing
+        raise ValueError("Não foi possível cadastrar o cliente com estes dados.") from exc
 
 
 def validate_recipient_snapshot(snapshot: dict[str, Any]) -> dict[str, list[str]]:

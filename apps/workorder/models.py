@@ -247,6 +247,32 @@ class WorkOrder(TimeStampedModel):
             benefit_type = WorkOrderItemBenefitType.COURTESY
         return self.items.exclude(item_benefit_type=benefit_type).update(item_benefit_type=benefit_type)
 
+    @staticmethod
+    def _is_local_product_item(item: "WorkOrderItem") -> bool:
+        if item.local_item_type == "product":
+            return True
+        return bool(
+            item.is_local
+            and (
+                (item.product_cost_price and item.product_cost_price.amount > 0)
+                or (item.product_selling_price and item.product_selling_price.amount > 0)
+                or (item.shipping and item.shipping.amount > 0)
+            )
+        )
+
+    @staticmethod
+    def _is_local_service_item(item: "WorkOrderItem") -> bool:
+        if item.local_item_type == "service":
+            return True
+        return bool(
+            item.is_local
+            and (
+                (item.service_cost_price and item.service_cost_price.amount > 0)
+                or (item.service_selling_price and item.service_selling_price.amount > 0)
+                or item.duration
+            )
+        )
+
     def _iter_items(self) -> Iterable["WorkOrderItem"]:
         if not self.pk:
             return ()
@@ -323,6 +349,8 @@ class WorkOrder(TimeStampedModel):
             discount_percentage=self.discount_percentage,
             labor_hourly_cost_value=self.mechanic_hour_cost_value,
             labor_selling_value_override=labor_selling_value_override,
+            is_local_product_item=self._is_local_product_item,
+            is_local_service_item=self._is_local_service_item,
         )
 
     def build_cost_snapshot(self) -> PricingSnapshot:
@@ -333,6 +361,8 @@ class WorkOrder(TimeStampedModel):
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
             labor_hourly_cost_value=self.mechanic_hour_cost_value,
+            is_local_product_item=self._is_local_product_item,
+            is_local_service_item=self._is_local_service_item,
             include_benefit_items=True,
         )
 
@@ -1131,6 +1161,8 @@ class WorkOrder(TimeStampedModel):
                         kit=budget_item.kit,
                         description=budget_item.description,
                         quantity=budget_item.quantity,
+                        is_local=budget_item.is_local,
+                        local_item_type=budget_item.local_item_type,
                         is_customer_supplied=budget_item.is_customer_supplied,
                         shipping=budget_item.shipping,
                         product_cost_price=budget_item.product_cost_price,

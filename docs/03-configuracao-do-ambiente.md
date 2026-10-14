@@ -106,6 +106,7 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `OUTBOUND_POLLER_INTERVAL_SECONDS` | intervalo do poller no realtime (default `60`); processa `run_due_outbound_messages` |
 | `OUTBOUND_POLLER_TICK_TIMEOUT_SECONDS` | timeout de cada tick do poller (default `55`); evita tick travado em DB/RabbitMQ |
 | `OUTBOUND_POLLER_MAX_CONSECUTIVE_FAILURES` | falhas consecutivas (timeout/exit != 0) antes de derrubar o processo realtime (default `5`) |
+| `SEFAZ_SYNC_INTERVAL_SECONDS` | intervalo de verificacao da sincronizacao automatica de NF-e no processo realtime (default `300`). A consulta efetiva continua respeitando o bloqueio de 1 hora exigido pela SEFAZ quando nao ha documentos pendentes. |
 | `OUTBOUND_PROCESSING_RECLAIM_SECONDS` | TTL para reclaim de rows `PROCESSING` stale de volta a `PENDING` (default `600`) |
 | `MESSAGE_WORKER_BASE_URL` | base URL do worker de envio WhatsApp; o cancelamento usa `POST {BASE}/stop` |
 | `MESSAGE_DISPATCH_STATUS_TOKEN` | token esperado no header `X-Dispatch-Status-Token` na ingestao de status do worker |
