@@ -92,12 +92,42 @@ def _build_workorder_sheet(*, context: dict[str, Any], value_column_label: str) 
         ExcelColumn(header="Veículo", width=30, kind="text"),
         ExcelColumn(header="Data", width=16, kind="date"),
         ExcelColumn(header="Tipo", width=14, kind="badge"),
-        ExcelColumn(header="Vínculo", width=14, kind="text"),
+        ExcelColumn(header="Vínculo", width=23, kind="text"),
         ExcelColumn(header=value_column_label, width=18, kind="money_sale"),
     ]
     rows: list[list[ExcelCell]] = []
     total = Decimal("0.00")
     indicator = str(context.get("indicator") or "")
+    daily_sales_groups = context.get("daily_sales_groups") or []
+    if daily_sales_groups:
+        for group_index, group in enumerate(daily_sales_groups):
+            row_fill = "white" if group_index % 2 == 0 else "zebra"
+            for item in group.items:
+                amount = resolve_indicator_row_amount(item=item, indicator=indicator, is_budget_report=False)
+                total += amount
+                rows.append(
+                    _workorder_row(
+                        item=item,
+                        amount=amount,
+                        link_label=f"Venda em {group.sales_date.strftime('%d/%m/%Y')}",
+                        row_fill=row_fill,
+                    )
+                )
+            rows.append(
+                [
+                    ExcelCell(row_fill=row_fill),
+                    ExcelCell(value="TOTAL DO DIA"),
+                    ExcelCell(),
+                    ExcelCell(value=group.sales_date),
+                    ExcelCell(),
+                    ExcelCell(),
+                    ExcelCell(value=group.total, kind="money_sale"),
+                ]
+            )
+        total_cells = [ExcelCell() for _ in columns]
+        total_cells[-1] = ExcelCell(value=total, kind="money_sale")
+        return columns, rows, total_cells
+
     groups = context.get("workorder_groups") or []
     if groups:
         for group in groups:
@@ -117,12 +147,12 @@ def _build_workorder_sheet(*, context: dict[str, Any], value_column_label: str) 
     return columns, rows, total_cells
 
 
-def _workorder_row(*, item: Any, amount: Decimal, link_label: str) -> list[ExcelCell]:
+def _workorder_row(*, item: Any, amount: Decimal, link_label: str, row_fill: str | None = None) -> list[ExcelCell]:
     budget = getattr(item, "budget", None)
     budget_type = str(getattr(item, "budget_type", "") or "")
     row_date = getattr(item, "delivered_at", None) or getattr(item, "criado_em", None)
     return [
-        ExcelCell(value=resolve_workorder_number(item)),
+        ExcelCell(value=resolve_workorder_number(item), row_fill=row_fill),
         ExcelCell(value=str(getattr(budget, "customer", None) or "-")),
         ExcelCell(value=str(getattr(budget, "vehicle", None) or "-")),
         ExcelCell(value=row_date),

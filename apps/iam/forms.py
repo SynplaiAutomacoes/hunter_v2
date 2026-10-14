@@ -14,6 +14,9 @@ from apps.core.presentation.forms import CoreModelForm
 from apps.iam.permissions_registry import get_perm_info, is_auto_grant, is_codename_visible
 
 RESERVED_ROLE_NAMES = {"diretor", "gerente"}
+DELIVERY_DATE_PERMISSION_CODENAME = "change_delivery_date"
+DELIVERY_DATE_PERMISSION_APP_LABEL = "workorder"
+DELIVERY_DATE_PERMISSION_MODEL = "workorder"
 
 
 def _iter_live_permissions():
@@ -48,6 +51,8 @@ class WorkshopRoleForm(CoreModelForm):
     def save(self, commit: bool = True):
         instance = super().save(commit)
         if commit:
+            if not self.can_manage_delivery_date_permission and self._delivery_date_permission_was_assigned:
+                instance.permissions.add(*self._delivery_date_permission_ids)
             auto_grant_ids = [
                 p.id
                 for p in Permission.objects.select_related("content_type").only(
@@ -59,9 +64,25 @@ class WorkshopRoleForm(CoreModelForm):
         return instance
 
     def __init__(self, *args, **kwargs):
+        self.can_manage_delivery_date_permission = bool(kwargs.pop("can_manage_delivery_date_permission", False))
         super().__init__(*args, **kwargs)
 
         perms = list(_iter_live_permissions())
+        self._delivery_date_permission_ids = [
+            permission.id
+            for permission in perms
+            if (
+                permission.content_type.app_label == DELIVERY_DATE_PERMISSION_APP_LABEL
+                and permission.content_type.model == DELIVERY_DATE_PERMISSION_MODEL
+                and permission.codename == DELIVERY_DATE_PERMISSION_CODENAME
+            )
+        ]
+        self._delivery_date_permission_was_assigned = bool(
+            self.instance.pk
+            and self.instance.permissions.filter(pk__in=self._delivery_date_permission_ids).exists()
+        )
+        if not self.can_manage_delivery_date_permission:
+            perms = [permission for permission in perms if permission.id not in self._delivery_date_permission_ids]
         self.fields["permissions"].queryset = Permission.objects.filter(pk__in=[permission.pk for permission in perms]).select_related("content_type")
 
         grouped = {}

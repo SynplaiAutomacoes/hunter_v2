@@ -49,6 +49,19 @@ class WorkOrderSignedPdfUrlTests(SimpleTestCase):
         self.assertEqual(urls["initial_pdf_variant"], "base")
         self.assertIn("variant=base", str(urls["initial_pdf_url"]))
 
+    def test_sent_signature_does_not_offer_signed_pdf_before_approval(self) -> None:
+        workorder = SimpleNamespace(
+            pk=11,
+            signature_request_status=WorkOrderSignatureStatus.SENT,
+            signature_external_id="env-11",
+            signature_document_id="env-11",
+        )
+
+        self.assertFalse(workorder_can_toggle_signed_pdf(workorder))
+        urls = _build_workorder_pdf_modal_context(workorder)
+        self.assertFalse(urls["can_toggle_signed_pdf"])
+        self.assertEqual(urls["initial_pdf_variant"], "base")
+
 
 class WorkOrderSignedPdfTemplateTests(SimpleTestCase):
     def test_delivery_section_uses_workorder_signed_pdf_urls(self) -> None:

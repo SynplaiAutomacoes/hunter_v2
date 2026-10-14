@@ -9,6 +9,8 @@ from djmoney.money import Money
 
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.financial_transfer import FinancialTransfer
+from apps.finance.forms.financial_transfer import FinancialTransferForm
 from apps.finance.models.movement_group import MovementGroup
 from apps.finance.views.cash_flow import CashFlowView, CashFlowReportExcelView, CashFlowReportModalView, _PAGE_SIZE
 from apps.workshops.models.workshops import Workshop
@@ -183,6 +185,134 @@ class CashFlowViewTests(TestCase):
         names = {card["name"] for card in cards}
         self.assertIn(str(self.bank_account), names)
         self.assertIn(str(other_account), names)
+
+    def test_transfer_changes_individual_account_cards_but_not_the_consolidated_total(self) -> None:
+        other_account = create_bank_account(workshop=self.workshop, suffix=2)
+        self._create_movement(description="Saldo inicial", due_date=date(2026, 8, 10), amount=300)
+        FinancialTransfer.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source_account=self.bank_account,
+            destination_account=other_account,
+            transfer_date=date(2026, 8, 11),
+            amount=Money(100, "BRL"),
+        )
+
+        context = self._build_view().get_context_data()
+        cards = {card["account_id"]: card for card in context["account_cards"]}
+
+        self.assertIn("300", cards[""]["value"])
+        self.assertIn("200", cards[str(self.bank_account.pk)]["value"])
+        self.assertIn("100", cards[str(other_account.pk)]["value"])
+
+    def test_transfer_is_displayed_as_a_debit_or_credit_for_the_selected_account(self) -> None:
+        other_account = create_bank_account(workshop=self.workshop, suffix=2)
+        FinancialTransfer.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source_account=self.bank_account,
+            destination_account=other_account,
+            transfer_date=date(2026, 8, 11),
+            amount=Money(100, "BRL"),
+            description="Recomposição de caixa",
+        )
+
+        source_rows = self._build_view(query={"conta_bancaria": str(self.bank_account.pk)}).get_context_data()["financial_movement_report_rows"]
+        destination_rows = self._build_view(query={"conta_bancaria": str(other_account.pk)}).get_context_data()["financial_movement_report_rows"]
+
+        self.assertEqual(source_rows[0]["total"]["text"], "- R$ 100,00")
+        self.assertIn("para", source_rows[0]["description"])
+        self.assertEqual(destination_rows[0]["total"]["text"], "+ R$ 100,00")
+        self.assertIn("de", destination_rows[0]["description"])
+
+    def test_transfer_filter_lists_only_internal_transfers(self) -> None:
+        other_account = create_bank_account(workshop=self.workshop, suffix=2)
+        self._create_movement(description="Receita comum", due_date=date(2026, 8, 10), amount=100)
+        FinancialTransfer.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source_account=self.bank_account,
+            destination_account=other_account,
+            transfer_date=date(2026, 8, 11),
+            amount=Money(50, "BRL"),
+        )
+
+        rows = self._build_view(query={"tipo_movimentacao": "TRANSFER"}).get_context_data()["financial_movement_report_rows"]
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["type_badge"]["text"], "Transferência")
+        self.assertTrue(rows[0]["reverse_url"])
+
+    def test_reversal_transfer_is_identified_and_cannot_be_reversed_again(self) -> None:
+        other_account = create_bank_account(workshop=self.workshop, suffix=2)
+        transfer = FinancialTransfer.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source_account=self.bank_account,
+            destination_account=other_account,
+            transfer_date=date(2026, 8, 11),
+            amount=Money(50, "BRL"),
+        )
+        reversal = FinancialTransfer.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source_account=other_account,
+            destination_account=self.bank_account,
+            transfer_date=date(2026, 8, 11),
+            amount=Money(50, "BRL"),
+            reversal_of=transfer,
+        )
+
+        rows = self._build_view().get_context_data()["financial_movement_report_rows"]
+        rows_by_component = {row["component"]: row for row in rows}
+
+        self.assertFalse(rows_by_component[f"financial-transfer-{transfer.pk}-all"]["reverse_url"])
+        self.assertFalse(rows_by_component[f"financial-transfer-{reversal.pk}-all"]["reverse_url"])
+        self.assertEqual(
+            rows_by_component[f"financial-transfer-{reversal.pk}-all"]["description"],
+            "Estorno de transferência do dia: 11/08/2026",
+        )
+
+    def test_transfers_on_the_same_date_are_sorted_by_their_creation_time(self) -> None:
+        other_account = create_bank_account(workshop=self.workshop, suffix=2)
+        first_transfer = FinancialTransfer.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source_account=self.bank_account,
+            destination_account=other_account,
+            transfer_date=date(2026, 8, 11),
+            amount=Money(50, "BRL"),
+        )
+        later_transfer = FinancialTransfer.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source_account=other_account,
+            destination_account=self.bank_account,
+            transfer_date=date(2026, 8, 11),
+            amount=Money(50, "BRL"),
+            reversal_of=first_transfer,
+        )
+
+        rows = self._build_view().get_context_data()["financial_movement_report_rows"]
+
+        self.assertEqual(rows[0]["component"], f"financial-transfer-{later_transfer.pk}-all")
+
+    def test_transfer_cannot_exceed_the_available_source_balance(self) -> None:
+        other_account = create_bank_account(workshop=self.workshop, suffix=2)
+        self._create_movement(description="Saldo disponível", due_date=date(2026, 8, 10), amount=100)
+
+        form = FinancialTransferForm(
+            workshop=self.workshop,
+            data={
+                "source_account": self.bank_account.pk,
+                "destination_account": other_account.pk,
+                "transfer_date": "2026-08-11",
+                "amount": "100.01",
+            },
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("excede o saldo disponível", form.errors["amount"][0])
 
     def test_account_card_url_clears_date_filters(self) -> None:
         context = self._build_view(

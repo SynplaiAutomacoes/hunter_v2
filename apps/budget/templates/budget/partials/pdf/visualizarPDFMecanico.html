@@ -113,6 +113,13 @@
             </div>
         </div>
 
+        {% if budget.observations %}
+        <div class="p-4 border-b border-gray-200">
+            <h4 class="font-bold mb-2 uppercase">Observações</h4>
+            <p class="whitespace-pre-wrap">{{ budget.observations }}</p>
+        </div>
+        {% endif %}
+
         <div class="p-3 border-b border-gray-200">
             <h4 class="font-bold mb-1 uppercase">Produtos</h4>
             <table class="w-full text-left border-collapse text-[10px] mt-1 leading-tight">

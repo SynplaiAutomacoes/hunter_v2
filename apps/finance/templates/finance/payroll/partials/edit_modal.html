@@ -335,6 +335,12 @@
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.bank_account|as_crispy_field }}</div>
                                     <div class="col-span-12 lg:col-span-4">{{ tab.form.nf_number|as_crispy_field }}</div>
                                     <div class="col-span-12">{{ tab.form.financial_observation|as_crispy_field }}</div>
+                                    <div class="col-span-12">
+                                        <label class="cursor-pointer label justify-start gap-2 py-1">
+                                            <input type="checkbox" name="apply_payment_to_all" value="true" checked class="checkbox checkbox-primary checkbox-sm" />
+                                            <span class="label-text text-xs font-medium text-base-content/80">Aplicar status de pagamento a todos os componentes desta folha (Salário, VT, Benefícios, Comissões)</span>
+                                        </label>
+                                    </div>
                                 </div>
                             {% endif %}
                         {% endif %}
@@ -374,6 +380,12 @@
                     </button>
                 </div>
                 <div class="flex items-center gap-2" :class="showTabActions() ? '' : 'ml-auto'">
+                    {% if payroll.status != 'PAID' %}
+                        <button type="submit" name="action_mark_full_payroll_paid" value="true" class="btn btn-success btn-sm">
+                            <span class="material-icons text-sm">payments</span>
+                            Pagar folha inteira
+                        </button>
+                    {% endif %}
                     <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
                     <button type="submit" class="btn btn-primary"><span class="material-icons text-sm">save</span>Salvar</button>
                 </div>

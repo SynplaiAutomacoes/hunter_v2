@@ -176,7 +176,7 @@ class Budget(TimeStampedModel):
 
     # Status e Controle
     status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
-    cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
+    cancellation_reason = models.TextField(verbose_name="Motivo do Cancelamento", blank=True, null=True)
     cancellation_responsible = models.ForeignKey(
         "collaborators.WorkshopCollaborator",
         verbose_name="Responsável pelo atendimento no cancelamento",
@@ -185,7 +185,7 @@ class Budget(TimeStampedModel):
         null=True,
         blank=True,
     )
-    rejection_reason = models.CharField(verbose_name="Motivo da Reprovação", max_length=255, blank=True, null=True)
+    rejection_reason = models.TextField(verbose_name="Motivo da Reprovação", blank=True, null=True)
     rejection_responsible = models.ForeignKey(
         "collaborators.WorkshopCollaborator",
         verbose_name="Responsável pelo atendimento na reprovação",
@@ -350,6 +350,10 @@ class Budget(TimeStampedModel):
         total = self.stored_total_source_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
+        if self.budget_type == "sale":
+            # A WorkOrder espelha o Budget: propaga o total cobrado para as
+            # O.S. de venda vinculadas (as de garantia/cortesia têm base própria).
+            WorkOrder.objects.filter(budget_id=self.pk, budget_type="sale").update(stored_total_amount=total)
 
     class Meta:
         verbose_name = "Orçamento"

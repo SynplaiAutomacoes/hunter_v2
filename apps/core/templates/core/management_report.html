@@ -1,0 +1,177 @@
+{% extends 'crud/page.html' %}
+{% load l10n %}
+
+{% block crud_content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+            <a href="{{ hub_url }}" class="link link-hover text-sm text-base-content/60">← Central de Relatórios</a>
+            <h1 class="mt-1 text-3xl font-bold text-base-content">{{ report_title }}</h1>
+            <p class="text-base-content/70">Período: {{ period_label }} · {{ record_count }} registro{{ record_count|pluralize }}</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <button type="button"
+                    class="btn btn-outline gap-2"
+                    onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: '{{ report_title|escapejs }}', url: '{{ pdf_url|escapejs }}', downloadUrl: '{{ pdf_download_url|escapejs }}' } }))">
+                <span class="material-icons text-sm">picture_as_pdf</span>
+                Exportar PDF
+            </button>
+            <a href="{{ excel_url }}" class="btn btn-success gap-2">
+                <span class="material-icons text-sm">table_view</span>
+                Exportar Excel
+            </a>
+        </div>
+    </div>
+
+    <form method="get" class="card bg-base-100 border border-base-300 shadow-sm">
+        <div class="card-body gap-4">
+            <input type="hidden" name="tipo" value="{{ report_key }}" />
+            <div class="grid grid-cols-1 items-end gap-3 md:grid-cols-4">
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-mes" class="min-h-5 text-sm leading-5 text-base-content/80">Mês</label>
+                    <select id="reports-filter-mes" name="mes" class="select select-bordered w-full">
+                        <option value="1" {% if period.month == 1 %}selected{% endif %}>Janeiro</option>
+                        <option value="2" {% if period.month == 2 %}selected{% endif %}>Fevereiro</option>
+                        <option value="3" {% if period.month == 3 %}selected{% endif %}>Março</option>
+                        <option value="4" {% if period.month == 4 %}selected{% endif %}>Abril</option>
+                        <option value="5" {% if period.month == 5 %}selected{% endif %}>Maio</option>
+                        <option value="6" {% if period.month == 6 %}selected{% endif %}>Junho</option>
+                        <option value="7" {% if period.month == 7 %}selected{% endif %}>Julho</option>
+                        <option value="8" {% if period.month == 8 %}selected{% endif %}>Agosto</option>
+                        <option value="9" {% if period.month == 9 %}selected{% endif %}>Setembro</option>
+                        <option value="10" {% if period.month == 10 %}selected{% endif %}>Outubro</option>
+                        <option value="11" {% if period.month == 11 %}selected{% endif %}>Novembro</option>
+                        <option value="12" {% if period.month == 12 %}selected{% endif %}>Dezembro</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-ano" class="min-h-5 text-sm leading-5 text-base-content/80">Ano</label>
+                    <input id="reports-filter-ano" type="number" name="ano" value="{{ period.year|unlocalize }}" class="input input-bordered w-full" min="2000" max="9999" />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-data-inicial" class="min-h-5 text-sm leading-5 text-base-content/80">Data inicial</label>
+                    <input id="reports-filter-data-inicial" type="date" name="data_inicial" value="{{ request.GET.data_inicial }}" class="input input-bordered w-full" />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-data-final" class="min-h-5 text-sm leading-5 text-base-content/80">Data final</label>
+                    <input id="reports-filter-data-final" type="date" name="data_final" value="{{ request.GET.data_final }}" class="input input-bordered w-full" />
+                </div>
+            </div>
+
+            {% if sort_options %}
+            <label class="form-control max-w-sm">
+                <span class="label-text">Ordenar por</span>
+                <select name="ordenar" class="select select-bordered">
+                    {% for option in sort_options %}
+                    <option value="{{ option.value }}" {% if selected_sort == option.value %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            {% endif %}
+
+            {% if available_columns %}
+            <div>
+                <p class="label-text mb-2">Colunas do relatório (todas opcionais)</p>
+                <div class="flex flex-wrap gap-3">
+                    {% for col in available_columns %}
+                    <label class="label cursor-pointer gap-2 justify-start">
+                        <input type="checkbox" name="colunas" value="{{ col.key }}" class="checkbox checkbox-sm"
+                               {% if col.key in selected_column_keys %}checked{% endif %} />
+                        <span class="label-text">{{ col.label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <div>
+                <button type="submit" class="btn btn-primary">Aplicar filtros</button>
+            </div>
+        </div>
+    </form>
+
+    {% if summary_cards %}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {% for card in summary_cards %}
+        <div class="stat bg-base-100 shadow rounded-box border border-base-300">
+            <div class="stat-title">{{ card.label }}</div>
+            <div class="stat-value text-lg">{{ card.value }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="card bg-base-100 border border-base-300 shadow-sm overflow-x-auto">
+        <table class="table table-zebra table-sm">
+            <thead>
+                <tr>
+                    {% for col in columns %}
+                    <th class="{% if col.align == 'right' %}text-right whitespace-nowrap{% endif %}">{{ col.label }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in table_rows %}
+                <tr>
+                    {% for cell in row %}
+                    <td class="{% if cell.align == 'right' %}text-right tabular-nums whitespace-nowrap{% endif %}">{{ cell.display }}</td>
+                    {% endfor %}
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="{{ columns|length }}" class="text-center text-base-content/50 py-8">
+                        Nenhum registro encontrado para o período selecionado.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            {% if total_value_display %}
+            <tfoot>
+                <tr class="font-semibold bg-base-200/60">
+                    <td colspan="{{ columns|length|add:'-1' }}">{{ total_label }}</td>
+                    <td class="text-right tabular-nums whitespace-nowrap">{{ total_value_display }}</td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</div>
+
+<dialog id="managementReportPdfModal"
+        class="modal"
+        x-data="{ url: '', downloadUrl: '', title: 'Relatório' }"
+        @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Relatório'; $el.showModal()">
+    <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+        <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+            <h3 class="flex items-center gap-2 text-xl font-bold">
+                <span class="material-icons">description</span>
+                <span x-text="title"></span>
+            </h3>
+            <div class="flex gap-2">
+                <button type="button"
+                        class="btn btn-sm btn-primary"
+                        onclick="const frame = document.querySelector('#managementReportPdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }">
+                    Imprimir
+                </button>
+                <button type="button"
+                        class="btn btn-sm btn-success"
+                        x-show="downloadUrl"
+                        @click="window.open(downloadUrl, '_blank')">
+                    Baixar PDF
+                </button>
+                <button type="button" class="btn btn-sm" onclick="document.getElementById('managementReportPdfModal').close()">
+                    Fechar
+                </button>
+            </div>
+        </div>
+        <div class="flex-1 bg-gray-100">
+            <template x-if="url">
+                <iframe :src="url" class="h-full w-full" frameborder="0"></iframe>
+            </template>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+    </form>
+</dialog>
+{% endblock %}

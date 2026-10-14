@@ -6,18 +6,20 @@ from typing import Any
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.forms.purchase_return import PurchaseReturnFiscalForm, PurchaseReturnItemsForm, PurchaseReturnSearchForm, PurchaseReturnSelectionForm
 from apps.finance.models import PurchaseReturnRequest, PurchaseReturnRequestStatus
 from apps.finance.services.purchase_returns import (
     PurchaseReturnError,
     available_purchase_return_quantities,
+    can_reissue_purchase_return,
     clone_purchase_return_for_reissue,
     display_purchase_return_supplier_ie,
     finalize_purchase_return_request,
@@ -32,6 +34,7 @@ from apps.finance.services.purchase_returns import (
     sync_purchase_return_status,
     transmit_purchase_return,
 )
+from apps.finance.services.fiscal_request_soft_delete import is_purchase_return_soft_deletable
 from apps.finance.views.navigation import build_issued_documents_list_url
 from apps.finance.views.request_workflow import render_emission_preview_modal
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -90,10 +93,14 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
     template_name = "finance/purchase_return_workflow.html"
 
     def _get_request(self, pk: int) -> PurchaseReturnRequest:
+        from apps.finance.services.fiscal_request_soft_delete import active_purchase_return_requests
+
         return_request = get_object_or_404(
-            PurchaseReturnRequest.objects.filter(workshop=self.workshop)
-            .select_related("source_stock_import__fiscal_document", "original_document", "requested_by")
-            .prefetch_related("source_stock_import__fiscal_items__stock_product__product", "items__source_item"),
+            active_purchase_return_requests(
+                queryset=PurchaseReturnRequest.objects.filter(workshop=self.workshop)
+                .select_related("source_stock_import__fiscal_document", "original_document", "requested_by")
+                .prefetch_related("source_stock_import__fiscal_items__stock_product__product", "items__source_item")
+            ),
             pk=pk,
         )
         return sync_purchase_return_status(request_instance=return_request)
@@ -207,10 +214,48 @@ class PurchaseReturnWorkflowView(PurchaseReturnPermissionMixin, View):
             "fiscal_attempt": attempt,
             "supplier_ie_display": display_purchase_return_supplier_ie(request=return_request),
             "issued_documents_url": build_issued_documents_list_url(note_type="nfe"),
-            "can_reissue": return_request.status in {PurchaseReturnRequestStatus.REJECTED, PurchaseReturnRequestStatus.COMMUNICATION_ERROR},
+            "can_reissue": can_reissue_purchase_return(request=return_request),
             "can_reconcile": fiscal_document is not None,
+            "can_soft_delete": is_purchase_return_soft_deletable(return_request=return_request),
+            "soft_delete_url": reverse("finance:purchase_return_soft_delete", kwargs={"pk": return_request.pk}),
+            "document_xml_url": str(getattr(fiscal_document, "xml_url", "") or "").strip() if fiscal_document else "",
+            "document_danfe_url": str(getattr(fiscal_document, "danfe_url", "") or "").strip() if fiscal_document else "",
         }
         return render(self.request, self.template_name, context)
+
+
+class PurchaseReturnDocumentDownloadView(PurchaseReturnPermissionMixin, View):
+    document_fields = {
+        "xml": ("xml_url", "xml"),
+        "danfe": ("danfe_url", "pdf"),
+    }
+
+    def get(self, request: HttpRequest, pk: int, document: str, *args: Any, **kwargs: Any) -> HttpResponse:
+        return_request = get_object_or_404(
+            PurchaseReturnRequest.objects.select_related("fiscal_document"),
+            pk=pk,
+            workshop=self.workshop,
+        )
+        document_kind = str(document or "").strip().lower()
+        if document_kind not in self.document_fields:
+            raise Http404("Documento não suportado")
+        fiscal_document = return_request.fiscal_document
+        if fiscal_document is None:
+            raise Http404("Documento fiscal ainda não disponível")
+        field_name, extension = self.document_fields[document_kind]
+        document_url = str(getattr(fiscal_document, field_name, "") or "").strip()
+        if not document_url:
+            raise Http404("Documento ainda não disponível")
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        identifier = str(
+            fiscal_document.number or fiscal_document.access_key or fiscal_document.remote_uuid or return_request.pk or "documento"
+        ).strip().replace(" ", "-")
+        response["Content-Disposition"] = f'attachment; filename="nfe-devolucao-{document_kind}-{identifier}.{extension}"'
+        return response
 
 
 class PurchaseReturnPreviewView(PurchaseReturnPermissionMixin, View):
@@ -240,7 +285,17 @@ class PurchaseReturnPreviewPdfView(PurchaseReturnPermissionMixin, View):
         try:
             downloaded = preview_purchase_return(request_instance=return_request, http_request=request)
         except PurchaseReturnError as exc:
-            return HttpResponse(str(exc), status=422, content_type="text/plain; charset=utf-8")
+            response = render(
+                request,
+                "finance/partials/preview_error.html",
+                {
+                    "title": "Não foi possível gerar a prévia da Nota de Devolução",
+                    "message": str(exc),
+                },
+            )
+            response["Cache-Control"] = "no-store"
+            response.status_code = 422
+            return response
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         response["Content-Disposition"] = downloaded.content_disposition or f'inline; filename="previa-devolucao-{return_request.pk}.pdf"'
         response["Cache-Control"] = "no-store"

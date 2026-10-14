@@ -135,9 +135,24 @@
                                         </a>
                                     {% endif %}
                                 {% else %}
-                                    <a href="{{ row.detail_url }}" class="btn-table-view" title="Visualizar nota" aria-label="Visualizar nota">
-                                        <span class="material-icons text-base">visibility</span>
-                                    </a>
+                                    <div class="inline-flex items-center justify-end gap-1">
+                                        <a href="{{ row.detail_url }}" class="btn-table-view" title="Visualizar nota" aria-label="Visualizar nota">
+                                            <span class="material-icons text-base">visibility</span>
+                                        </a>
+                                        {% if row.can_soft_delete and row.soft_delete_url %}
+                                            <button
+                                                type="button"
+                                                class="btn-table-delete"
+                                                title="Apagar rascunho"
+                                                aria-label="Apagar rascunho"
+                                                hx-get="{{ row.soft_delete_url }}"
+                                                hx-target="#modal-container"
+                                                hx-swap="innerHTML"
+                                            >
+                                                <span class="material-icons text-base">delete</span>
+                                            </button>
+                                        {% endif %}
+                                    </div>
                                 {% endif %}
                             </td>
                         </tr>

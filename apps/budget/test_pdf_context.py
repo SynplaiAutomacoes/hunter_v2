@@ -342,3 +342,23 @@ class BudgetPdfDocumentTitleTests(TestCase):
         gestor_html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
         self.assertIn(f"Total Custos: {money_br(products_cost)}", gestor_html)
         self.assertIn(f"Total Custos: {money_br(services_cost)}", gestor_html)
+
+    def test_cliente_pdf_shows_budget_and_workshop_observations(self) -> None:
+        budget = _create_budget(suffix=3)
+        budget.observations = "Observação do atendimento para o PDF."
+        budget.save(update_fields=["observations"])
+        budget.workshop.pdf_observation = "Observação fixa da oficina."
+        budget.workshop.save(update_fields=["pdf_observation"])
+
+        context = build_budget_pdf_context(budget=budget, presentation="selected_items")
+        html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
+
+        self.assertEqual(context["observations"], budget.observations)
+        self.assertEqual(context["fixed_observation"], budget.workshop.pdf_observation)
+        self.assertIn("Observações", html)
+        self.assertIn(budget.observations, html)
+        self.assertIn(budget.workshop.pdf_observation, html)
+        # Atendimento observation should appear before the fixed workshop text.
+        self.assertLess(html.index(budget.observations), html.index(budget.workshop.pdf_observation))
+        # Observations belong on the first page block, before product tables.
+        self.assertLess(html.index("Observações"), html.index("Produtos"))

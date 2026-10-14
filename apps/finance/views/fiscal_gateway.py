@@ -45,7 +45,7 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         FiscalOperationCard(
             value=FiscalOperation.EMISSION,
             label="Nota Fiscal",
-            description="Emita NF-e ou NFS-e. Nas próximas etapas você escolhe o vínculo e o tipo de documento.",
+            description="Emita NF-e ou NFS-e. Escolha o vínculo; para O.S. o tipo de documento fica no resumo da emissão.",
             icon="receipt_long",
         ),
         FiscalOperationCard(
@@ -59,18 +59,6 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             label="Carta de Correção",
             description="Abre a Central de Notas para selecionar a NF-e e emitir a CC-e pelo fluxo existente.",
             icon="edit_note",
-        ),
-        FiscalOperationCard(
-            value=FiscalOperation.COMPLEMENTARY,
-            label="Nota Complementar",
-            description="Abre a Central de Notas para selecionar a NF-e e usar a emissão complementar existente.",
-            icon="add_notes",
-        ),
-        FiscalOperationCard(
-            value=FiscalOperation.ADJUSTMENT,
-            label="Nota de Ajuste",
-            description="Abre a Central de Notas para acessar a operação de ajuste já disponível no detalhe da NF-e.",
-            icon="tune",
         ),
     )
     LINKAGE_CARDS: ClassVar[tuple[FiscalOperationCard, ...]] = (
@@ -103,8 +91,6 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
     )
     EXISTING_OPERATION_MESSAGES: ClassVar[dict[str, str]] = {
         FiscalOperation.CORRECTION: "Selecione uma NF-e e abra seus detalhes para usar o atalho Carta de Correção.",
-        FiscalOperation.COMPLEMENTARY: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota Complementar.",
-        FiscalOperation.ADJUSTMENT: "Selecione uma NF-e e abra seus detalhes para usar o atalho Nota de Ajuste.",
     }
 
     def _is_legacy_wizard_request(self) -> bool:
@@ -115,8 +101,12 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
         return linkage if linkage in LINKAGE_VALUES else ""
 
     def _gateway_step(self) -> str:
-        if self._selected_linkage():
+        selected_linkage = self._selected_linkage()
+        # Workorder-linked emission skips the document step; tipo is chosen on the OS summary.
+        if selected_linkage == EmissionLinkage.STANDALONE:
             return GatewayStep.DOCUMENT
+        if selected_linkage == EmissionLinkage.WORKORDER:
+            return GatewayStep.LINKAGE
         if str(self.request.GET.get("etapa") or "").strip().lower() == GatewayStep.LINKAGE:
             return GatewayStep.LINKAGE
         # Backward-compatible query used by older links.
@@ -191,12 +181,15 @@ class FiscalOperationGatewayView(LoginRequiredMixin, WorkshopScopedMixin, FormVi
             return HttpResponseRedirect(self._linkage_step_url())
 
         if operation in DOCUMENT_OPERATIONS and gateway_step == GatewayStep.LINKAGE:
+            if linkage == EmissionLinkage.WORKORDER:
+                return HttpResponseRedirect(self._normal_wizard_url())
             return HttpResponseRedirect(self._document_step_url(linkage=linkage))
 
         if operation in DOCUMENT_OPERATIONS and gateway_step == GatewayStep.DOCUMENT:
             if linkage == EmissionLinkage.STANDALONE:
                 return HttpResponseRedirect(self._standalone_wizard_url(note_mode=note_document))
-            return HttpResponseRedirect(self._normal_wizard_url(note_mode=note_document))
+            # Defensive: workorder should not reach DOCUMENT, but land on OS wizard without tipo.
+            return HttpResponseRedirect(self._normal_wizard_url())
 
         if operation == FiscalOperation.RETURN:
             return HttpResponseRedirect(reverse("finance:purchase_return_create"))

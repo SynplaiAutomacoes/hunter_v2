@@ -1,0 +1,39 @@
+<dialog
+  id="fiscal-request-soft-delete-modal"
+  class="modal"
+  x-data="{}"
+  x-ref="softDeleteModal"
+  x-init="$nextTick(() => $el.showModal())"
+  @click="if ($event.target === $el) $el.close()"
+  @close="$el.remove()"
+>
+  <div class="modal-box">
+    <h3 class="text-lg font-bold text-base-content">Apagar rascunho</h3>
+    <p class="text-base-content/70 mt-1">Esta ação remove o rascunho da Central de Notas. A numeração fiscal não é consumida.</p>
+
+    <div class="alert alert-warning mt-4">
+      <span class="material-icons">warning</span>
+      <div>
+        <div class="font-semibold">Confirmar exclusão</div>
+        <div class="text-sm">
+          Tem certeza que deseja apagar este rascunho de
+          <span class="font-medium">{{ note_type_label }}</span>
+          (OS {{ request_obj.workorder_reference }})?
+        </div>
+      </div>
+    </div>
+
+    <form
+      method="post"
+      class="modal-action"
+      hx-post="{{ post_url }}"
+      hx-target="closest dialog"
+      hx-swap="outerHTML"
+    >
+      {% csrf_token %}
+      <button type="button" class="btn btn-ghost" @click="$refs.softDeleteModal.close()">Cancelar</button>
+      <button type="submit" class="btn btn-error">Apagar</button>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>

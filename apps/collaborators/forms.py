@@ -5,7 +5,8 @@ from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.forms import BaseInlineFormSet, inlineformset_factory
+from django.db.models import Q
+from django.forms import BaseInlineFormSet, ModelMultipleChoiceField, inlineformset_factory
 from django.urls import reverse
 
 from decimal import Decimal
@@ -15,6 +16,7 @@ from apps.collaborators.services import get_default_transport_budget_plan
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import (
     CalendarDateInput,
+    CheckboxButtonGroupInput,
     CheckboxInput,
     CPForCNPJInput,
     EmailInput,
@@ -27,6 +29,7 @@ from apps.core.presentation.widgets import (
     SearchableSelectInput,
     TextInput,
 )
+from apps.collaborators.services_multi_workshop import resolve_access_user, sibling_login_ids
 from apps.iam.models import WorkshopRole
 from apps.core.text_normalization import name_case, sentence_case
 from apps.finance.models.financial_group import FinancialGroup
@@ -93,10 +96,14 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
             "system_access": CheckboxInput(),
         }
 
-    def __init__(self, *args, account=None, workshop: Workshop | None = None, **kwargs):
+    def __init__(self, *args, account=None, workshop: Workshop | None = None, owner_workshops=None, is_director=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.account = account
         self.workshop = workshop
+        self.owner_workshops = owner_workshops
+        self.is_director = is_director
+        # Multiselect de oficinas: só para DIRETOR (não-diretor nem vê o campo).
+        self.show_workshops = bool(is_director and owner_workshops is not None)
 
         self.fields["system_username"].widget = TextInput(attrs={"placeholder": "usuario"})
         self.fields["salary_repeat_count"].help_text = "Informe o total de meses, incluindo o primeiro lançamento."
@@ -124,9 +131,36 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
         if not self.is_bound and not getattr(self.instance, "transport_budget_plan_id", None) and default_transport_plan is not None:
             transport_budget_plan_field.initial = default_transport_plan
 
-        if self.instance and getattr(self.instance, "user_id", None):
-            self.fields["system_username"].initial = self.instance.user.username
-            member = WorkshopMember.objects.filter(user_id=self.instance.user_id, workshop=self.instance.workshop).select_related("role").first()
+        if self.show_workshops:
+            self.fields["workshops"] = ModelMultipleChoiceField(
+                queryset=owner_workshops,
+                required=False,
+                widget=CheckboxButtonGroupInput(),
+                label="Oficinas de acesso",
+                help_text="Marque as oficinas onde este usuário terá acesso. Desmarcar remove o acesso daquela unidade.",
+            )
+            if self.instance and getattr(self.instance, "pk", None):
+                # União dos members ativos de TODOS os vínculos do mesmo CPF nas
+                # oficinas do dono (o vínculo editado pode ser um espelho sem
+                # `user`, enquanto o acesso vive no vínculo-irmão).
+                sibling_user_ids = WorkshopCollaborator.objects.filter(
+                    cpf=self.instance.cpf,
+                    workshop__in=owner_workshops,
+                ).exclude(user_id__isnull=True).values_list("user_id", flat=True)
+                initial_workshops = WorkshopMember.objects.filter(
+                    user_id__in=sibling_user_ids,
+                    workshop__in=owner_workshops,
+                    is_active=True,
+                ).values_list("workshop_id", flat=True)
+                self.fields["workshops"].initial = initial_workshops
+
+        # Login gerenciado pelo formulário: o próprio vínculo ou, sem login
+        # próprio, o mais antigo entre os irmãos — qualquer formulário edita
+        # o mesmo acesso e as informações batem em todos.
+        self.access_user = resolve_access_user(self.instance) if getattr(self.instance, "pk", None) else None
+        if self.access_user is not None:
+            self.fields["system_username"].initial = self.access_user.username
+            member = WorkshopMember.objects.filter(user_id=self.access_user.pk, workshop=self.instance.workshop).select_related("role").first()
             if member:
                 self.fields["role"].initial = member.role
 
@@ -167,6 +201,14 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
 
         receives_commission = self._get_checkbox_state("receives_commission")
         system_access = self._get_checkbox_state("system_access")
+
+        access_fields = [
+            Field("system_username", wrapper_class="col-span-12 lg:col-span-6"),
+            Field("role", wrapper_class="col-span-12 lg:col-span-6"),
+            *self.get_access_extra_layout_fields(),
+        ]
+        if self.show_workshops:
+            access_fields.insert(2, Field("workshops", wrapper_class="col-span-12"))
 
         return Layout(
             Div(
@@ -213,9 +255,7 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
                         </div>
                         """
                     ),
-                    Field("system_username", wrapper_class="col-span-12 lg:col-span-6"),
-                    Field("role", wrapper_class="col-span-12 lg:col-span-6"),
-                    *self.get_access_extra_layout_fields(),
+                    *access_fields,
                     css_class="col-span-12 grid grid-cols-12 gap-4",
                     x_show="system_access",
                     x_cloak=True,
@@ -275,29 +315,57 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
 
         cpf = cleaned.get("cpf")
         if cpf and self.workshop is not None:
+            # CPF é único por oficina; vínculos da mesma pessoa em oficinas-irmãs
+            # têm outro workshop e não entram neste check (sem unificação).
             cpf_queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, cpf=cpf)
             if self.instance.pk:
                 cpf_queryset = cpf_queryset.exclude(pk=self.instance.pk)
             if cpf_queryset.exists():
                 self.add_error("cpf", "Já existe um colaborador com este CPF.")
 
+        manages_login = False
         if cleaned.get("system_access"):
             username = cleaned.get("system_username")
             role = cleaned.get("role")
+            has_login = bool(getattr(self.instance, "user_id", None))
+            access_user = getattr(self, "access_user", None)
+            # Gerencia login se: criando, com login próprio/herdado, ou com
+            # username preenchido (provisão). Sem login a gerenciar, a flag de
+            # acesso apenas persiste (herdada) sem exigir credenciais.
+            manages_login = self.is_create or has_login or access_user is not None or bool((username or "").strip())
 
             if not username:
-                self.add_error("system_username", "Informe o usuário de acesso.")
+                if manages_login:
+                    self.add_error("system_username", "Informe o usuário de acesso.")
             else:
                 qs = User.objects.filter(username=username)
-                if not self.is_create and getattr(self.instance, "user_id", None):
-                    qs = qs.exclude(pk=self.instance.user_id)
+                if not self.is_create and getattr(self.instance, "pk", None):
+                    # O username do próprio login e dos logins-irmãos (mesma
+                    # pessoa) não contam como "em uso" — é o mesmo acesso.
+                    exclude_ids = {pk for pk in [self.instance.user_id, *sibling_login_ids(self.instance)] if pk}
+                    access_user = getattr(self, "access_user", None)
+                    if access_user is not None and access_user.pk:
+                        exclude_ids.add(access_user.pk)
+                    qs = qs.exclude(pk__in=exclude_ids)
                 if qs.exists():
                     self.add_error("system_username", "Este usuário já está em uso.")
 
-            if role is None:
-                self.add_error("role", "Selecione um grupo de permissões.")
-            elif self.account and role.account_id != self.account.id:
-                raise ValidationError("Grupo inválido para esta conta.")
+            if manages_login:
+                if role is None:
+                    self.add_error("role", "Selecione um grupo de permissões.")
+                elif self.account and role.account_id != self.account.id:
+                    raise ValidationError("Grupo inválido para esta conta.")
+
+        if "workshops" in self.fields:
+            selected_workshops = cleaned.get("workshops") or []
+            account_id = getattr(self.workshop, "account_id", None)
+            for ws in selected_workshops:
+                if account_id is not None and ws.account_id != account_id:
+                    self.add_error("workshops", "Todas as oficinas devem pertencer à sua conta.")
+                    break
+
+            if cleaned.get("system_access") and not selected_workshops and manages_login:
+                self.add_error("workshops", "Selecione pelo menos uma oficina de acesso.")
 
         if cleaned.get("transport_budget_plan") is None and self.workshop is not None:
             cleaned["transport_budget_plan"] = get_default_transport_budget_plan(workshop=self.workshop)
@@ -359,10 +427,16 @@ class WorkshopCollaboratorUpdateForm(BaseWorkshopCollaboratorForm):
         if cleaned.get("system_access"):
             p1 = cleaned.get("password1")
             p2 = cleaned.get("password2")
+            username = (cleaned.get("system_username") or "").strip()
 
             if getattr(self.instance, "user_id", None):
                 if not p1 and not p2:
                     p1 = p2 = None
+            elif username and not p1 and not p2 and getattr(self, "access_user", None) is None:
+                # Provisão de login (ninguém da pessoa tem login): senha obrigatória.
+                # Com login herdado, preencher só o usuário renomeia mantendo a senha.
+                self.add_error("password1", "Informe a senha.")
+                self.add_error("password2", "Confirme a senha.")
             if p1 or p2:
                 if not p1:
                     self.add_error("password1", "Informe a senha.")

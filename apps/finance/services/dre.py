@@ -299,9 +299,12 @@ def build_dre_calculation(
 
     # Receitas Financeiras
     fin_revenue_groups, total_receitas_financeiras = _build_financial_revenue_group_tree(
-        payments=pagamentos_ordens_de_servico,
+        workorder_entries=_resolve_workorder_revenue_entries(
+            payments=pagamentos_ordens_de_servico,
+            workorder_revenue_movements=workorder_revenue_movements,
+            financial_groups=financial_groups,
+        ),
         movements=movements,
-        workorder_revenue_movements=workorder_revenue_movements,
         financial_groups=financial_groups,
     )
     detail_receitas_financeiras = fin_revenue_groups
@@ -788,35 +791,50 @@ def _build_payment_proportional_cost_detail(
     }
 
 
-def _build_financial_revenue_group_tree(
+def _resolve_workorder_revenue_entries(
     *,
     payments: list[WorkOrderPaymentMethod],
-    movements: list[FinancialMovement],
     workorder_revenue_movements: list[FinancialMovement],
     financial_groups: list[FinancialGroup],
-) -> tuple[list[dict], Money]:
-    movement_by_workorder_id = {workorder_id: movement for movement in workorder_revenue_movements if (workorder_id := getattr(movement, "workorder_id", None)) is not None}
+    include_workshop_ref: bool = False,
+) -> list[dict]:
+    """Shared join between the period's payment plans and their financial movements.
+
+    Both "Receita Bruta de Vendas e Serviços" and "Vendas" (inside "Receitas
+    Financeiras") consume these entries, so the two sections always include the
+    same workorders. Amounts come from the payment plans; movements only resolve
+    the budget plan. Workorders without any movement fall back to the default
+    sales group instead of being silently dropped.
+    """
+    movement_by_workorder_id = {
+        movement.workorder_id: movement for movement in workorder_revenue_movements if getattr(movement, "workorder_id", None) is not None
+    }
     groups_index = _build_financial_groups_index(financial_groups)
-
-    revenue_details: list[dict] = []
-
-    workorder_payment_details: list[dict] = []
-
+    default_group = _resolve_default_sales_group(financial_groups=financial_groups, groups_index=groups_index)
+    entries: list[dict] = []
     for payment in payments:
-        workorder_id = getattr(payment, "workorder_id", None)
-        if workorder_id is None:
-            continue
-        movement = movement_by_workorder_id.get(workorder_id)
-        if movement is None:
-            continue
-        group = _resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups, groups_index=groups_index)
+        detail = _build_wo_pm_detail(payment, include_workshop_ref)
+        movement = movement_by_workorder_id.get(getattr(payment, "workorder_id", None))
+        if movement is not None:
+            group = _resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups, groups_index=groups_index)
+        else:
+            group = default_group
         if group is None or not getattr(group, "pk", None):
             continue
-        detail = _build_wo_pm_detail(payment, include_workshop_ref=False)
         detail["budget_plan"] = group
-        workorder_payment_details.append(detail)
+        entries.append(detail)
+    return entries
 
-    revenue_details.extend(_aggregate_details_by_workorder_month(workorder_payment_details))
+
+def _build_financial_revenue_group_tree(
+    *,
+    workorder_entries: list[dict],
+    movements: list[FinancialMovement],
+    financial_groups: list[FinancialGroup],
+) -> tuple[list[dict], Money]:
+    revenue_details: list[dict] = []
+
+    revenue_details.extend(_aggregate_details_by_workorder_month(workorder_entries))
 
     for movement in movements:
         if movement.direction != FinancialMovement.MovementDirection.CREDIT:
@@ -842,11 +860,15 @@ def _fetch_workorder_revenue_movements(
     if not workorder_ids:
         return []
 
+    # NOTE: do NOT restrict to aggregate ("OS Pai") movements without a payment
+    # link. The sync routine deletes the aggregate parent as soon as installment
+    # movements exist, so requiring it silently drops those workorders from
+    # "Vendas". Prefer the aggregate when present, otherwise fall back to the
+    # oldest installment movement (it carries the same budget plan).
     qs = FinancialMovement.objects.filter(
         workshop__in=workshops,
         workorder_id__in=workorder_ids,
         direction=FinancialMovement.MovementDirection.CREDIT,
-        workorder_payment__isnull=True,
     ).exclude(reversal_of__isnull=False)
 
     if selected_financial_groups:
@@ -882,9 +904,9 @@ def _fetch_workorder_revenue_movements(
             movements_by_workorder[workorder_id] = movement
             continue
 
-        current_is_parent = current.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
-        movement_is_parent = movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
-        if movement_is_parent and not current_is_parent:
+        current_is_aggregate = current.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and current.workorder_payment_id is None
+        movement_is_aggregate = movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and movement.workorder_payment_id is None
+        if movement_is_aggregate and not current_is_aggregate:
             movements_by_workorder[workorder_id] = movement
 
     return list(movements_by_workorder.values())

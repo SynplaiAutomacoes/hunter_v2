@@ -13,7 +13,7 @@ from django.urls import reverse
 
 from apps.budget.models import BudgetType
 from apps.collaborators.test_commissions import create_workorder, create_workshop
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, NfeItem, NfeRequest, NfseItem, NfseRequest
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest
 from apps.finance.models.purchase_return import PurchaseReturnRequest, PurchaseReturnRequestStatus
 from apps.stock.models import StockImport
 from apps.finance.views.issued_documents import (
@@ -448,7 +448,42 @@ class IssuedDocumentsArchiveDownloadViewTests(TestCase):
         self.assertEqual(row["number"], "987")
         self.assertEqual(row["status_badge"]["text"], "Rascunho")
         self.assertFalse(row["is_selectable"])
+        self.assertTrue(row["can_soft_delete"])
+        self.assertEqual(row["soft_delete_url"], reverse("finance:purchase_return_soft_delete", kwargs={"pk": purchase_return.pk}))
         self.assertEqual(row["detail_url"], reverse("finance:purchase_return_workflow", args=[purchase_return.pk]) + "?step=3")
+
+    def test_list_hides_soft_deleted_purchase_return(self) -> None:
+        original_document = FiscalDocument.objects.create(
+            workshop=self.workshop,
+            origin=FiscalDocumentOrigin.EXTERNAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+            status=FiscalDocumentStatus.APPROVED,
+            access_key="35" + ("3" * 42),
+        )
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            nf_key="35" + ("3" * 42),
+            nf_number="654",
+            supplier_name="Fornecedor apagado",
+            fiscal_document=original_document,
+        )
+        purchase_return = PurchaseReturnRequest.objects.create(
+            workshop=self.workshop,
+            source_stock_import=stock_import,
+            original_document=original_document,
+            status=PurchaseReturnRequestStatus.DRAFT,
+            current_step=2,
+        )
+        from apps.finance.services.fiscal_request_soft_delete import soft_delete_purchase_return_request
+
+        soft_delete_purchase_return_request(return_request=purchase_return)
+
+        view = IssuedDocumentsListView()
+        view.workshop = self.workshop
+        view.request = self.factory.get("/finance/notas-emitidas/")
+        context = view.get_context_data()
+        keys = {row["selection_key"] for row in context["issued_note_rows"]}
+        self.assertNotIn(f"purchase_return:{purchase_return.pk}", keys)
 
     def test_gateway_operation_is_preserved_when_selecting_reference_nfe(self) -> None:
         nfe_request = self._create_nfe_with_xml(
@@ -510,9 +545,13 @@ class IssuedDocumentsStandaloneRowTests(SimpleTestCase):
             workorder=None,
             number_display_listing="123",
             reserved_series=1,
+            reserved_number=None,
+            status=NfeRequestStatus.PROCESSING,
+            soft_deleted_at=None,
             criado_em=None,
             customer_name="Destinatario Avulso",
             nfe_request_status_badge={"class": "badge-success", "text": "Aprovado"},
+            _has_remote_item=False,
         )
         with (
             patch.object(IssuedDocumentsListView, "_get_latest_prefetched_item", return_value=None),
@@ -527,3 +566,4 @@ class IssuedDocumentsStandaloneRowTests(SimpleTestCase):
             )
 
         self.assertEqual(row["workorder_id"], "Avulsa")
+        self.assertFalse(row["can_soft_delete"])

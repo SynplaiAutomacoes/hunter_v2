@@ -29,6 +29,8 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
+from apps.finance.services.money_parse import format_brl_amount, parse_brl_amount
+from apps.finance.services.report_ordering import parse_ordering, sort_report_rows
 from apps.finance.services.reports import build_day_month_year_financial_overviews_with_open_workorder_credits, filter_grouped_movements_for_reporting, open_credits, open_debits
 from apps.finance.services.workorder_financial_movements import build_workorder_revenue_description
 from apps.suppliers.models import Supplier
@@ -62,6 +64,19 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         ("reconciled", "Conciliados"),
         ("pending", "Aguardando conciliação"),
     )
+    SORTABLE_COLUMNS = (
+        ("pago", "Pago", ""),
+        ("conciliado", "Conciliado", ""),
+        ("tipo", "Tipo", ""),
+        ("lancamento", "Lançamento", ""),
+        ("vencimento", "Vencimento", ""),
+        ("agente", "Agente", ""),
+        ("descricao", "Descrição", ""),
+        ("plano", "Plano Orçamentário", ""),
+        ("pagamento", "Tipo Pagamento", ""),
+    )
+
+    TOTAL_COLUMN = ("total", "Total", "text-right")
 
     @staticmethod
     def _resolve_result_tone(value: object) -> str:
@@ -220,6 +235,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_agent_filter(self) -> str:
         return str(self.request.GET.get("agent") or "").strip()
 
+    def _get_amount_filter(self) -> Decimal | None:
+        return parse_brl_amount(self.request.GET.get("valor"))
+
     def _get_opened_by_filter(self) -> int | None:
         raw_value = str(self.request.GET.get("opened_by") or "").strip()
         if not raw_value:
@@ -257,6 +275,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "opened_by_id": self._get_opened_by_filter(),
             "payment_method_id": self._get_payment_method_filter(),
             "reconciliation_status": self._get_reconciliation_status_filter(),
+            "amount": self._get_amount_filter(),
         }
 
     def _get_resolved_filter_params(self) -> dict[str, Any]:
@@ -360,6 +379,18 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             queryset = queryset.filter(is_reconciled=False)
         queryset = self._apply_paid_status_filter(queryset, paid_status)
 
+        if filter_params["amount"] is not None:
+            # WORKORDER_PARENT rows are filtered by payment (total_paid) in
+            # row expansion, so they must not be dropped by the movement.amount
+            # exact-match filter.
+            queryset = queryset.filter(
+                Q(amount=filter_params["amount"])
+                | Q(
+                    movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                    workorder__isnull=False,
+                )
+            )
+
         if search:
             search_query = build_text_search_query(
                 search_value=search,
@@ -389,12 +420,15 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payment_method_id = filter_params["payment_method_id"]
         paid_status = filter_params["paid_status"]
         reconciliation_status = filter_params["reconciliation_status"]
+        amount = filter_params["amount"]
         search = self._get_search_value()
         apply_date_filters = self._should_apply_date_filters(search=search, start_date=start_date, end_date=end_date)
 
         for payment in payments:
             payment_amount = self._resolve_money_amount(payment.total_paid)
             if payment_amount <= Decimal("0.00"):
+                continue
+            if amount is not None and payment_amount != amount:
                 continue
             if apply_date_filters:
                 if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
@@ -482,6 +516,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "summary_direction": FinancialMovement.MovementDirection.CREDIT,
             "summary_amount": resolved_amount,
             "summary_is_paid": bool(payment_movement.is_paid),
+            "summary_is_reconciled": bool(payment_movement.is_reconciled),
             "workorder_url": workorder_url,
         }
 
@@ -504,6 +539,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             or filter_params["opened_by_id"] is not None
             or filter_params["payment_method_id"] is not None
             or filter_params["reconciliation_status"]
+            or filter_params["amount"] is not None
         )
 
     def _has_active_filters(self) -> bool:
@@ -625,6 +661,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "summary_direction": movement.direction,
             "summary_amount": self._resolve_money_amount(movement.amount),
             "summary_is_paid": bool(movement.is_paid),
+            "summary_is_reconciled": bool(movement.is_reconciled),
             "workorder_url": workorder_url,
         }
 
@@ -633,6 +670,99 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         params["page"] = str(page_number)
         querystring = params.urlencode()
         return f"{self.request.path}?{querystring}" if querystring else self.request.path
+
+    def _get_current_ordering(self) -> str:
+        return str(self.request.GET.get("ordering") or "").strip()
+
+    def _build_sortable_columns(self) -> list[dict[str, str]]:
+        current_ordering = self._get_current_ordering()
+        parsed_ordering = parse_ordering(current_ordering)
+
+        columns: list[dict[str, str]] = []
+        for key, label, align in self.SORTABLE_COLUMNS:
+            is_active = parsed_ordering is not None and parsed_ordering["key"] == key
+            if is_active and parsed_ordering["direction"] == "asc":
+                next_ordering = f"-{key}"
+                icon = "arrow_upward"
+                aria_sort = "ascending"
+            elif is_active:
+                next_ordering = None
+                icon = "arrow_downward"
+                aria_sort = "descending"
+            else:
+                next_ordering = key
+                icon = "unfold_more"
+                aria_sort = "none"
+
+            params = self.request.GET.copy()
+            if next_ordering is None:
+                params.pop("ordering", None)
+            else:
+                params["ordering"] = next_ordering
+            params.pop("page", None)
+            querystring = params.urlencode()
+            url = f"{self.request.path}?{querystring}" if querystring else self.request.path
+
+            columns.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "url": url,
+                    "aria_sort": aria_sort,
+                    "icon": icon,
+                    "align": align,
+                }
+            )
+        return columns
+
+    def _build_total_column(self) -> dict[str, str]:
+        key, label, align = self.TOTAL_COLUMN
+        current_ordering = self._get_current_ordering()
+        parsed_ordering = parse_ordering(current_ordering)
+
+        is_active = parsed_ordering is not None and parsed_ordering["key"] == key
+        if is_active and parsed_ordering["direction"] == "asc":
+            next_ordering = f"-{key}"
+            icon = "arrow_upward"
+            aria_sort = "ascending"
+        elif is_active:
+            next_ordering = None
+            icon = "arrow_downward"
+            aria_sort = "descending"
+        else:
+            next_ordering = key
+            icon = "unfold_more"
+            aria_sort = "none"
+
+        params = self.request.GET.copy()
+        if next_ordering is None:
+            params.pop("ordering", None)
+        else:
+            params["ordering"] = next_ordering
+        params.pop("page", None)
+        querystring = params.urlencode()
+        url = f"{self.request.path}?{querystring}" if querystring else self.request.path
+
+        return {
+            "key": key,
+            "label": label,
+            "url": url,
+            "aria_sort": aria_sort,
+            "icon": icon,
+            "align": align,
+        }
+
+    def _paginate_sorted_rows(self, *, rows: list[dict[str, object]]) -> tuple[Any, Paginator]:
+        page_number = self.request.GET.get("page") or "1"
+
+        if self._has_active_filters():
+            per_page = len(rows) or 1
+            paginator = Paginator(rows, per_page)
+            return paginator.get_page(page_number), paginator
+
+        paginator = Paginator(rows, self.MOVEMENTS_PER_PAGE)
+        page_obj = paginator.get_page(page_number)
+        return page_obj, paginator
 
     def _get_financial_movements_page(self, *, entry_refs: list[tuple[str, int]]) -> tuple[Any, Paginator]:
         page_number = self.request.GET.get("page") or "1"
@@ -836,12 +966,28 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         day_overview, month_overview, year_overview = build_day_month_year_financial_overviews_with_open_workorder_credits(workshop=self.workshop, reference_date=reference_date)
         filter_params = self._get_filter_params()
         report_entry_refs = self._get_report_entry_refs()
-        page_obj, paginator = self._get_financial_movements_page(entry_refs=report_entry_refs)
-        paginated_movements = self._get_paginated_report_movements(entry_refs=list(page_obj.object_list))
-        page_rows = self._get_financial_movement_report_rows(movements=paginated_movements)
-        listing_summary_rows = page_rows
-        if not self._has_active_filters() and len(report_entry_refs) > self.MOVEMENTS_PER_PAGE:
-            listing_summary_rows = self._get_financial_movement_report_rows(movements=self._get_paginated_report_movements(entry_refs=report_entry_refs))
+        ordering_spec = parse_ordering(self._get_current_ordering())
+
+        if ordering_spec is not None:
+            all_movements = self._get_paginated_report_movements(entry_refs=report_entry_refs)
+            all_rows = self._get_financial_movement_report_rows(movements=all_movements)
+            sorted_rows = sort_report_rows(
+                rows=all_rows,
+                key=str(ordering_spec["key"]),
+                direction=str(ordering_spec["direction"]),
+            )
+            page_obj, paginator = self._paginate_sorted_rows(rows=sorted_rows)
+            page_rows = list(page_obj.object_list)
+            listing_summary_rows = page_rows
+            if not self._has_active_filters() and len(sorted_rows) > self.MOVEMENTS_PER_PAGE:
+                listing_summary_rows = sorted_rows
+        else:
+            page_obj, paginator = self._get_financial_movements_page(entry_refs=report_entry_refs)
+            paginated_movements = self._get_paginated_report_movements(entry_refs=list(page_obj.object_list))
+            page_rows = self._get_financial_movement_report_rows(movements=paginated_movements)
+            listing_summary_rows = page_rows
+            if not self._has_active_filters() and len(report_entry_refs) > self.MOVEMENTS_PER_PAGE:
+                listing_summary_rows = self._get_financial_movement_report_rows(movements=self._get_paginated_report_movements(entry_refs=report_entry_refs))
 
         month_start, month_end = self._month_bounds(reference_date=reference_date)
         credit = FinancialMovement.MovementDirection.CREDIT
@@ -896,6 +1042,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         context["selected_direction"] = filter_params["direction"]
         context["selected_paid_status"] = filter_params["paid_status"]
         context["selected_reconciliation_status"] = filter_params["reconciliation_status"]
+        context["selected_amount_display"] = format_brl_amount(filter_params["amount"])
+        context["sortable_columns"] = self._build_sortable_columns()
+        context["total_column"] = self._build_total_column()
+        context["current_ordering"] = self._get_current_ordering()
 
         agent_choices = self._get_agent_filter_choices()
         agent_widget = SearchableSelectInput(choices=agent_choices)

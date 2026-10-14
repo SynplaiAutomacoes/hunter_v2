@@ -172,16 +172,18 @@ def build_step4_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
             )
 
     winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
+    snapshot = getattr(budget, "pricing_snapshot", None)
     for line in review_display.kits:
         kit_item = line.item
-        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item, snapshot=snapshot):
             if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
             products = _accumulate_totals(target=products, row=_step4_product_row_totals(item=component))
 
         for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-            if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+            is_excluded = bool(exploded.get("is_excluded_from_composition"))
+            if not is_excluded and winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_step4_kit_service_item(kit_item=kit_item, exploded=exploded)
             services = _accumulate_totals(
@@ -231,7 +233,8 @@ def build_step4_pricing_breakdown(*, budget: Any) -> Step4PricingBreakdown:
 
         for override in item._iter_frozen_kit_service_overrides():
             service_id = getattr(override, "service_id", None)
-            if service_id is not None and winning_kit_service_item_ids.get(service_id) not in {None, item.pk}:
+            is_excluded = bool(getattr(override, "excluded_from_composition", False))
+            if not is_excluded and service_id is not None and winning_kit_service_item_ids.get(service_id) not in {None, item.pk}:
                 continue
             component = build_kit_component_service_item(kit_item=item, override=override)
             if component is None:
@@ -360,9 +363,10 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
         service_profit += _service_row_profit(item=item, sale=row_sale, total_cost=total_cost)
 
     winning_kit_product_item_ids, winning_kit_service_item_ids = kit_component_winning_item_ids(list(budget.items.all()))
+    snapshot = getattr(budget, "pricing_snapshot", None)
     for line in review_display.kits:
         kit_item = line.item
-        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item):
+        for exploded in _explode_kit_product_rows(kit_line=line, kit_item=kit_item, snapshot=snapshot):
             if winning_kit_product_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_kit_component_product_item_from_exploded(kit_item=kit_item, row=exploded)
@@ -380,7 +384,8 @@ def build_step6_table_totals(*, budget: Any) -> dict[str, BudgetTableTotals]:
             )
 
         for exploded in _explode_kit_service_rows(kit_line=line, kit_item=kit_item):
-            if winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
+            is_excluded = bool(exploded.get("is_excluded_from_composition"))
+            if not is_excluded and winning_kit_service_item_ids.get(exploded.get("id")) not in {None, kit_item.pk}:
                 continue
             component = build_kit_component_service_item_from_exploded(kit_item=kit_item, row=exploded)
             unit_cost = _money(exploded.get("service_mechanic_cost_price"))

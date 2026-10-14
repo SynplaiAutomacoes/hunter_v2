@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from html import escape
 from typing import Any
 
@@ -24,18 +25,45 @@ from apps.finance.forms.emission_ui import (
     build_step5_summary_layout,
     clamp_slider_value,
     format_money,
+    parse_discount_value_override,
 )
 from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, clean_nfe_transport_form, configure_nfe_transport_form
+from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
-from apps.finance.forms.nfse import clean_required_codigo_nbs
+from apps.finance.forms.nfse import clean_required_codigo_nbs, consumidor_final_widget_value
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.finance.models.finance import NfeRequest, NfseRequest
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
+def _workorder_has_billable_product_and_service_totals(workorder: WorkOrder) -> bool:
+    """Indica se a OS possui valor de produto e de serviço para emissão fiscal.
+
+    Retorna True quando ambos os totais são positivos. Em caso de falha ao
+    apurar os totais, mantém a OS na listagem (comportamento anterior).
+    """
+    try:
+        products_total = workorder.total_products_value
+        services_total = workorder.total_services_value
+    except Exception:
+        return True
+    products_amount = getattr(products_total, "amount", products_total) or Decimal("0")
+    services_amount = getattr(services_total, "amount", services_total) or Decimal("0")
+    return Decimal(str(products_amount)) > 0 and Decimal(str(services_amount)) > 0
+
+
 EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal de Produto"), ("nfse", "Nota Fiscal de Serviço")]
 EMISSION_NOTE_MODE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal de Produto"), ("nfse", "Nota Fiscal de Serviço"), ("both", "Ambas")]
+
+
+def _parse_discount_value_override(
+    *,
+    raw_amount: object = None,
+    initial_value: object = None,
+    workorder: WorkOrder | None = None,
+) -> Money:
+    return parse_discount_value_override(raw_amount=raw_amount, initial_value=initial_value, workorder=workorder)
 
 
 def _build_modal_action_button(*, label: str, icon: str, url: str) -> str:
@@ -67,7 +95,11 @@ def _format_duration_value(duration: timedelta | None) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _build_step3_rows(*, workorder: WorkOrder, line_overrides: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from apps.finance.services.emission_line_overrides import apply_line_overrides_to_workorder
+
+    apply_line_overrides_to_workorder(workorder=workorder, line_overrides=line_overrides)
+
     product_rows: list[dict[str, Any]] = []
     service_rows: list[dict[str, Any]] = []
 
@@ -289,7 +321,13 @@ def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -
     """
 
 
-def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int, discount_type_override: str = "") -> tuple[str, str]:
+def _build_nfe_preview_html(
+    *,
+    workorder: WorkOrder,
+    selected_slider: int,
+    discount_type_override: str = "",
+    discount_value_override: Decimal | None = None,
+) -> tuple[str, str]:
     warnings: list[str] = []
     rows, allocation = build_nfe_preview_rows(workorder=workorder, slider_override=selected_slider)
 
@@ -298,10 +336,12 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int, disco
         products_target=allocation.products_target,
         services_target=allocation.services_target,
         discount_type_override=discount_type_override,
+        discount_value_override=discount_value_override,
     )
     service_discount = compute_service_discount_for_nfse(
         workorder=workorder,
         discount_type_override=discount_type_override,
+        discount_value_override=discount_value_override,
     )
     products_net = allocation.products_target - product_discount
     services_net = allocation.services_target - service_discount
@@ -380,7 +420,13 @@ def _build_value_card(label: str, subtotal: str, discount: str, total: str) -> s
     """
 
 
-def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int, discount_type_override: str = "") -> tuple[str, str]:
+def _build_nfse_preview_html(
+    *,
+    workorder: WorkOrder,
+    selected_slider: int,
+    discount_type_override: str = "",
+    discount_value_override: Decimal | None = None,
+) -> tuple[str, str]:
     allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
     warning_html = ""
     if allocation.services_target <= 0:
@@ -391,10 +437,12 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int, disc
         products_target=allocation.products_target,
         services_target=allocation.services_target,
         discount_type_override=discount_type_override,
+        discount_value_override=discount_value_override,
     )
     service_discount = compute_service_discount_for_nfse(
         workorder=workorder,
         discount_type_override=discount_type_override,
+        discount_value_override=discount_value_override,
     )
     products_net = allocation.products_target - product_discount
     services_net = allocation.services_target - service_discount
@@ -477,18 +525,21 @@ class EmissionStep1Form(CoreForm):
 
         queryset = WorkOrder.objects.none()
         if workshop is not None:
-            nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"))
-            nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"))
+            nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"), soft_deleted_at__isnull=True)
+            nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"), soft_deleted_at__isnull=True)
 
             queryset = (
                 WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED)
                 .select_related("budget", "budget__customer", "budget__vehicle")
+                .prefetch_related(workorder_items_with_kit_prefetch())
                 .annotate(
                     has_nfe=Exists(nfe_exists),
                     has_nfse=Exists(nfse_exists),
                 )
                 .exclude(has_nfe=True, has_nfse=True)
             )
+            billable_ids = [item.pk for item in queryset.order_by("-id") if _workorder_has_billable_product_and_service_totals(item)]
+            queryset = queryset.filter(pk__in=billable_ids)
 
         field = self.fields["workorder"]
         field.queryset = queryset.order_by("-id")
@@ -511,8 +562,8 @@ class EmissionStep1Form(CoreForm):
 
         warning_html = ""
         if workorder is not None:
-            has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
-            has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+            has_nfe = NfeRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True).exists()
+            has_nfse = NfseRequest.objects.filter(workorder=workorder, soft_deleted_at__isnull=True).exists()
             if has_nfe and not has_nfse:
                 warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.</div>"
             elif has_nfse and not has_nfe:
@@ -607,6 +658,7 @@ class EmissionStep2Form(CoreForm):
 class EmissionStep3Form(CoreForm):
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
+        line_overrides = kwargs.pop("line_overrides", None)
         super().__init__(*args, **kwargs)
 
         products_html = ""
@@ -615,7 +667,7 @@ class EmissionStep3Form(CoreForm):
         total_services = format_money(0)
 
         if workorder is not None:
-            product_rows, service_rows = _build_step3_rows(workorder=workorder)
+            product_rows, service_rows = _build_step3_rows(workorder=workorder, line_overrides=line_overrides)
 
             total_products = format_money(sum((row["total"] for row in product_rows), Money(0, "BRL")))
             total_services = format_money(sum((row["total"] for row in service_rows), Money(0, "BRL")))
@@ -727,6 +779,7 @@ class EmissionStep3Form(CoreForm):
 class EmissionStep4Form(CoreForm):
     pricing_slider = forms.IntegerField(label="", min_value=-100, max_value=100)
     note_mode = forms.ChoiceField(label="Tipo de notas fiscais", choices=EMISSION_NOTE_MODE_CHOICES, widget=RadioButtonGroupInput)
+    discount_value_override = MoneyField(label="Desconto na nota (R$)", max_digits=14, decimal_places=2, required=False, widget=MoneyInput)
 
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
@@ -752,6 +805,22 @@ class EmissionStep4Form(CoreForm):
             )
         )
 
+        discount_attrs = build_slider_widget_attrs(
+            preview_url=preview_url,
+            include_selector=form_selector,
+            target_selector="#emission-preview-block",
+            swap="none",
+            trigger="input changed delay:300ms",
+            sync_selector=f"{form_selector}:abort",
+        )
+        # MoneyInput is not a range; drop range-specific attrs.
+        discount_attrs.pop("type", None)
+        discount_attrs.pop("min", None)
+        discount_attrs.pop("max", None)
+        discount_attrs.pop("step", None)
+        discount_attrs.pop("class", None)
+        self.fields["discount_value_override"].widget = MoneyInput(attrs=discount_attrs)
+
         visible_note_mode_choices = [(value, label) for value, label in note_mode_choices if value in allowed_note_modes]
         note_mode_field = self.fields["note_mode"]
         note_mode_field.choices = visible_note_mode_choices
@@ -764,11 +833,21 @@ class EmissionStep4Form(CoreForm):
         if not self.is_bound:
             self.initial["note_mode"] = selected_note_mode
 
+        discount_override_amount = _parse_discount_value_override(
+            raw_amount=self.data.get("discount_value_override_0") if self.is_bound else None,
+            initial_value=None if self.is_bound else self.initial.get("discount_value_override"),
+            workorder=workorder,
+        )
+
         warning_html = ""
         preview_html = ""
         panel_data = None
         if workorder is not None:
-            panel_data = build_step5_pricing_panel_data(workorder=workorder, selected_slider=selected_slider)
+            panel_data = build_step5_pricing_panel_data(
+                workorder=workorder,
+                selected_slider=selected_slider,
+                discount_value_override=discount_override_amount,
+            )
             warning_html = _build_summary_warning_html(workorder=workorder, selected_slider=selected_slider)
             preview_html = _build_summary_preview_html(workorder=workorder, selected_slider=selected_slider)
 
@@ -798,6 +877,7 @@ class EmissionStep4Form(CoreForm):
                 form_selector=form_selector,
                 body_html=body_html,
                 header=build_note_mode_header_layout(availability_message=availability_message),
+                discount_field_name="discount_value_override",
             )
             if panel_data is not None
             else HTML("")
@@ -819,6 +899,15 @@ class EmissionStep4Form(CoreForm):
         if note_mode not in self._allowed_note_modes:
             raise forms.ValidationError("Selecione um tipo de nota fiscal disponível para a configuração atual.")
         return note_mode
+
+    def clean_discount_value_override(self) -> Money:
+        discount_value = self.cleaned_data.get("discount_value_override")
+        if discount_value is None:
+            return Money(Decimal("0.00"), "BRL")
+        amount = Decimal(str(discount_value.amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if amount < Decimal("0.00"):
+            raise forms.ValidationError("O desconto não pode ser negativo.")
+        return Money(amount, getattr(discount_value, "currency", None) or "BRL")
 
 
 class EmissionStep5Form(CoreForm):
@@ -920,6 +1009,9 @@ class EmissionNfeConfigForm(CoreForm):
         tax_class_choices = list(kwargs.pop("tax_class_choices", []))
         selected_slider = int(kwargs.pop("selected_slider", 0) or 0)
         discount_type_override = str(kwargs.pop("discount_type_override", "") or "")
+        discount_value_override = kwargs.pop("discount_value_override", None)
+        if discount_value_override is not None and not isinstance(discount_value_override, Decimal):
+            discount_value_override = Decimal(str(getattr(discount_value_override, "amount", discount_value_override) or 0))
         super().__init__(*args, **kwargs)
         configure_nfe_transport_form(
             form=self,
@@ -945,7 +1037,12 @@ class EmissionNfeConfigForm(CoreForm):
         warning_html = ""
         preview_html = ""
         if workorder is not None:
-            warning_html, preview_html = _build_nfe_preview_html(workorder=workorder, selected_slider=selected_slider, discount_type_override=discount_type_override)
+            warning_html, preview_html = _build_nfe_preview_html(
+                workorder=workorder,
+                selected_slider=selected_slider,
+                discount_type_override=discount_type_override,
+                discount_value_override=discount_value_override,
+            )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -980,7 +1077,7 @@ class EmissionNfeConfigForm(CoreForm):
 
 
 class EmissionNfseConfigForm(CoreForm):
-    CONSUMIDOR_FINAL_CHOICES = ((True, "Sim"), (False, "Não"))
+    CONSUMIDOR_FINAL_CHOICES = (("", "—"), ("true", "Sim"), ("false", "Não"))
 
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     codigo_nbs = forms.CharField(
@@ -990,12 +1087,12 @@ class EmissionNfseConfigForm(CoreForm):
     )
     consumidor_final = forms.TypedChoiceField(
         label="Consumidor final?",
-        required=True,
-        initial=True,
-        coerce=lambda value: str(value).lower() in {"true", "1"},
+        required=False,
+        empty_value=None,
+        coerce=lambda value: None if value in ("", None) else str(value).strip().lower() in {"true", "1", "sim"},
         choices=CONSUMIDOR_FINAL_CHOICES,
         widget=SearchableSelectInput(choices=CONSUMIDOR_FINAL_CHOICES),
-        help_text="Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
+        help_text="Opcional. Indicador de operação de uso ou consumo pessoal (Padrão Nacional).",
     )
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
     additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
@@ -1005,6 +1102,9 @@ class EmissionNfseConfigForm(CoreForm):
         tax_class_choices = list(kwargs.pop("tax_class_choices", []))
         selected_slider = int(kwargs.pop("selected_slider", 0) or 0)
         discount_type_override = str(kwargs.pop("discount_type_override", "") or "")
+        discount_value_override = kwargs.pop("discount_value_override", None)
+        if discount_value_override is not None and not isinstance(discount_value_override, Decimal):
+            discount_value_override = Decimal(str(getattr(discount_value_override, "amount", discount_value_override) or 0))
         super().__init__(*args, **kwargs)
 
         dropdown_choices = [("", "Selecione a classe de imposto")]
@@ -1020,8 +1120,8 @@ class EmissionNfseConfigForm(CoreForm):
             self.initial["tax_class"] = next(iter(self._valid_tax_class_refs))
 
         self.fields["codigo_nbs"].help_text = "Código NBS da nota. Padrão Nacional exige 9 dígitos."
-        if not self.is_bound and "consumidor_final" not in self.initial:
-            self.initial["consumidor_final"] = True
+        if not self.is_bound:
+            self.initial["consumidor_final"] = consumidor_final_widget_value(self.initial.get("consumidor_final"))
 
         default_service_description = "Prestacao de servico"
         if workorder is not None:
@@ -1035,7 +1135,12 @@ class EmissionNfseConfigForm(CoreForm):
         warning_html = ""
         preview_html = ""
         if workorder is not None:
-            warning_html, preview_html = _build_nfse_preview_html(workorder=workorder, selected_slider=selected_slider, discount_type_override=discount_type_override)
+            warning_html, preview_html = _build_nfse_preview_html(
+                workorder=workorder,
+                selected_slider=selected_slider,
+                discount_type_override=discount_type_override,
+                discount_value_override=discount_value_override,
+            )
 
         self.helper = FormHelper()
         self.helper.form_tag = False

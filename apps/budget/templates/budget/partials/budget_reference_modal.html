@@ -13,7 +13,7 @@
     </div>
     {% endif %}
 
-    <form method="post" action="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-post="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-swap="none">
+    <form method="post" action="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-post="{% url 'budget:budget_reference_modal' pk=budget.pk %}" hx-swap="none" hx-disabled-elt="find button[type='submit']" hx-sync="this:drop">
         {% csrf_token %}
         {% if can_link %}
         <div class="form-control w-full mb-6">

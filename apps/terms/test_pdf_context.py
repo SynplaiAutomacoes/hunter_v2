@@ -16,7 +16,7 @@ from apps.terms.services.color_contrast import resolve_term_colors, validate_ter
 class TermPdfContextTests(SimpleTestCase):
     def test_build_term_pdf_context_from_snapshot(self) -> None:
         workshop = SimpleNamespace(name="Oficina Teste", nome_fantasia_display="Oficina Teste")
-        customer = SimpleNamespace(name="Cliente Teste")
+        customer = SimpleNamespace(name="Cliente Teste", cpf_or_cnpj="12345678901")
         vehicle = SimpleNamespace(brand="Fiat", model="Uno", plate="ABC1D23")
         snapshot = {
             "document_title": "TERMO TESTE",
@@ -48,6 +48,8 @@ class TermPdfContextTests(SimpleTestCase):
         self.assertEqual(context["colors"]["primary"], "#000000")
         self.assertEqual(context["vehicle_display"], "FIAT / UNO")
         self.assertEqual(context["vehicle_plate_display"], "ABC1D23")
+        self.assertEqual(context["customer_name"], "Cliente Teste")
+        self.assertEqual(context["customer_cpf_cnpj"], "123.456.789-01")
         self.assertIn("Termo de Recebimento de Veículo", context["acknowledgment_text"])
         self.assertIsNotNone(context["generated_at"])
 
@@ -78,7 +80,9 @@ class TermTemplateRenderTests(SimpleTestCase):
                 },
                 "workshop_logo_data_uri": "",
                 "workshop_name": "Oficina",
-                "customer": SimpleNamespace(name="Cliente Teste"),
+                "customer": SimpleNamespace(name="Cliente Teste", cpf_or_cnpj="12345678901", cpf_or_cnpj_formatted="123.456.789-01"),
+                "customer_name": "Cliente Teste",
+                "customer_cpf_cnpj": "123.456.789-01",
                 "vehicle": SimpleNamespace(brand="Jeep", model="Renegade 1.8 AT", plate="QRW3D41"),
                 "vehicle_display": "JEEP / RENEGADE 1.8 AT",
                 "vehicle_plate_display": "QRW3D41",
@@ -90,7 +94,7 @@ class TermTemplateRenderTests(SimpleTestCase):
     def test_template_renders_faithful_layout(self) -> None:
         html = self._render_default_receipt_html()
         self.assertEqual(html.count('class="term-section"'), 2)
-        self.assertEqual(html.count('class="term-topbar"'), 2)
+        self.assertEqual(html.count('class="term-topbar"'), 1)
         self.assertIn("Informações importantes para diagnóstico e manutenção", html)
         self.assertIn('class="term-vehicle-card"', html)
         self.assertIn("JEEP / RENEGADE 1.8 AT", html)
@@ -105,7 +109,10 @@ class TermTemplateRenderTests(SimpleTestCase):
         self.assertNotIn("vehicle-banner", html)
         self.assertNotIn("Assinatura da oficina", html)
         self.assertNotIn("term-signature-divider", html)
-        self.assertNotIn("Nome:", html)
+        self.assertIn("Nome completo:", html)
+        self.assertIn("Cliente Teste", html)
+        self.assertIn("CPF/CNPJ:", html)
+        self.assertIn("123.456.789-01", html)
         self.assertIn("term-signature-grid", html)
         self.assertIn("term-signature-line", html)
         self.assertIn("term-date-line", html)
@@ -140,6 +147,39 @@ class TermTemplateRenderTests(SimpleTestCase):
             },
         )
         self.assertEqual(html.count("sign-box"), 1)
+
+    def test_template_renders_without_customer_or_vehicle_for_template_preview(self) -> None:
+        html = render_to_string(
+            "terms/pdf/term_document.html",
+            {
+                "document_title": "TERMO MODELO",
+                "subtitle": "Subtítulo",
+                "intro_text": "Texto inicial",
+                "acknowledgment_text": "Declaro que li",
+                "sections": [{"title": "P1", "topics": [], "include_signature_block": True}],
+                "colors": {
+                    "primary": "#000000",
+                    "accent": "#E30613",
+                    "text": "#111827",
+                    "muted": "#6B7280",
+                    "on_primary": "#FFFFFF",
+                    "on_accent": "#FFFFFF",
+                },
+                "workshop_logo_data_uri": "",
+                "workshop_name": "Oficina",
+                "customer": None,
+                "customer_name": "",
+                "customer_cpf_cnpj": "",
+                "vehicle": None,
+                "vehicle_display": "",
+                "vehicle_plate_display": "",
+                "warranty_plan_display": "",
+                "generated_at": self._generated_at(),
+            },
+        )
+        self.assertIn("TERMO MODELO", html)
+        self.assertEqual(html.count("sign-box"), 1)
+
 
 
 class TermColorContrastTests(SimpleTestCase):

@@ -73,7 +73,12 @@ class EmissionStep4SummaryLayoutTests(TestCase):
 
     def _build_form(self, *, slider: int) -> EmissionStep4Form:
         return EmissionStep4Form(
-            {"pricing_slider": str(slider), "note_mode": "both"},
+            {
+                "pricing_slider": str(slider),
+                "note_mode": "both",
+                "discount_value_override_0": "0.00",
+                "discount_value_override_1": "BRL",
+            },
             workorder=self.workorder,
             allowed_note_modes={"nfe", "nfse", "both"},
         )
@@ -85,6 +90,8 @@ class EmissionStep4SummaryLayoutTests(TestCase):
         self.assertNotIn("Rentabilidade", rendered)
         self.assertIn("Itens consolidados da emissão", rendered)
         self.assertIn("Valor Unitário", rendered)
+        self.assertIn("Desconto na nota", rendered)
+        self.assertIn("discount_value_override", rendered)
 
     def test_preview_oob_html_skips_pricing_panel_spans(self) -> None:
         form = self._build_form(slider=0)
