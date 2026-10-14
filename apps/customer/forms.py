@@ -12,7 +12,7 @@ from django.urls import reverse
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from .models import Customer, Vehicle
 from apps.core.text_normalization import name_case, plate_case, sentence_case
-from apps.core.presentation.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
+from apps.core.presentation.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput, MoneyInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj, normalize_cpf_or_cnpj
 from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from .vehicle_fuel import normalize_vehicle_fuel_choice
@@ -199,6 +199,7 @@ VehicleFormSet = inlineformset_factory(
         "type",
         "renavam",
         "chassi",
+        "fipe_value",
         "km",
     ],
     extra=0,
@@ -215,6 +216,7 @@ VehicleFormSet = inlineformset_factory(
         "type": TextInput(),
         "renavam": TextInput(),
         "chassi": TextInput(),
+        "fipe_value": MoneyInput(),
         "km": NumberInput(),
     },
 )
@@ -1097,6 +1099,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                                 chassi: data.chassi,
                                 renavam: data.renavam,
                                 type: data.type,
+                                fipe_value: data.fipe_value,
                             });
                         } finally {
                             this.setHydrating(container, false);

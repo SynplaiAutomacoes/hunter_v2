@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from django.db import models
+from djmoney.models.fields import MoneyField
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.infrastructure.models import TimeStampedModel, Address
@@ -129,6 +130,7 @@ class Vehicle(TimeStampedModel):
     type = models.CharField(verbose_name="Tipo", max_length=50, null=True, blank=True)
     renavam = models.CharField(verbose_name="Renavam", max_length=500, null=True, blank=True)
     chassi = models.CharField(verbose_name="Chassi", max_length=500, null=True, blank=True)
+    fipe_value = MoneyField(verbose_name="Valor FIPE", max_digits=14, decimal_places=2, null=True, blank=True)
     last_oil_change_date = models.DateField(verbose_name="Data da última troca de óleo", null=True, blank=True)
     last_oil_change_km = models.PositiveIntegerField(verbose_name="KM da última troca de óleo", null=True, blank=True)
     review_plan = models.ForeignKey(
