@@ -986,7 +986,7 @@ class FiscalDocumentLink(TimeStampedModel):
 class FiscalDocumentEvent(TimeStampedModel):
     document = models.ForeignKey(FiscalDocument, verbose_name="Documento fiscal", on_delete=models.CASCADE, related_name="events")
     event_type = models.CharField(max_length=20, choices=FiscalDocumentEventType.choices, default=FiscalDocumentEventType.CCE, db_index=True)
-    event_sequence = models.PositiveSmallIntegerField()
+    event_sequence = models.PositiveSmallIntegerField(verbose_name="Número da Carta de Correção")
     status = models.CharField(max_length=20, choices=FiscalDocumentEventStatus.choices, default=FiscalDocumentEventStatus.STARTED, db_index=True)
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
     remote_event_id = models.CharField(max_length=80, blank=True, default="")
