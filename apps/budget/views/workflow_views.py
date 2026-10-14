@@ -1329,7 +1329,10 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             error_message = "Não é possível reabrir este orçamento pois a O.S. vinculada já foi finalizada. Reabra a O.S. para continuar."
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
-        if budget.is_status_locked and status != "reopen":
+        # Orçamento APPROVED permanece locked após cancelar a O.S.; permitir
+        # reprovar/cancelar sem reabrir (alinhado à UI e às mensagens de produto).
+        allow_terminal_close_without_reopen = status in {"reject", "cancel"} and budget.status == BudgetStatus.APPROVED
+        if budget.is_status_locked and status != "reopen" and not allow_terminal_close_without_reopen:
             return JsonResponse({"success": False, "error": "Reabra o orçamento antes de alterar o status."}, status=409)
 
         # Validação de Aprovação
