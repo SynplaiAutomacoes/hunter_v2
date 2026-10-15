@@ -7,6 +7,8 @@ from apps.core.infrastructure.services.email import (
     DjangoSmtpEmailService,
     EmailServiceFactory,
     get_email_service,
+    mask_email,
+    send_verification_code_email,
 )
 from apps.core.infrastructure.services.fiscal.service import WebmaniaFiscalService
 from apps.core.infrastructure.services.signature import (
@@ -62,4 +64,6 @@ __all__ = [
     "DjangoSmtpEmailService",
     "EmailServiceFactory",
     "get_email_service",
+    "mask_email",
+    "send_verification_code_email",
 ]
