@@ -203,5 +203,4 @@ class StripeBillingService(IBillingService):
             subscription_id=result["subscription_id"],
             client_secret=result["client_secret"],
             payment_intent_id=result["payment_intent_id"],
-            requires_payment=bool(result.get("requires_payment", True)),
         )

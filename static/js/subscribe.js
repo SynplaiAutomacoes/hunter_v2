@@ -110,15 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     pendingSignupId = startPayload.pending_signup_id;
-    if (startPayload.requires_payment === false) {
-      setLoading(true, "Criando sua conta...");
-      await finishLogin(pendingSignupId);
-      return;
-    }
     clientSecret = startPayload.client_secret;
-    if (!clientSecret) {
-      throw new Error("Não foi possível iniciar o pagamento. Tente novamente.");
-    }
     elements = stripe.elements({
       clientSecret,
       appearance: {
@@ -153,28 +145,6 @@ document.addEventListener("DOMContentLoaded", () => {
     setLoading(false, "Confirmar pagamento");
   }
 
-  async function finishLogin(pendingId) {
-    const loginToken = await pollUntilPaid(pendingId);
-    const completeData = new FormData();
-    completeData.append("pending_signup_id", String(pendingId));
-    completeData.append("login_token", loginToken);
-
-    const completeResponse = await fetch(config.completeUrl, {
-      method: "POST",
-      headers: {
-        "X-CSRFToken": config.csrfToken,
-        Accept: "application/json",
-      },
-      body: completeData,
-    });
-    const completePayload = await completeResponse.json();
-    if (!completeResponse.ok || !completePayload.ok) {
-      throw new Error(completePayload.message || "Pagamento ok, mas o login automático falhou.");
-    }
-
-    window.location.href = completePayload.redirect_url;
-  }
-
   async function confirmAndFinish() {
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
@@ -191,7 +161,25 @@ document.addEventListener("DOMContentLoaded", () => {
       throw new Error("Pagamento não confirmado.");
     }
 
-    await finishLogin(pendingSignupId);
+    const loginToken = await pollUntilPaid(pendingSignupId);
+    const completeData = new FormData();
+    completeData.append("pending_signup_id", String(pendingSignupId));
+    completeData.append("login_token", loginToken);
+
+    const completeResponse = await fetch(config.completeUrl, {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": config.csrfToken,
+        Accept: "application/json",
+      },
+      body: completeData,
+    });
+    const completePayload = await completeResponse.json();
+    if (!completeResponse.ok || !completePayload.ok) {
+      throw new Error(completePayload.message || "Pagamento ok, mas o login automático falhou.");
+    }
+
+    window.location.href = completePayload.redirect_url;
   }
 
   if (sendCodeButton) {
