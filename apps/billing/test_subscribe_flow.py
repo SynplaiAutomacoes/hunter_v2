@@ -112,6 +112,43 @@ class SubscribeFlowTests(TestCase):
         self.assertEqual(pending.stripe_customer_id, "cus_pending")
         self.assertEqual(pending.stripe_subscription_id, "sub_pending")
 
+    def test_subscribe_start_free_coupon_creates_account_without_payment(self) -> None:
+        self._verify_email("ana@example.com")
+        with patch("apps.billing.presentation.views.get_billing_service") as get_service:
+            service = get_service.return_value
+            service.list_public_plans.return_value = self.plans
+            service.create_incomplete_subscription.return_value = IncompleteSubscriptionResult(
+                customer_id="cus_free",
+                subscription_id="sub_free",
+                client_secret="",
+                payment_intent_id="",
+                requires_payment=False,
+            )
+
+            response = self.client.post(
+                reverse("billing:subscribe_start"),
+                data={
+                    "first_name": "Ana",
+                    "last_name": "Silva",
+                    "username": "ana.silva",
+                    "email": "ana@example.com",
+                    "cpf": "52998224725",
+                    "password1": "SenhaForte123!",
+                    "password2": "SenhaForte123!",
+                    "plan": Plan.BASIC,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["requires_payment"], False)
+        pending = PendingSignup.objects.get(email="ana@example.com")
+        self.assertEqual(pending.status, PendingSignupStatus.PAID)
+        self.assertTrue(pending.login_token)
+        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(Account.objects.count(), 1)
+
     def test_subscribe_start_replaces_unfinished_pending_signup(self) -> None:
         self._verify_email("ana@example.com")
         PendingSignup.objects.create(
@@ -255,6 +292,54 @@ class SubscribeFlowTests(TestCase):
         pending.refresh_from_db()
         self.assertEqual(pending.status, PendingSignupStatus.PAID)
         self.assertTrue(pending.login_token)
+
+    def test_invoice_payment_failed_then_paid_still_materializes(self) -> None:
+        pending = PendingSignup.objects.create(
+            email="eve@example.com",
+            username="eve",
+            password_hash=make_password("SenhaForte123!"),
+            first_name="Eve",
+            last_name="Prado",
+            cpf="11144477735",
+            plan=SubscriptionPlan.FULL,
+            status=PendingSignupStatus.PENDING,
+            stripe_customer_id="cus_eve",
+            stripe_subscription_id="sub_eve",
+            expires_at=timezone.now() + timezone.timedelta(hours=2),
+        )
+
+        failed = process_stripe_event(
+            event_type="invoice.payment_failed",
+            data={
+                "id": "in_eve",
+                "customer": "cus_eve",
+                "subscription": "sub_eve",
+                "billing_reason": "subscription_create",
+                "attempt_count": 1,
+                "metadata": {"pending_signup_id": str(pending.pk)},
+            },
+        )
+        self.assertIsNone(failed)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, PendingSignupStatus.PENDING)
+
+        period_end = 1792608307
+        result = process_stripe_event(
+            event_type="invoice.paid",
+            data={
+                "id": "in_eve",
+                "customer": "cus_eve",
+                "subscription": "sub_eve",
+                "metadata": {"pending_signup_id": str(pending.pk)},
+                "lines": {"data": [{"period": {"end": period_end}}]},
+            },
+        )
+        self.assertIsNotNone(result)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, PendingSignupStatus.PAID)
+        self.assertTrue(pending.login_token)
+        self.assertEqual(User.objects.filter(username="eve").count(), 1)
+        self.assertEqual(Account.objects.count(), 1)
 
     def test_materialize_does_not_create_second_account(self) -> None:
         pending = PendingSignup.objects.create(
