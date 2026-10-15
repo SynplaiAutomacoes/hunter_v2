@@ -39,6 +39,12 @@ class SupplierImportAdapter(BaseRowImportAdapter):
                 ImportField("estado", "Estado (UF)"),
                 ImportField("is_active", "Ativo", field_type=FieldType.BOOLEAN),
             ),
+            example_headers=("Razão social", "Documento (CPF/CNPJ)", "Responsável", "Telefone", "E-mail", "Cidade"),
+            example_rows=(
+                ("Distribuidora ABC Ltda", "11.444.777/0001-61", "João", "11988887777", "compras@abc.com", "Campinas"),
+                ("Peças Rápidas ME", "123.456.789-09", "Ana", "11977776666", "ana@pecas.com", "Santos"),
+            ),
+            example_notes="Uma linha por fornecedor. Documento, se informado, deve ser único na oficina.",
         )
 
     def create_row(

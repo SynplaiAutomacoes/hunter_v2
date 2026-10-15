@@ -10,9 +10,10 @@ from openpyxl import Workbook
 
 from apps.catalog.importing import KitImportAdapter, ProductImportAdapter, ServiceImportAdapter
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit, KitProduct
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.core.infrastructure.importing.kit_report import expand_kit_report, looks_like_kit_report
 from apps.core.infrastructure.importing.mapper import apply_mapping, coerce_value, parse_decimal, parse_duration, suggest_mapping
 from apps.core.infrastructure.importing.schema import FieldType, ImportEntitySchema, ImportField, ImportRowError, ParsedSpreadsheet
 from apps.core.infrastructure.importing.session_store import create_import_session, get_import_session
@@ -276,7 +277,81 @@ class ServiceImportAdapterTests(TestCase):
         self.assertTrue(Service.objects.filter(pk=created_id, workshop=workshop).exists())
 
 
+class KitReportExpandTests(SimpleTestCase):
+    def test_expands_hierarchical_ultracar_report(self) -> None:
+        workbook = Workbook()
+        sheet = workbook.active
+        assert sheet is not None
+        sheet.append(["Código Interno", "Nome", "Descrição", "Quantidade de Itens", None, None, None])
+        sheet.append(["25", "KIT FREIO", "Kit completo", "2", None, None, None])
+        sheet.append([None, "Código Interno", "Descrição", "Custo", "Venda", "Quantidade", "Tipo"])
+        sheet.append([None, "P-001", "PASTILHA", "0,00", "0,00", "0.00", "Peça"])
+        sheet.append([None, "168", "TROCA PASTILHA", "0,00", "0,00", "1.00", "Peça"])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        parsed = parse_xlsx_bytes(buffer.getvalue(), filename="kits.xlsx")
+        self.assertTrue(looks_like_kit_report(parsed))
+        expanded = expand_kit_report(parsed)
+        self.assertEqual(len(expanded.rows), 2)
+        self.assertEqual(expanded.rows[0]["Nome do kit"], "KIT FREIO")
+        self.assertEqual(expanded.rows[0]["Código ou nome do item"], "P-001")
+        self.assertEqual(expanded.rows[0]["Quantidade"], "1")  # 0 → 1
+        self.assertEqual(expanded.rows[1]["Código ou nome do item"], "168")
+        self.assertEqual(expanded.rows[1]["Quantidade"], "1")
+
+
 class KitImportAdapterTests(TestCase):
+    def test_creates_kit_from_hierarchical_report_rows(self) -> None:
+        workshop = create_workshop(suffix=51)
+        group = CatalogGroup.objects.create(workshop=workshop, name="Geral")
+        Product.objects.create(
+            workshop=workshop,
+            code="P-001",
+            name="PASTILHA",
+            unit=Product.Unit.UND,
+            group=group,
+            cost_price=Money("5.00", "BRL"),
+            selling_price=Money("10.00", "BRL"),
+        )
+        Service.objects.create(
+            workshop=workshop,
+            name="TROCA PASTILHA",
+            duration=timedelta(minutes=30),
+            selling_price=Money("50.00", "BRL"),
+        )
+        adapter = KitImportAdapter()
+        batch = adapter.import_rows(
+            workshop,
+            [
+                (
+                    2,
+                    {
+                        "name": "KIT FREIO",
+                        "description": "Kit completo",
+                        "item_type": "product",
+                        "item_ref": "P-001",
+                        "item_name": "PASTILHA",
+                        "quantity": 0,
+                    },
+                ),
+                (
+                    3,
+                    {
+                        "name": "KIT FREIO",
+                        "description": "Kit completo",
+                        "item_type": "product",
+                        "item_ref": "168",
+                        "item_name": "TROCA PASTILHA",
+                        "quantity": 1,
+                    },
+                ),
+            ],
+        )
+        self.assertEqual(batch.success_count, 2, msg="; ".join(r.message for r in batch.results if not r.success))
+        kit = Kit.objects.get(workshop=workshop, name__iexact="KIT FREIO")
+        self.assertEqual(KitProduct.objects.filter(kit=kit).count(), 1)
+        self.assertEqual(KitService.objects.filter(kit=kit).count(), 1)
+
     def test_creates_kit_from_multiple_rows(self) -> None:
         workshop = create_workshop(suffix=5)
         group = CatalogGroup.objects.create(workshop=workshop, name="Geral")

@@ -26,6 +26,7 @@ from apps.core.infrastructure.importing.session_store import (
     spreadsheet_from_session,
     update_import_session,
 )
+from apps.core.infrastructure.importing.kit_report import expand_kit_report
 from apps.core.infrastructure.importing.spreadsheet import SpreadsheetParseError, parse_uploaded_file
 from apps.core.infrastructure.models.data_import import DataImportBatch
 from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
@@ -150,7 +151,8 @@ class DataImportBaseView(LoginRequiredMixin, View):
     def _options_from_request(self, request: HttpRequest) -> dict[str, Any]:
         options: dict[str, Any] = {}
         if self.entity_key == "products":
-            options["include_stock"] = request.POST.get("include_stock") in {"1", "true", "on", "yes"}
+            raw = request.POST.get("include_stock") or request.GET.get("include_stock")
+            options["include_stock"] = raw in {"1", "true", "on", "yes"}
         return options
 
 
@@ -163,6 +165,24 @@ class DataImportModalView(DataImportBaseView):
                 "adapter": self.adapter,
                 "entity_key": self.entity_key,
                 "show_stock_toggle": self.entity_key == "products",
+            },
+        )
+
+
+class DataImportExampleModalView(DataImportBaseView):
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        options = self._options_from_request(request)
+        schema = self.adapter.get_schema(self.workshop, options=options)
+        return render(
+            request,
+            "core/import/modal_example.html",
+            {
+                "adapter": self.adapter,
+                "entity_key": self.entity_key,
+                "schema": schema,
+                "example_headers": schema.example_headers,
+                "example_rows": schema.example_rows,
+                "example_notes": schema.example_notes,
             },
         )
 
@@ -186,6 +206,9 @@ class DataImportUploadView(DataImportBaseView):
         except SpreadsheetParseError as exc:
             context["error"] = str(exc)
             return render(request, "core/import/modal_step_upload.html", context)
+
+        if self.entity_key == "kits":
+            spreadsheet = expand_kit_report(spreadsheet)
 
         schema = self.adapter.get_schema(self.workshop, options=options)
         token = create_import_session(

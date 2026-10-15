@@ -63,6 +63,22 @@ class PayableImportAdapter(BaseRowImportAdapter):
                 ImportField("is_paid", "Pago", field_type=FieldType.BOOLEAN),
                 ImportField("financial_observation", "Observação", field_type=FieldType.TEXT),
             ),
+            example_headers=(
+                "Descrição",
+                "Valor bruto",
+                "Data de vencimento",
+                "Forma de pagamento",
+                "Plano orçamentário",
+                "Fornecedor",
+            ),
+            example_rows=(
+                ("Aluguel oficina", "3500,00", "10/11/2026", "PIX", "Despesas fixas", "Imobiliária XYZ"),
+                ("Energia elétrica", "890,50", "15/11/2026", "Boleto", "Utilidades", ""),
+            ),
+            example_notes=(
+                "Forma de pagamento, plano orçamentário e fornecedor devem já existir na oficina "
+                "(use o nome/descrição cadastrados)."
+            ),
         )
 
     def create_row(
