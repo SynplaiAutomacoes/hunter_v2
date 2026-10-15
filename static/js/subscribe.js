@@ -195,6 +195,10 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const data = new FormData();
         data.append("email", email.value);
+        const firstName = form.querySelector('input[name="first_name"]');
+        if (firstName && firstName.value) {
+          data.append("first_name", firstName.value);
+        }
         const response = await fetch(config.sendCodeUrl, {
           method: "POST",
           headers: { "X-CSRFToken": config.csrfToken, Accept: "application/json" },

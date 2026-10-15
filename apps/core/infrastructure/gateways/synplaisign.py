@@ -261,6 +261,92 @@ def create_envelope(
     )
 
 
+def send_mail(
+    *,
+    api_key: str,
+    to: str | list[str],
+    subject: str,
+    html: str,
+    from_email: str | None = None,
+) -> dict[str, Any]:
+    """POST /mail — transactional e-mail via Resend (not envelope signing send)."""
+    base_url = _require_base_url()
+    normalized_subject = str(subject or "").strip()
+    if not normalized_subject:
+        raise SynplaiSignGatewayError("Assunto do e-mail é obrigatório")
+    if len(normalized_subject) > 200:
+        raise SynplaiSignGatewayError("Assunto do e-mail deve ter no máximo 200 caracteres")
+    normalized_html = str(html or "").strip()
+    if not normalized_html:
+        raise SynplaiSignGatewayError("Corpo HTML do e-mail é obrigatório")
+
+    if isinstance(to, str):
+        recipients: list[str] | str = str(to).strip()
+        if not recipients:
+            raise SynplaiSignGatewayError("Destinatário do e-mail é obrigatório")
+    else:
+        recipients = [str(item).strip() for item in to if str(item or "").strip()]
+        if not recipients:
+            raise SynplaiSignGatewayError("Destinatário do e-mail é obrigatório")
+
+    payload: dict[str, Any] = {
+        "to": recipients,
+        "subject": normalized_subject,
+        "html": normalized_html,
+    }
+    normalized_from = str(from_email or "").strip()
+    if normalized_from:
+        payload["from"] = normalized_from
+
+    logger.info(
+        "synplaisign_mail_send_start",
+        extra={
+            "recipient_count": 1 if isinstance(recipients, str) else len(recipients),
+            "subject_len": len(normalized_subject),
+            "has_from": bool(normalized_from),
+        },
+    )
+
+    try:
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="synplaisign",
+            operation="send_mail",
+            log_context={"subject_len": len(normalized_subject)},
+        ) as dependency_call:
+            response = requests.post(
+                f"{base_url}/mail",
+                headers=_api_headers(api_key=api_key),
+                json=payload,
+                timeout=20,
+            )
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
+    except requests.RequestException as exc:
+        response_text = exc.response.text if getattr(exc, "response", None) is not None and exc.response is not None else ""
+        logger.error(
+            "synplaisign_mail_send_failed",
+            extra={
+                "status_code": exc.response.status_code if getattr(exc, "response", None) is not None and exc.response is not None else None,
+                "response_text": response_text[:1000] if response_text else "",
+            },
+        )
+        raise SynplaiSignGatewayError(f"Erro ao enviar e-mail: {exc}. Resposta: {response_text}") from exc
+
+    try:
+        payload_data = response.json()
+    except ValueError:
+        payload_data = {}
+
+    result = payload_data if isinstance(payload_data, dict) else {}
+    logger.info(
+        "synplaisign_mail_send_success",
+        extra={"message_id": result.get("id"), "ok": result.get("ok")},
+    )
+    return result
+
+
 def send_envelope(*, api_key: str, envelope_id: str) -> dict[str, Any]:
     base_url = _require_base_url()
     logger.info("synplaisign_envelope_send_start", extra={"envelope_id": envelope_id})

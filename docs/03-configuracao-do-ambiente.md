@@ -182,18 +182,16 @@ Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (def
 | `ENDPOINT` | endpoint S3 compativel |
 | `REGION` | regiao do bucket, normalmente `auto` |
 
-### E-mail (SMTP)
+### E-mail (SynplaiSign / Resend)
 
-Usado para envio de e-mails transacionais (fluxos de autenticacao por codigo). O provider `DjangoSmtpEmailService` usa o `EmailBackend` SMTP do Django e le as credenciais destas variaveis:
+Usado para envio de e-mails transacionais (recuperacao de senha, codigo de login, confirmacao de assinatura). O provider `SynplaiSignEmailService` chama `POST /mail` na API SynplaiSign (Resend). Envio de envelopes de assinatura continua em `POST /envelopes/:id/send`.
 
 | Variavel | Uso |
 | --- | --- |
-| `EMAIL_HOST` | host SMTP (default `smtp.gmail.com`) |
-| `EMAIL_PORT` | porta SMTP (default `587`) |
-| `EMAIL_HOST_USER` | usuario/endereco SMTP (ex.: app password do Gmail) |
-| `EMAIL_HOST_PASSWORD` | senha de aplicativo do SMTP (nunca logada) |
-| `EMAIL_USE_TLS` | habilita TLS (`1`/`true`) |
-| `DEFAULT_FROM_EMAIL` | remetente padrao; se vazio, cai para `EMAIL_HOST_USER` |
+| `SYNPLAISIGN_BASE_URL` | base da API (default producao SynplaiSign) |
+| `SYNPLAISIGN_API_KEY` | API key preferida para `/mail` (sistema) |
+| `SYNPLAISIGN_MASTER_KEY` | fallback de autenticacao se `SYNPLAISIGN_API_KEY` estiver vazio |
+| `DEFAULT_FROM_EMAIL` | opcional; se setado, enviado no campo `from` (dominio precisa estar verificado no Resend) |
 
 ### Seguranca e log em producao
 
@@ -288,11 +286,6 @@ BUCKET=
 ENDPOINT=https://storage.railway.app
 REGION=auto
 
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_HOST_USER=
-EMAIL_HOST_PASSWORD=
-EMAIL_USE_TLS=1
 DEFAULT_FROM_EMAIL=
 
 DJANGO_LOG_LEVEL=DEBUG

@@ -46,7 +46,6 @@ logger = logging.getLogger(__name__)
 
 STRIPE_USER_ERROR_MESSAGE = "Não foi possível iniciar o pagamento. Tente novamente."
 SIGNUP_EMAIL_SESSION_KEY = "signup_email_verified"
-SIGNUP_EMAIL_CODE_SUBJECT = "Código de confirmação — Hunter Auto"
 
 SUBSCRIBER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     QueryParamFilter(
@@ -106,25 +105,18 @@ class SubscribeView(TemplateView):
         return context
 
 
-def _mask_email(email: str) -> str:
-    local, _, domain = email.partition("@")
-    if not domain:
-        return "***"
-    visible = local[:2] if len(local) >= 2 else local[:1]
-    return f"{visible}***@{domain}"
-
-
 class SubscribeSendCodeView(View):
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         from django.contrib.auth import get_user_model
 
         from apps.billing.models import SignupEmailVerification
-        from apps.core.infrastructure.services.email import get_email_service
+        from apps.core.infrastructure.services.email import mask_email, send_verification_code_email
 
         if request.user.is_authenticated:
             return JsonResponse({"ok": False, "message": "Você já está autenticado."}, status=400)
 
         email = str(request.POST.get("email") or "").strip().lower()
+        first_name = str(request.POST.get("first_name") or "").strip()
         if not email or "@" not in email:
             return JsonResponse({"ok": False, "message": "Informe um e-mail válido."}, status=400)
 
@@ -137,19 +129,16 @@ class SubscribeSendCodeView(View):
         except ValueError as exc:
             return JsonResponse({"ok": False, "message": str(exc)}, status=429)
 
-        body = (
-            "Olá!\n\n"
-            f"Seu código de confirmação para criar a conta Hunter Auto é: {token.code}\n\n"
-            "O código expira em 15 minutos.\n"
-            "Se você não solicitou este código, ignore este e-mail.\n"
+        sent = send_verification_code_email(
+            to_email=email,
+            code=token.code,
+            tipo="signup_confirm",
+            recipient_name=first_name,
         )
-        try:
-            get_email_service().send(to_email=email, subject=SIGNUP_EMAIL_CODE_SUBJECT, body=body)
-        except Exception:
-            logger.exception("Falha ao enviar código de confirmação para %s", _mask_email(email))
+        if not sent:
             return JsonResponse({"ok": False, "message": "Erro ao enviar o código por e-mail. Tente novamente."}, status=500)
 
-        return JsonResponse({"ok": True, "masked_email": _mask_email(email)})
+        return JsonResponse({"ok": True, "masked_email": mask_email(email)})
 
 
 class SubscribeVerifyCodeView(View):
