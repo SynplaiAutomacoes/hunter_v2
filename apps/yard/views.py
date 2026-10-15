@@ -16,7 +16,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 
 
 def _board_triggers() -> str:
-    return json.dumps({"yard-board-refresh": {}})
+    return json.dumps({"yard-board-refresh": {}, "closeYardModal": {}})
 
 
 class YardBoardView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, TemplateView):
