@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from typing import Any
 
@@ -53,11 +52,8 @@ class VehiclePlateLookupService(IVehiclePlateLookupService):
         if not normalized_plate:
             return None
 
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="vehicle_lookup") as pool:
-            wd_future = pool.submit(self._wd.fetch_raw, normalized_plate)
-            buscars_future = pool.submit(self._buscars.fetch_raw, normalized_plate)
-            wd_raw = wd_future.result()
-            buscars_raw = buscars_future.result()
+        wd_raw = self._wd.fetch_raw(normalized_plate)
+        buscars_raw = self._buscars.fetch_raw(normalized_plate)
         if wd_raw is None and buscars_raw is None:
             return None
 
@@ -108,9 +104,9 @@ class VehiclePlateLookupService(IVehiclePlateLookupService):
             "renavam": wd_raw.get("renavam"),
             "motor_registry": None,
         }
-        if wd_raw.get("extra_year_fabrication"):
+        if _is_missing(merged.get("year_fabrication")) and wd_raw.get("extra_year_fabrication"):
             merged["year_fabrication"] = wd_raw["extra_year_fabrication"]
-        if wd_raw.get("extra_year_model"):
+        if _is_missing(merged.get("year_model")) and wd_raw.get("extra_year_model"):
             merged["year_model"] = wd_raw["extra_year_model"]
 
         buscars_brand, buscars_model = _split_marca_modelo(buscars_raw.get("marcaModelo"))

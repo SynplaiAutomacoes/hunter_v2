@@ -269,6 +269,38 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                         }
                     });
                 },
+                setMoneyFieldValue(container, fieldName, value) {
+                    if (value === null || value === undefined || value === '') {
+                        return;
+                    }
+                    const amountInput = container.querySelector(`[name="${fieldName}_0"], [name$="-${fieldName}_0"]`);
+                    if (!amountInput) {
+                        return;
+                    }
+                    const raw = String(value);
+                    let normalized = raw.indexOf(',') !== -1 ? raw.replace(/\./g, '').replace(/,/g, '.') : raw.replace(/[^\d.]/g, '');
+                    if (!normalized) {
+                        return;
+                    }
+                    const widgetContainer = this.getWidgetContainer(amountInput);
+                    if (widgetContainer && window.Alpine) {
+                        let data;
+                        try {
+                            data = Alpine.$data(widgetContainer);
+                        } catch (err) {
+                            data = null;
+                        }
+                        if (data && typeof data.syncDisplay === 'function') {
+                            data.syncDisplay(normalized);
+                            const currencyInput = widgetContainer.querySelector('input[type="hidden"]') || widgetContainer.querySelector('input[name$="_1"]');
+                            if (currencyInput && currencyInput.name && currencyInput.name.endsWith('_1')) {
+                                currencyInput.value = 'BRL';
+                            }
+                            return;
+                        }
+                    }
+                    amountInput.value = normalized;
+                },
                 async fillFromPlate(container, data) {
                     this.setHydrating(container, true);
                     try {
@@ -304,8 +336,10 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                             color: data.color,
                             chassi: data.chassi,
                             renavam: data.renavam,
+                            motor_registry: data.motor_registry,
                             type: data.type,
                         });
+                        this.setMoneyFieldValue(container, 'fipe_value', data.fipe_value);
                     } finally {
                         this.setHydrating(container, false);
                     }

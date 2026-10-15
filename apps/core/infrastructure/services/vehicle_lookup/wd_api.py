@@ -34,15 +34,6 @@ def _first_present(*values: object) -> object:
     return None
 
 
-def _mask_plate_api_url(url: str) -> str:
-    parts = url.rstrip("/").split("/")
-    if not parts:
-        return url
-
-    parts[-1] = "***"
-    return "/".join(parts)
-
-
 class WdApiPlateLookupService:
     """Fonte primária de dados do veículo e da Tabela FIPE (WD API)."""
 
@@ -84,7 +75,8 @@ class WdApiPlateLookupService:
         extra = root_data.get("extra") or payload_data.get("extra")
         extra_data = extra if isinstance(extra, dict) else {}
 
-        fipes = payload_data.get("fipes") or root_data.get("fipes")
+        fipe = payload_data.get("fipe") or root_data.get("fipe")
+        fipes = fipe.get("dados") if isinstance(fipe, dict) else payload_data.get("fipes") or root_data.get("fipes")
         fipe_items = fipes if isinstance(fipes, list) else []
 
         year_fabrication, year_model = _parse_vehicle_years(
