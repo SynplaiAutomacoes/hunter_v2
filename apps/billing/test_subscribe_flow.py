@@ -112,6 +112,43 @@ class SubscribeFlowTests(TestCase):
         self.assertEqual(pending.stripe_customer_id, "cus_pending")
         self.assertEqual(pending.stripe_subscription_id, "sub_pending")
 
+    def test_subscribe_start_free_coupon_creates_account_without_payment(self) -> None:
+        self._verify_email("ana@example.com")
+        with patch("apps.billing.presentation.views.get_billing_service") as get_service:
+            service = get_service.return_value
+            service.list_public_plans.return_value = self.plans
+            service.create_incomplete_subscription.return_value = IncompleteSubscriptionResult(
+                customer_id="cus_free",
+                subscription_id="sub_free",
+                client_secret="",
+                payment_intent_id="",
+                requires_payment=False,
+            )
+
+            response = self.client.post(
+                reverse("billing:subscribe_start"),
+                data={
+                    "first_name": "Ana",
+                    "last_name": "Silva",
+                    "username": "ana.silva",
+                    "email": "ana@example.com",
+                    "cpf": "52998224725",
+                    "password1": "SenhaForte123!",
+                    "password2": "SenhaForte123!",
+                    "plan": Plan.BASIC,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["requires_payment"], False)
+        pending = PendingSignup.objects.get(email="ana@example.com")
+        self.assertEqual(pending.status, PendingSignupStatus.PAID)
+        self.assertTrue(pending.login_token)
+        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(Account.objects.count(), 1)
+
     def test_subscribe_start_replaces_unfinished_pending_signup(self) -> None:
         self._verify_email("ana@example.com")
         PendingSignup.objects.create(
