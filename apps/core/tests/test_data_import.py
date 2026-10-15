@@ -352,6 +352,35 @@ class KitImportAdapterTests(TestCase):
         self.assertEqual(KitProduct.objects.filter(kit=kit).count(), 1)
         self.assertEqual(KitService.objects.filter(kit=kit).count(), 1)
 
+    def test_skips_missing_items_and_creates_kit_with_found_ones(self) -> None:
+        workshop = create_workshop(suffix=52)
+        group = CatalogGroup.objects.create(workshop=workshop, name="Geral")
+        product = Product.objects.create(
+            workshop=workshop,
+            code="OK-1",
+            name="Produto Ok",
+            unit=Product.Unit.UND,
+            group=group,
+            cost_price=Money("5.00", "BRL"),
+            selling_price=Money("10.00", "BRL"),
+        )
+        adapter = KitImportAdapter()
+        batch = adapter.import_rows(
+            workshop,
+            [
+                (2, {"name": "Kit Parcial", "item_type": "product", "item_ref": "OK-1", "quantity": 1}),
+                (3, {"name": "Kit Parcial", "item_type": "product", "item_ref": "MISSING", "item_name": "Não Existe", "quantity": 1}),
+                (4, {"name": "Kit Parcial", "item_type": "service", "item_ref": "Serviço Fantasma", "quantity": 1}),
+            ],
+        )
+        self.assertEqual(batch.success_count, 1)
+        self.assertEqual(batch.error_count, 2)
+        kit = Kit.objects.get(workshop=workshop, name__iexact="Kit Parcial")
+        self.assertTrue(KitProduct.objects.filter(kit=kit, product=product).exists())
+        self.assertEqual(KitService.objects.filter(kit=kit).count(), 0)
+        skipped_messages = [r.message for r in batch.results if not r.success]
+        self.assertTrue(any("ignorado" in msg.casefold() for msg in skipped_messages))
+
     def test_creates_kit_from_multiple_rows(self) -> None:
         workshop = create_workshop(suffix=5)
         group = CatalogGroup.objects.create(workshop=workshop, name="Geral")
