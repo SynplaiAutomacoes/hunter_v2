@@ -281,14 +281,13 @@ def send_mail(
         raise SynplaiSignGatewayError("Corpo HTML do e-mail é obrigatório")
 
     if isinstance(to, str):
-        recipients: list[str] | str = str(to).strip()
-        if not recipients:
-            raise SynplaiSignGatewayError("Destinatário do e-mail é obrigatório")
+        recipients = [str(to).strip()] if str(to).strip() else []
     else:
         recipients = [str(item).strip() for item in to if str(item or "").strip()]
-        if not recipients:
-            raise SynplaiSignGatewayError("Destinatário do e-mail é obrigatório")
+    if not recipients:
+        raise SynplaiSignGatewayError("Destinatário do e-mail é obrigatório")
 
+    # SynplaiSign DTO exige array (Transform aceita string, mas o contrato estável é list[str]).
     payload: dict[str, Any] = {
         "to": recipients,
         "subject": normalized_subject,
@@ -301,7 +300,7 @@ def send_mail(
     logger.info(
         "synplaisign_mail_send_start",
         extra={
-            "recipient_count": 1 if isinstance(recipients, str) else len(recipients),
+            "recipient_count": len(recipients),
             "subject_len": len(normalized_subject),
             "has_from": bool(normalized_from),
         },
@@ -324,14 +323,22 @@ def send_mail(
             dependency_call.set_http_status_code(response.status_code)
             response.raise_for_status()
     except requests.RequestException as exc:
-        response_text = exc.response.text if getattr(exc, "response", None) is not None and exc.response is not None else ""
+        response_obj = getattr(exc, "response", None)
+        response_text = response_obj.text if response_obj is not None else ""
+        status_code = response_obj.status_code if response_obj is not None else None
         logger.error(
             "synplaisign_mail_send_failed",
             extra={
-                "status_code": exc.response.status_code if getattr(exc, "response", None) is not None and exc.response is not None else None,
+                "status_code": status_code,
                 "response_text": response_text[:1000] if response_text else "",
             },
         )
+        if status_code is not None and status_code >= 500:
+            raise SynplaiSignGatewayError(
+                "SynplaiSign falhou ao enviar e-mail (HTTP "
+                f"{status_code}). Verifique RESEND_API_KEY e RESEND_FROM no serviço SynplaiSign. "
+                f"Resposta: {response_text}"
+            ) from exc
         raise SynplaiSignGatewayError(f"Erro ao enviar e-mail: {exc}. Resposta: {response_text}") from exc
 
     try:

@@ -192,6 +192,15 @@ Usado para envio de e-mails transacionais (recuperacao de senha, codigo de login
 | `SYNPLAISIGN_MASTER_KEY` | fallback de autenticacao se `SYNPLAISIGN_API_KEY` estiver vazio |
 | `DEFAULT_FROM_EMAIL` | opcional; se setado, enviado no campo `from` (dominio precisa estar verificado no Resend) |
 
+No **servico SynplaiSign** (Railway), o `/mail` depende de:
+
+| Variavel SynplaiSign | Uso |
+| --- | --- |
+| `RESEND_API_KEY` | chave da API Resend |
+| `RESEND_FROM` | remetente padrao (ex. `Hunter Auto <noreply@seudominio.com>`) |
+
+Sem essas vars, o Hunter recebe HTTP 500 de `POST /mail` mesmo com payload valido.
+
 ### Seguranca e log em producao
 
 | Variavel | Uso |
