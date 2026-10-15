@@ -70,7 +70,7 @@ def materialize_account_from_pending_signup(
     pending = PendingSignup.objects.select_for_update().get(pk=pending.pk)
     if pending.status == PendingSignupStatus.PAID and pending.created_account_id:
         return pending
-    if pending.status != PendingSignupStatus.PENDING:
+    if pending.status not in (PendingSignupStatus.PENDING, PendingSignupStatus.FAILED):
         raise ValueError("Cadastro pendente não está mais ativo.")
 
     if pending.is_expired and pending.status == PendingSignupStatus.PENDING:
