@@ -256,6 +256,54 @@ class SubscribeFlowTests(TestCase):
         self.assertEqual(pending.status, PendingSignupStatus.PAID)
         self.assertTrue(pending.login_token)
 
+    def test_invoice_payment_failed_then_paid_still_materializes(self) -> None:
+        pending = PendingSignup.objects.create(
+            email="eve@example.com",
+            username="eve",
+            password_hash=make_password("SenhaForte123!"),
+            first_name="Eve",
+            last_name="Prado",
+            cpf="11144477735",
+            plan=SubscriptionPlan.FULL,
+            status=PendingSignupStatus.PENDING,
+            stripe_customer_id="cus_eve",
+            stripe_subscription_id="sub_eve",
+            expires_at=timezone.now() + timezone.timedelta(hours=2),
+        )
+
+        failed = process_stripe_event(
+            event_type="invoice.payment_failed",
+            data={
+                "id": "in_eve",
+                "customer": "cus_eve",
+                "subscription": "sub_eve",
+                "billing_reason": "subscription_create",
+                "attempt_count": 1,
+                "metadata": {"pending_signup_id": str(pending.pk)},
+            },
+        )
+        self.assertIsNone(failed)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, PendingSignupStatus.PENDING)
+
+        period_end = 1792608307
+        result = process_stripe_event(
+            event_type="invoice.paid",
+            data={
+                "id": "in_eve",
+                "customer": "cus_eve",
+                "subscription": "sub_eve",
+                "metadata": {"pending_signup_id": str(pending.pk)},
+                "lines": {"data": [{"period": {"end": period_end}}]},
+            },
+        )
+        self.assertIsNotNone(result)
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, PendingSignupStatus.PAID)
+        self.assertTrue(pending.login_token)
+        self.assertEqual(User.objects.filter(username="eve").count(), 1)
+        self.assertEqual(Account.objects.count(), 1)
+
     def test_materialize_does_not_create_second_account(self) -> None:
         pending = PendingSignup.objects.create(
             email="carla@example.com",

@@ -258,6 +258,10 @@ def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -
     if pending is not None and (deleted or stripe_status in ("incomplete_expired", "canceled")):
         mark_pending_signup_failed(pending)
         return None
+    if pending is not None:
+        # Evento intermediário durante o cadastro (ex.: 'incomplete'): a conta
+        # ainda não existe, então não há assinatura a sincronizar.
+        return None
 
     account_id = _extract_account_id(data)
     customer_id = str(data.get("customer") or "")
@@ -314,8 +318,13 @@ def process_invoice_paid(data: dict[str, Any]) -> AccountSubscription | None:
 
 def process_invoice_payment_failed(data: dict[str, Any]) -> AccountSubscription | None:
     pending = _find_pending_signup(data)
-    if pending is not None and pending.status == PendingSignupStatus.PENDING:
-        mark_pending_signup_failed(pending)
+    if pending is not None:
+        # Falha transitória durante o cadastro (cartão recusado, 3DS etc.). A
+        # Stripe e/ou o usuário podem tentar novamente, então NÃO marcamos o
+        # cadastro como falho — um invoice.paid posterior materializa a conta.
+        # Estados terminais (subscription canceled/incomplete_expired) e o TTL
+        # de 24h cuidam do abandono.
+        logger.info("Falha de pagamento no cadastro pendente %s — aguardando nova tentativa", pending.pk)
         return None
 
     subscription_id = str(data.get("subscription") or "")
