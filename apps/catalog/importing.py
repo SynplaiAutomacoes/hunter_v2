@@ -333,7 +333,8 @@ class KitImportAdapter:
             example_notes=(
                 "Formato do relatório de kits (Ultracar): cada kit começa com código na primeira coluna; "
                 "em seguida vem um subcabeçalho e as linhas de itens (Peça/Produto ou Serviço). "
-                "Os produtos/serviços precisam já existir na oficina. Quantidade 0 vira 1."
+                "Itens não encontrados na oficina são ignorados; o kit é criado com os que existirem. "
+                "Quantidade 0 vira 1."
             ),
         )
 
@@ -364,16 +365,27 @@ class KitImportAdapter:
             first_row_number = rows[0][0]
             try:
                 with transaction.atomic():
-                    kit_id = self._create_kit_group(workshop, rows)
+                    kit_id, attached_rows, skipped_rows = self._create_kit_group(workshop, rows)
+                skipped_by_row = {row_number: message for row_number, message in skipped_rows}
                 for row_number, _ in rows:
-                    batch.add(
-                        ImportRowResult(
-                            row_number=row_number,
-                            success=True,
-                            message="Kit criado com sucesso.",
-                            created_id=kit_id,
+                    if row_number in skipped_by_row:
+                        batch.add(
+                            ImportRowResult(
+                                row_number=row_number,
+                                success=False,
+                                message=skipped_by_row[row_number],
+                                created_id=kit_id,
+                            )
                         )
-                    )
+                    else:
+                        batch.add(
+                            ImportRowResult(
+                                row_number=row_number,
+                                success=True,
+                                message="Item incluído no kit." if row_number in attached_rows else "Kit criado com sucesso.",
+                                created_id=kit_id,
+                            )
+                        )
             except ImportRowError as exc:
                 for row_number, _ in rows:
                     batch.add(ImportRowResult(row_number=row_number, success=False, message=exc.message))
@@ -392,7 +404,11 @@ class KitImportAdapter:
                     batch.add(ImportRowResult(row_number=row_number, success=False, message=str(exc) or "Erro inesperado."))
         return batch
 
-    def _create_kit_group(self, workshop: Workshop, rows: list[tuple[int, dict[str, Any]]]) -> int:
+    def _create_kit_group(
+        self,
+        workshop: Workshop,
+        rows: list[tuple[int, dict[str, Any]]],
+    ) -> tuple[int, list[int], list[tuple[int, str]]]:
         first = rows[0][1]
         name = str(first.get("name") or "").strip()
         if Kit.objects.filter(workshop=workshop, name__iexact=name).exists():
@@ -405,6 +421,9 @@ class KitImportAdapter:
             is_active=bool(first["is_active"]) if first.get("is_active") is not None else True,
         )
 
+        attached_rows: list[int] = []
+        skipped_rows: list[tuple[int, str]] = []
+
         for row_number, mapped in rows:
             item_type = str(mapped.get("item_type") or "product").strip().lower()
             item_ref = str(mapped.get("item_ref") or "").strip()
@@ -412,8 +431,9 @@ class KitImportAdapter:
             quantity = mapped.get("quantity")
             try:
                 qty = int(quantity) if quantity is not None else 1
-            except (TypeError, ValueError) as exc:
-                raise ImportRowError(f"Linha {row_number}: quantidade inválida.") from exc
+            except (TypeError, ValueError):
+                skipped_rows.append((row_number, f"Item ignorado: quantidade inválida ('{quantity}')."))
+                continue
             if qty < 1:
                 qty = 1
 
@@ -432,28 +452,40 @@ class KitImportAdapter:
                 service = _resolve_service(workshop, item_ref=item_ref, item_name=item_name)
                 if service is not None:
                     _attach_kit_service(kit, service, qty)
+                    attached_rows.append(row_number)
                     continue
                 product = _find_product()
                 if product is not None:
                     KitProduct.objects.get_or_create(kit=kit, product=product, defaults={"quantity": qty})
+                    attached_rows.append(row_number)
                     continue
-                raise ImportRowError(f"Linha {row_number}: serviço '{item_name or item_ref}' não encontrado.")
+                skipped_rows.append(
+                    (row_number, f"Item ignorado: serviço '{item_name or item_ref}' não encontrado.")
+                )
+                continue
 
             product = _find_product()
             if product is not None:
                 KitProduct.objects.get_or_create(kit=kit, product=product, defaults={"quantity": qty})
+                attached_rows.append(row_number)
                 continue
-            # Relatório Ultracar marca itens como Peça; tenta serviço pela descrição/nome
             service = _resolve_service(workshop, item_ref=item_ref, item_name=item_name)
             if service is not None:
                 _attach_kit_service(kit, service, qty)
+                attached_rows.append(row_number)
                 continue
-            raise ImportRowError(
-                f"Linha {row_number}: produto '{item_ref or item_name}' não encontrado (nem serviço com esse nome)."
+            skipped_rows.append(
+                (
+                    row_number,
+                    f"Item ignorado: produto '{item_ref or item_name}' não encontrado (nem serviço com esse nome).",
+                )
             )
 
+        if not attached_rows:
+            raise ImportRowError("Nenhum item do kit foi encontrado na oficina; kit não criado.")
+
         kit.recalculate_total_price()
-        return int(kit.pk)
+        return int(kit.pk), attached_rows, skipped_rows
 
 
 def _resolve_service(workshop: Workshop, *, item_ref: str, item_name: str) -> Service | None:
