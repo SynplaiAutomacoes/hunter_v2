@@ -93,12 +93,14 @@
               <div class="subscribe-verify-actions">
                 <button type="button" id="subscribe-send-code" class="btn-outline">Enviar código</button>
               </div>
-              <label class="subscribe-full" id="subscribe-code-label" hidden>
-                Código de confirmação
-                <input type="text" name="email_code" id="subscribe-email-code" maxlength="6" autocomplete="one-time-code" placeholder="ABC123" />
-              </label>
-              <button type="button" id="subscribe-verify-code" class="btn-outline" hidden>Confirmar código</button>
-              <p id="subscribe-verify-status" class="subscribe-verify-status" hidden></p>
+              <div id="subscribe-code-step" class="subscribe-code-step hidden" hidden>
+                <label class="subscribe-full" id="subscribe-code-label" for="subscribe-email-code">
+                  Código de confirmação
+                  <input type="text" name="email_code" id="subscribe-email-code" maxlength="6" autocomplete="one-time-code" placeholder="ABC123" />
+                </label>
+                <button type="button" id="subscribe-verify-code" class="btn-outline">Confirmar código</button>
+              </div>
+              <p id="subscribe-verify-status" class="subscribe-verify-status hidden" hidden></p>
             </div>
 
             <div id="payment-element" class="payment-element"></div>

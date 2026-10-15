@@ -192,7 +192,7 @@ Usado para envio de e-mails transacionais (fluxos de autenticacao por codigo). O
 | `EMAIL_HOST_USER` | usuario/endereco SMTP (ex.: app password do Gmail) |
 | `EMAIL_HOST_PASSWORD` | senha de aplicativo do SMTP (nunca logada) |
 | `EMAIL_USE_TLS` | habilita TLS (`1`/`true`) |
-| `DEFAULT_FROM_EMAIL` | remetente padrao; obrigatorio para `get_email_service()` funcionar |
+| `DEFAULT_FROM_EMAIL` | remetente padrao; se vazio, cai para `EMAIL_HOST_USER` |
 
 ### Seguranca e log em producao
 
