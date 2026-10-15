@@ -1238,6 +1238,9 @@ class ImportMethodStepForm(ImportStep1Form):
                 ),
                 Div(css_class="hidden lg:block lg:col-span-2"),
                 Div(
+                    HTML('<h2 class="text-2xl font-bold mb-6" x-show="method == \'XML\'">Importação do Arquivo</h2>'),
+                    HTML('<h2 class="text-2xl font-bold mb-6" x-show="method == \'KEY\'">Chave de Acesso</h2>'),
+                    HTML('<h2 class="text-2xl font-bold mb-6" x-show="method == \'MANUAL\'">Importação Manual</h2>'),
                     Div(Field("xml_file", css_class="file-input file-input-bordered w-full"), x_show="method == 'XML'"),
                     Div(Field("access_key", css_class="input input-bordered w-full"), x_show="method == 'KEY'"),
                     HTML('<p class="text-base-content/70" x-show="method == \'MANUAL\'">Informe o fornecedor e os itens manualmente nas próximas etapas.</p>'),

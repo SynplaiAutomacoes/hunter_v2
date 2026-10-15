@@ -13,6 +13,13 @@
                     hx-indicator="#loading-spinner">
                 <span class="material-icons text-sm">refresh</span> Atualizar Lista
             </button>
+        {% else %}
+            <button type="button" class="btn btn-sm btn-ghost gap-2"
+                    hx-post="{% url 'stock:refresh_sefaz_cache' %}"
+                    hx-swap="none"
+                    hx-indicator="#loading-spinner">
+                <span class="material-icons text-sm">refresh</span> Atualizar Lista
+            </button>
         {% endif %}
     </div>
 
