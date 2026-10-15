@@ -47,6 +47,12 @@ class CustomerImportAdapter(BaseRowImportAdapter):
                 ImportField("is_active", "Ativo", field_type=FieldType.BOOLEAN),
                 ImportField("accepts_messages", "Receber mensagens", field_type=FieldType.BOOLEAN),
             ),
+            example_headers=("Tipo (PF/PJ)", "Nome", "CPF/CNPJ", "E-mail", "Telefone", "Cidade", "Estado (UF)"),
+            example_rows=(
+                ("PF", "Maria Silva", "529.982.247-25", "maria@email.com", "11999998888", "São Paulo", "SP"),
+                ("PJ", "Auto Peças Ltda", "11.444.777/0001-61", "contato@auto.com", "1133334444", "São Paulo", "SP"),
+            ),
+            example_notes="Uma linha por cliente. CPF/CNPJ não pode repetir na mesma oficina.",
         )
 
     def create_row(

@@ -81,11 +81,36 @@ class ProductImportAdapter(BaseRowImportAdapter):
                     ImportField("stock_restock", "Estoque reposição", field_type=FieldType.INTEGER),
                 ]
             )
+        example_headers = (
+            "Código",
+            "Produto",
+            "Unidade",
+            "Grupo",
+            "Valor de custo",
+            "Valor de venda",
+            "Descrição",
+            "Marca",
+        )
+        example_rows: tuple[tuple[str, ...], ...] = (
+            ("P-001", "FILTRO DE ÓLEO", "UND", "Filtros", "25,00", "45,00", "Filtro original", "Bosch"),
+            ("P-002", "PASTILHA DIANTEIRA", "JG", "Freios", "80,00", "149,90", "", "Cobreq"),
+        )
+        example_notes = "Uma linha por produto. O código deve ser único na oficina."
+        if options.get("include_stock"):
+            example_headers = example_headers + ("Quantidade em estoque", "Estoque mínimo")
+            example_rows = (
+                ("P-001", "FILTRO DE ÓLEO", "UND", "Filtros", "25,00", "45,00", "Filtro original", "Bosch", "10", "2"),
+                ("P-002", "PASTILHA DIANTEIRA", "JG", "Freios", "80,00", "149,90", "", "Cobreq", "4", "1"),
+            )
+            example_notes = "Com estoque: informe a quantidade atual (e opcionalmente mínimo/reposição)."
         return ImportEntitySchema(
             entity_key=self.entity_key,
             label=self.label,
             description="Importa produtos; opcionalmente ajusta estoque.",
             fields=tuple(fields),
+            example_headers=example_headers,
+            example_rows=example_rows,
+            example_notes=example_notes,
         )
 
     def create_row(
@@ -202,6 +227,12 @@ class ServiceImportAdapter(BaseRowImportAdapter):
                 ImportField("is_third_party", "Serviço de terceiro", field_type=FieldType.BOOLEAN),
                 ImportField("is_active", "Ativo", field_type=FieldType.BOOLEAN),
             ),
+            example_headers=("Serviço", "Duração", "Valor de venda", "Descrição", "Custo do tempo"),
+            example_rows=(
+                ("Troca de óleo", "01:00", "150,00", "Inclui filtro", "40,00"),
+                ("Alinhamento", "00:30", "80,00", "", "20,00"),
+            ),
+            example_notes="Duração em HH:MM (segundos são ignorados). Nome do serviço deve ser único na oficina.",
         )
 
     def create_row(
@@ -254,7 +285,10 @@ class KitImportAdapter:
         return ImportEntitySchema(
             entity_key=self.entity_key,
             label=self.label,
-            description="Várias linhas com o mesmo nome de kit formam a composição.",
+            description=(
+                "Aceita planilha flat (uma linha por item) ou o relatório hierárquico Ultracar "
+                "(bloco do kit + subcabeçalho + itens). Várias linhas com o mesmo nome formam um kit."
+            ),
             fields=(
                 ImportField("name", "Nome do kit", required=True, field_type=FieldType.TEXT),
                 ImportField("description", "Descrição", field_type=FieldType.TEXT),
@@ -264,11 +298,42 @@ class KitImportAdapter:
                     required=True,
                     field_type=FieldType.CHOICE,
                     choices=(("product", "Produto"), ("service", "Serviço")),
-                    help_text="produto ou serviço",
+                    help_text="Produto/Peça ou Serviço",
                 ),
-                ImportField("item_ref", "Código ou nome do item", required=True, help_text="Código do produto ou nome do serviço"),
-                ImportField("quantity", "Quantidade", required=True, field_type=FieldType.INTEGER),
+                ImportField(
+                    "item_ref",
+                    "Código ou nome do item",
+                    required=True,
+                    help_text="Código do produto (preferencial) ou nome do serviço",
+                ),
+                ImportField(
+                    "item_name",
+                    "Nome do item",
+                    field_type=FieldType.TEXT,
+                    help_text="Opcional: descrição do item para localizar serviço quando o código não for produto",
+                ),
+                ImportField("quantity", "Quantidade", required=True, field_type=FieldType.INTEGER, help_text="Se 0 ou vazio, usa 1"),
                 ImportField("is_active", "Ativo", field_type=FieldType.BOOLEAN),
+            ),
+            example_headers=(
+                "Código Interno",
+                "Nome",
+                "Descrição",
+                "Quantidade de Itens",
+                "",
+                "",
+                "",
+            ),
+            example_rows=(
+                ("25", "KIT FREIO DIANTEIRO", "Kit completo de freio", "2", "", "", ""),
+                ("", "Código Interno", "Descrição", "Custo", "Venda", "Quantidade", "Tipo"),
+                ("", "P-001", "PASTILHA DIANTEIRA", "0,00", "0,00", "1", "Peça"),
+                ("", "168", "TROCA DE PASTILHA DIANTEIRA", "0,00", "0,00", "1", "Peça"),
+            ),
+            example_notes=(
+                "Formato do relatório de kits (Ultracar): cada kit começa com código na primeira coluna; "
+                "em seguida vem um subcabeçalho e as linhas de itens (Peça/Produto ou Serviço). "
+                "Os produtos/serviços precisam já existir na oficina. Quantidade 0 vira 1."
             ),
         )
 
@@ -341,38 +406,79 @@ class KitImportAdapter:
         )
 
         for row_number, mapped in rows:
-            item_type = str(mapped.get("item_type") or "").strip().lower()
+            item_type = str(mapped.get("item_type") or "product").strip().lower()
             item_ref = str(mapped.get("item_ref") or "").strip()
+            item_name = str(mapped.get("item_name") or "").strip()
             quantity = mapped.get("quantity")
-            if quantity is None or int(quantity) < 1:
-                raise ImportRowError(f"Linha {row_number}: quantidade inválida.")
-            qty = int(quantity)
+            try:
+                qty = int(quantity) if quantity is not None else 1
+            except (TypeError, ValueError) as exc:
+                raise ImportRowError(f"Linha {row_number}: quantidade inválida.") from exc
+            if qty < 1:
+                qty = 1
 
-            if item_type in {"product", "produto"}:
-                product = Product.objects.filter(workshop=workshop).filter(Q(code__iexact=item_ref) | Q(name__iexact=item_ref)).first()
-                if product is None:
-                    raise ImportRowError(f"Linha {row_number}: produto '{item_ref}' não encontrado.")
-                KitProduct.objects.get_or_create(kit=kit, product=product, defaults={"quantity": qty})
-            elif item_type in {"service", "servico", "serviço"}:
-                service = Service.objects.filter(workshop=workshop, name__iexact=item_ref).first()
-                if service is None:
-                    raise ImportRowError(f"Linha {row_number}: serviço '{item_ref}' não encontrado.")
-                KitService.objects.get_or_create(
-                    kit=kit,
-                    service=service,
-                    defaults={
-                        "quantity": qty,
-                        "duration": service.duration or timedelta(),
-                        "selling_price": service.selling_price,
-                        "duration_selling_price": service.selling_price,
-                        "cost_price": service.suggested_cost,
-                    },
+            prefer_service = item_type in {"service", "servico", "serviço"}
+
+            def _find_product() -> Product | None:
+                if not item_ref and not item_name:
+                    return None
+                return (
+                    Product.objects.filter(workshop=workshop)
+                    .filter(Q(code__iexact=item_ref) | Q(name__iexact=item_ref) | Q(name__iexact=item_name))
+                    .first()
                 )
-            else:
-                raise ImportRowError(f"Linha {row_number}: tipo de item inválido '{item_type}'.")
+
+            if prefer_service:
+                service = _resolve_service(workshop, item_ref=item_ref, item_name=item_name)
+                if service is not None:
+                    _attach_kit_service(kit, service, qty)
+                    continue
+                product = _find_product()
+                if product is not None:
+                    KitProduct.objects.get_or_create(kit=kit, product=product, defaults={"quantity": qty})
+                    continue
+                raise ImportRowError(f"Linha {row_number}: serviço '{item_name or item_ref}' não encontrado.")
+
+            product = _find_product()
+            if product is not None:
+                KitProduct.objects.get_or_create(kit=kit, product=product, defaults={"quantity": qty})
+                continue
+            # Relatório Ultracar marca itens como Peça; tenta serviço pela descrição/nome
+            service = _resolve_service(workshop, item_ref=item_ref, item_name=item_name)
+            if service is not None:
+                _attach_kit_service(kit, service, qty)
+                continue
+            raise ImportRowError(
+                f"Linha {row_number}: produto '{item_ref or item_name}' não encontrado (nem serviço com esse nome)."
+            )
 
         kit.recalculate_total_price()
         return int(kit.pk)
+
+
+def _resolve_service(workshop: Workshop, *, item_ref: str, item_name: str) -> Service | None:
+    for candidate in (item_name, item_ref):
+        cleaned = str(candidate or "").strip()
+        if not cleaned:
+            continue
+        service = Service.objects.filter(workshop=workshop, name__iexact=cleaned).first()
+        if service is not None:
+            return service
+    return None
+
+
+def _attach_kit_service(kit: Kit, service: Service, qty: int) -> None:
+    KitService.objects.get_or_create(
+        kit=kit,
+        service=service,
+        defaults={
+            "quantity": qty,
+            "duration": service.duration or timedelta(),
+            "selling_price": service.selling_price,
+            "duration_selling_price": service.selling_price,
+            "cost_price": service.suggested_cost,
+        },
+    )
 
 
 def register_catalog_import_adapters() -> None:

@@ -36,6 +36,9 @@ class ImportEntitySchema:
     label: str
     fields: tuple[ImportField, ...]
     description: str = ""
+    example_headers: tuple[str, ...] = ()
+    example_rows: tuple[tuple[str, ...], ...] = ()
+    example_notes: str = ""
 
     def field_by_key(self, key: str) -> ImportField | None:
         for import_field in self.fields:

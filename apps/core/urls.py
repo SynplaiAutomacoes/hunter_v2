@@ -12,6 +12,7 @@ urlpatterns = [
     path("import/history/<int:batch_id>/rollback/", data_import_views.DataImportRollbackModalView.as_view(), name="data_import_rollback_modal"),
     path("import/history/<int:batch_id>/rollback/execute/", data_import_views.DataImportRollbackExecuteView.as_view(), name="data_import_rollback_execute"),
     path("import/<str:entity>/", data_import_views.DataImportModalView.as_view(), name="data_import_modal"),
+    path("import/<str:entity>/example/", data_import_views.DataImportExampleModalView.as_view(), name="data_import_example"),
     path("import/<str:entity>/upload/", data_import_views.DataImportUploadView.as_view(), name="data_import_upload"),
     path("import/<str:entity>/confirm/", data_import_views.DataImportConfirmView.as_view(), name="data_import_confirm"),
     path("import/<str:entity>/execute/", data_import_views.DataImportExecuteView.as_view(), name="data_import_execute"),
