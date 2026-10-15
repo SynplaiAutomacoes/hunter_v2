@@ -1,0 +1,15 @@
+<div class="modal-box w-11/12 max-w-4xl bg-base-100">
+    <button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="yard_modal.close()">✕</button>
+    <h3 class="font-bold text-2xl mb-1">Configurar Pátio</h3>
+    <p class="text-sm text-base-content/60 mb-6">Crie colunas por status de Orçamento ou Ordem de Serviço. Status com coluna própria saem automaticamente da coluna “Todos”.</p>
+
+    <div id="yard-config-columns">
+        {% include 'yard/partials/config_columns_list.html' %}
+    </div>
+
+    <div class="divider">Nova coluna</div>
+
+    <div id="yard-config-form-wrapper">
+        {% include 'yard/partials/config_column_form.html' with form=form column=None %}
+    </div>
+</div>

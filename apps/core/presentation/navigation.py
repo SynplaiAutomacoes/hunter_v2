@@ -125,6 +125,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Gerenciar Sistema", "view_name": "workshops:system_manage", "visible_if": _is_system_admin},
         ),
     },
+    {"label": "Pátio da Oficina", "view_name": "yard:board", "favoritable": False},
 )
 
 EXTRA_FAVORITABLE_PAGE_DEFINITIONS: tuple[dict[str, Any], ...] = (
