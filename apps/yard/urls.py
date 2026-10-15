@@ -11,4 +11,6 @@ urlpatterns = [
     path("colunas/nova/", views.YardColumnCreateView.as_view(), name="column_create"),
     path("colunas/<int:pk>/editar/", views.YardColumnUpdateView.as_view(), name="column_update"),
     path("colunas/<int:pk>/excluir/", views.YardColumnDeleteView.as_view(), name="column_delete"),
+    path("colunas/<int:pk>/mover/", views.YardColumnMoveView.as_view(), name="column_move"),
+    path("colunas/reordenar/", views.YardColumnsReorderView.as_view(), name="columns_reorder"),
 ]

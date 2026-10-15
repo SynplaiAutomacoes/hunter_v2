@@ -1,22 +1,8 @@
+{% if board|length > 6 %}
 <div class="flex gap-4 overflow-x-auto pb-4 items-start">
     {% for col in board %}
     <div class="card bg-base-100 shadow-xl shrink-0 w-80 max-w-[85vw]">
-        <div class="px-4 pt-4 pb-3 border-b-4" style="border-color: {{ col.color }};">
-            <div class="flex items-center justify-between gap-2">
-                <h2 class="text-lg font-bold text-base-content">{{ col.title }}</h2>
-                <span class="badge font-bold text-white" style="background-color: {{ col.color }}; border-color: {{ col.color }};">{{ col.count }}</span>
-            </div>
-        </div>
-        <div class="p-3 space-y-3 max-h-[70vh] overflow-y-auto">
-            {% for card in col.cards %}
-                {% include 'yard/partials/card.html' with card=card %}
-            {% empty %}
-            <div class="text-center text-sm text-base-content/50 py-8">
-                <span class="material-icons text-4xl mb-2">inbox</span>
-                <p>Nenhum item nesta coluna</p>
-            </div>
-            {% endfor %}
-        </div>
+        {% include 'yard/partials/column_body.html' with col=col %}
     </div>
     {% empty %}
     <div class="alert alert-info w-full">
@@ -25,3 +11,17 @@
     </div>
     {% endfor %}
 </div>
+{% else %}
+<div class="grid gap-4 items-start" style="grid-template-columns: repeat({{ board|length|default:1 }}, minmax(0, 1fr));">
+    {% for col in board %}
+    <div class="card bg-base-100 shadow-xl min-w-0">
+        {% include 'yard/partials/column_body.html' with col=col %}
+    </div>
+    {% empty %}
+    <div class="alert alert-info w-full">
+        <span class="material-icons">info</span>
+        <span>Nenhuma coluna configurada. Use o botão Configurar Pátio para criar colunas.</span>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}

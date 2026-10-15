@@ -147,7 +147,7 @@ class YardBoardDataTests(TestCase):
         card = board[0]["cards"][0]
         self.assertIsNone(card["photo_url"])
         self.assertEqual(card["expected_label"], "Nov 14 - 19:56")
-        self.assertEqual(card["responsible"], "—")
+        self.assertEqual(card["responsibles"], ["—"])
         self.assertEqual(card["brand"], "Jeep")
 
     def test_card_includes_principal_photo(self) -> None:

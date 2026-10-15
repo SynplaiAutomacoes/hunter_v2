@@ -63,26 +63,32 @@ def _principal_image_url(*, budget: Budget | None) -> str | None:
     return reverse("budget:image_view", kwargs={"pk": images[0].pk})
 
 
-def _responsible_name(*, kind: str, budget: Budget, workorder: WorkOrder | None = None) -> str:
+def _responsible_names(*, kind: str, budget: Budget, workorder: WorkOrder | None = None) -> list[str]:
     if kind == "budget":
+        try:
+            first_collaborator = budget.collaborators.order_by("pk").first()
+        except Exception:
+            first_collaborator = None
+        if first_collaborator is not None:
+            return [getattr(first_collaborator, "name", "—") or "—"]
         analyst = getattr(budget, "cost_estimator", None)
         if analyst is None:
-            return "—"
+            return ["—"]
         full_name = analyst.get_full_name() if callable(getattr(analyst, "get_full_name", None)) else ""
-        return full_name.strip() or getattr(analyst, "username", "—")
+        return [full_name.strip() or getattr(analyst, "username", "—")]
     assert workorder is not None
     try:
         collaborators = list(workorder.collaborators.all())
     except Exception:
         collaborators = []
     productive = [collaborator for collaborator in collaborators if getattr(collaborator, "collaborator_type", None) == WorkshopCollaborator.CollaboratorType.PRODUCTIVE]
-    chosen = (productive or collaborators or [None])[0]
-    if chosen is not None:
-        return getattr(chosen, "name", "—") or "—"
+    names = [getattr(collaborator, "name", None) or "—" for collaborator in (productive or collaborators)]
+    if names:
+        return names
     previous_mechanic = getattr(workorder, "previous_mechanic", None)
     if previous_mechanic is not None:
-        return getattr(previous_mechanic, "name", "—") or "—"
-    return "—"
+        return [getattr(previous_mechanic, "name", "—") or "—"]
+    return ["—"]
 
 
 def _expected_at(*, budget: Budget) -> Any:
@@ -109,7 +115,7 @@ def _build_budget_card(*, budget: Budget, color: str, show_status: bool) -> dict
         "customer": getattr(customer, "name", None) or "—",
         "status_label": budget.get_status_display() if show_status else "",
         "photo_url": _principal_image_url(budget=budget),
-        "responsible": _responsible_name(kind="budget", budget=budget),
+        "responsibles": _responsible_names(kind="budget", budget=budget),
         "expected_label": _format_expected(expected_at),
         "color": color,
         "detail_url": reverse("budget:budget_update", kwargs={"pk": budget.pk}),
@@ -130,7 +136,7 @@ def _build_workorder_card(*, workorder: WorkOrder, color: str, show_status: bool
         "customer": getattr(customer, "name", None) or "—",
         "status_label": workorder.get_status_display() if show_status else "",
         "photo_url": _principal_image_url(budget=budget),
-        "responsible": _responsible_name(kind="workorder", budget=budget, workorder=workorder),
+        "responsibles": _responsible_names(kind="workorder", budget=budget, workorder=workorder),
         "expected_label": _format_expected(expected_at),
         "color": color,
         "detail_url": reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk}),
@@ -141,7 +147,10 @@ def _budget_queryset(*, workshop, column: YardColumn, covered_statuses: set[str]
     queryset = (
         Budget.objects.filter(workshop=workshop, entry_date__gte=start, entry_date__lte=end)
         .select_related("vehicle", "customer", "cost_estimator")
-        .prefetch_related(Prefetch("budget_image", queryset=BudgetImage.objects.filter(image_type=BudgetImageType.PRINCIPAL), to_attr="_yard_principal_images"))
+        .prefetch_related(
+            Prefetch("budget_image", queryset=BudgetImage.objects.filter(image_type=BudgetImageType.PRINCIPAL), to_attr="_yard_principal_images"),
+            "collaborators",
+        )
         .order_by("-entry_date", "-id")
     )
     if column.status == STATUS_ALL:

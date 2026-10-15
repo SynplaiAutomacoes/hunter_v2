@@ -1,28 +1,64 @@
 {% extends 'crud/page.html' %}
 
 {% block crud_content %}
-<div class="flex items-center justify-between gap-4 w-full">
+<style>
+    body.yard-fullscreen nav,
+    body.yard-fullscreen #yard-page-header {
+        display: none;
+    }
+    body.yard-fullscreen #yard-board {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        overflow: auto;
+        padding: 1rem;
+        background-color: var(--color-base-200, #f3f4f6);
+    }
+    body.yard-fullscreen #yard-exit-fullscreen {
+        display: inline-flex;
+    }
+    #yard-exit-fullscreen {
+        display: none;
+    }
+</style>
+<div id="yard-page-header" class="flex items-center justify-between gap-4 w-full">
     <div>
         <h1 class="text-3xl font-bold text-base-content">Pátio da Oficina</h1>
         <p class="text-base-content/70 mt-1">Acompanhe orçamentos e ordens de serviço em tempo real</p>
     </div>
-    {% if can_edit %}
-    <button
-        type="button"
-        class="btn btn-primary"
-        hx-get="{% url 'yard:config_modal' %}"
-        hx-target="#yard-modal-container"
-        hx-swap="innerHTML"
-        onclick="yard_modal.showModal()">
-        <span class="material-icons" style="vertical-align: middle;">settings</span> Configurar Pátio
-    </button>
-    {% endif %}
+    <div class="flex items-center gap-2">
+        <button
+            type="button"
+            class="btn btn-outline"
+            onclick="document.body.classList.add('yard-fullscreen')">
+            <span class="material-icons" style="vertical-align: middle;">fullscreen</span> Tela Cheia
+        </button>
+        {% if can_edit %}
+        <button
+            type="button"
+            class="btn btn-primary"
+            hx-get="{% url 'yard:config_modal' %}"
+            hx-target="#yard-modal-container"
+            hx-swap="innerHTML"
+            onclick="yard_modal.showModal()">
+            <span class="material-icons" style="vertical-align: middle;">settings</span> Configurar Pátio
+        </button>
+        {% endif %}
+    </div>
 </div>
+
+<button
+    type="button"
+    id="yard-exit-fullscreen"
+    class="btn btn-primary fixed bottom-4 right-4 z-[70] shadow-xl"
+    onclick="document.body.classList.remove('yard-fullscreen')">
+    <span class="material-icons" style="vertical-align: middle;">fullscreen_exit</span> Sair da Tela Cheia
+</button>
 
 <div
     id="yard-board"
     hx-get="{% url 'yard:board_content' %}"
-    hx-trigger="yard-board-refresh from:body"
+    hx-trigger="yard-board-refresh from:body, every 35s"
     hx-swap="innerHTML"
     hx-target="this"
 >
@@ -43,6 +79,11 @@
             const modal = document.getElementById('yard_modal');
             if (modal && modal.open) {
                 modal.close();
+            }
+        });
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                document.body.classList.remove('yard-fullscreen');
             }
         });
     })();
