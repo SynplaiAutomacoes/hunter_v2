@@ -64,6 +64,7 @@ class SendTransactionalEmailTests(SimpleTestCase):
             html="<p>Olá</p>",
             from_email="Hunter <noreply@hunter.test>",
         )
+        # gateway normalizes string -> list before HTTP
 
     @override_settings(SYNPLAISIGN_API_KEY="sk_live_test", DEFAULT_FROM_EMAIL="")
     @patch("apps.core.infrastructure.services.email.synplaisign_send_mail")

@@ -32,7 +32,7 @@ class SynplaiSignMailGatewayTests(SimpleTestCase):
         self.assertEqual(
             post.call_args.kwargs["json"],
             {
-                "to": "cliente@oficina.com",
+                "to": ["cliente@oficina.com"],
                 "subject": "Orçamento #938",
                 "html": "<p>Segue o orçamento.</p>",
                 "from": "Oficina <noreply@oficina.com>",
