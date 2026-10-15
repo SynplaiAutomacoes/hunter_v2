@@ -15,6 +15,7 @@ class EmailConfigurationError(Exception):
 @dataclass(frozen=True)
 class SendEmailResponse:
     status: str
+    message_id: str | None = None
 
 
 class IEmailService(ABC):

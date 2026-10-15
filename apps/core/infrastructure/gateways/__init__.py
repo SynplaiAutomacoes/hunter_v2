@@ -17,6 +17,7 @@ from apps.core.infrastructure.gateways.synplaisign import (
     list_webhooks,
     register_with_api_key,
     send_envelope,
+    send_mail,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "list_webhooks",
     "register_with_api_key",
     "send_envelope",
+    "send_mail",
 ]

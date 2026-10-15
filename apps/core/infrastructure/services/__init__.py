@@ -4,10 +4,11 @@ from apps.core.infrastructure.services.dashboard_query_service import (
     get_financial_indicator_data,
 )
 from apps.core.infrastructure.services.email import (
-    DjangoSmtpEmailService,
     EmailServiceFactory,
+    SynplaiSignEmailService,
     get_email_service,
     mask_email,
+    send_transactional_email,
     send_verification_code_email,
 )
 from apps.core.infrastructure.services.fiscal.service import WebmaniaFiscalService
@@ -61,9 +62,10 @@ __all__ = [
     "WhatsAppServiceFactory",
     "get_whatsapp_service",
     # Email
-    "DjangoSmtpEmailService",
     "EmailServiceFactory",
+    "SynplaiSignEmailService",
     "get_email_service",
     "mask_email",
+    "send_transactional_email",
     "send_verification_code_email",
 ]

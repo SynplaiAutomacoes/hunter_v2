@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import html
 import logging
+from typing import Sequence
 
 from django.conf import settings
-from django.core.mail import send_mail
 
 from apps.core.domain.contracts.email import (
     EmailConfigurationError,
@@ -11,37 +12,82 @@ from apps.core.domain.contracts.email import (
     IEmailService,
     SendEmailResponse,
 )
+from apps.core.infrastructure.gateways.synplaisign import SynplaiSignGatewayError, send_mail as synplaisign_send_mail
 
 logger = logging.getLogger(__name__)
 
 
-class DjangoSmtpEmailService(IEmailService):
-    def __init__(self, from_email: str) -> None:
-        normalized_from_email = str(from_email or "").strip()
-        if not normalized_from_email:
-            raise EmailConfigurationError("Configure DEFAULT_FROM_EMAIL para enviar e-mails.")
-        self._from_email = normalized_from_email
+def _system_mail_api_key() -> str:
+    api_key = str(getattr(settings, "SYNPLAISIGN_API_KEY", "") or "").strip()
+    if api_key:
+        return api_key
+    return str(getattr(settings, "SYNPLAISIGN_MASTER_KEY", "") or "").strip()
 
+
+def _default_from_email() -> str:
+    return str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip()
+
+
+def plain_text_to_html(body: str) -> str:
+    normalized = str(body or "").strip()
+    if not normalized:
+        return ""
+    paragraphs = normalized.split("\n\n")
+    rendered: list[str] = []
+    for paragraph in paragraphs:
+        text = html.escape(paragraph.strip()).replace("\n", "<br>")
+        if text:
+            rendered.append(f"<p>{text}</p>")
+    return "".join(rendered) or f"<p>{html.escape(normalized)}</p>"
+
+
+def send_transactional_email(
+    *,
+    to: str | Sequence[str],
+    subject: str,
+    html_body: str,
+    from_email: str | None = None,
+    api_key: str | None = None,
+) -> SendEmailResponse:
+    """Central transactional e-mail sender via SynplaiSign POST /mail (Resend).
+
+    Do not use this for signature envelope delivery — that remains POST /envelopes/:id/send.
+    """
+    resolved_api_key = str(api_key or "").strip() or _system_mail_api_key()
+    if not resolved_api_key:
+        raise EmailConfigurationError(
+            "Configure SYNPLAISIGN_API_KEY ou SYNPLAISIGN_MASTER_KEY para enviar e-mails."
+        )
+
+    resolved_from = str(from_email or "").strip() or _default_from_email() or None
+    try:
+        result = synplaisign_send_mail(
+            api_key=resolved_api_key,
+            to=list(to) if not isinstance(to, str) else to,
+            subject=subject,
+            html=html_body,
+            from_email=resolved_from,
+        )
+    except SynplaiSignGatewayError as exc:
+        logger.error("email_service_send_error", extra={"subject": subject, "error": str(exc)})
+        raise EmailServiceError(f"Falha ao enviar e-mail: {exc}") from exc
+
+    message_id = result.get("id")
+    if result.get("ok") is False:
+        raise EmailServiceError("SynplaiSign recusou o envio do e-mail.")
+
+    return SendEmailResponse(
+        status="sent",
+        message_id=str(message_id) if message_id not in (None, "") else None,
+    )
+
+
+class SynplaiSignEmailService(IEmailService):
     def send(self, to_email: str, subject: str, body: str) -> SendEmailResponse:
         if not to_email or not subject or not body:
             raise EmailServiceError("Destinatário, assunto e corpo são obrigatórios.")
-        try:
-            sent = send_mail(
-                subject=subject,
-                message=body,
-                from_email=self._from_email,
-                recipient_list=[to_email],
-                fail_silently=False,
-            )
-        except Exception as e:
-            logger.error("email_service_send_error", extra={"to": to_email, "subject": subject, "error": str(e)})
-            raise EmailServiceError(f"Falha ao enviar e-mail: {e}") from e
-
-        if not sent:
-            logger.warning("email_service_send_ignored", extra={"to": to_email, "subject": subject})
-            return SendEmailResponse(status="ignored")
-
-        return SendEmailResponse(status="sent")
+        html_body = plain_text_to_html(body)
+        return send_transactional_email(to=to_email, subject=subject, html_body=html_body)
 
 
 class EmailServiceFactory:
@@ -50,14 +96,11 @@ class EmailServiceFactory:
     @classmethod
     def get_service(cls) -> IEmailService:
         if cls._instance is None:
-            from_email = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip()
-            if not from_email:
-                from_email = str(getattr(settings, "EMAIL_HOST_USER", "") or "").strip()
-            if not from_email:
+            if not _system_mail_api_key():
                 raise EmailConfigurationError(
-                    "Configure DEFAULT_FROM_EMAIL (ou EMAIL_HOST_USER) nas settings do Django."
+                    "Configure SYNPLAISIGN_API_KEY ou SYNPLAISIGN_MASTER_KEY para enviar e-mails."
                 )
-            cls._instance = DjangoSmtpEmailService(from_email=from_email)
+            cls._instance = SynplaiSignEmailService()
         return cls._instance
 
     @classmethod
@@ -127,7 +170,7 @@ def send_verification_code_email(
     recipient_name: str = "",
     user_id: int | None = None,
 ) -> bool:
-    """Send a transactional verification code e-mail. Same path used by password reset / login."""
+    """Send a transactional verification code e-mail via SynplaiSign /mail."""
     normalized = str(to_email or "").strip().lower()
     if not normalized:
         logger.warning("user_email_missing", extra={"user_id": user_id, "tipo": tipo})
