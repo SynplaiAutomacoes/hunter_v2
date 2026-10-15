@@ -211,6 +211,83 @@ def retrieve_product_plan(*, product_id: str) -> dict[str, Any]:
     return _plan_payload_from_price_and_product(price=price_data, product=product_data)
 
 
+def _active_promotion_code_id(code: str) -> str:
+    try:
+        result = stripe.PromotionCode.list(code=code, active=True, limit=1)
+    except stripe.StripeError as exc:
+        logger.exception("Falha ao consultar promotion code Stripe")
+        raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
+
+    data = result.data if hasattr(result, "data") else (result.get("data") if isinstance(result, dict) else [])
+    if not data:
+        return ""
+    first = data[0]
+    promo_id = getattr(first, "id", None) or (first.get("id") if isinstance(first, dict) else None)
+    return str(promo_id or "")
+
+
+def _active_coupon_id(code: str) -> str:
+    """Find an active coupon by id or by its name (user-facing code).
+
+    Coupons created directly in the Stripe Dashboard have no promotion code,
+    so we also accept the coupon id/name as the code typed by the customer.
+    """
+    coupon = None
+    try:
+        coupon = stripe.Coupon.retrieve(code)
+    except stripe.InvalidRequestError:
+        coupon = None
+    except stripe.StripeError as exc:
+        logger.warning("Falha ao consultar cupom por id %s: %s", code, exc)
+        coupon = None
+    if coupon is not None:
+        data = _stripe_mapping(coupon)
+        if data.get("valid", True) and data.get("id"):
+            return str(data.get("id"))
+
+    normalized = code.strip().casefold()
+    try:
+        listed = stripe.Coupon.list(limit=100)
+    except stripe.StripeError as exc:
+        logger.exception("Falha ao listar cupons Stripe")
+        raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
+
+    items = listed.data if hasattr(listed, "data") else (listed.get("data") if isinstance(listed, dict) else [])
+    for item in items or []:
+        data = _stripe_mapping(item)
+        if data.get("valid", True) is False:
+            continue
+        coupon_id = str(data.get("id") or "")
+        name = str(data.get("name") or "").strip().casefold()
+        if coupon_id and (coupon_id.casefold() == normalized or name == normalized):
+            return coupon_id
+    return ""
+
+
+def resolve_discount(promotion_code: str) -> dict[str, str]:
+    """Resolve a user-facing code into a Stripe discount entry.
+
+    Accepts an active promotion code first, then falls back to an active coupon
+    (matched by id or name) so coupons created without a promotion code work.
+    """
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    normalized = promotion_code.strip()
+    if not normalized:
+        raise BillingServiceError("Informe um cupom válido.")
+
+    promo_id = _active_promotion_code_id(normalized)
+    if promo_id:
+        return {"promotion_code": promo_id}
+
+    coupon_id = _active_coupon_id(normalized)
+    if coupon_id:
+        return {"coupon": coupon_id}
+
+    raise BillingServiceError("Cupom inválido ou expirado.")
+
+
 def resolve_promotion_code(code: str) -> str:
     """Return Stripe promotion_code id for an active user-facing code."""
     _configure_stripe()
@@ -219,20 +296,10 @@ def resolve_promotion_code(code: str) -> str:
     normalized = code.strip()
     if not normalized:
         raise BillingServiceError("Informe um cupom válido.")
-    try:
-        result = stripe.PromotionCode.list(code=normalized, active=True, limit=1)
-    except stripe.StripeError as exc:
-        logger.exception("Falha ao consultar cupom Stripe")
-        raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
-
-    data = result.data if hasattr(result, "data") else (result.get("data") if isinstance(result, dict) else [])
-    if not data:
-        raise BillingServiceError("Cupom inválido ou expirado.")
-    first = data[0]
-    promo_id = getattr(first, "id", None) or (first.get("id") if isinstance(first, dict) else None)
+    promo_id = _active_promotion_code_id(normalized)
     if not promo_id:
         raise BillingServiceError("Cupom inválido ou expirado.")
-    return str(promo_id)
+    return promo_id
 
 
 def _payments_client_secret(payments: dict[str, Any]) -> str:
@@ -293,8 +360,7 @@ def create_incomplete_subscription(
     metadata = {"pending_signup_id": str(pending_signup_id), "plan": plan}
     discounts: list[dict[str, str]] = []
     if promotion_code.strip():
-        promo_id = resolve_promotion_code(promotion_code)
-        discounts.append({"promotion_code": promo_id})
+        discounts.append(resolve_discount(promotion_code))
 
     try:
         customer = stripe.Customer.create(
