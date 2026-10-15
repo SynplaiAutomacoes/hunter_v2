@@ -1,0 +1,65 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}Importação #{{ batch.pk }}{% endblock %}
+{% block crud_subtitle %}{{ entity_label }} · {{ batch.filename|default:"sem arquivo" }} · {{ batch.criado_em|date:"d/m/Y H:i" }}{% endblock %}
+
+{% block crud_header_actions %}
+    <div class="flex items-center gap-2">
+        <a href="{% url 'core:data_import_history' %}?entity={{ batch.entity_key }}" class="btn btn-ghost btn-sm">Voltar</a>
+        {% if can_rollback %}
+            <button
+                type="button"
+                class="btn btn-warning btn-sm gap-2"
+                hx-get="{% url 'core:data_import_rollback_modal' batch_id=batch.pk %}"
+                hx-target="#modal-container"
+                hx-swap="innerHTML"
+                hx-indicator="this"
+                hx-disabled-elt="this"
+            >
+                <span class="htmx-btn-spinner" aria-hidden="true">
+                    <span class="loading loading-spinner loading-xs"></span>
+                </span>
+                Desfazer
+            </button>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block crud_table %}
+    <div class="mb-4 text-sm">
+        <p><strong>Status:</strong> {{ batch.get_status_display }}</p>
+        <p><strong>Criados:</strong> {{ batch.success_count }} · <strong>Erros:</strong> {{ batch.error_count }}</p>
+        {% if batch.rolled_back_at %}
+            <p><strong>Desfeito em:</strong> {{ batch.rolled_back_at|date:"d/m/Y H:i" }}</p>
+        {% endif %}
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Linha</th>
+                    <th>ID</th>
+                    <th>Sucesso</th>
+                    <th>Situação</th>
+                    <th>Detalhe</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                    <tr>
+                        <td>{{ item.row_number }}</td>
+                        <td>{{ item.object_id|default:"—" }}</td>
+                        <td>{% if item.success %}Sim{% else %}Não{% endif %}</td>
+                        <td>{{ item.get_rollback_status_display }}</td>
+                        <td class="max-w-md truncate" title="{{ item.rollback_detail|default:item.message }}">
+                            {{ item.rollback_detail|default:item.message }}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="5" class="text-center py-6">Sem itens.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

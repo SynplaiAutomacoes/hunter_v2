@@ -1,0 +1,87 @@
+<dialog id="data-import-modal" class="modal" open>
+    <div class="modal-box w-11/12 max-w-2xl bg-base-100 shadow-2xl border border-base-300">
+        <div class="flex items-start justify-between gap-3 mb-2">
+            <h3 class="font-bold text-xl flex items-center gap-2">
+                <span class="material-icons">upload_file</span>
+                Importar {{ adapter.label }}
+            </h3>
+            <button
+                type="button"
+                class="btn btn-ghost btn-sm btn-square"
+                title="Ver formato esperado da planilha"
+                aria-label="Ver formato esperado da planilha"
+                hx-get="{% url 'core:data_import_example' entity=entity_key %}"
+                hx-target="#import-example-modal-root"
+                hx-swap="innerHTML"
+                hx-include="[name='include_stock']"
+            >
+                <span class="material-icons text-base">visibility</span>
+            </button>
+        </div>
+        <p class="text-sm text-base-content/70 mb-4">
+            Envie um arquivo <strong>.xlsx</strong>, <strong>.xls</strong> ou <strong>.csv</strong> para mapear as colunas e criar registros nesta oficina.
+            Use o ícone de olho para ver um exemplo do formato esperado.
+        </p>
+
+        {% if error %}
+            <div class="alert alert-error mb-4">
+                <span>{{ error }}</span>
+            </div>
+        {% endif %}
+
+        <form
+            hx-post="{% url 'core:data_import_upload' entity=entity_key %}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+            hx-encoding="multipart/form-data"
+            hx-indicator="find button[type=submit]"
+            hx-disabled-elt="find button[type=submit]"
+            class="space-y-4"
+        >
+            {% csrf_token %}
+
+            <label class="form-control w-full">
+                <div class="label">
+                    <span class="label-text">Arquivo</span>
+                </div>
+                <input
+                    type="file"
+                    name="file"
+                    accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    class="file-input file-input-bordered w-full"
+                    required
+                >
+            </label>
+
+            {% if show_stock_toggle %}
+                <label class="label cursor-pointer justify-start gap-3">
+                    <input
+                        type="checkbox"
+                        name="include_stock"
+                        value="1"
+                        class="checkbox checkbox-primary"
+                        {% if include_stock %}checked{% endif %}
+                    >
+                    <span class="label-text">Importar estoque junto com o produto</span>
+                </label>
+                <p class="text-xs text-base-content/60 -mt-2">
+                    Quando marcado, o mapeamento incluirá quantidade atual (e opcionalmente mínimo/reposição).
+                </p>
+            {% endif %}
+
+            <div class="modal-action items-center">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('modal-container').innerHTML=''">Cancelar</button>
+                <button type="submit" class="btn btn-primary gap-2">
+                    <span class="htmx-btn-spinner" aria-hidden="true">
+                        <span class="loading loading-spinner loading-xs"></span>
+                    </span>
+                    Continuar
+                </button>
+            </div>
+        </form>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''">fechar</button>
+    </form>
+</dialog>
+<div id="import-example-modal-root"></div>

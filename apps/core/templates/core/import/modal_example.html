@@ -1,0 +1,55 @@
+<dialog id="data-import-example-modal" class="modal" open>
+    <div class="modal-box w-11/12 max-w-5xl max-h-[90vh] overflow-y-auto bg-base-100 shadow-2xl border border-base-300">
+        <h3 class="font-bold text-xl mb-2 flex items-center gap-2">
+            <span class="material-icons">visibility</span>
+            Formato esperado — {{ adapter.label }}
+        </h3>
+        {% if example_notes %}
+            <p class="text-sm text-base-content/70 mb-4">{{ example_notes }}</p>
+        {% endif %}
+
+        {% if example_headers %}
+            <div class="rounded-lg border border-base-300 overflow-x-auto mb-4">
+                <table class="table table-sm table-zebra w-max min-w-full">
+                    <thead class="bg-base-200">
+                        <tr>
+                            {% for header in example_headers %}
+                                <th class="whitespace-nowrap text-xs font-semibold px-3">{{ header|default:"" }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in example_rows %}
+                            <tr>
+                                {% for cell in row %}
+                                    <td class="whitespace-nowrap text-sm px-3 py-2">{{ cell|default:"" }}</td>
+                                {% endfor %}
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="{{ example_headers|length }}" class="text-center text-base-content/60 py-6">
+                                    Sem linhas de exemplo.
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info mb-4">
+                <span>Nenhum exemplo cadastrado para esta importação.</span>
+            </div>
+        {% endif %}
+
+        <div class="modal-action">
+            <button
+                type="button"
+                class="btn btn-primary"
+                onclick="document.getElementById('import-example-modal-root').innerHTML=''"
+            >Fechar</button>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button type="button" onclick="document.getElementById('import-example-modal-root').innerHTML=''">fechar</button>
+    </form>
+</dialog>
