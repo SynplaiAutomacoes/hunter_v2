@@ -4,7 +4,7 @@
         <span class="badge font-bold text-white shrink-0" style="background-color: {{ col.color }}; border-color: {{ col.color }};">{{ col.count }}</span>
     </div>
 </div>
-<div class="p-3 space-y-3 max-h-[70vh] overflow-y-auto">
+<div class="yard-column-cards p-3 space-y-3 max-h-[70vh] overflow-y-auto">
     {% for card in col.cards %}
         {% include 'yard/partials/card.html' with card=card %}
     {% empty %}

@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetImage, BudgetImageType, BudgetStatus
+from apps.collaborators.models import WorkshopCollaborator
 from apps.customer.models import Customer, Vehicle
 from apps.yard.forms import YardColumnForm
 from apps.yard.models import STATUS_ALL, YardColumn, YardColumnTarget, YardDateBase
@@ -20,6 +21,22 @@ def create_workshop(*, suffix: int) -> Workshop:
         cnpj=f"77.888.999/0001-{(suffix % 100):02d}",
         phone="+5511999999999",
         address="Rua Pátio, 123",
+    )
+
+
+def create_collaborator(*, workshop: Workshop, name: str, suffix: int) -> WorkshopCollaborator:
+    from datetime import date as date_class
+
+    from djmoney.money import Money
+
+    return WorkshopCollaborator.objects.create(
+        workshop=workshop,
+        name=name,
+        cpf=f"{suffix:011d}"[-11:],
+        birth_date=date_class(1990, 1, 1),
+        salary=Money(2000, "BRL"),
+        admission_date=date_class(2025, 1, 1),
+        collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
     )
 
 
@@ -175,3 +192,31 @@ class YardBoardDataTests(TestCase):
         board = get_board_data(workshop=workshop)
         self.assertEqual(len(board[0]["cards"]), 1)
         self.assertEqual(board[0]["cards"][0]["plate"], "ENTRGO3")
+
+    def test_budget_card_shows_principal_collaborator(self) -> None:
+        workshop = create_workshop(suffix=9)
+        today = timezone.localdate()
+        customer = Customer.objects.create(workshop=workshop, name="Cliente X", cpf_or_cnpj="12345678909", email="x@example.com")
+        vehicle = Vehicle.objects.create(workshop=workshop, customer=customer, plate="PRIN01", brand="Jeep", model="Renegade", year_fabrication="2024", year_model="2024", color="Branco")
+        principal = create_collaborator(workshop=workshop, name="Principal da Silva", suffix=901)
+        additional = create_collaborator(workshop=workshop, name="Adicional de Souza", suffix=902)
+        budget = Budget.objects.create(workshop=workshop, customer=customer, vehicle=vehicle, entry_date=today, status=BudgetStatus.DRAFT, budget_type="sale", collaborator=principal)
+        budget.collaborators.add(additional)
+        YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=STATUS_ALL, title="Orçamentos do mês", color="#3b82f6", date_base=YardDateBase.MONTHLY, position=0)
+
+        board = get_board_data(workshop=workshop)
+        self.assertEqual(board[0]["cards"][0]["responsibles"], ["Principal da Silva"])
+
+    def test_workorder_card_lists_all_mechanics(self) -> None:
+        workshop = create_workshop(suffix=10)
+        today = timezone.localdate()
+        budget = self._make_budget(workshop=workshop, status=BudgetStatus.APPROVED, entry_date=today, plate="MECA03")
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.DRAFT, budget_type="sale")
+        mechanic_one = create_collaborator(workshop=workshop, name="Mecânico Um", suffix=903)
+        mechanic_two = create_collaborator(workshop=workshop, name="Mecânico Dois", suffix=904)
+        mechanic_three = create_collaborator(workshop=workshop, name="Mecânico Três", suffix=905)
+        workorder.collaborators.add(mechanic_one, mechanic_two, mechanic_three)
+        YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.WORKORDER, status=STATUS_ALL, title="OS do mês", color="#22c55e", date_base=YardDateBase.MONTHLY, position=0)
+
+        board = get_board_data(workshop=workshop)
+        self.assertEqual(board[0]["cards"][0]["responsibles"], ["Mecânico Um", "Mecânico Dois", "Mecânico Três"])

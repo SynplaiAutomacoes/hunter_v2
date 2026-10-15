@@ -65,12 +65,15 @@ def _principal_image_url(*, budget: Budget | None) -> str | None:
 
 def _responsible_names(*, kind: str, budget: Budget, workorder: WorkOrder | None = None) -> list[str]:
     if kind == "budget":
+        principal = getattr(budget, "collaborator", None)
+        if principal is not None:
+            return [getattr(principal, "name", "—") or "—"]
         try:
-            first_collaborator = budget.collaborators.order_by("pk").first()
+            first_additional = budget.collaborators.order_by("pk").first()
         except Exception:
-            first_collaborator = None
-        if first_collaborator is not None:
-            return [getattr(first_collaborator, "name", "—") or "—"]
+            first_additional = None
+        if first_additional is not None:
+            return [getattr(first_additional, "name", "—") or "—"]
         analyst = getattr(budget, "cost_estimator", None)
         if analyst is None:
             return ["—"]
@@ -146,7 +149,7 @@ def _build_workorder_card(*, workorder: WorkOrder, color: str, show_status: bool
 def _budget_queryset(*, workshop, column: YardColumn, covered_statuses: set[str], start: date, end: date):
     queryset = (
         Budget.objects.filter(workshop=workshop, entry_date__gte=start, entry_date__lte=end)
-        .select_related("vehicle", "customer", "cost_estimator")
+        .select_related("vehicle", "customer", "cost_estimator", "collaborator")
         .prefetch_related(
             Prefetch("budget_image", queryset=BudgetImage.objects.filter(image_type=BudgetImageType.PRINCIPAL), to_attr="_yard_principal_images"),
             "collaborators",
