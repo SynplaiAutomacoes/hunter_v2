@@ -22,6 +22,7 @@ urlpatterns = [
     path("stock_update/<int:pk>", views.StockImportUpdateView.as_view(), name="stock_update"),
     path("transfer_update/<int:pk>", views.StockTransferUpdateView.as_view(), name="transfer_update"),
     path("stock_update/<int:pk>/refresh-sefaz/", views.RefreshSefazListView.as_view(), name="refresh_sefaz"),
+    path("import/refresh-sefaz/", views.RefreshSefazCacheView.as_view(), name="refresh_sefaz_cache"),
     path("sefaz/manifest/", views.SefazManifestSubmitView.as_view(), name="sefaz_manifest"),
     path("sefaz/manifest/modal/", views.SefazManifestModalView.as_view(), name="sefaz_manifest_modal"),
     path("stock_delete/<int:pk>", views.StockImportDeleteView.as_view(), name="stock_delete"),
