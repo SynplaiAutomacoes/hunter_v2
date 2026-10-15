@@ -9,7 +9,7 @@ from apps.budget.models import Budget, BudgetImage, BudgetImageType, BudgetStatu
 from apps.collaborators.models import WorkshopCollaborator
 from apps.customer.models import Customer, Vehicle
 from apps.yard.forms import YardColumnForm
-from apps.yard.models import STATUS_ALL, YardColumn, YardColumnTarget, YardDateBase
+from apps.yard.models import STATUS_ALL, YardColumn, YardColumnTarget, YardDateBase, YardHiddenStatus, YardPreference, YardStatusGroup
 from apps.yard.services import ensure_default_columns, get_board_data, period_range
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
@@ -220,3 +220,75 @@ class YardBoardDataTests(TestCase):
 
         board = get_board_data(workshop=workshop)
         self.assertEqual(board[0]["cards"][0]["responsibles"], ["Mecânico Um", "Mecânico Dois", "Mecânico Três"])
+
+
+class YardHiddenStatusTests(TestCase):
+    def _make_budget(self, *, workshop, status, entry_date, plate="HID0001", suffix="801"):
+        customer = Customer.objects.create(workshop=workshop, name="Cliente H", cpf_or_cnpj=f"999888777{suffix}", email=f"h{suffix}@example.com")
+        vehicle = Vehicle.objects.create(workshop=workshop, customer=customer, plate=plate, brand="Jeep", model="Renegade", year_fabrication="2024", year_model="2024", color="Branco")
+        return Budget.objects.create(workshop=workshop, customer=customer, vehicle=vehicle, entry_date=entry_date, status=status, budget_type="sale")
+
+    def test_hidden_status_disappears_from_all_column(self) -> None:
+        workshop = create_workshop(suffix=21)
+        today = timezone.localdate()
+        self._make_budget(workshop=workshop, status=BudgetStatus.WAITING_REVIEW, entry_date=today, plate="HID0001", suffix="01")
+        self._make_budget(workshop=workshop, status=BudgetStatus.DRAFT, entry_date=today, plate="HID0002", suffix="02")
+        YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=STATUS_ALL, title="Orçamentos do mês", color="#3b82f6", date_base=YardDateBase.MONTHLY, position=0)
+        YardHiddenStatus.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=BudgetStatus.WAITING_REVIEW)
+
+        board = get_board_data(workshop=workshop)
+        self.assertEqual([card["plate"] for card in board[0]["cards"]], ["HID0002"])
+
+    def test_hidden_status_hides_dedicated_column(self) -> None:
+        workshop = create_workshop(suffix=22)
+        today = timezone.localdate()
+        self._make_budget(workshop=workshop, status=BudgetStatus.REJECTED, entry_date=today, plate="HID0003", suffix="03")
+        YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=BudgetStatus.REJECTED, title="Reprovados", color="#ef4444", date_base=YardDateBase.DAILY, position=0)
+        YardHiddenStatus.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=BudgetStatus.REJECTED)
+
+        board = get_board_data(workshop=workshop)
+        self.assertEqual(board, [])
+
+
+class YardStatusGroupTests(TestCase):
+    def test_group_title_replaces_status_label(self) -> None:
+        workshop = create_workshop(suffix=23)
+        today = timezone.localdate()
+        customer = Customer.objects.create(workshop=workshop, name="Cliente G", cpf_or_cnpj="11122233344", email="g@example.com")
+        vehicle = Vehicle.objects.create(workshop=workshop, customer=customer, plate="GRP0001", brand="Jeep", model="Renegade", year_fabrication="2024", year_model="2024", color="Branco")
+        Budget.objects.create(workshop=workshop, customer=customer, vehicle=vehicle, entry_date=today, status=BudgetStatus.WAITING_REVIEW, budget_type="sale")
+        YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=STATUS_ALL, title="Orçamentos do mês", color="#3b82f6", date_base=YardDateBase.MONTHLY, position=0)
+        YardStatusGroup.objects.create(
+            workshop=workshop,
+            target=YardColumnTarget.BUDGET,
+            title="Avaliando Veículo",
+            statuses=[BudgetStatus.WAITING_DIAGNOSIS, BudgetStatus.WAITING_ITEMS, BudgetStatus.WAITING_PRICING, BudgetStatus.WAITING_REVIEW],
+        )
+
+        board = get_board_data(workshop=workshop)
+        self.assertEqual(board[0]["cards"][0]["status_label"], "Avaliando Veículo")
+
+
+class YardHideSimilarTests(TestCase):
+    def test_budget_hidden_when_workorder_with_same_number_exists(self) -> None:
+        workshop = create_workshop(suffix=24)
+        today = timezone.localdate()
+        customer = Customer.objects.create(workshop=workshop, name="Cliente S", cpf_or_cnpj="55566677788", email="s@example.com")
+        vehicle = Vehicle.objects.create(workshop=workshop, customer=customer, plate="SIM0001", brand="Jeep", model="Renegade", year_fabrication="2024", year_model="2024", color="Branco")
+        Budget.objects.create(workshop=workshop, customer=customer, vehicle=vehicle, entry_date=today, status=BudgetStatus.APPROVED, budget_type="sale")
+        YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=STATUS_ALL, title="Orçamentos do mês", color="#3b82f6", date_base=YardDateBase.MONTHLY, position=0)
+        YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.WORKORDER, status=STATUS_ALL, title="OS do mês", color="#22c55e", date_base=YardDateBase.MONTHLY, position=1)
+
+        board = get_board_data(workshop=workshop)
+        budget_cards = [card for card in board[0]["cards"] if card["kind"] == "budget"]
+        workorder_cards = [card for card in board[1]["cards"] if card["kind"] == "workorder"]
+        self.assertEqual(len(budget_cards), 1)
+        self.assertEqual(len(workorder_cards), 1)
+        self.assertEqual(str(budget_cards[0]["show_id"]), str(workorder_cards[0]["show_id"]))
+
+        YardPreference.objects.update_or_create(workshop=workshop, defaults={"hide_similar": True})
+        board = get_board_data(workshop=workshop)
+        budget_cards = [card for card in board[0]["cards"] if card["kind"] == "budget"]
+        workorder_cards = [card for card in board[1]["cards"] if card["kind"] == "workorder"]
+        self.assertEqual(budget_cards, [])
+        self.assertEqual(len(workorder_cards), 1)

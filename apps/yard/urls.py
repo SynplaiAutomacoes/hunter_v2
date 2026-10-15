@@ -13,4 +13,10 @@ urlpatterns = [
     path("colunas/<int:pk>/excluir/", views.YardColumnDeleteView.as_view(), name="column_delete"),
     path("colunas/<int:pk>/mover/", views.YardColumnMoveView.as_view(), name="column_move"),
     path("colunas/reordenar/", views.YardColumnsReorderView.as_view(), name="columns_reorder"),
+    path("preferencia/similares/", views.YardPreferenceToggleView.as_view(), name="preference_toggle_similar"),
+    path("ocultos/novo/", views.YardHiddenStatusCreateView.as_view(), name="hidden_create"),
+    path("ocultos/<int:pk>/excluir/", views.YardHiddenStatusDeleteView.as_view(), name="hidden_delete"),
+    path("grupos/novo/", views.YardStatusGroupCreateView.as_view(), name="group_create"),
+    path("grupos/<int:pk>/editar/", views.YardStatusGroupUpdateView.as_view(), name="group_update"),
+    path("grupos/<int:pk>/excluir/", views.YardStatusGroupDeleteView.as_view(), name="group_delete"),
 ]

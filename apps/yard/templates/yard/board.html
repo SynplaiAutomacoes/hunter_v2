@@ -27,7 +27,14 @@
         <h1 class="text-3xl font-bold text-base-content">Pátio da Oficina</h1>
         <p class="text-base-content/70 mt-1">Acompanhe orçamentos e ordens de serviço em tempo real</p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 flex-wrap justify-end">
+        <button
+            type="button"
+            class="btn {% if preference.hide_similar %}btn-primary{% else %}btn-outline{% endif %} yard-hide-fullscreen"
+            hx-post="{% url 'yard:preference_toggle_similar' %}"
+            title="Quando ligado, orçamentos com o mesmo número de uma OS são ocultados">
+            <span class="material-icons" style="vertical-align: middle;">visibility_off</span> Não exibir similares
+        </button>
         <button
             type="button"
             id="yard-exit-fullscreen"

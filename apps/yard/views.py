@@ -10,9 +10,9 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.yard.forms import YardColumnForm
-from apps.yard.models import YardColumn
-from apps.yard.services import ensure_default_columns, get_board_data
+from apps.yard.forms import YardColumnForm, YardHiddenStatusForm, YardStatusGroupForm
+from apps.yard.models import YardColumn, YardHiddenStatus, YardPreference, YardStatusGroup
+from apps.yard.services import ensure_default_columns, get_board_data, get_board_preference
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -30,6 +30,7 @@ class YardBoardView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespons
         context = super().get_context_data(**kwargs)
         ensure_default_columns(workshop=self.workshop)
         context["board"] = get_board_data(workshop=self.workshop)
+        context["preference"] = get_board_preference(workshop=self.workshop)
         context["can_edit"] = self._can_edit()
         return context
 
@@ -51,9 +52,20 @@ class YardBoardContentView(YardBoardView):
 
 
 class YardConfigMixin:
-    def _config_context(self, *, form=None):
+    def _config_context(self, *, form=None, hidden_form=None, group_form=None, editing_group=None):
         columns = list(YardColumn.objects.filter(workshop=self.workshop).order_by("position", "id"))
-        return {"columns": columns, "form": form or YardColumnForm(), "workshop": self.workshop}
+        hidden_statuses = list(YardHiddenStatus.objects.filter(workshop=self.workshop).order_by("target", "status"))
+        groups = list(YardStatusGroup.objects.filter(workshop=self.workshop).order_by("target", "title"))
+        return {
+            "columns": columns,
+            "hidden_statuses": hidden_statuses,
+            "groups": groups,
+            "editing_group": editing_group,
+            "form": form or YardColumnForm(),
+            "hidden_form": hidden_form or YardHiddenStatusForm(),
+            "group_form": group_form or YardStatusGroupForm(),
+            "workshop": self.workshop,
+        }
 
     def _columns_list_context(self):
         columns = list(YardColumn.objects.filter(workshop=self.workshop).order_by("position", "id"))
@@ -186,3 +198,116 @@ class YardColumnsReorderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"yard-board-refresh": {}})
         return response
+
+
+class YardPreferenceToggleView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = YardPreference
+    workshop_permission_codename = "view_yardcolumn"
+
+    def post(self, request, *args, **kwargs):
+        preference, _created = YardPreference.objects.get_or_create(workshop=self.workshop)
+        preference.hide_similar = not preference.hide_similar
+        preference.save(update_fields=["hide_similar"])
+        response = HttpResponse(status=204)
+        response["HX-Refresh"] = "true"
+        return response
+
+
+class YardHiddenStatusCreateView(LoginRequiredMixin, WorkshopScopedMixin, YardConfigMixin, View):
+    model = YardHiddenStatus
+    workshop_permission_codename = "change_yardcolumn"
+
+    def post(self, request, *args, **kwargs):
+        form = YardHiddenStatusForm(request.POST)
+        form.instance.workshop = self.workshop
+        if form.is_valid():
+            form.save()
+            response = render(request, "yard/partials/config_modal_content.html", self._config_context())
+            response["HX-Trigger"] = _board_triggers()
+            return response
+        response = render(request, "yard/partials/config_modal_content.html", self._config_context(hidden_form=form))
+        return response
+
+    def get(self, request, *args, **kwargs):
+        return redirect(reverse("yard:board"))
+
+
+class YardHiddenStatusDeleteView(LoginRequiredMixin, WorkshopScopedMixin, YardConfigMixin, View):
+    model = YardHiddenStatus
+    workshop_permission_codename = "change_yardcolumn"
+
+    def post(self, request, *args, **kwargs):
+        hidden_status = get_object_or_404(YardHiddenStatus, pk=self.kwargs.get("pk"), workshop=self.workshop)
+        hidden_status.delete()
+        response = render(request, "yard/partials/config_modal_content.html", self._config_context())
+        response["HX-Trigger"] = _board_triggers()
+        return response
+
+    def get(self, request, *args, **kwargs):
+        return redirect(reverse("yard:board"))
+
+
+class YardStatusGroupCreateView(LoginRequiredMixin, WorkshopScopedMixin, YardConfigMixin, View):
+    model = YardStatusGroup
+    workshop_permission_codename = "change_yardcolumn"
+
+    def post(self, request, *args, **kwargs):
+        form = YardStatusGroupForm(request.POST)
+        form.instance.workshop = self.workshop
+        if form.is_valid():
+            form.save()
+            response = render(request, "yard/partials/config_modal_content.html", self._config_context())
+            response["HX-Trigger"] = _board_triggers()
+            return response
+        response = render(request, "yard/partials/config_modal_content.html", self._config_context(group_form=form))
+        return response
+
+    def get(self, request, *args, **kwargs):
+        return redirect(reverse("yard:board"))
+
+
+class YardStatusGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, YardConfigMixin, View):
+    model = YardStatusGroup
+    workshop_permission_codename = "change_yardcolumn"
+
+    def _get_group(self):
+        return get_object_or_404(YardStatusGroup, pk=self.kwargs.get("pk"), workshop=self.workshop)
+
+    def get(self, request, *args, **kwargs):
+        group = self._get_group()
+        form = YardStatusGroupForm(instance=group)
+        return render(
+            request,
+            "yard/partials/config_group_form.html",
+            {"form": form, "group": group, "workshop": self.workshop},
+        )
+
+    def post(self, request, *args, **kwargs):
+        group = self._get_group()
+        form = YardStatusGroupForm(request.POST, instance=group)
+        form.instance.workshop = self.workshop
+        if form.is_valid():
+            form.save()
+            response = render(request, "yard/partials/config_modal_content.html", self._config_context())
+            response["HX-Trigger"] = _board_triggers()
+            return response
+        return render(
+            request,
+            "yard/partials/config_group_form.html",
+            {"form": form, "group": group, "workshop": self.workshop},
+        )
+
+
+class YardStatusGroupDeleteView(LoginRequiredMixin, WorkshopScopedMixin, YardConfigMixin, View):
+    model = YardStatusGroup
+    workshop_permission_codename = "change_yardcolumn"
+
+    def post(self, request, *args, **kwargs):
+        group = get_object_or_404(YardStatusGroup, pk=self.kwargs.get("pk"), workshop=self.workshop)
+        group.delete()
+        response = render(request, "yard/partials/config_modal_content.html", self._config_context())
+        response["HX-Trigger"] = _board_triggers()
+        return response
+
+    def get(self, request, *args, **kwargs):
+        return redirect(reverse("yard:board"))

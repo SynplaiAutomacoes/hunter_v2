@@ -3,7 +3,7 @@ from __future__ import annotations
 from django import forms
 
 from apps.budget.models import BudgetStatus
-from apps.yard.models import YardColumn, YardColumnTarget, STATUS_ALL
+from apps.yard.models import STATUS_ALL, YardColumn, YardColumnTarget, YardHiddenStatus, YardStatusGroup
 from apps.workorder.models import WorkOrderStatus
 
 
@@ -89,4 +89,86 @@ class YardColumnForm(forms.ModelForm):
                 )
                 if exists:
                     self.add_error("status", "Já existe uma coluna para este modelo e status.")
+        return cleaned_data
+
+
+class YardHiddenStatusForm(forms.ModelForm):
+    class Meta:
+        model = YardHiddenStatus
+        fields = ["target", "status"]
+        widgets = {
+            "target": forms.Select(attrs={"class": "select select-bordered w-full"}),
+            "status": forms.Select(attrs={"class": "select select-bordered w-full"}),
+        }
+        labels = {
+            "target": "Modelo",
+            "status": "Status oculto",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["target"].choices = [
+            (YardColumnTarget.BUDGET, "Orçamento"),
+            (YardColumnTarget.WORKORDER, "Ordem de Serviço"),
+        ]
+        self.fields["target"].initial = YardColumnTarget.BUDGET
+        self.fields["status"].choices = yard_status_choices()
+
+    def clean(self) -> dict:
+        cleaned_data = super().clean()
+        target = cleaned_data.get("target")
+        status = cleaned_data.get("status")
+        if target and status:
+            valid = {value for value, _label in yard_status_choices_for_target(target)} - {STATUS_ALL}
+            if status not in valid:
+                self.add_error("status", "Selecione um status válido do modelo (exceto Todos).")
+                return cleaned_data
+            workshop_id = getattr(getattr(self, "instance", None), "workshop_id", None)
+            if workshop_id and YardHiddenStatus.objects.filter(
+                workshop_id=workshop_id, target=target, status=status
+            ).exists():
+                self.add_error("status", "Este status já está oculto.")
+        return cleaned_data
+
+
+class YardStatusGroupForm(forms.ModelForm):
+    statuses = forms.MultipleChoiceField(label="Status agrupados", required=False)
+
+    class Meta:
+        model = YardStatusGroup
+        fields = ["target", "title", "statuses"]
+        widgets = {
+            "target": forms.Select(attrs={"class": "select select-bordered w-full"}),
+            "title": forms.TextInput(attrs={"class": "input input-bordered w-full", "placeholder": "Ex.: Avaliando Veículo"}),
+        }
+        labels = {
+            "target": "Modelo",
+            "title": "Título de exibição",
+            "statuses": "Status agrupados",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["target"].choices = [
+            (YardColumnTarget.BUDGET, "Orçamento"),
+            (YardColumnTarget.WORKORDER, "Ordem de Serviço"),
+        ]
+        self.fields["target"].initial = YardColumnTarget.BUDGET
+        self.fields["statuses"].choices = yard_status_choices()
+
+    def clean_statuses(self):
+        statuses = [str(status) for status in (self.cleaned_data.get("statuses") or []) if str(status)]
+        if not statuses:
+            raise forms.ValidationError("Selecione ao menos um status.")
+        return sorted(set(statuses))
+
+    def clean(self) -> dict:
+        cleaned_data = super().clean()
+        target = cleaned_data.get("target")
+        statuses = cleaned_data.get("statuses") or []
+        if target and statuses:
+            valid = {value for value, _label in yard_status_choices_for_target(target)} - {STATUS_ALL}
+            invalid = [status for status in statuses if status not in valid]
+            if invalid:
+                self.add_error("statuses", f"Status inválidos para o modelo: {', '.join(invalid)}.")
         return cleaned_data
