@@ -13,7 +13,7 @@ from apps.core.observability import observe_dependency_call
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.buscars.com.br"
-SKU_VEICULAR_PERFIL = "veicular-perfil-sf"
+SKU_VEICULAR_PERFIL = "veicular-perfil-cf"
 REQUEST_TIMEOUT_SECONDS = 15
 STATUS_POLL_ATTEMPTS = 5
 STATUS_POLL_INTERVAL_SECONDS = 2
