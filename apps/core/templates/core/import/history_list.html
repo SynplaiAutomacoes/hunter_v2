@@ -1,18 +1,10 @@
 {% extends 'crud/list_page.html' %}
 
 {% block crud_title %}Histórico de importações{% endblock %}
-{% block crud_subtitle %}
-    {% if entity_label %}
-        Lotes de {{ entity_label }} nesta oficina.
-    {% else %}
-        Lotes de importação da oficina ativa.
-    {% endif %}
-{% endblock %}
+{% block crud_subtitle %}Lotes de {{ entity_label }} nesta oficina.{% endblock %}
 
 {% block crud_header_actions %}
-    {% if entity_filter %}
-        <a href="{% url 'core:data_import_history' %}" class="btn btn-ghost btn-sm">Ver todos</a>
-    {% endif %}
+    <a href="{{ back_url }}" class="btn btn-ghost btn-sm">Voltar</a>
 {% endblock %}
 
 {% block crud_table %}
@@ -21,7 +13,6 @@
             <thead>
                 <tr>
                     <th>Data</th>
-                    <th>Entidade</th>
                     <th>Arquivo</th>
                     <th>Criados</th>
                     <th>Erros</th>
@@ -33,7 +24,6 @@
                 {% for row in rows %}
                     <tr>
                         <td>{{ row.batch.criado_em|date:"d/m/Y H:i" }}</td>
-                        <td>{{ row.entity_label }}</td>
                         <td class="max-w-xs truncate" title="{{ row.batch.filename }}">{{ row.batch.filename|default:"—" }}</td>
                         <td>{{ row.batch.success_count }}</td>
                         <td>{{ row.batch.error_count }}</td>
@@ -60,7 +50,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="7" class="text-center text-base-content/60 py-8">Nenhuma importação registrada.</td>
+                        <td colspan="6" class="text-center text-base-content/60 py-8">Nenhuma importação registrada.</td>
                     </tr>
                 {% endfor %}
             </tbody>

@@ -30,6 +30,22 @@ from apps.core.infrastructure.importing.spreadsheet import SpreadsheetParseError
 from apps.core.infrastructure.models.data_import import DataImportBatch
 from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 
+_ENTITY_LIST_URL_NAMES: dict[str, str] = {
+    "customers": "customer:customer_list",
+    "suppliers": "suppliers:supplier_list",
+    "products": "catalog:product_list",
+    "services": "catalog:services_list",
+    "kits": "catalog:kits_list",
+    "payables": "finance:financial_movement_list",
+}
+
+
+def _list_url_for_entity(entity_key: str) -> str:
+    url_name = _ENTITY_LIST_URL_NAMES.get(entity_key)
+    if not url_name:
+        raise Http404
+    return reverse(url_name)
+
 
 def _delete_codename_for_adapter(adapter: Any) -> str:
     # add_customer -> delete_customer
@@ -284,18 +300,18 @@ class DataImportHistoryView(LoginRequiredMixin, View):
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         workshop = get_active_workshop_or_404(request)
         entity_filter = (request.GET.get("entity") or "").strip()
-        qs = DataImportBatch.objects.filter(workshop=workshop).select_related("user")
-        if entity_filter:
-            qs = qs.filter(entity_key=entity_filter)
+        if not entity_filter or get_adapter(entity_filter) is None:
+            raise Http404
+        back_url = _list_url_for_entity(entity_filter)
+        adapter = get_adapter(entity_filter)
+        assert adapter is not None
+        if not _user_can_view_import_history(request=request, workshop=workshop, adapter=adapter):
+            raise PermissionDenied
 
-        # Restrict to entities the user can at least add or delete.
+        qs = DataImportBatch.objects.filter(workshop=workshop, entity_key=entity_filter).select_related("user")
+
         visible_batches = []
         for batch in qs[:100]:
-            adapter = get_adapter(batch.entity_key)
-            if adapter is None:
-                continue
-            if not _user_can_view_import_history(request=request, workshop=workshop, adapter=adapter):
-                continue
             visible_batches.append(
                 {
                     "batch": batch,
@@ -310,7 +326,8 @@ class DataImportHistoryView(LoginRequiredMixin, View):
             {
                 "rows": visible_batches,
                 "entity_filter": entity_filter,
-                "entity_label": get_entity_label(entity_filter) if entity_filter else "",
+                "entity_label": get_entity_label(entity_filter),
+                "back_url": back_url,
             },
         )
 
