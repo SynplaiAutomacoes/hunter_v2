@@ -28,7 +28,7 @@ class YardColumn(TimeStampedModel):
     status = models.CharField(verbose_name="Status", max_length=32, default=STATUS_ALL)
     title = models.CharField(verbose_name="Título", max_length=80)
     color = models.CharField(verbose_name="Cor", max_length=7, default="#1e40af")
-    date_base = models.CharField(verbose_name="Base de data", max_length=20, choices=YardDateBase.choices, default=YardDateBase.MONTHLY)
+    date_base = models.CharField(verbose_name="Período", max_length=20, choices=YardDateBase.choices, default=YardDateBase.MONTHLY)
     position = models.PositiveIntegerField(verbose_name="Ordem", default=0)
 
     class Meta:

@@ -60,7 +60,7 @@ class YardColumnForm(forms.ModelForm):
             "status": "Status",
             "title": "Título de exibição",
             "color": "Cor da coluna",
-            "date_base": "Base de data",
+            "date_base": "Período",
         }
 
     def __init__(self, *args, **kwargs):

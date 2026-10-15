@@ -36,11 +36,11 @@
     </div>
     <div class="md:col-span-2">
         <span class="label"><span class="label-text text-xs">{{ form.color.label }}</span></span>
-        <div class="grid grid-cols-6 gap-2 max-w-md">
+        <div class="flex flex-wrap gap-1 justify-between">
             {% for value, label in form.color.field.choices %}
             <label title="{{ label }}" class="cursor-pointer">
                 <input type="radio" name="{{ form.color.html_name }}" value="{{ value }}" class="peer sr-only" {% if form.color.value == value %}checked{% endif %}>
-                <span class="block w-8 h-8 rounded-md border-2 border-base-300 peer-checked:border-primary peer-checked:ring-2 peer-checked:ring-primary/40" style="background-color: {{ value }};"></span>
+                <span class="block w-11 h-11 rounded-md shadow peer-checked:ring-2 peer-checked:ring-primary peer-checked:ring-offset-2 peer-checked:ring-offset-base-100" style="background-color: {{ value }};"></span>
             </label>
             {% endfor %}
         </div>
@@ -75,20 +75,22 @@
         }
         function filterStatusOptions() {
             var target = targetSelect.value;
-            var groups = statusSelect.querySelectorAll('optgroup');
-            groups.forEach(function(group) {
-                var groupLabel = group.getAttribute('label') || '';
-                var show = groupLabel === 'Geral';
-                if (target === 'budget' && groupLabel === 'Orçamentos') {
-                    show = true;
-                }
-                if (target === 'workorder' && groupLabel === 'Ordens de Serviço') {
-                    show = true;
-                }
-                group.style.display = show ? '' : 'none';
+            var options = statusSelect.querySelectorAll('option');
+            options.forEach(function(opt) {
+                var group = opt.parentElement;
+                var groupLabel = (group && group.tagName === 'OPTGROUP') ? (group.getAttribute('label') || '') : '';
+                var show = groupLabel === 'Geral'
+                    || (target === 'budget' && groupLabel === 'Orçamentos')
+                    || (target === 'workorder' && groupLabel === 'Ordens de Serviço');
+                opt.hidden = !show;
+                opt.disabled = !show;
+            });
+            statusSelect.querySelectorAll('optgroup').forEach(function(group) {
+                var anyVisible = Array.prototype.some.call(group.querySelectorAll('option'), function(o) { return !o.hidden; });
+                group.style.display = anyVisible ? '' : 'none';
             });
             var current = statusSelect.querySelector('option:checked');
-            if (current && current.parentElement.tagName === 'OPTGROUP' && current.parentElement.style.display === 'none') {
+            if (current && current.hidden) {
                 statusSelect.value = 'all';
             }
         }
