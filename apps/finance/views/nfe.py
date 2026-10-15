@@ -13,13 +13,14 @@ from django.utils.decorators import method_decorator
 from django.urls import reverse
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
-from django.views.generic import DetailView, ListView
+from django.views.generic import DetailView, FormView, ListView
 
 from apps.core.presentation.forms import CoreForm
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
+from apps.finance.forms.nfe_correction import NfeExternalCorrectionForm
 from apps.finance.models.finance import (
     FiscalDocument,
     FiscalDocumentEvent,
@@ -34,7 +35,7 @@ from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_logging import log_emission_view_failure
 from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
-from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
+from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, emit_nfe_correction_external, is_nfe_item_eligible_for_cce
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
 from apps.finance.views.ncm_validation import (
     build_invalid_ncm_modal_context_for_nfe_request,
@@ -270,12 +271,12 @@ class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfe_request.items.order_by("-id").first()
         if not is_nfe_item_eligible_for_cce(latest_item):
-            messages.error(request, "Carta de correcao permitida somente para NF-e autorizada com chave de acesso ou UUID valido.")
+            messages.error(request, "Carta de correção permitida somente para NF-e autorizada com chave de acesso ou UUID válido.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         form = NfeCorrectionForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Informe a correcao entre 15 e 1000 caracteres e confirme as restricoes legais.")
+            messages.error(request, "Informe a correção entre 15 e 1000 caracteres e confirme as restrições legais.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -288,9 +289,43 @@ class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeCorrectionError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Carta de correcao enviada com sucesso.")
+            messages.success(request, "Carta de correção enviada com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+
+class NfeExternalCorrectionView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
+    template_name = "finance/nfe_external_correction.html"
+    form_class = NfeExternalCorrectionForm
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    def get_success_url(self) -> str:
+        return reverse("finance:nfe_correction_external")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["gateway_url"] = f"{reverse('finance:emission_create')}?etapa=correction_source"
+        context["issued_event"] = getattr(self, "issued_event", None)
+        return context
+
+    def form_valid(self, form: NfeExternalCorrectionForm):
+        try:
+            self.issued_event = emit_nfe_correction_external(
+                workshop=self.workshop,
+                identifier=str(form.cleaned_data["access_key_or_uuid"]),
+                correction_text=str(form.cleaned_data["correction"]),
+                event_sequence=int(form.cleaned_data["event_sequence"]),
+                requested_by=self.request.user,
+                request=self.request,
+            )
+        except NfeCorrectionError as exc:
+            form.add_error(None, str(exc))
+            return self.form_invalid(form)
+
+        messages.success(self.request, "Carta de correção enviada com sucesso.")
+        return self.render_to_response(self.get_context_data(form=NfeExternalCorrectionForm()))
 
 
 class NfeReturnIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -521,6 +556,41 @@ class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
             pk=kwargs.get("event_pk"),
             document__workshop=self.workshop,
             document__legacy_nfe_item__request=nfe_request,
+            event_type=FiscalDocumentEventType.CCE,
+        )
+        field_name, extension = self.document_fields[document_kind]
+        document_url = str(getattr(event, field_name, "") or "").strip()
+
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        identifier = str(event.remote_uuid or event.document.access_key or event.pk or "documento").strip().replace(" ", "-")
+        response["Content-Disposition"] = f'attachment; filename="nfe-cce-{document_kind}-{identifier}.{extension}"'
+        return response
+
+
+class NfeExternalCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    document_fields = {
+        "xml": ("xml_url", "xml"),
+        "dacce": ("dacce_url", "pdf"),
+    }
+
+    def get(self, request, *args, **kwargs):
+        document_kind = str(kwargs.get("document") or "").strip().lower()
+        if document_kind not in self.document_fields:
+            raise Http404("Documento não suportado")
+
+        event = get_object_or_404(
+            FiscalDocumentEvent.objects.select_related("document"),
+            pk=kwargs.get("event_pk"),
+            document__workshop=self.workshop,
             event_type=FiscalDocumentEventType.CCE,
         )
         field_name, extension = self.document_fields[document_kind]
