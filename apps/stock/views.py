@@ -865,6 +865,37 @@ class StockImportUpdateView(StockImportCreateView):
         return redirect(success_url)
 
 
+def _refresh_sefaz_cache_response(*, workshop, method: str | None = None) -> HttpResponse:
+    """Executa a atualização do cache SEFAZ e retorna resposta HTMX com toast + refresh."""
+
+    if method and method != StockImport.ImportMethods.SEFAZ:
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {
+                    "type": "warning",
+                    "message": "A atualização da SEFAZ só está disponível quando o método de importação é SEFAZ.",
+                }
+            }
+        )
+        return response
+
+    form = ImportSefazListForm(workshop=workshop, request=None)
+    success, message = form.update_sefaz_list()
+
+    response = HttpResponse(status=204)
+    response["HX-Trigger"] = json.dumps(
+        {
+            "showToast": {
+                "type": "success" if success else "warning",
+                "message": message,
+            },
+            "sefaz-list-refresh": {},
+        }
+    )
+    return response
+
+
 class RefreshSefazListView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = StockImport
     workshop_permission_codename = "view_stockimport"
@@ -872,31 +903,19 @@ class RefreshSefazListView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, pk):
         stock_import = get_object_or_404(StockImport, pk=pk, workshop=self.workshop)
         if stock_import.method != StockImport.ImportMethods.SEFAZ:
-            response = HttpResponse(status=204)
-            response["HX-Trigger"] = json.dumps(
-                {
-                    "showToast": {
-                        "type": "warning",
-                        "message": "A atualização da SEFAZ só está disponível quando o método de importação é SEFAZ.",
-                    }
-                }
-            )
-            return response
+            return _refresh_sefaz_cache_response(workshop=self.workshop, method=stock_import.method)
+        return _refresh_sefaz_cache_response(workshop=self.workshop)
 
-        form = ImportSefazListForm(instance=stock_import, workshop=self.workshop, request=request)
-        success, message = form.update_sefaz_list()
 
-        response = HttpResponse(status=204)
-        response["HX-Trigger"] = json.dumps(
-            {
-                "showToast": {
-                    "type": "success" if success else "warning",
-                    "message": message,
-                },
-                "sefaz-list-refresh": {},
-            }
-        )
-        return response
+class RefreshSefazCacheView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Atualização manual do cache SEFAZ sem importação salva (nova etapa 1)."""
+
+    model = StockImport
+    workshop_permission_codename = "view_stockimport"
+
+    def post(self, request):
+        method = (request.POST.get("method") or request.GET.get("method") or "").strip()
+        return _refresh_sefaz_cache_response(workshop=self.workshop, method=method or None)
 
 
 class SefazManifestModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
