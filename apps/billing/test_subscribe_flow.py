@@ -321,28 +321,28 @@ class SubscribePageTests(TestCase):
         self.assertContains(response, "payment-element")
         self.assertContains(response, "promotion_code")
         self.assertContains(response, "subscribe-send-code")
+        self.assertContains(response, 'id="subscribe-code-step"')
+        self.assertContains(response, "subscribe-code-step hidden")
         self.assertContains(response, "Hunter Auto")
         self.assertContains(response, "Já sou cliente")
         self.assertNotContains(response, "universidadehunter.com.br")
 
 
 class SignupEmailVerificationFlowTests(TestCase):
-    @patch("apps.core.infrastructure.services.email.get_email_service")
-    def test_send_and_verify_code(self, get_email: object) -> None:
-        from unittest.mock import Mock
-
+    @patch("apps.core.infrastructure.services.email.send_verification_code_email", return_value=True)
+    def test_send_and_verify_code(self, send_code: object) -> None:
         from apps.billing.models import SignupEmailVerification
-
-        email_service = Mock()
-        get_email.return_value = email_service  # type: ignore[attr-defined]
 
         send_response = self.client.post(
             reverse("billing:subscribe_send_code"),
-            data={"email": "nova@example.com"},
+            data={"email": "nova@example.com", "first_name": "Ana"},
         )
         self.assertEqual(send_response.status_code, 200)
         self.assertTrue(send_response.json()["ok"])
-        email_service.send.assert_called_once()
+        send_code.assert_called_once()  # type: ignore[attr-defined]
+        self.assertEqual(send_code.call_args.kwargs["tipo"], "signup_confirm")  # type: ignore[attr-defined]
+        self.assertEqual(send_code.call_args.kwargs["to_email"], "nova@example.com")  # type: ignore[attr-defined]
+        self.assertEqual(send_code.call_args.kwargs["recipient_name"], "Ana")  # type: ignore[attr-defined]
         token = SignupEmailVerification.objects.get(email="nova@example.com")
 
         bad = self.client.post(

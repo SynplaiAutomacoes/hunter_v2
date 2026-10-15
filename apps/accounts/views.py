@@ -18,7 +18,7 @@ from .forms import (
     UserIdentificationForm,
 )
 from .forms import LoginForm
-from ..core.infrastructure.services import get_email_service, get_whatsapp_service
+from ..core.infrastructure.services import get_whatsapp_service, mask_email, send_verification_code_email
 
 logger = logging.getLogger(__name__)
 
@@ -103,52 +103,6 @@ def _send_whatsapp(user, code: str, tipo: str, phone: str | None = None) -> bool
         return False
 
 
-_EMAIL_SUBJECTS = {
-    "password_reset": "Código de recuperação de senha",
-    "login_code": "Código de login",
-}
-
-
-def _mensagem_email(tipo: str, user, code: str) -> str:
-    nome = user.first_name or user.username
-
-    mensagens = {
-        "password_reset": {
-            "titulo": "Código de recuperação de senha",
-            "texto": "Seu código de verificação é",
-            "expira": "15 minutos",
-        },
-        "login_code": {
-            "titulo": "Código de login",
-            "texto": "Seu código de acesso é",
-            "expira": "5 minutos",
-        },
-    }
-
-    data = mensagens[tipo]
-
-    return f"""{data["titulo"]}
-
-Olá {nome}!
-
-{data["texto"]}: {code}
-
-Este código expira em {data["expira"]}.
-
-Se você não solicitou esta ação, ignore esta mensagem.
-
-Equipe Hunter"""
-
-
-def _mask_email(email: str) -> str:
-    if not email:
-        return email
-    local, _, domain = email.partition("@")
-    if len(local) <= 2:
-        return email
-    return local[:2] + "*" * (len(local) - 2) + "@" + domain
-
-
 def _get_user_email(user) -> str | None:
     email = str(getattr(user, "email", "") or "").strip().lower()
     if email:
@@ -165,18 +119,13 @@ def _get_user_email(user) -> str | None:
 def _send_email(user, code: str, tipo: str, email: str | None = None) -> bool:
     if not email:
         email = _get_user_email(user)
-    if not email:
-        logger.warning("user_email_missing", extra={"user_id": user.id, "tipo": tipo})
-        return False
-
-    try:
-        get_email_service().send(to_email=email, subject=_EMAIL_SUBJECTS[tipo], body=_mensagem_email(tipo=tipo, user=user, code=code))
-        logger.info("email_sent", extra={"to": _mask_email(email), "tipo": tipo, "user_id": user.id})
-        return True
-
-    except Exception as e:
-        logger.error("email_send_failed", extra={"user_id": user.id, "tipo": tipo, "error": str(e)})
-        return False
+    return send_verification_code_email(
+        to_email=email or "",
+        code=code,
+        tipo=tipo,
+        recipient_name=user.first_name or user.username,
+        user_id=getattr(user, "id", None),
+    )
 
 
 def _infer_method(identifier: str, user) -> tuple[str, str | None]:
@@ -243,7 +192,7 @@ def _identify_and_send_code(request, tipo: str, user, identifier: str):
     request.session[session_token_key] = token.pk
     request.session[session_method_key] = method
 
-    masked = _mask_email(destination) if method == "email" else _mask_phone(destination)
+    masked = mask_email(destination) if method == "email" else _mask_phone(destination)
     return JsonResponse(
         {
             "success": True,
@@ -259,7 +208,7 @@ def _resend_by_method(tipo: str, user, code: str, method: str) -> tuple[bool, st
     if method == "email":
         email = _get_user_email(user)
         sent = _send_email(tipo=tipo, user=user, code=code, email=email)
-        return sent, _mask_email(email) if email else ""
+        return sent, mask_email(email) if email else ""
     phone = _get_user_phone(user)
     sent = _send_whatsapp(tipo=tipo, user=user, code=code, phone=phone)
     return sent, _mask_phone(phone) if phone else ""

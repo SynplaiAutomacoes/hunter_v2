@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const accountFields = form ? form.querySelector(".subscribe-grid") : null;
   const sendCodeButton = document.getElementById("subscribe-send-code");
   const verifyCodeButton = document.getElementById("subscribe-verify-code");
-  const codeLabel = document.getElementById("subscribe-code-label");
+  const codeStep = document.getElementById("subscribe-code-step");
   const codeInput = document.getElementById("subscribe-email-code");
   const verifyStatus = document.getElementById("subscribe-verify-status");
 
@@ -58,8 +58,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setVerifyStatus(message) {
     if (!verifyStatus) return;
-    verifyStatus.hidden = !message;
+    const hasMessage = Boolean(message);
+    verifyStatus.hidden = !hasMessage;
+    verifyStatus.classList.toggle("hidden", !hasMessage);
     verifyStatus.textContent = message || "";
+  }
+
+  function revealCodeStep() {
+    if (!codeStep) return;
+    codeStep.hidden = false;
+    codeStep.classList.remove("hidden");
+    if (codeInput) codeInput.focus();
   }
 
   async function pollUntilPaid(pendingId) {
@@ -186,6 +195,10 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const data = new FormData();
         data.append("email", email.value);
+        const firstName = form.querySelector('input[name="first_name"]');
+        if (firstName && firstName.value) {
+          data.append("first_name", firstName.value);
+        }
         const response = await fetch(config.sendCodeUrl, {
           method: "POST",
           headers: { "X-CSRFToken": config.csrfToken, Accept: "application/json" },
@@ -195,8 +208,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!response.ok || !payload.ok) {
           throw new Error(payload.message || "Não foi possível enviar o código.");
         }
-        if (codeLabel) codeLabel.hidden = false;
-        if (verifyCodeButton) verifyCodeButton.hidden = false;
+        revealCodeStep();
         setVerifyStatus(`Código enviado para ${payload.masked_email || "seu e-mail"}.`);
       } catch (error) {
         showError(error.message || "Erro ao enviar o código.");
