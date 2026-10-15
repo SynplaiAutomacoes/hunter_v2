@@ -211,6 +211,83 @@ def retrieve_product_plan(*, product_id: str) -> dict[str, Any]:
     return _plan_payload_from_price_and_product(price=price_data, product=product_data)
 
 
+def _active_promotion_code_id(code: str) -> str:
+    try:
+        result = stripe.PromotionCode.list(code=code, active=True, limit=1)
+    except stripe.StripeError as exc:
+        logger.exception("Falha ao consultar promotion code Stripe")
+        raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
+
+    data = result.data if hasattr(result, "data") else (result.get("data") if isinstance(result, dict) else [])
+    if not data:
+        return ""
+    first = data[0]
+    promo_id = getattr(first, "id", None) or (first.get("id") if isinstance(first, dict) else None)
+    return str(promo_id or "")
+
+
+def _active_coupon_id(code: str) -> str:
+    """Find an active coupon by id or by its name (user-facing code).
+
+    Coupons created directly in the Stripe Dashboard have no promotion code,
+    so we also accept the coupon id/name as the code typed by the customer.
+    """
+    coupon = None
+    try:
+        coupon = stripe.Coupon.retrieve(code)
+    except stripe.InvalidRequestError:
+        coupon = None
+    except stripe.StripeError as exc:
+        logger.warning("Falha ao consultar cupom por id %s: %s", code, exc)
+        coupon = None
+    if coupon is not None:
+        data = _stripe_mapping(coupon)
+        if data.get("valid", True) and data.get("id"):
+            return str(data.get("id"))
+
+    normalized = code.strip().casefold()
+    try:
+        listed = stripe.Coupon.list(limit=100)
+    except stripe.StripeError as exc:
+        logger.exception("Falha ao listar cupons Stripe")
+        raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
+
+    items = listed.data if hasattr(listed, "data") else (listed.get("data") if isinstance(listed, dict) else [])
+    for item in items or []:
+        data = _stripe_mapping(item)
+        if data.get("valid", True) is False:
+            continue
+        coupon_id = str(data.get("id") or "")
+        name = str(data.get("name") or "").strip().casefold()
+        if coupon_id and (coupon_id.casefold() == normalized or name == normalized):
+            return coupon_id
+    return ""
+
+
+def resolve_discount(promotion_code: str) -> dict[str, str]:
+    """Resolve a user-facing code into a Stripe discount entry.
+
+    Accepts an active promotion code first, then falls back to an active coupon
+    (matched by id or name) so coupons created without a promotion code work.
+    """
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    normalized = promotion_code.strip()
+    if not normalized:
+        raise BillingServiceError("Informe um cupom válido.")
+
+    promo_id = _active_promotion_code_id(normalized)
+    if promo_id:
+        return {"promotion_code": promo_id}
+
+    coupon_id = _active_coupon_id(normalized)
+    if coupon_id:
+        return {"coupon": coupon_id}
+
+    raise BillingServiceError("Cupom inválido ou expirado.")
+
+
 def resolve_promotion_code(code: str) -> str:
     """Return Stripe promotion_code id for an active user-facing code."""
     _configure_stripe()
@@ -219,20 +296,50 @@ def resolve_promotion_code(code: str) -> str:
     normalized = code.strip()
     if not normalized:
         raise BillingServiceError("Informe um cupom válido.")
-    try:
-        result = stripe.PromotionCode.list(code=normalized, active=True, limit=1)
-    except stripe.StripeError as exc:
-        logger.exception("Falha ao consultar cupom Stripe")
-        raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
-
-    data = result.data if hasattr(result, "data") else (result.get("data") if isinstance(result, dict) else [])
-    if not data:
-        raise BillingServiceError("Cupom inválido ou expirado.")
-    first = data[0]
-    promo_id = getattr(first, "id", None) or (first.get("id") if isinstance(first, dict) else None)
+    promo_id = _active_promotion_code_id(normalized)
     if not promo_id:
         raise BillingServiceError("Cupom inválido ou expirado.")
-    return str(promo_id)
+    return promo_id
+
+
+def _payments_client_secret(payments: dict[str, Any]) -> str:
+    data = payments.get("data")
+    if not isinstance(data, list):
+        return ""
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("client_secret",):
+            value = entry.get(key)
+            if value:
+                return str(value)
+        payment = entry.get("payment")
+        if isinstance(payment, dict):
+            for key in ("client_secret",):
+                value = payment.get(key)
+                if value:
+                    return str(value)
+            nested = payment.get("payment_intent")
+            if isinstance(nested, dict) and nested.get("client_secret"):
+                return str(nested.get("client_secret"))
+    return ""
+
+
+def _payments_payment_intent_id(payments: dict[str, Any]) -> str:
+    data = payments.get("data")
+    if not isinstance(data, list):
+        return ""
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        payment = entry.get("payment")
+        if isinstance(payment, dict):
+            pi = payment.get("payment_intent")
+            if isinstance(pi, str) and pi:
+                return pi
+            if isinstance(pi, dict) and pi.get("id"):
+                return str(pi.get("id"))
+    return ""
 
 
 def create_incomplete_subscription(
@@ -253,8 +360,7 @@ def create_incomplete_subscription(
     metadata = {"pending_signup_id": str(pending_signup_id), "plan": plan}
     discounts: list[dict[str, str]] = []
     if promotion_code.strip():
-        promo_id = resolve_promotion_code(promotion_code)
-        discounts.append({"promotion_code": promo_id})
+        discounts.append(resolve_discount(promotion_code))
 
     try:
         customer = stripe.Customer.create(
@@ -267,7 +373,11 @@ def create_incomplete_subscription(
             "items": [{"price": price_id}],
             "payment_behavior": "default_incomplete",
             "payment_settings": {"save_default_payment_method": "on_subscription"},
-            "expand": ["latest_invoice.confirmation_secret"],
+            "expand": [
+                "latest_invoice",
+                "latest_invoice.confirmation_secret",
+                "latest_invoice.payments",
+            ],
             "metadata": metadata,
         }
         if discounts:
@@ -283,22 +393,78 @@ def create_incomplete_subscription(
     latest_invoice = _stripe_mapping(subscription_data.get("latest_invoice"))
     confirmation_secret = _stripe_mapping(latest_invoice.get("confirmation_secret"))
     payment_intent = _stripe_mapping(latest_invoice.get("payment_intent"))
+    payments = _stripe_mapping(latest_invoice.get("payments"))
 
-    client_secret = str(confirmation_secret.get("client_secret") or payment_intent.get("client_secret") or "")
-    payment_intent_id = str(payment_intent.get("id") or "")
-    if not client_secret:
-        logger.error(
-            "Stripe não retornou client_secret. subscription=%s invoice=%s invoice_keys=%s",
+    client_secret = str(
+        confirmation_secret.get("client_secret")
+        or payment_intent.get("client_secret")
+        or _payments_client_secret(payments)
+        or ""
+    )
+    payment_intent_id = str(
+        payment_intent.get("id")
+        or _payments_payment_intent_id(payments)
+        or ""
+    )
+    if client_secret:
+        customer_data = customer.to_dict() if hasattr(customer, "to_dict") else (dict(customer) if isinstance(customer, dict) else {})
+        return {
+            "customer_id": str(customer_data.get("id") or getattr(customer, "id", "") or ""),
+            "subscription_id": str(subscription_data.get("id") or ""),
+            "client_secret": client_secret,
+            "payment_intent_id": payment_intent_id,
+            "requires_payment": True,
+        }
+
+    # Sem client_secret: pode ser fatura gratuita (cupom 100% / valor zerado).
+    # Nesse caso não há nada a cobrar — a conta deve ser criada sem Payment Element.
+    amount_due = latest_invoice.get("amount_due")
+    total = latest_invoice.get("total")
+    invoice_status = str(latest_invoice.get("status") or "")
+    subscription_status = str(subscription_data.get("status") or "")
+    try:
+        amount_due_int = int(amount_due) if amount_due is not None else None
+    except (TypeError, ValueError):
+        amount_due_int = None
+    try:
+        total_int = int(total) if total is not None else None
+    except (TypeError, ValueError):
+        total_int = None
+    is_free_invoice = (
+        (amount_due_int is not None and amount_due_int <= 0)
+        or (total_int is not None and total_int <= 0)
+        or (invoice_status == "paid" and (amount_due_int is None or amount_due_int <= 0))
+    )
+    if is_free_invoice:
+        logger.info(
+            "Assinatura sem cobrança inicial (gratuita). subscription=%s invoice=%s status=%s sub_status=%s amount_due=%s total=%s price=%s",
             subscription_data.get("id"),
             latest_invoice.get("id"),
-            sorted(latest_invoice.keys()),
+            invoice_status,
+            subscription_status,
+            amount_due,
+            total,
+            price_id,
         )
-        raise BillingServiceError("A Stripe não retornou o client_secret do pagamento.")
+        customer_data = customer.to_dict() if hasattr(customer, "to_dict") else (dict(customer) if isinstance(customer, dict) else {})
+        return {
+            "customer_id": str(customer_data.get("id") or getattr(customer, "id", "") or ""),
+            "subscription_id": str(subscription_data.get("id") or ""),
+            "client_secret": "",
+            "payment_intent_id": payment_intent_id,
+            "requires_payment": False,
+        }
 
-    customer_data = customer.to_dict() if hasattr(customer, "to_dict") else (dict(customer) if isinstance(customer, dict) else {})
-    return {
-        "customer_id": str(customer_data.get("id") or getattr(customer, "id", "") or ""),
-        "subscription_id": str(subscription_data.get("id") or ""),
-        "client_secret": client_secret,
-        "payment_intent_id": payment_intent_id,
-    }
+    logger.error(
+        "Stripe não retornou client_secret. subscription=%s invoice=%s invoice_status=%s sub_status=%s amount_due=%s total=%s confirmation_secret=%s price=%s invoice_keys=%s",
+        subscription_data.get("id"),
+        latest_invoice.get("id"),
+        invoice_status,
+        subscription_status,
+        amount_due,
+        total,
+        bool(confirmation_secret),
+        price_id,
+        sorted(latest_invoice.keys()),
+    )
+    raise BillingServiceError("A Stripe não retornou o client_secret do pagamento.")
