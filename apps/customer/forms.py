@@ -974,6 +974,42 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             detail: { message: normalizedMessage, type }
                         }));
                     },
+                    setPlateLoading(container, isLoading = true) {
+                        if (!container || !container.dataset) {
+                            return;
+                        }
+                        container.dataset.plateLoading = isLoading ? '1' : '0';
+                        const fields = container.querySelectorAll('input, select, textarea, button');
+                        fields.forEach((field) => {
+                            if (isLoading) {
+                                if (!field.dataset.plateLoadingEnabled) {
+                                    field.dataset.plateLoadingEnabled = '1';
+                                    field.dataset.plateLoadingDisabled = field.disabled ? '1' : '0';
+                                    field.disabled = true;
+                                }
+                            } else if (field.dataset.plateLoadingEnabled === '1') {
+                                field.disabled = field.dataset.plateLoadingDisabled === '1';
+                                delete field.dataset.plateLoadingEnabled;
+                                delete field.dataset.plateLoadingDisabled;
+                            }
+                        });
+
+                        const existingOverlay = container.querySelector('.plate-loading-overlay');
+                        if (isLoading) {
+                            if (existingOverlay) {
+                                return;
+                            }
+const overlay = document.createElement('div');
+                        overlay.className = 'plate-loading-overlay';
+                        const label = document.createElement('span');
+                        label.className = 'plate-loading-label';
+                        label.textContent = 'Buscando informações do veículo...';
+                        overlay.appendChild(label);
+                        container.appendChild(overlay);
+                        } else if (existingOverlay) {
+                            existingOverlay.remove();
+                        }
+                    },
                     async loadModels(container, { preserveModel = '', preserveFuel = '', preserveEngine = '', silent = false } = {}) {
                         const brand = this.getFieldValue(container, 'brand');
                         await this.loadModelsFor(container, { brand, preserveModel, preserveFuel, preserveEngine, silent });
@@ -1196,6 +1232,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                     }
 
                     element.classList.add('loading-api');
+                    api.setPlateLoading(container, true);
                     try {
                         const media = rawPlate.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
                         const [checkPlateResult, dupResult] = await Promise.allSettled([
@@ -1252,6 +1289,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         console.error('Erro ao processar placa:', error);
                     } finally {
                         element.classList.remove('loading-api');
+                        api.setPlateLoading(container, false);
                     }
                 });
 
