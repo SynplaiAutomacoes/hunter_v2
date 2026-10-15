@@ -5,6 +5,6 @@ from apps.yard.models import YardColumn
 
 @admin.register(YardColumn)
 class YardColumnAdmin(admin.ModelAdmin):
-    list_display = ("title", "workshop", "target", "status", "date_base", "position", "is_active")
-    list_filter = ("target", "date_base", "is_active")
+    list_display = ("title", "workshop", "target", "status", "date_base", "position")
+    list_filter = ("target", "date_base")
     search_fields = ("title",)

@@ -65,7 +65,7 @@ class YardColumnFormTests(TestCase):
         workshop = create_workshop(suffix=3)
         YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=STATUS_ALL, title="Orçamentos", color="#3b82f6", date_base=YardDateBase.MONTHLY)
         form = YardColumnForm(
-            {"target": YardColumnTarget.BUDGET, "status": STATUS_ALL, "title": "Outra", "color": "#ef4444", "date_base": YardDateBase.MONTHLY, "is_active": True}
+            {"target": YardColumnTarget.BUDGET, "status": STATUS_ALL, "title": "Outra", "color": "#ef4444", "date_base": YardDateBase.MONTHLY}
         )
         form.instance.workshop = workshop
         self.assertFalse(form.is_valid())
@@ -74,7 +74,7 @@ class YardColumnFormTests(TestCase):
     def test_rejects_status_of_other_target(self) -> None:
         workshop = create_workshop(suffix=4)
         form = YardColumnForm(
-            {"target": YardColumnTarget.BUDGET, "status": WorkOrderStatus.WAITING_COLLABORATOR, "title": "Inválida", "color": "#3b82f6", "date_base": YardDateBase.DAILY, "is_active": True}
+            {"target": YardColumnTarget.BUDGET, "status": WorkOrderStatus.WAITING_COLLABORATOR, "title": "Inválida", "color": "#1e40af", "date_base": YardDateBase.DAILY}
         )
         form.instance.workshop = workshop
         self.assertFalse(form.is_valid())

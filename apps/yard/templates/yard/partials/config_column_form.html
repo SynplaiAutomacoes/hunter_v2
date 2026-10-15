@@ -29,20 +29,22 @@
         {{ form.title }}
         {% if form.title.errors %}<p class="text-xs text-error mt-1">{{ form.title.errors.0 }}</p>{% endif %}
     </div>
-    <div class="flex gap-4 items-end">
-        <div>
-            <label class="label"><span class="label-text text-xs">{{ form.color.label }}</span></label>
-            {{ form.color }}
-            {% if form.color.errors %}<p class="text-xs text-error mt-1">{{ form.color.errors.0 }}</p>{% endif %}
-        </div>
-        <label class="flex items-center gap-2 pb-3 text-sm cursor-pointer">
-            {{ form.is_active }} Ativa
-        </label>
-    </div>
-    <div class="md:col-span-2">
+    <div>
         <label class="label"><span class="label-text text-xs">{{ form.date_base.label }}</span></label>
         {{ form.date_base }}
         {% if form.date_base.errors %}<p class="text-xs text-error mt-1">{{ form.date_base.errors.0 }}</p>{% endif %}
+    </div>
+    <div class="md:col-span-2">
+        <span class="label"><span class="label-text text-xs">{{ form.color.label }}</span></span>
+        <div class="grid grid-cols-6 gap-2 max-w-md">
+            {% for value, label in form.color.field.choices %}
+            <label title="{{ label }}" class="cursor-pointer">
+                <input type="radio" name="{{ form.color.html_name }}" value="{{ value }}" class="peer sr-only" {% if form.color.value == value %}checked{% endif %}>
+                <span class="block w-8 h-8 rounded-md border-2 border-base-300 peer-checked:border-primary peer-checked:ring-2 peer-checked:ring-primary/40" style="background-color: {{ value }};"></span>
+            </label>
+            {% endfor %}
+        </div>
+        {% if form.color.errors %}<p class="text-xs text-error mt-1">{{ form.color.errors.0 }}</p>{% endif %}
     </div>
     {% if form.non_field_errors %}
     <div class="md:col-span-2 alert alert-error text-sm py-2">

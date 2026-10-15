@@ -23,17 +23,37 @@ def yard_status_choices_for_target(target: str) -> list[tuple[str, str]]:
     return [(STATUS_ALL, "Todos")]
 
 
+YARD_COLUMN_COLORS: tuple[tuple[str, str], ...] = (
+    ("#000000", "Preto"),
+    ("#6b7280", "Cinza"),
+    ("#ef4444", "Vermelho"),
+    ("#ec4899", "Rosa"),
+    ("#8b5cf6", "Roxo"),
+    ("#1e40af", "Azul escuro"),
+    ("#38bdf8", "Azul claro"),
+    ("#15803d", "Verde escuro"),
+    ("#4ade80", "Verde claro"),
+    ("#eab308", "Amarelo"),
+    ("#f97316", "Laranja"),
+    ("#ffffff", "Branco"),
+)
+
+
 class YardColumnForm(forms.ModelForm):
+    target = forms.ChoiceField(
+        label="Modelo",
+        choices=[(YardColumnTarget.BUDGET, "Orçamento"), (YardColumnTarget.WORKORDER, "Ordem de Serviço")],
+        widget=forms.Select(attrs={"class": "select select-bordered w-full"}),
+    )
+    color = forms.ChoiceField(label="Cor da coluna", choices=YARD_COLUMN_COLORS)
+
     class Meta:
         model = YardColumn
-        fields = ["target", "status", "title", "color", "date_base", "is_active"]
+        fields = ["target", "status", "title", "color", "date_base"]
         widgets = {
             "title": forms.TextInput(attrs={"class": "input input-bordered w-full", "placeholder": "Ex.: Aguardando Peças"}),
-            "color": forms.TextInput(attrs={"type": "color", "class": "input input-bordered w-24 h-10 p-1"}),
-            "target": forms.Select(attrs={"class": "select select-bordered w-full"}),
             "status": forms.Select(attrs={"class": "select select-bordered w-full"}),
             "date_base": forms.Select(attrs={"class": "select select-bordered w-full"}),
-            "is_active": forms.CheckboxInput(attrs={"class": "checkbox checkbox-primary"}),
         }
         labels = {
             "target": "Modelo",
@@ -41,12 +61,14 @@ class YardColumnForm(forms.ModelForm):
             "title": "Título de exibição",
             "color": "Cor da coluna",
             "date_base": "Base de data",
-            "is_active": "Coluna ativa",
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["status"].choices = yard_status_choices()
+        if not self.is_bound and not getattr(self.instance, "pk", None):
+            self.fields["target"].initial = YardColumnTarget.BUDGET
+            self.fields["color"].initial = "#1e40af"
 
     def clean(self) -> dict:
         cleaned_data = super().clean()

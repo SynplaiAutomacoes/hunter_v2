@@ -26,7 +26,7 @@ def ensure_default_columns(*, workshop) -> list[YardColumn]:
     if YardColumn.objects.filter(workshop=workshop).exists():
         return list(YardColumn.objects.filter(workshop=workshop).order_by("position", "id"))
     columns = [
-        YardColumn(workshop=workshop, position=index, is_active=True, **definition)
+        YardColumn(workshop=workshop, position=index, **definition)
         for index, definition in enumerate(DEFAULT_COLUMNS)
     ]
     YardColumn.objects.bulk_create(columns)
@@ -173,7 +173,7 @@ def _workorder_queryset(*, workshop, column: YardColumn, covered_statuses: set[s
 def get_board_data(*, workshop) -> list[dict[str, Any]]:
     """Monta as colunas ativas com seus cards para o Kanban do Pátio."""
     columns = ensure_default_columns(workshop=workshop)
-    active_columns = [column for column in columns if column.is_active]
+    active_columns = list(columns)
     today = timezone.localdate()
 
     covered: dict[str, set[str]] = {YardColumnTarget.BUDGET: set(), YardColumnTarget.WORKORDER: set()}
