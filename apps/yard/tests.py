@@ -61,6 +61,13 @@ class YardDefaultColumnsTests(TestCase):
 
 
 class YardColumnFormTests(TestCase):
+    def test_status_widget_renders_grouped_choices(self) -> None:
+        form = YardColumnForm()
+        rendered = str(form["status"])
+        self.assertIn('value="all"', rendered)
+        self.assertIn('value="waiting_delivery"', rendered)
+        self.assertIn('value="waiting_approval"', rendered)
+
     def test_rejects_duplicate_target_status(self) -> None:
         workshop = create_workshop(suffix=3)
         YardColumn.objects.create(workshop=workshop, target=YardColumnTarget.BUDGET, status=STATUS_ALL, title="Orçamentos", color="#3b82f6", date_base=YardDateBase.MONTHLY)

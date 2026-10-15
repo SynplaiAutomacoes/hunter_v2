@@ -66,6 +66,7 @@ class YardColumnForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["status"].choices = yard_status_choices()
+        self.fields["status"].widget.choices = self.fields["status"].choices
         if not self.is_bound and not getattr(self.instance, "pk", None):
             self.fields["target"].initial = YardColumnTarget.BUDGET
             self.fields["color"].initial = "#1e40af"
