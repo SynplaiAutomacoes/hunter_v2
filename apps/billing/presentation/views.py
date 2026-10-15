@@ -28,6 +28,7 @@ from apps.billing.infrastructure.providers import get_billing_service
 from apps.billing.infrastructure.services.pending_signup import (
     consume_login_token,
     create_pending_signup,
+    materialize_account_from_pending_signup,
 )
 from apps.billing.models import (
     AccountSubscription,
@@ -242,10 +243,34 @@ class SubscribeStartView(View):
             ]
         )
 
+        requires_payment = bool(getattr(result, "requires_payment", True))
+        if not requires_payment:
+            # Fatura gratuita (ex.: cupom 100%): sem nada a cobrar, cria a conta
+            # de forma síncrona para não depender do webhook.
+            try:
+                materialize_account_from_pending_signup(
+                    pending=pending,
+                    stripe_customer_id=result.customer_id,
+                    stripe_subscription_id=result.subscription_id,
+                )
+                pending.refresh_from_db()
+            except Exception:
+                logger.exception("Falha ao materializar cadastro gratuito pendente %s", pending.pk)
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "pending_signup_id": pending.pk,
+                    "requires_payment": False,
+                    "client_secret": "",
+                    "publishable_key": str(getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") or ""),
+                }
+            )
+
         return JsonResponse(
             {
                 "ok": True,
                 "pending_signup_id": pending.pk,
+                "requires_payment": True,
                 "client_secret": result.client_secret,
                 "publishable_key": str(getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") or ""),
             }

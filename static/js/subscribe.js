@@ -110,7 +110,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     pendingSignupId = startPayload.pending_signup_id;
+    if (startPayload.requires_payment === false) {
+      setLoading(true, "Criando sua conta...");
+      await finishLogin(pendingSignupId);
+      return;
+    }
     clientSecret = startPayload.client_secret;
+    if (!clientSecret) {
+      throw new Error("Não foi possível iniciar o pagamento. Tente novamente.");
+    }
     elements = stripe.elements({
       clientSecret,
       appearance: {
@@ -145,25 +153,10 @@ document.addEventListener("DOMContentLoaded", () => {
     setLoading(false, "Confirmar pagamento");
   }
 
-  async function confirmAndFinish() {
-    const { error, paymentIntent } = await stripe.confirmPayment({
-      elements,
-      redirect: "if_required",
-      confirmParams: {
-        return_url: window.location.href,
-      },
-    });
-
-    if (error) {
-      throw new Error(error.message || "Falha ao confirmar o pagamento.");
-    }
-    if (paymentIntent && !["succeeded", "processing"].includes(paymentIntent.status)) {
-      throw new Error("Pagamento não confirmado.");
-    }
-
-    const loginToken = await pollUntilPaid(pendingSignupId);
+  async function finishLogin(pendingId) {
+    const loginToken = await pollUntilPaid(pendingId);
     const completeData = new FormData();
-    completeData.append("pending_signup_id", String(pendingSignupId));
+    completeData.append("pending_signup_id", String(pendingId));
     completeData.append("login_token", loginToken);
 
     const completeResponse = await fetch(config.completeUrl, {
@@ -180,6 +173,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     window.location.href = completePayload.redirect_url;
+  }
+
+  async function confirmAndFinish() {
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: "if_required",
+      confirmParams: {
+        return_url: window.location.href,
+      },
+    });
+
+    if (error) {
+      throw new Error(error.message || "Falha ao confirmar o pagamento.");
+    }
+    if (paymentIntent && !["succeeded", "processing"].includes(paymentIntent.status)) {
+      throw new Error("Pagamento não confirmado.");
+    }
+
+    await finishLogin(pendingSignupId);
   }
 
   if (sendCodeButton) {
