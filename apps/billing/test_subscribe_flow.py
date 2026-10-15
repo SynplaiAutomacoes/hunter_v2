@@ -321,6 +321,8 @@ class SubscribePageTests(TestCase):
         self.assertContains(response, "payment-element")
         self.assertContains(response, "promotion_code")
         self.assertContains(response, "subscribe-send-code")
+        self.assertContains(response, 'id="subscribe-code-step"')
+        self.assertContains(response, "subscribe-code-step hidden")
         self.assertContains(response, "Hunter Auto")
         self.assertContains(response, "Já sou cliente")
         self.assertNotContains(response, "universidadehunter.com.br")

@@ -52,7 +52,11 @@ class EmailServiceFactory:
         if cls._instance is None:
             from_email = str(getattr(settings, "DEFAULT_FROM_EMAIL", "") or "").strip()
             if not from_email:
-                raise EmailConfigurationError("Configure DEFAULT_FROM_EMAIL nas settings do Django.")
+                from_email = str(getattr(settings, "EMAIL_HOST_USER", "") or "").strip()
+            if not from_email:
+                raise EmailConfigurationError(
+                    "Configure DEFAULT_FROM_EMAIL (ou EMAIL_HOST_USER) nas settings do Django."
+                )
             cls._instance = DjangoSmtpEmailService(from_email=from_email)
         return cls._instance
 

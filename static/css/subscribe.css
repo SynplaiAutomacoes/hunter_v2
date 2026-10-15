@@ -171,6 +171,16 @@
   gap: 10px;
   flex-wrap: wrap;
 }
+.subscribe-code-step {
+  display: grid;
+  gap: 12px;
+}
+.subscribe-code-step[hidden],
+.subscribe-verify-status[hidden],
+.subscribe-code-step.hidden,
+.subscribe-verify-status.hidden {
+  display: none !important;
+}
 .subscribe-verify-status {
   margin: 0;
   font-size: 12px;
