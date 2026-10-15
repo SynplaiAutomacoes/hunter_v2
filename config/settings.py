@@ -90,6 +90,16 @@ SYNPLAISIGN_MASTER_KEY = os.getenv("SYNPLAISIGN_MASTER_KEY", "")
 SYNPLAISIGN_API_KEY = os.getenv("SYNPLAISIGN_API_KEY", "")
 SYNPLAISIGN_WEBHOOK_SECRET = os.getenv("SYNPLAISIGN_WEBHOOK_SECRET", "")
 
+# Stripe Billing
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_ID_BASIC = os.getenv("STRIPE_PRICE_ID_BASIC", "")
+STRIPE_PRICE_ID_FULL = os.getenv("STRIPE_PRICE_ID_FULL", "")
+STRIPE_PRODUCT_ID_BASIC = os.getenv("STRIPE_PRODUCT_ID_BASIC", "")
+STRIPE_PRODUCT_ID_FULL = os.getenv("STRIPE_PRODUCT_ID_FULL", "")
+STRIPE_PAST_DUE_GRACE_DAYS = int(os.getenv("STRIPE_PAST_DUE_GRACE_DAYS", "3"))
+
 # Legacy SuperSign settings kept for reference during cutover cleanup.
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")
 SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
@@ -105,13 +115,7 @@ STORAGE_REGION = os.getenv("REGION", "auto")
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
 
-# E-mail (SMTP)
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1").lower() in ("1", "true", "yes")
+# E-mail transacional via SynplaiSign POST /mail (Resend). SMTP Django não é usado.
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "")
 
 if not DEBUG:
@@ -169,6 +173,7 @@ INSTALLED_APPS = [
     "apps.messaging",
     "apps.terms",
     "apps.notifications",
+    "apps.billing",
 ]
 
 MIDDLEWARE = [
@@ -189,6 +194,7 @@ MIDDLEWARE = [
     "django_htmx.middleware.HtmxMiddleware",
     # Local
     "apps.core.presentation.middlewares.RequestPerformanceLoggingMiddleware",
+    "apps.billing.presentation.middlewares.SubscriptionAccessMiddleware",
     "apps.core.presentation.middlewares.RequireFirstWorkshopMiddleware",
 ]
 
