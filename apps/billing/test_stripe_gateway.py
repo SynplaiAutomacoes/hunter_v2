@@ -196,64 +196,6 @@ class StripeGatewayTests(SimpleTestCase):
         with self.assertRaises(BillingServiceError):
             resolve_promotion_code("INVALIDO")
 
-    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
-    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
-    def test_create_incomplete_subscription_free_invoice_has_no_payment(self, create_customer: Mock, create_subscription: Mock) -> None:
-        create_customer.return_value = Mock(id="cus_1", to_dict=Mock(return_value={"id": "cus_1"}))
-        subscription = Mock()
-        subscription.to_dict.return_value = {
-            "id": "sub_1",
-            "status": "active",
-            "latest_invoice": {
-                "id": "in_1",
-                "status": "paid",
-                "amount_due": 0,
-                "total": 0,
-                "confirmation_secret": None,
-            },
-        }
-        create_subscription.return_value = subscription
-
-        result = create_incomplete_subscription(
-            email="ana@example.com",
-            customer_name="Ana",
-            plan="basic",
-            price_id="price_basic",
-            pending_signup_id=7,
-            promotion_code="",
-        )
-
-        self.assertEqual(result["requires_payment"], False)
-        self.assertEqual(result["client_secret"], "")
-        self.assertEqual(result["subscription_id"], "sub_1")
-
-    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
-    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
-    def test_create_incomplete_subscription_paid_invoice_still_raises_without_secret(self, create_customer: Mock, create_subscription: Mock) -> None:
-        create_customer.return_value = Mock(id="cus_1", to_dict=Mock(return_value={"id": "cus_1"}))
-        subscription = Mock()
-        subscription.to_dict.return_value = {
-            "id": "sub_1",
-            "status": "incomplete",
-            "latest_invoice": {
-                "id": "in_1",
-                "status": "open",
-                "amount_due": 29990,
-                "total": 29990,
-                "confirmation_secret": {},
-            },
-        }
-        create_subscription.return_value = subscription
-
-        with self.assertRaises(BillingServiceError):
-            create_incomplete_subscription(
-                email="ana@example.com",
-                customer_name="Ana",
-                plan="basic",
-                price_id="price_basic",
-                pending_signup_id=7,
-            )
-
 
 class _StripeResource:
     def __init__(self, payload: dict) -> None:

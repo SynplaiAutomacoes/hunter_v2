@@ -73,7 +73,6 @@ class IncompleteSubscriptionResult:
     subscription_id: str
     client_secret: str
     payment_intent_id: str
-    requires_payment: bool = True
 
 
 class IBillingService(ABC):
