@@ -1,0 +1,77 @@
+<div class="modal modal-open" id="subscriber-cancel-modal">
+<div class="modal-box max-w-lg relative">
+  <button
+    type="button"
+    class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+    aria-label="Fechar"
+    onclick="document.getElementById('modal-container').innerHTML=''"
+  >✕</button>
+
+  <h3 class="font-bold text-xl mb-2">Cancelar assinatura</h3>
+  <p class="text-base-content/70 mb-1">
+    Conta: <strong>{{ subscription.account.name }}</strong>
+  </p>
+  <p class="text-sm text-base-content/60 mb-6">
+    Plano {{ subscription.get_plan_display }} · {{ subscription.get_status_display }}
+    {% if subscription.current_period_end %}
+      · Renova em {{ subscription.current_period_end|date:"d/m/Y" }}
+    {% endif %}
+  </p>
+
+  <form method="post" action="{{ form_url }}">
+    {% csrf_token %}
+    <fieldset class="space-y-3 mb-6">
+      <legend class="font-semibold text-sm mb-2">Método de cancelamento</legend>
+
+      {% if has_stripe %}
+      <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
+        <input type="radio" name="cancel_mode" value="period_end" class="radio radio-primary mt-1" checked />
+        <span>
+          <span class="font-medium block">Cancelar no fim do período</span>
+          <span class="text-sm text-base-content/60">
+            O cliente continua com acesso até
+            {% if subscription.current_period_end %}
+              {{ subscription.current_period_end|date:"d/m/Y" }}
+            {% else %}
+              a data de renovação
+            {% endif %}.
+            Depois a assinatura é encerrada automaticamente.
+          </span>
+        </span>
+      </label>
+      {% endif %}
+
+      <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
+        <input
+          type="radio"
+          name="cancel_mode"
+          value="immediate"
+          class="radio radio-primary mt-1"
+          {% if not has_stripe %}checked{% endif %}
+        />
+        <span>
+          <span class="font-medium block">Cancelar imediatamente</span>
+          <span class="text-sm text-base-content/60">
+            Revoga o acesso agora. A conta e os dados do usuário são preservados;
+            o status passa a Assinatura Cancelada.
+          </span>
+        </span>
+      </label>
+    </fieldset>
+
+    {% if not has_stripe %}
+    <p class="text-sm text-warning mb-4">
+      Esta conta não tem assinatura Stripe vinculada (ex.: cortesia). Só o cancelamento imediato local está disponível.
+    </p>
+    {% endif %}
+
+    <div class="modal-action">
+      <button type="button" class="btn" onclick="document.getElementById('modal-container').innerHTML=''">Voltar</button>
+      <button type="submit" class="btn btn-error">Confirmar cancelamento</button>
+    </div>
+  </form>
+</div>
+<form method="dialog" class="modal-backdrop">
+  <button type="button" onclick="document.getElementById('modal-container').innerHTML=''">close</button>
+</form>
+</div>

@@ -84,6 +84,35 @@ def create_billing_portal_session(*, stripe_customer_id: str, return_url: str) -
     return {"url": session.url}
 
 
+def cancel_subscription(*, stripe_subscription_id: str, at_period_end: bool) -> dict[str, Any]:
+    """Cancel immediately or schedule cancel at period end (Stripe parity)."""
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    if not stripe_subscription_id:
+        raise BillingServiceError("Assinatura Stripe não encontrada.")
+
+    try:
+        if at_period_end:
+            subscription = stripe.Subscription.modify(
+                stripe_subscription_id,
+                cancel_at_period_end=True,
+            )
+        else:
+            subscription = stripe.Subscription.cancel(stripe_subscription_id)
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    data = subscription.to_dict() if hasattr(subscription, "to_dict") else _stripe_mapping(subscription)
+    return {
+        "id": str(data.get("id") or stripe_subscription_id),
+        "status": str(data.get("status") or ""),
+        "cancel_at_period_end": bool(data.get("cancel_at_period_end")),
+        "current_period_end": data.get("current_period_end"),
+        "customer": str(data.get("customer") or ""),
+    }
+
+
 def construct_webhook_event(*, payload: bytes, signature_header: str) -> dict[str, Any]:
     _configure_stripe()
     webhook_secret = str(getattr(settings, "STRIPE_WEBHOOK_SECRET", "") or "")

@@ -17,6 +17,8 @@ from apps.billing.domain.contracts import (
     BillingPortalRequest,
     BillingPortalResult,
     BillingServiceError,
+    CancelSubscriptionRequest,
+    CancelSubscriptionResult,
     CheckoutSessionRequest,
     CheckoutSessionResult,
     CouponPreviewResult,
@@ -74,6 +76,19 @@ class StripeBillingService(IBillingService):
             return_url=request.return_url,
         )
         return BillingPortalResult(url=result["url"])
+
+    def cancel_subscription(self, request: CancelSubscriptionRequest) -> CancelSubscriptionResult:
+        if not request.stripe_subscription_id:
+            raise BillingServiceError("Assinatura Stripe não encontrada.")
+        result = stripe_gateway.cancel_subscription(
+            stripe_subscription_id=request.stripe_subscription_id,
+            at_period_end=request.at_period_end,
+        )
+        return CancelSubscriptionResult(
+            stripe_subscription_id=str(result["id"]),
+            status=str(result.get("status") or ""),
+            cancel_at_period_end=bool(result.get("cancel_at_period_end")),
+        )
 
     def construct_webhook_event(self, *, payload: bytes, signature_header: str) -> StripeWebhookEventPayload:
         event = stripe_gateway.construct_webhook_event(payload=payload, signature_header=signature_header)

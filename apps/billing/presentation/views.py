@@ -15,10 +15,15 @@ from django.views import View
 from django.views.generic import ListView, TemplateView
 
 from apps.accounts.mixins import AccountOwnerRequiredMixin
-from apps.billing.access import get_account_subscription, invalidate_subscription_cache
+from apps.billing.access import (
+    apply_local_subscription_cancel,
+    get_account_subscription,
+    invalidate_subscription_cache,
+)
 from apps.billing.domain.contracts import (
     BillingPortalRequest,
     BillingServiceError,
+    CancelSubscriptionRequest,
     CheckoutSessionRequest,
     IncompleteSubscriptionRequest,
 )
@@ -40,7 +45,7 @@ from apps.billing.models import (
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.core.templatetags.table_tags import TableColumn
+from apps.core.templatetags.table_tags import TableAction, TableColumn
 from apps.workshops.views.system_management import SystemManagementMixin
 
 logger = logging.getLogger(__name__)
@@ -505,6 +510,8 @@ class SubscriberListView(SystemManagementMixin, HtmxTemplateResponseMixin, ListV
                 attr=lambda obj: {
                     "label": obj.get_status_display(),
                     "badge_class": STATUS_BADGE_CLASS.get(obj.status, "badge-ghost"),
+                    "cancel_at_period_end": bool(obj.cancel_at_period_end),
+                    "period_end": obj.current_period_end,
                 },
                 cell_template="billing/partials/subscription_status_cell.html",
                 searchable=False,
@@ -514,8 +521,138 @@ class SubscriberListView(SystemManagementMixin, HtmxTemplateResponseMixin, ListV
             TableColumn("Renova em", attr="current_period_end", searchable=False),
             TableColumn("Cliente Stripe", attr="stripe_customer_id"),
         ]
-        context["actions"] = []
+        context["actions"] = [
+            TableAction(
+                url_name="billing:subscriber_cancel",
+                label="Cancelar",
+                icon="cancel",
+                a_class="btn-table-delete",
+                aria_label="Cancelar assinatura",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                hx_push_url="false",
+                visible=lambda obj: obj.status != SubscriptionStatus.CANCELED,
+            ),
+        ]
         context["status_choices"] = SubscriptionStatus.choices
         context["plan_choices"] = SubscriptionPlan.choices
         context["system_manage_url"] = reverse_lazy("workshops:system_manage")
         return context
+
+
+def _parse_cancel_mode(raw: str) -> bool | None:
+    """Return True for at_period_end, False for immediate, None if invalid."""
+    value = (raw or "").strip().lower()
+    if value in {"period_end", "at_period_end", "fim", "period"}:
+        return True
+    if value in {"immediate", "now", "imediato"}:
+        return False
+    return None
+
+
+def _execute_subscription_cancel(
+    *,
+    subscription: AccountSubscription,
+    at_period_end: bool,
+) -> AccountSubscription:
+    if subscription.status == SubscriptionStatus.CANCELED:
+        raise BillingServiceError("Esta assinatura já está cancelada.")
+
+    if subscription.stripe_subscription_id:
+        get_billing_service().cancel_subscription(
+            CancelSubscriptionRequest(
+                stripe_subscription_id=subscription.stripe_subscription_id,
+                at_period_end=at_period_end,
+            )
+        )
+        return apply_local_subscription_cancel(subscription, at_period_end=at_period_end)
+
+    # Cortesia / sem Stripe: só cancelamento imediato local.
+    if at_period_end:
+        raise BillingServiceError(
+            "Cancelamento no fim do período só está disponível para assinaturas Stripe."
+        )
+    return apply_local_subscription_cancel(subscription, at_period_end=False)
+
+
+class SubscriberCancelView(SystemManagementMixin, View):
+    """Sidney / Gerenciar Sistema: cancel with immediate vs period-end choice."""
+
+    def get(self, request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
+        subscription = get_object_or_404(
+            AccountSubscription.objects.select_related("account", "account__owner"),
+            pk=pk,
+        )
+        if subscription.status == SubscriptionStatus.CANCELED:
+            messages.info(request, "Esta assinatura já está cancelada.")
+            return redirect("billing:subscriber_list")
+        return self._render_modal(request, subscription)
+
+    def post(self, request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
+        subscription = get_object_or_404(
+            AccountSubscription.objects.select_related("account", "account__owner"),
+            pk=pk,
+        )
+        at_period_end = _parse_cancel_mode(str(request.POST.get("cancel_mode") or ""))
+        if at_period_end is None:
+            messages.error(request, "Escolha o método de cancelamento.")
+            return self._render_modal(request, subscription)
+
+        try:
+            _execute_subscription_cancel(subscription=subscription, at_period_end=at_period_end)
+        except BillingServiceError as exc:
+            messages.error(request, str(exc))
+            return self._render_modal(request, subscription)
+
+        if at_period_end:
+            messages.success(
+                request,
+                "Cancelamento agendado para o fim do período. O acesso continua até a data de renovação.",
+            )
+        else:
+            messages.success(request, "Assinatura cancelada imediatamente. O acesso foi revogado.")
+        return redirect("billing:subscriber_list")
+
+    def _render_modal(self, request: HttpRequest, subscription: AccountSubscription) -> HttpResponse:
+        from django.template.response import TemplateResponse
+
+        return TemplateResponse(
+            request,
+            "billing/partials/subscriber_cancel_modal.html",
+            {
+                "subscription": subscription,
+                "has_stripe": bool(subscription.stripe_subscription_id),
+                "form_url": reverse("billing:subscriber_cancel", kwargs={"pk": subscription.pk}),
+            },
+        )
+
+
+class OwnerSubscriptionCancelView(AccountOwnerRequiredMixin, View):
+    """Account owner cancels own subscription from plans page."""
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        subscription = get_account_subscription(request)
+        if subscription is None:
+            messages.error(request, "Nenhuma assinatura encontrada para esta conta.")
+            return redirect("billing:plans")
+
+        at_period_end = _parse_cancel_mode(str(request.POST.get("cancel_mode") or ""))
+        if at_period_end is None:
+            messages.error(request, "Escolha o método de cancelamento.")
+            return redirect("billing:plans")
+
+        try:
+            _execute_subscription_cancel(subscription=subscription, at_period_end=at_period_end)
+        except BillingServiceError as exc:
+            messages.error(request, str(exc))
+            return redirect("billing:plans")
+
+        invalidate_subscription_cache(request)
+        if at_period_end:
+            messages.success(
+                request,
+                "Cancelamento agendado. Você continua com acesso até o fim do período atual.",
+            )
+        else:
+            messages.success(request, "Assinatura cancelada. Seu acesso foi encerrado.")
+        return redirect("billing:plans")

@@ -91,6 +91,37 @@ class StripeWebhookTests(TestCase):
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual(result.status, SubscriptionStatus.CANCELED)
+        self.assertEqual(result.get_status_display(), "Assinatura Cancelada")
+        self.assertFalse(result.is_active)
+        # Cancel must not delete the account owner — only revoke access.
+        self.user.refresh_from_db()
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+        self.assertEqual(self.user.account_id, self.account.pk)
+        self.assertTrue(Account.objects.filter(pk=self.account.pk).exists())
+
+    def test_subscription_updated_canceled_status_revokes_access(self) -> None:
+        AccountSubscription.objects.create(
+            account=self.account,
+            plan=SubscriptionPlan.BASIC,
+            status=SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_upd_cancel",
+            stripe_customer_id="cus_upd_cancel",
+        )
+        result = process_stripe_event(
+            event_type="customer.subscription.updated",
+            data={
+                "id": "sub_upd_cancel",
+                "customer": "cus_upd_cancel",
+                "status": "canceled",
+                "cancel_at_period_end": False,
+                "metadata": {"account_id": str(self.account.pk), "plan": "basic"},
+            },
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.status, SubscriptionStatus.CANCELED)
+        self.assertFalse(result.is_active)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
 
     def test_checkout_completed_activates_subscription(self) -> None:
         result = process_stripe_event(

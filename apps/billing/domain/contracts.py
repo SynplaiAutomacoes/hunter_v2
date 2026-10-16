@@ -88,6 +88,19 @@ class CouponPreviewResult:
     currency: str
 
 
+@dataclass(frozen=True, slots=True)
+class CancelSubscriptionRequest:
+    stripe_subscription_id: str
+    at_period_end: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CancelSubscriptionResult:
+    stripe_subscription_id: str
+    status: str
+    cancel_at_period_end: bool
+
+
 class IBillingService(ABC):
     @abstractmethod
     def create_checkout_session(self, request: CheckoutSessionRequest) -> CheckoutSessionResult: ...
@@ -103,3 +116,6 @@ class IBillingService(ABC):
 
     @abstractmethod
     def create_incomplete_subscription(self, request: IncompleteSubscriptionRequest) -> IncompleteSubscriptionResult: ...
+
+    @abstractmethod
+    def cancel_subscription(self, request: CancelSubscriptionRequest) -> CancelSubscriptionResult: ...

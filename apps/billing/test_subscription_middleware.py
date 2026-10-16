@@ -110,3 +110,31 @@ class SubscriptionMiddlewareTests(TestCase):
         request.user = AnonymousUser()
         response = self.middleware(request)
         self.assertEqual(response.status_code, 200)
+
+    def test_canceled_subscription_redirects_to_plans_and_keeps_user(self) -> None:
+        account, user, _workshop = _build_account_owner(username="canceled-sub", cpf="12345678909", suffix=15)
+        AccountSubscription.objects.create(
+            account=account,
+            plan=SubscriptionPlan.FULL,
+            status=SubscriptionStatus.CANCELED,
+            stripe_subscription_id="sub_canceled",
+        )
+        # Stale session snapshot from before cancel must not keep access open.
+        request = self._authenticated_request(path="/budget/", user=user)
+        request.session["billing_subscription_access"] = {
+            "account_id": account.pk,
+            "plan": SubscriptionPlan.FULL,
+            "status": SubscriptionStatus.ACTIVE,
+            "is_active": True,
+        }
+        request.session.save()
+
+        response = self.middleware(request)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("billing:plans"))
+        user.refresh_from_db()
+        self.assertTrue(User.objects.filter(pk=user.pk).exists())
+        self.assertEqual(
+            AccountSubscription.objects.get(account=account).status,
+            SubscriptionStatus.CANCELED,
+        )
