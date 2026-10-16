@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -14,7 +14,14 @@ from apps.billing.infrastructure.services.webhook_processor import (
     claim_webhook_event,
     process_stripe_event,
 )
-from apps.billing.models import AccountSubscription, StripeWebhookEvent, SubscriptionPlan, SubscriptionStatus
+from apps.billing.models import (
+    AccountSubscription,
+    PendingSignup,
+    PendingSignupStatus,
+    StripeWebhookEvent,
+    SubscriptionPlan,
+    SubscriptionStatus,
+)
 from apps.billing.presentation.webhooks import StripeWebhookView
 
 User = get_user_model()
@@ -98,6 +105,68 @@ class StripeWebhookTests(TestCase):
         self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
         self.assertEqual(self.user.account_id, self.account.pk)
         self.assertTrue(Account.objects.filter(pk=self.account.pk).exists())
+
+    def test_dashboard_cancel_updates_even_with_paid_pending_signup(self) -> None:
+        """Cancel no painel Stripe: PendingSignup PAID não pode engolir o evento."""
+        AccountSubscription.objects.create(
+            account=self.account,
+            plan=SubscriptionPlan.BASIC,
+            status=SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_panel",
+            stripe_customer_id="cus_panel",
+        )
+        PendingSignup.objects.create(
+            email="panel@example.com",
+            username="paneluser",
+            password_hash="!",
+            first_name="Panel",
+            last_name="User",
+            cpf="39053344705",
+            plan=SubscriptionPlan.BASIC,
+            status=PendingSignupStatus.PAID,
+            stripe_customer_id="cus_panel",
+            stripe_subscription_id="sub_panel",
+            created_account=self.account,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        # Sem account_id no metadata (como no cancel pelo Dashboard).
+        result = process_stripe_event(
+            event_type="customer.subscription.deleted",
+            data={
+                "id": "sub_panel",
+                "customer": "cus_panel",
+                "status": "canceled",
+                "metadata": {},
+            },
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.status, SubscriptionStatus.CANCELED)
+        self.assertFalse(result.is_active)
+        self.assertEqual(result.get_status_display(), "Assinatura Cancelada")
+
+    def test_dashboard_updated_canceled_without_metadata(self) -> None:
+        AccountSubscription.objects.create(
+            account=self.account,
+            plan=SubscriptionPlan.FULL,
+            status=SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_upd_panel",
+            stripe_customer_id="cus_upd_panel",
+        )
+        result = process_stripe_event(
+            event_type="customer.subscription.updated",
+            data={
+                "id": "sub_upd_panel",
+                "customer": "cus_upd_panel",
+                "status": "canceled",
+                "cancel_at_period_end": False,
+                "metadata": {},
+            },
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.status, SubscriptionStatus.CANCELED)
+        self.assertFalse(result.is_active)
 
     def test_subscription_updated_canceled_status_revokes_access(self) -> None:
         AccountSubscription.objects.create(
