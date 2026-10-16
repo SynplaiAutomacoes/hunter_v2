@@ -116,7 +116,7 @@ def build_rentabilidade_acumulada(*, workshop: Workshop, period: ReportPeriod) -
     )
 
 
-def build_retorno_garantia(*, workshop: Workshop, period: ReportPeriod) -> ManagementReport:
+def build_retorno_garantia(*, workshop: Workshop, period: ReportPeriod, mechanic_id: int | None = None) -> ManagementReport:
     qs = (
         WorkOrder.objects.filter(
             workshop=workshop,
@@ -125,7 +125,15 @@ def build_retorno_garantia(*, workshop: Workshop, period: ReportPeriod) -> Manag
             delivered_at__month=period.month,
             delivered_at__year=period.year,
         )
-        .select_related(
+    )
+    if mechanic_id:
+        qs = qs.filter(
+            Q(previous_mechanic_id=mechanic_id)
+            | Q(collaborators__id=mechanic_id)
+            | Q(warranty_origin__collaborators__id=mechanic_id)
+        )
+    qs = (
+        qs.select_related(
             "budget",
             "budget__customer",
             "budget__vehicle",
@@ -189,7 +197,13 @@ def build_retorno_garantia(*, workshop: Workshop, period: ReportPeriod) -> Manag
     )
 
 
-def build_taxa_aprovacao(*, workshop: Workshop, period: ReportPeriod) -> ManagementReport:
+def build_taxa_aprovacao(
+    *,
+    workshop: Workshop,
+    period: ReportPeriod,
+    budget_status: str | None = None,
+    workorder_status: str | None = None,
+) -> ManagementReport:
     qs = (
         Budget.objects.filter(
             workshop=workshop,
@@ -203,8 +217,15 @@ def build_taxa_aprovacao(*, workshop: Workshop, period: ReportPeriod) -> Managem
             | Q(status=BudgetStatus.CANCELLED)
             | Q(status__in=["reprovado", "reproved"])
         )
-        .select_related("customer", "vehicle")
+    )
+    if budget_status:
+        qs = qs.filter(status=budget_status)
+    if workorder_status:
+        qs = qs.filter(workorders__status=workorder_status)
+    qs = (
+        qs.select_related("customer", "vehicle")
         .order_by("-entry_date", "-pk")
+        .distinct()
     )
     rows: list[dict[str, Any]] = []
     for budget in qs:
@@ -319,11 +340,11 @@ def build_mecanicos_retrabalho(*, workshop: Workshop, period: ReportPeriod, sort
     )
 
 
-def build_performance_report(*, workshop: Workshop, period: ReportPeriod, report_key: str, sort_by: str = "perda") -> ManagementReport | None:
+def build_performance_report(*, workshop: Workshop, period: ReportPeriod, report_key: str, sort_by: str = "perda", mechanic_id: int | None = None, budget_status: str | None = None, workorder_status: str | None = None) -> ManagementReport | None:
     builders = {
         "rentabilidade_acumulada": lambda: build_rentabilidade_acumulada(workshop=workshop, period=period),
-        "retorno_garantia": lambda: build_retorno_garantia(workshop=workshop, period=period),
-        "taxa_aprovacao": lambda: build_taxa_aprovacao(workshop=workshop, period=period),
+        "retorno_garantia": lambda: build_retorno_garantia(workshop=workshop, period=period, mechanic_id=mechanic_id),
+        "taxa_aprovacao": lambda: build_taxa_aprovacao(workshop=workshop, period=period, budget_status=budget_status, workorder_status=workorder_status),
         "mecanicos_retrabalho": lambda: build_mecanicos_retrabalho(workshop=workshop, period=period, sort_by=sort_by),
     }
     builder = builders.get(report_key)
