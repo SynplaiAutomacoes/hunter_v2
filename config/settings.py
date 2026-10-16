@@ -99,6 +99,10 @@ STRIPE_PRICE_ID_FULL = os.getenv("STRIPE_PRICE_ID_FULL", "")
 STRIPE_PRODUCT_ID_BASIC = os.getenv("STRIPE_PRODUCT_ID_BASIC", "")
 STRIPE_PRODUCT_ID_FULL = os.getenv("STRIPE_PRODUCT_ID_FULL", "")
 STRIPE_PAST_DUE_GRACE_DAYS = int(os.getenv("STRIPE_PAST_DUE_GRACE_DAYS", "3"))
+STRIPE_DASHBOARD_URL = os.getenv(
+    "STRIPE_DASHBOARD_URL",
+    "https://dashboard.stripe.com/acct_1UI7Po3ydFWhqWHB/test/dashboard",
+)
 
 # Legacy SuperSign settings kept for reference during cutover cleanup.
 SUPERSIGN_BASE_URL = os.getenv("SUPERSIGN_BASE_URL", "https://api.sign.supersign.com.br")

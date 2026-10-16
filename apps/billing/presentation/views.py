@@ -557,6 +557,7 @@ class SubscriberListView(SystemManagementMixin, HtmxTemplateResponseMixin, ListV
         context["status_choices"] = SubscriptionStatus.choices
         context["plan_choices"] = SubscriptionPlan.choices
         context["system_manage_url"] = reverse_lazy("workshops:system_manage")
+        context["stripe_dashboard_url"] = str(getattr(settings, "STRIPE_DASHBOARD_URL", "") or "")
         return context
 
 
