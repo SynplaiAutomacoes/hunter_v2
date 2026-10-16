@@ -124,6 +124,25 @@ class SubscriptionCancelTests(TestCase):
         self.assertTrue(self.subscription.is_active)
 
     @patch("apps.billing.presentation.views.get_billing_service")
+    def test_period_end_when_stripe_already_canceled_syncs_local(self, get_service) -> None:
+        """Desync: local ACTIVE, Stripe already canceled → period_end still ends access."""
+        get_service.return_value.cancel_subscription.return_value = CancelSubscriptionResult(
+            stripe_subscription_id=self.subscription.stripe_subscription_id,
+            status="canceled",
+            cancel_at_period_end=False,
+        )
+        self._login_admin()
+        response = self.client.post(
+            reverse("billing:subscriber_cancel", kwargs={"pk": self.subscription.pk}),
+            {"cancel_mode": "period_end"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.subscription.refresh_from_db()
+        self.assertEqual(self.subscription.status, SubscriptionStatus.CANCELED)
+        self.assertFalse(self.subscription.cancel_at_period_end)
+        self.assertFalse(self.subscription.is_active)
+
+    @patch("apps.billing.presentation.views.get_billing_service")
     def test_owner_can_cancel_at_period_end(self, get_service) -> None:
         get_service.return_value.cancel_subscription.return_value = CancelSubscriptionResult(
             stripe_subscription_id=self.subscription.stripe_subscription_id,
@@ -161,12 +180,17 @@ class SubscriptionCancelTests(TestCase):
         response = self.client.get(reverse("billing:subscriber_cancel", kwargs={"pk": self.subscription.pk}))
         self.assertEqual(response.status_code, 403)
 
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.retrieve")
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.cancel")
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.modify")
     @override_settings(STRIPE_SECRET_KEY="sk_test_x")
-    def test_gateway_routes_immediate_and_period_end(self, modify, cancel) -> None:
+    def test_gateway_routes_immediate_and_period_end(self, modify, cancel, retrieve) -> None:
         from apps.billing.infrastructure.gateways import stripe as stripe_gateway
 
+        retrieve.side_effect = [
+            {"id": "sub_1", "status": "active", "cancel_at_period_end": False},
+            {"id": "sub_1", "status": "active", "cancel_at_period_end": False},
+        ]
         cancel.return_value = {"id": "sub_1", "status": "canceled", "cancel_at_period_end": False}
         modify.return_value = {"id": "sub_1", "status": "active", "cancel_at_period_end": True}
 
@@ -177,6 +201,28 @@ class SubscriptionCancelTests(TestCase):
         scheduled = stripe_gateway.cancel_subscription(stripe_subscription_id="sub_1", at_period_end=True)
         self.assertTrue(scheduled["cancel_at_period_end"])
         modify.assert_called_once_with("sub_1", cancel_at_period_end=True)
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.retrieve")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.cancel")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.modify")
+    @override_settings(STRIPE_SECRET_KEY="sk_test_x")
+    def test_gateway_cancel_idempotent_when_stripe_already_canceled(self, modify, cancel, retrieve) -> None:
+        from apps.billing.infrastructure.gateways import stripe as stripe_gateway
+
+        retrieve.return_value = {
+            "id": "sub_1URI7V3ydFWhqWHBSvYFkHUG",
+            "status": "canceled",
+            "cancel_at_period_end": False,
+            "customer": "cus_x",
+        }
+        result = stripe_gateway.cancel_subscription(
+            stripe_subscription_id="sub_1URI7V3ydFWhqWHBSvYFkHUG",
+            at_period_end=True,
+        )
+        self.assertEqual(result["status"], "canceled")
+        self.assertEqual(result["id"], "sub_1URI7V3ydFWhqWHBSvYFkHUG")
+        modify.assert_not_called()
+        cancel.assert_not_called()
 
     @patch("apps.billing.presentation.views.get_billing_service")
     def test_stripe_error_surfaces_message(self, get_service) -> None:

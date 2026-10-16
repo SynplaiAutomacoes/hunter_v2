@@ -108,6 +108,9 @@ class SubscriberListViewTests(TestCase):
         self.assertIn("Cortesia (conta antiga)", content)
         self.assertIn("Assinatura Cancelada", content)
         self.assertIn("Conta Assinante", content)
+        self.assertIn("Ir para Stripe", content)
+        self.assertIn('target="_blank"', content)
+        self.assertIn("dashboard.stripe.com", content)
 
     def test_filter_by_canceled_status(self) -> None:
         self.client.force_login(self.admin)

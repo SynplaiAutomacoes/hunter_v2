@@ -84,13 +84,44 @@ def create_billing_portal_session(*, stripe_customer_id: str, return_url: str) -
     return {"url": session.url}
 
 
+def _subscription_cancel_payload(data: dict[str, Any], *, stripe_subscription_id: str) -> dict[str, Any]:
+    return {
+        "id": str(data.get("id") or stripe_subscription_id),
+        "status": str(data.get("status") or ""),
+        "cancel_at_period_end": bool(data.get("cancel_at_period_end")),
+        "current_period_end": data.get("current_period_end"),
+        "customer": str(data.get("customer") or ""),
+    }
+
+
 def cancel_subscription(*, stripe_subscription_id: str, at_period_end: bool) -> dict[str, Any]:
-    """Cancel immediately or schedule cancel at period end (Stripe parity)."""
+    """Cancel immediately or schedule cancel at period end (Stripe parity).
+
+    Idempotent when Stripe already shows ``canceled`` (local can lag after panel
+    cancel or a stale webhook). Stripe rejects ``modify`` on canceled subs with
+    ``invalid_canceled_subscription_fields``.
+    """
     _configure_stripe()
     if not stripe.api_key:
         raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
     if not stripe_subscription_id:
         raise BillingServiceError("Assinatura Stripe não encontrada.")
+
+    try:
+        current = stripe.Subscription.retrieve(stripe_subscription_id)
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    current_data = current.to_dict() if hasattr(current, "to_dict") else _stripe_mapping(current)
+    if str(current_data.get("status") or "") == "canceled":
+        logger.info(
+            "Assinatura Stripe %s já cancelada — sync local sem novo modify/cancel",
+            stripe_subscription_id,
+        )
+        return _subscription_cancel_payload(current_data, stripe_subscription_id=stripe_subscription_id)
+
+    if at_period_end and bool(current_data.get("cancel_at_period_end")):
+        return _subscription_cancel_payload(current_data, stripe_subscription_id=stripe_subscription_id)
 
     try:
         if at_period_end:
@@ -100,17 +131,26 @@ def cancel_subscription(*, stripe_subscription_id: str, at_period_end: bool) -> 
             )
         else:
             subscription = stripe.Subscription.cancel(stripe_subscription_id)
+    except stripe.InvalidRequestError as exc:
+        # Race: canceled between retrieve and modify/cancel.
+        code = getattr(exc, "code", None) or ""
+        if code == "invalid_canceled_subscription_fields" or "canceled subscription" in str(exc).lower():
+            logger.info(
+                "Assinatura Stripe %s cancelada durante a operação — tratando como já cancelada",
+                stripe_subscription_id,
+            )
+            try:
+                refreshed = stripe.Subscription.retrieve(stripe_subscription_id)
+            except stripe.StripeError:
+                raise BillingServiceError(str(exc)) from exc
+            refreshed_data = refreshed.to_dict() if hasattr(refreshed, "to_dict") else _stripe_mapping(refreshed)
+            return _subscription_cancel_payload(refreshed_data, stripe_subscription_id=stripe_subscription_id)
+        raise BillingServiceError(str(exc)) from exc
     except stripe.StripeError as exc:
         raise BillingServiceError(str(exc)) from exc
 
     data = subscription.to_dict() if hasattr(subscription, "to_dict") else _stripe_mapping(subscription)
-    return {
-        "id": str(data.get("id") or stripe_subscription_id),
-        "status": str(data.get("status") or ""),
-        "cancel_at_period_end": bool(data.get("cancel_at_period_end")),
-        "current_period_end": data.get("current_period_end"),
-        "customer": str(data.get("customer") or ""),
-    }
+    return _subscription_cancel_payload(data, stripe_subscription_id=stripe_subscription_id)
 
 
 def construct_webhook_event(*, payload: bytes, signature_header: str) -> dict[str, Any]:

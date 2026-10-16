@@ -225,7 +225,16 @@ def _extract_pending_signup_id(data: dict[str, Any]) -> int | None:
         return None
 
 
+_PENDING_SIGNUP_IN_FLIGHT = (PendingSignupStatus.PENDING, PendingSignupStatus.FAILED)
+
+
 def _find_pending_signup(data: dict[str, Any]) -> PendingSignup | None:
+    """Resolve cadastro em voo. Não captura PendingSignup já PAID.
+
+    Depois da materialização o registro PAID ainda guarda ``stripe_subscription_id``.
+    Se cancel/update do painel Stripe casasse esse row, o handler marcava falha e
+    retornava sem sincronizar ``AccountSubscription`` — status local ficava stale.
+    """
     pending_id = _extract_pending_signup_id(data)
     if pending_id is not None:
         pending = PendingSignup.objects.filter(pk=pending_id).first()
@@ -235,11 +244,17 @@ def _find_pending_signup(data: dict[str, Any]) -> PendingSignup | None:
     subscription_id = str(data.get("id") or data.get("subscription") or "")
     customer_id = str(data.get("customer") or "")
     if subscription_id:
-        pending = PendingSignup.objects.filter(stripe_subscription_id=subscription_id).first()
+        pending = PendingSignup.objects.filter(
+            stripe_subscription_id=subscription_id,
+            status__in=_PENDING_SIGNUP_IN_FLIGHT,
+        ).first()
         if pending is not None:
             return pending
     if customer_id:
-        return PendingSignup.objects.filter(stripe_customer_id=customer_id, status=PendingSignupStatus.PENDING).first()
+        return PendingSignup.objects.filter(
+            stripe_customer_id=customer_id,
+            status=PendingSignupStatus.PENDING,
+        ).first()
     return None
 
 
@@ -276,6 +291,16 @@ def process_pending_signup_paid(data: dict[str, Any]) -> AccountSubscription | N
 def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -> AccountSubscription | None:
     pending = _find_pending_signup(data)
     stripe_status = str(data.get("status") or "")
+
+    # Metadata pode apontar para PendingSignup já materializado (PAID). Tratar
+    # como conta existente para cancel/update do painel Stripe.
+    if pending is not None and pending.status == PendingSignupStatus.PAID:
+        if pending.created_account_id is not None and not data.get("metadata", {}).get("account_id"):
+            metadata = dict(data.get("metadata") or {})
+            metadata["account_id"] = str(pending.created_account_id)
+            data = {**data, "metadata": metadata}
+        pending = None
+
     if pending is not None and not deleted and stripe_status in ("active", "trialing"):
         return process_pending_signup_paid(data)
     if pending is not None and (deleted or stripe_status in ("incomplete_expired", "canceled")):
@@ -340,8 +365,11 @@ def process_invoice_paid(data: dict[str, Any]) -> AccountSubscription | None:
     if pending is None:
         subscription_id = str(data.get("subscription") or "")
         if subscription_id:
-            pending = PendingSignup.objects.filter(stripe_subscription_id=subscription_id).first()
-    if pending is not None:
+            pending = PendingSignup.objects.filter(
+                stripe_subscription_id=subscription_id,
+                status__in=_PENDING_SIGNUP_IN_FLIGHT,
+            ).first()
+    if pending is not None and pending.status != PendingSignupStatus.PAID:
         return process_pending_signup_paid(
             {
                 **data,
