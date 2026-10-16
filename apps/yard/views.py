@@ -132,11 +132,8 @@ class YardColumnUpdateView(LoginRequiredMixin, WorkshopScopedMixin, YardConfigMi
             response = render(request, "yard/partials/config_modal_content.html", self._config_context())
             response["HX-Trigger"] = _board_triggers()
             return response
-        return render(
-            request,
-            "yard/partials/config_column_form.html",
-            {"form": form, "column": column, "workshop": self.workshop},
-        )
+        response = render(request, "yard/partials/config_modal_content.html", self._config_context(form=form))
+        return response
 
 
 class YardColumnDeleteView(LoginRequiredMixin, WorkshopScopedMixin, YardConfigMixin, View):
@@ -291,11 +288,8 @@ class YardStatusGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, YardCon
             response = render(request, "yard/partials/config_modal_content.html", self._config_context())
             response["HX-Trigger"] = _board_triggers()
             return response
-        return render(
-            request,
-            "yard/partials/config_group_form.html",
-            {"form": form, "group": group, "workshop": self.workshop},
-        )
+        response = render(request, "yard/partials/config_modal_content.html", self._config_context(group_form=form))
+        return response
 
 
 class YardStatusGroupDeleteView(LoginRequiredMixin, WorkshopScopedMixin, YardConfigMixin, View):
