@@ -14,6 +14,7 @@ from apps.finance.models.finance import TaxClassNfe, TaxClassNfse, TaxClassSyncS
 from apps.finance.services.tax_classes import (
     NFSE_CODIGO_SERVICO_NATIONAL_LENGTH_ERROR,
     TaxClassServiceError,
+    delete_tax_class,
     format_nfse_service_code_for_api,
     is_valid_nfse_service_code,
     list_tax_classes,
@@ -23,7 +24,7 @@ from apps.finance.services.tax_classes import (
 )
 from apps.finance.views.emission import EmissionRequestCreateView
 from apps.finance.views.nfe import NfeRequestCreateView
-from apps.finance.views.tax_class import TaxClassCreateView, TaxClassDeleteView
+from apps.finance.views.tax_class import TaxClassCreateView, TaxClassDeleteView, TaxClassUpdateView
 from apps.workshops.models.workshops import Workshop
 
 
@@ -372,6 +373,87 @@ class TaxClassServiceTests(TestCase):
         nfse_tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REF-NFSE-1")
         self.assertEqual(nfse_tax_class.codigo_nbs, "115021000")
 
+    def test_sync_preserves_local_cod_indicador_when_remote_omits_it(self) -> None:
+        workshop = create_workshop(suffix=21)
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REF-NFSE-LOCAL",
+            description="Classe local com indicador",
+            tipo_emissao="1",
+            codigo_servico="01.05.01",
+            codigo_nbs="115021000",
+            cod_indicador_operacao="050101",
+            finalidade="0",
+        )
+        remote_payload = [
+            {
+                "referencia": "REF-NFSE-LOCAL",
+                "type": "nfse",
+                "descricao": "Classe remota sem indicador",
+                "status": "ativo",
+                "tipo_emissao": "1",
+                "codigo_servico": "01.05.01",
+                "retencao_iss": "1",
+            }
+        ]
+
+        with patch("apps.finance.services.tax_classes._list_tax_classes_remote", return_value=remote_payload):
+            sync_tax_classes(workshop=workshop)
+
+        nfse_tax_class = TaxClassNfse.objects.get(workshop=workshop, reference="REF-NFSE-LOCAL")
+        self.assertEqual(nfse_tax_class.description, "Classe remota sem indicador")
+        self.assertEqual(nfse_tax_class.cod_indicador_operacao, "050101")
+        self.assertEqual(nfse_tax_class.codigo_nbs, "115021000")
+        self.assertEqual(nfse_tax_class.finalidade, "0")
+
+    def test_delete_tax_class_requires_success_message_before_local_delete(self) -> None:
+        workshop = create_workshop(suffix=22)
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REF-NFSE-DEL-OK",
+            description="Classe para exclusao confirmada",
+            tipo_emissao="1",
+            codigo_servico="01.05.01",
+        )
+
+        with (
+            patch("apps.finance.services.tax_classes._build_tax_class_headers", return_value={"Content-Type": "application/json"}),
+            patch("apps.finance.services.tax_classes.requests.delete") as mock_delete,
+        ):
+            mock_delete.return_value.status_code = 200
+            mock_delete.return_value.raise_for_status.return_value = None
+            mock_delete.return_value.json.return_value = [
+                {"referencia": "REF-NFSE-DEL-OK", "msg": "Classe de imposto excluída com sucesso."}
+            ]
+            delete_tax_class(workshop=workshop, reference="REF-NFSE-DEL-OK")
+
+        mock_delete.assert_called_once()
+        self.assertEqual(mock_delete.call_args.kwargs["json"], {"referencia": "REF-NFSE-DEL-OK"})
+        self.assertFalse(TaxClassNfse.objects.filter(workshop=workshop, reference="REF-NFSE-DEL-OK").exists())
+
+    def test_delete_tax_class_keeps_local_row_on_ambiguous_remote_response(self) -> None:
+        workshop = create_workshop(suffix=23)
+        TaxClassNfse.objects.create(
+            workshop=workshop,
+            reference="REF-NFSE-DEL-AMBIG",
+            description="Classe com resposta ambigua",
+            tipo_emissao="1",
+            codigo_servico="01.05.01",
+        )
+
+        with (
+            patch("apps.finance.services.tax_classes._build_tax_class_headers", return_value={"Content-Type": "application/json"}),
+            patch("apps.finance.services.tax_classes.requests.delete") as mock_delete,
+        ):
+            mock_delete.return_value.status_code = 200
+            mock_delete.return_value.raise_for_status.return_value = None
+            mock_delete.return_value.json.return_value = [{"referencia": "REF-NFSE-DEL-AMBIG"}]
+            with self.assertRaises(TaxClassServiceError) as ctx:
+                delete_tax_class(workshop=workshop, reference="REF-NFSE-DEL-AMBIG")
+
+        self.assertIn("não confirmou", str(ctx.exception).lower())
+        self.assertTrue(TaxClassNfse.objects.filter(workshop=workshop, reference="REF-NFSE-DEL-AMBIG").exists())
+
 
 class TaxClassChoicesViewTests(TestCase):
     def setUp(self) -> None:
@@ -679,3 +761,69 @@ class TaxClassCreateViewTests(TestCase):
         self.assertFalse(TaxClassNfe.objects.filter(workshop=self.workshop).exists())
         self.assertIn("Corrija os cenários de ICMS/IPI/PIS/COFINS.", messages)
         self.assertContains(response, "Campo obrigatório para este cenário.")
+
+
+class TaxClassUpdateViewTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.workshop = create_workshop(suffix=5)
+        self.user = get_user_model().objects.create_user(
+            username="tax-class-update-user",
+            password="pass12345",
+            cpf="39053344705",
+        )
+
+    def _make_view(self, request: object, *, reference: str) -> TaxClassUpdateView:
+        view = TaxClassUpdateView()
+        view.request = request
+        view.workshop = self.workshop
+        view.args = ()
+        view.kwargs = {"reference": reference}
+        return view
+
+    def test_post_nfse_update_sends_referencia_and_cod_indicador(self) -> None:
+        TaxClassNfse.objects.create(
+            workshop=self.workshop,
+            reference="REF-NFSE-EDIT",
+            description="Classe existente",
+            tipo_emissao="1",
+            codigo_servico="01.05.01",
+            cod_indicador_operacao="100501",
+            finalidade="0",
+        )
+        data = {
+            "tab": "nfse",
+            "form_action": "save",
+            "descricao": "Classe existente atualizada",
+            "tipo_emissao": "1",
+            "codigo_servico": "01.05.01",
+            "retencao_iss": "1",
+            "cod_indicador_operacao": "050101",
+            "finalidade": "0",
+        }
+        request = self.factory.post("/finance/classe-imposto/REF-NFSE-EDIT/edit/?tab=nfse", data)
+        _attach_request_extras(request, user=self.user)
+        view = self._make_view(request, reference="REF-NFSE-EDIT")
+        remote_payload = {
+            "referencia": "REF-NFSE-EDIT",
+            "descricao": "Classe existente atualizada",
+            "data": "2026-08-14 00:00:00",
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_tax_class_headers", return_value={"Content-Type": "application/json"}),
+            patch("apps.finance.services.tax_classes.requests.post") as mock_post,
+        ):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.raise_for_status.return_value = None
+            mock_post.return_value.json.return_value = remote_payload
+            response = view.post(request)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"{reverse('finance:tax_class_list')}?tab=nfse")
+        posted_payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(posted_payload["referencia"], "REF-NFSE-EDIT")
+        self.assertEqual(posted_payload["cod_indicador_operacao"], "050101")
+        tax_class = TaxClassNfse.objects.get(workshop=self.workshop, reference="REF-NFSE-EDIT")
+        self.assertEqual(tax_class.cod_indicador_operacao, "050101")
+        self.assertEqual(tax_class.description, "Classe existente atualizada")

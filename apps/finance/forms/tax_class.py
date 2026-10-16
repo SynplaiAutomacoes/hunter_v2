@@ -235,7 +235,10 @@ class NfseTaxClassForm(TaxClassFormBase):
         label="Código indicador da operação",
         required=False,
         choices=NFSE_COD_INDICADOR_OPERACAO_CHOICES,
-        help_text="Obrigatório no Padrão Nacional.",
+        help_text=(
+            "Obrigatório no Padrão Nacional. Guardado no Hunter e injetado na emissão da NFS-e; "
+            "pode não aparecer no cadastro remoto da classe de imposto."
+        ),
         widget=SearchableSelectInput(choices=NFSE_COD_INDICADOR_OPERACAO_CHOICES),
     )
     finalidade = forms.ChoiceField(
