@@ -1070,7 +1070,7 @@ class NavbarWorkshopSelectView(LoginRequiredMixin, View):
 
                 request.session["active_workshop_id"] = workshop_id_int
 
-        redirect_url = reverse("budget:budget_list")
+        redirect_url = reverse("core:dashboard")
         if request.headers.get("HX-Request"):
             response = HttpResponse()
             response["HX-Redirect"] = redirect_url
