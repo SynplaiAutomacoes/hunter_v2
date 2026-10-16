@@ -255,6 +255,13 @@ _NFSE_ABRASF_ONLY_KEYS = (
     "responsavel_retencao",
 )
 _NFSE_NACIONAL_RETENTION_KEY = "retencao_iss"
+# Not documented on Webmania classe-imposto Padrão Nacional; Hunter stores them
+# locally and injects into NFS-e emission. Sync/GET must not wipe them when omitted.
+_NFSE_LOCAL_AUTHORITATIVE_FIELDS = (
+    "cod_indicador_operacao",
+    "finalidade",
+    "codigo_nbs",
+)
 
 
 def _looks_like_nfse_padrao_nacional(payload: dict[str, Any]) -> bool:
@@ -629,7 +636,49 @@ def _upsert_local_nfe_tax_class(*, workshop: Workshop, payload: dict[str, Any]) 
     return _serialize_nfe_tax_class(tax_class)
 
 
-def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, Any]:
+def _has_nonempty_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _preserve_local_authoritative_nfse_fields(
+    *,
+    workshop: Workshop,
+    reference: str,
+    codigo_nbs: str,
+    cod_indicador_operacao: str,
+    finalidade: str,
+) -> tuple[str, str, str]:
+    """Keep Hunter-only NFS-e fields when remote GET/POST omit them."""
+    if codigo_nbs and cod_indicador_operacao and finalidade:
+        return codigo_nbs, cod_indicador_operacao, finalidade
+
+    existing = TaxClassNfse.objects.filter(workshop=workshop, reference=reference).only(
+        "codigo_nbs",
+        "cod_indicador_operacao",
+        "finalidade",
+    ).first()
+    if existing is None:
+        return codigo_nbs, cod_indicador_operacao, finalidade
+
+    if not codigo_nbs and existing.codigo_nbs:
+        codigo_nbs = existing.codigo_nbs
+    if not cod_indicador_operacao and existing.cod_indicador_operacao:
+        cod_indicador_operacao = existing.cod_indicador_operacao
+    if not finalidade and existing.finalidade:
+        finalidade = existing.finalidade
+    return codigo_nbs, cod_indicador_operacao, finalidade
+
+
+def _upsert_local_nfse_tax_class(
+    *,
+    workshop: Workshop,
+    payload: dict[str, Any],
+    preserve_local_authoritative: bool = False,
+) -> dict[str, Any]:
     reference = _clean_string(payload.get("referencia"))
     if not reference:
         raise TaxClassServiceError("Classe de imposto sem referência não pode ser salva localmente.")
@@ -642,6 +691,19 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
     ibs_municipal: dict[str, Any] = dict(ibs_municipal_raw) if isinstance(ibs_municipal_raw, dict) else {}
     cbs_raw = ibs_cbs.get("cbs")
     cbs: dict[str, Any] = dict(cbs_raw) if isinstance(cbs_raw, dict) else {}
+
+    codigo_nbs = _digits_only(payload.get("codigo_nbs"))
+    cod_indicador_operacao = normalize_nfse_cod_indicador_operacao(payload.get("cod_indicador_operacao"))
+    finalidade = _clean_string(payload.get("finalidade"))[:1]
+    # Only sync/GET should preserve: form save must be able to clear these fields.
+    if preserve_local_authoritative:
+        codigo_nbs, cod_indicador_operacao, finalidade = _preserve_local_authoritative_nfse_fields(
+            workshop=workshop,
+            reference=reference,
+            codigo_nbs=codigo_nbs,
+            cod_indicador_operacao=cod_indicador_operacao,
+            finalidade=finalidade,
+        )
 
     tax_class, _ = TaxClassNfse.objects.update_or_create(
         workshop=workshop,
@@ -667,10 +729,10 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
             "exigibilidade_iss": _clean_string(payload.get("exigibilidade_iss")),
             "iss_retido": _clean_string(payload.get("iss_retido")),
             "responsavel_retencao": _clean_string(payload.get("responsavel_retencao")),
-            "codigo_nbs": _digits_only(payload.get("codigo_nbs")),
+            "codigo_nbs": codigo_nbs,
             "codigo_cnae": _clean_string(payload.get("codigo_cnae")),
-            "cod_indicador_operacao": normalize_nfse_cod_indicador_operacao(payload.get("cod_indicador_operacao")),
-            "finalidade": _clean_string(payload.get("finalidade"))[:1],
+            "cod_indicador_operacao": cod_indicador_operacao,
+            "finalidade": finalidade,
             "iss": _to_decimal(payload.get("iss")),
             "pis": _to_decimal(payload.get("pis")),
             "cofins": _to_decimal(payload.get("cofins")),
@@ -691,10 +753,19 @@ def _upsert_local_nfse_tax_class(*, workshop: Workshop, payload: dict[str, Any])
     return _serialize_nfse_tax_class(tax_class)
 
 
-def _upsert_local_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, Any]:
+def _upsert_local_tax_class(
+    *,
+    workshop: Workshop,
+    payload: dict[str, Any],
+    preserve_local_authoritative: bool = False,
+) -> dict[str, Any]:
     normalized_payload = _normalize_tax_class_payload(payload)
     if _looks_like_nfse(normalized_payload):
-        return _upsert_local_nfse_tax_class(workshop=workshop, payload=normalized_payload)
+        return _upsert_local_nfse_tax_class(
+            workshop=workshop,
+            payload=normalized_payload,
+            preserve_local_authoritative=preserve_local_authoritative,
+        )
     return _upsert_local_nfe_tax_class(workshop=workshop, payload=normalized_payload)
 
 
@@ -703,7 +774,7 @@ def _upsert_local_tax_classes(*, workshop: Workshop, tax_classes: list[dict[str,
         reference = _clean_string(item.get("referencia"))
         if not reference:
             continue
-        _upsert_local_tax_class(workshop=workshop, payload=item)
+        _upsert_local_tax_class(workshop=workshop, payload=item, preserve_local_authoritative=True)
 
 
 def _replace_local_tax_classes(*, workshop: Workshop, tax_classes: list[dict[str, Any]]) -> None:
@@ -764,7 +835,13 @@ def _mark_initial_sync_done(*, workshop: Workshop) -> None:
 
 def _merge_tax_class_payloads(*, sent_payload: dict[str, Any], response_payload: dict[str, Any]) -> dict[str, Any]:
     merged_payload = dict(sent_payload)
-    merged_payload.update(response_payload)
+    for key, value in response_payload.items():
+        # POST response is typically {referencia, descricao, data}; empty values must not wipe sent fields.
+        if not _has_nonempty_value(value) and _has_nonempty_value(sent_payload.get(key)):
+            continue
+        if key in _NFSE_LOCAL_AUTHORITATIVE_FIELDS and not _has_nonempty_value(value):
+            continue
+        merged_payload[key] = value
     return _normalize_tax_class_payload(merged_payload)
 
 
@@ -812,6 +889,53 @@ def save_tax_class(*, workshop: Workshop, payload: dict[str, Any]) -> dict[str, 
     return saved_payload
 
 
+def _tax_class_auth_mode() -> str:
+    return "global" if should_use_global_webmania_auth() else "workshop"
+
+
+def _confirm_tax_class_delete_response(
+    *,
+    data: list[Any],
+    references_to_delete: list[str],
+) -> list[dict[str, Any]]:
+    """Require per-item success confirmation before any local delete."""
+    if not data:
+        raise TaxClassServiceError(
+            "A Webmania não confirmou a exclusão da classe de imposto. Nenhuma alteração local foi aplicada."
+        )
+
+    confirmed_references: set[str] = set()
+    confirmed_items: list[dict[str, Any]] = []
+
+    for item in data:
+        if not isinstance(item, dict):
+            raise TaxClassServiceError(
+                "A Webmania não confirmou a exclusão da classe de imposto. Nenhuma alteração local foi aplicada."
+            )
+
+        item_reference = _clean_string(item.get("referencia"))
+        raw_message = str(item.get("error") or item.get("message") or item.get("msg") or "").strip()
+        if not raw_message or "sucesso" not in raw_message.lower():
+            error_message = _extract_error_message(raw_message) if raw_message else ""
+            if error_message and "sucesso" not in error_message.lower():
+                raise TaxClassServiceError(error_message)
+            raise TaxClassServiceError(
+                "A Webmania não confirmou a exclusão da classe de imposto. Nenhuma alteração local foi aplicada."
+            )
+
+        confirmed_items.append(item)
+        if item_reference:
+            confirmed_references.add(item_reference)
+
+    missing_references = [ref for ref in references_to_delete if ref not in confirmed_references]
+    if missing_references:
+        raise TaxClassServiceError(
+            "A Webmania não confirmou a exclusão da classe de imposto. Nenhuma alteração local foi aplicada."
+        )
+
+    return confirmed_items
+
+
 def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[dict[str, Any]]:
     if isinstance(reference, str):
         normalized_reference = reference.strip()
@@ -829,10 +953,18 @@ def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[
     endpoint = _build_endpoint_url()
     headers = _build_tax_class_headers(workshop=workshop)
     delete_payload = {"referencia": payload_reference}
+    auth_mode = _tax_class_auth_mode()
 
+    logger.info(
+        "tax_class_delete workshop_id=%s auth_mode=%s references=%s",
+        getattr(workshop, "pk", None),
+        auth_mode,
+        references_to_delete,
+    )
     _debug_print("DELETE endpoint", endpoint)
     _debug_print("DELETE headers", _redact_headers(headers))
     _debug_print("DELETE payload", delete_payload)
+    _debug_print("DELETE auth_mode", auth_mode)
 
     try:
         response = requests.delete(endpoint, json=delete_payload, headers=headers, timeout=30)
@@ -852,14 +984,9 @@ def delete_tax_class(*, workshop: Workshop, reference: str | list[str]) -> list[
                 raise TaxClassServiceError(error_message)
         raise TaxClassServiceError("Resposta inválida da API ao excluir classe de imposto.")
 
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        error_message = _extract_error_message(item.get("error") or item.get("message") or item.get("msg"))
-        if error_message and "sucesso" not in error_message.lower():
-            raise TaxClassServiceError(error_message)
+    confirmed_items = _confirm_tax_class_delete_response(data=data, references_to_delete=references_to_delete)
 
     TaxClassNfe.objects.filter(workshop=workshop, reference__in=references_to_delete).delete()
     TaxClassNfse.objects.filter(workshop=workshop, reference__in=references_to_delete).delete()
     _mark_initial_sync_done(workshop=workshop)
-    return [item for item in data if isinstance(item, dict)]
+    return confirmed_items

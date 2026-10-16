@@ -289,7 +289,10 @@ class TaxClassNfse(TimeStampedModel):
         max_length=6,
         blank=True,
         default="",
-        help_text="Obrigatório no Padrão Nacional (cIndOp). Ex.: 050101 para serviço sobre bem móvel no estabelecimento.",
+        help_text=(
+            "Obrigatório no Padrão Nacional (cIndOp). Guardado no Hunter e injetado na emissão da NFS-e; "
+            "pode não aparecer no cadastro remoto da classe de imposto. Ex.: 050101."
+        ),
     )
     finalidade = models.CharField(
         verbose_name="Finalidade da NFS-e",
