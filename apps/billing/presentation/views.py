@@ -99,6 +99,8 @@ class SubscribeView(TemplateView):
         context["start_url"] = reverse("billing:subscribe_start")
         context["send_code_url"] = reverse("billing:subscribe_send_code")
         context["verify_code_url"] = reverse("billing:subscribe_verify_code")
+        context["validate_coupon_url"] = reverse("billing:subscribe_validate_coupon")
+        context["confirm_setup_url"] = reverse("billing:subscribe_confirm_setup")
         context["status_url_template"] = reverse("billing:subscribe_status", kwargs={"pending_id": 0}).replace("/0/", "/{id}/")
         context["complete_url"] = reverse("billing:subscribe_complete")
         context["login_url"] = reverse("accounts:login")
@@ -243,36 +245,94 @@ class SubscribeStartView(View):
             ]
         )
 
-        requires_payment = bool(getattr(result, "requires_payment", True))
-        if not requires_payment:
-            # Fatura gratuita (ex.: cupom 100%): sem nada a cobrar, cria a conta
-            # de forma síncrona para não depender do webhook.
-            try:
-                materialize_account_from_pending_signup(
-                    pending=pending,
-                    stripe_customer_id=result.customer_id,
-                    stripe_subscription_id=result.subscription_id,
-                )
-                pending.refresh_from_db()
-            except Exception:
-                logger.exception("Falha ao materializar cadastro gratuito pendente %s", pending.pk)
-            return JsonResponse(
-                {
-                    "ok": True,
-                    "pending_signup_id": pending.pk,
-                    "requires_payment": False,
-                    "client_secret": "",
-                    "publishable_key": str(getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") or ""),
-                }
-            )
+        if not result.client_secret:
+            return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=500)
 
         return JsonResponse(
             {
                 "ok": True,
                 "pending_signup_id": pending.pk,
                 "requires_payment": True,
+                "confirmation_mode": result.confirmation_mode or "payment",
                 "client_secret": result.client_secret,
                 "publishable_key": str(getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") or ""),
+            }
+        )
+
+
+class SubscribeValidateCouponView(View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        plan = str(request.POST.get("plan") or "").strip()
+        code = str(request.POST.get("promotion_code") or "").strip()
+        if plan not in (Plan.BASIC, Plan.FULL):
+            return JsonResponse({"ok": False, "message": "Plano inválido."}, status=400)
+        if not code:
+            return JsonResponse({"ok": False, "message": "Informe um cupom válido."}, status=400)
+
+        try:
+            preview = get_billing_service().preview_plan_coupon(plan=plan, code=code)
+        except BillingServiceError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=400)
+        except Exception:
+            logger.exception("Falha ao validar cupom para plano %s", plan)
+            return JsonResponse({"ok": False, "message": "Não foi possível validar o cupom. Tente novamente."}, status=500)
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "original_amount": preview.original_amount,
+                "final_amount": preview.final_amount,
+                "original_label": preview.original_label,
+                "final_label": preview.final_label,
+                "interval_label": preview.interval_label,
+                "discount_label": preview.discount_label,
+                "currency": preview.currency,
+            }
+        )
+
+
+class SubscribeConfirmSetupView(View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        pending_id = int(request.POST.get("pending_signup_id") or 0)
+        setup_intent_id = str(request.POST.get("setup_intent_id") or "").strip()
+        pending = get_object_or_404(PendingSignup, pk=pending_id)
+
+        if pending.status == PendingSignupStatus.PAID and pending.login_token:
+            return JsonResponse({"ok": True, "login_token": pending.login_token, "pending_signup_id": pending.pk})
+
+        if pending.status != PendingSignupStatus.PENDING:
+            return JsonResponse({"ok": False, "message": "Cadastro pendente inválido."}, status=400)
+        if not setup_intent_id:
+            return JsonResponse({"ok": False, "message": "Confirme o cartão antes de continuar."}, status=400)
+        if not pending.stripe_customer_id or not pending.stripe_subscription_id:
+            return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=400)
+
+        try:
+            get_billing_service().finalize_setup_intent(
+                setup_intent_id=setup_intent_id,
+                customer_id=pending.stripe_customer_id,
+                subscription_id=pending.stripe_subscription_id,
+            )
+            materialize_account_from_pending_signup(
+                pending=pending,
+                stripe_customer_id=pending.stripe_customer_id,
+                stripe_subscription_id=pending.stripe_subscription_id,
+            )
+            pending.refresh_from_db()
+        except BillingServiceError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=400)
+        except Exception:
+            logger.exception("Falha ao confirmar SetupIntent do pending %s", pending.pk)
+            return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=500)
+
+        if not pending.login_token:
+            return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=500)
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "login_token": pending.login_token,
+                "pending_signup_id": pending.pk,
             }
         )
 

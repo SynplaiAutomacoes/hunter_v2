@@ -10,6 +10,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const codeStep = document.getElementById("subscribe-code-step");
   const codeInput = document.getElementById("subscribe-email-code");
   const verifyStatus = document.getElementById("subscribe-verify-status");
+  const couponInput = document.getElementById("subscribe-coupon");
+  const validateCouponButton = document.getElementById("subscribe-validate-coupon");
+  const couponStatus = document.getElementById("subscribe-coupon-status");
+  const priceValue = document.getElementById("subscribe-price-value");
+  const priceInterval = document.getElementById("subscribe-price-interval");
+  const priceNote = document.getElementById("subscribe-price-note");
 
   if (!form || !config.publishableKey) {
     showError("Stripe não configurado (STRIPE_PUBLISHABLE_KEY ausente).");
@@ -35,6 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let paymentElement = null;
   let pendingSignupId = null;
   let clientSecret = null;
+  let confirmationMode = "payment";
   let paymentReady = false;
   let emailVerified = false;
 
@@ -64,6 +71,36 @@ document.addEventListener("DOMContentLoaded", () => {
     verifyStatus.textContent = message || "";
   }
 
+  function setCouponStatus(message, isError) {
+    if (!couponStatus) return;
+    const hasMessage = Boolean(message);
+    couponStatus.hidden = !hasMessage;
+    couponStatus.classList.toggle("is-error", Boolean(isError));
+    couponStatus.textContent = message || "";
+  }
+
+  function resetPriceDisplay() {
+    if (!priceValue) return;
+    const original = priceValue.dataset.originalLabel || priceValue.textContent;
+    priceValue.textContent = original;
+    if (priceNote) {
+      priceNote.hidden = true;
+      priceNote.textContent = "";
+    }
+  }
+
+  function applyCouponPrice(payload) {
+    if (!priceValue) return;
+    priceValue.textContent = payload.final_label;
+    if (priceInterval && payload.interval_label) {
+      priceInterval.textContent = payload.interval_label;
+    }
+    if (priceNote) {
+      priceNote.hidden = false;
+      priceNote.innerHTML = `<s>${payload.original_label}</s> Com cupom (${payload.discount_label}): ${payload.final_label}`;
+    }
+  }
+
   function revealCodeStep() {
     if (!codeStep) return;
     codeStep.hidden = false;
@@ -85,6 +122,32 @@ document.addEventListener("DOMContentLoaded", () => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     throw new Error("Ainda estamos confirmando o pagamento. Atualize a página em instantes.");
+  }
+
+  async function finishWithToken(pendingId, loginToken) {
+    const completeData = new FormData();
+    completeData.append("pending_signup_id", String(pendingId));
+    completeData.append("login_token", loginToken);
+
+    const completeResponse = await fetch(config.completeUrl, {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": config.csrfToken,
+        Accept: "application/json",
+      },
+      body: completeData,
+    });
+    const completePayload = await completeResponse.json();
+    if (!completeResponse.ok || !completePayload.ok) {
+      throw new Error(completePayload.message || "Pagamento ok, mas o login automático falhou.");
+    }
+
+    window.location.href = completePayload.redirect_url;
+  }
+
+  async function finishLogin(pendingId) {
+    const loginToken = await pollUntilPaid(pendingId);
+    await finishWithToken(pendingId, loginToken);
   }
 
   async function preparePayment() {
@@ -110,12 +173,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     pendingSignupId = startPayload.pending_signup_id;
-    if (startPayload.requires_payment === false) {
-      setLoading(true, "Criando sua conta...");
-      await finishLogin(pendingSignupId);
-      return;
-    }
     clientSecret = startPayload.client_secret;
+    confirmationMode = startPayload.confirmation_mode === "setup" ? "setup" : "payment";
     if (!clientSecret) {
       throw new Error("Não foi possível iniciar o pagamento. Tente novamente.");
     }
@@ -146,36 +205,48 @@ document.addEventListener("DOMContentLoaded", () => {
         input.readOnly = true;
       });
     }
-    const couponInput = document.getElementById("subscribe-coupon");
     if (couponInput) couponInput.readOnly = true;
+    if (validateCouponButton) validateCouponButton.disabled = true;
     if (sendCodeButton) sendCodeButton.disabled = true;
     if (verifyCodeButton) verifyCodeButton.disabled = true;
-    setLoading(false, "Confirmar pagamento");
-  }
-
-  async function finishLogin(pendingId) {
-    const loginToken = await pollUntilPaid(pendingId);
-    const completeData = new FormData();
-    completeData.append("pending_signup_id", String(pendingId));
-    completeData.append("login_token", loginToken);
-
-    const completeResponse = await fetch(config.completeUrl, {
-      method: "POST",
-      headers: {
-        "X-CSRFToken": config.csrfToken,
-        Accept: "application/json",
-      },
-      body: completeData,
-    });
-    const completePayload = await completeResponse.json();
-    if (!completeResponse.ok || !completePayload.ok) {
-      throw new Error(completePayload.message || "Pagamento ok, mas o login automático falhou.");
-    }
-
-    window.location.href = completePayload.redirect_url;
+    setLoading(false, confirmationMode === "setup" ? "Confirmar cartão" : "Confirmar pagamento");
   }
 
   async function confirmAndFinish() {
+    if (confirmationMode === "setup") {
+      const { error, setupIntent } = await stripe.confirmSetup({
+        elements,
+        redirect: "if_required",
+        confirmParams: {
+          return_url: window.location.href,
+        },
+      });
+      if (error) {
+        throw new Error(error.message || "Falha ao confirmar o cartão.");
+      }
+      if (!setupIntent || setupIntent.status !== "succeeded") {
+        throw new Error("Cartão não confirmado.");
+      }
+
+      const setupData = new FormData();
+      setupData.append("pending_signup_id", String(pendingSignupId));
+      setupData.append("setup_intent_id", setupIntent.id);
+      const setupResponse = await fetch(config.confirmSetupUrl, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": config.csrfToken,
+          Accept: "application/json",
+        },
+        body: setupData,
+      });
+      const setupPayload = await setupResponse.json();
+      if (!setupResponse.ok || !setupPayload.ok || !setupPayload.login_token) {
+        throw new Error(setupPayload.message || "Não foi possível concluir o cadastro com o cartão.");
+      }
+      await finishWithToken(pendingSignupId, setupPayload.login_token);
+      return;
+    }
+
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       redirect: "if_required",
@@ -192,6 +263,51 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     await finishLogin(pendingSignupId);
+  }
+
+  if (validateCouponButton) {
+    validateCouponButton.addEventListener("click", async () => {
+      clearError();
+      setCouponStatus("", false);
+      const code = couponInput ? couponInput.value.trim() : "";
+      if (!code) {
+        setCouponStatus("Informe um cupom para validar.", true);
+        resetPriceDisplay();
+        return;
+      }
+      const planInput = form.querySelector('input[name="plan"]');
+      validateCouponButton.disabled = true;
+      validateCouponButton.textContent = "Validando...";
+      try {
+        const data = new FormData();
+        data.append("plan", planInput ? planInput.value : "");
+        data.append("promotion_code", code);
+        const response = await fetch(config.validateCouponUrl, {
+          method: "POST",
+          headers: { "X-CSRFToken": config.csrfToken, Accept: "application/json" },
+          body: data,
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          resetPriceDisplay();
+          throw new Error(payload.message || "Cupom inválido ou expirado.");
+        }
+        applyCouponPrice(payload);
+        setCouponStatus(`Cupom aplicado: ${payload.discount_label} de desconto.`, false);
+      } catch (error) {
+        setCouponStatus(error.message || "Não foi possível validar o cupom.", true);
+      } finally {
+        validateCouponButton.disabled = false;
+        validateCouponButton.textContent = "Validar cupom";
+      }
+    });
+  }
+
+  if (couponInput) {
+    couponInput.addEventListener("input", () => {
+      setCouponStatus("", false);
+      resetPriceDisplay();
+    });
   }
 
   if (sendCodeButton) {
@@ -277,7 +393,14 @@ document.addEventListener("DOMContentLoaded", () => {
       showError("Confirme seu e-mail com o código enviado antes de continuar.");
       return;
     }
-    setLoading(true, paymentReady ? "Confirmando pagamento..." : "Preparando pagamento...");
+    setLoading(
+      true,
+      paymentReady
+        ? confirmationMode === "setup"
+          ? "Confirmando cartão..."
+          : "Confirmando pagamento..."
+        : "Preparando pagamento..."
+    );
 
     try {
       if (!paymentReady) {
@@ -287,7 +410,14 @@ document.addEventListener("DOMContentLoaded", () => {
       await confirmAndFinish();
     } catch (error) {
       showError(error.message || "Erro inesperado.");
-      setLoading(false, paymentReady ? "Confirmar pagamento" : "Pagar e criar conta");
+      setLoading(
+        false,
+        paymentReady
+          ? confirmationMode === "setup"
+            ? "Confirmar cartão"
+            : "Confirmar pagamento"
+          : "Pagar e criar conta"
+      );
     }
   });
 });

@@ -5,7 +5,8 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from apps.billing.domain.contracts import BillingServiceError
+from apps.billing.domain.contracts import BillingServiceError, PublicPlanCard
+from apps.billing.domain.plans import Plan
 from apps.billing.infrastructure.services.stripe_billing import (
     PUBLIC_PLANS_CACHE_KEY,
     StripeBillingService,
@@ -156,3 +157,37 @@ class StripeBillingServiceProductTests(SimpleTestCase):
 
         self.assertEqual(plans["full"].price_label, "Consulte")
         self.assertEqual(plans["full"].stripe_price_id, "price_full_legacy")
+
+    @patch("apps.billing.infrastructure.services.stripe_billing.stripe_gateway.preview_discount")
+    @patch.object(StripeBillingService, "list_public_plans")
+    def test_preview_plan_coupon_applies_percent_off(self, list_plans, preview_discount) -> None:
+        list_plans.return_value = [
+            PublicPlanCard(
+                key=Plan.BASIC,
+                name="Orçamento",
+                description="",
+                features=(),
+                price_label="R$ 99,00",
+                interval_label="/mês",
+                currency="brl",
+                unit_amount=9900,
+                stripe_price_id="price_basic",
+            )
+        ]
+        preview_discount.return_value = {
+            "coupon_id": "coup_50",
+            "percent_off": 50.0,
+            "amount_off": None,
+            "currency": "brl",
+            "name": "METADE",
+            "promotion_code_id": "",
+        }
+
+        result = self.service.preview_plan_coupon(plan=Plan.BASIC, code="METADE")
+
+        self.assertEqual(result.original_amount, 9900)
+        self.assertEqual(result.final_amount, 4950)
+        self.assertEqual(result.original_label, "R$ 99,00")
+        self.assertEqual(result.final_label, "R$ 49,50")
+        self.assertEqual(result.discount_label, "50%")
+        preview_discount.assert_called_once_with(code="METADE")

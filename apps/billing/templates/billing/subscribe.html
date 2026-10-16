@@ -27,10 +27,11 @@
         <aside class="subscribe-summary">
           <p class="subscribe-plan-label">Assinatura Hunter Auto</p>
           <h1>{{ selected_plan.name|default:"Plano Hunter Auto" }}</h1>
-          <p class="subscribe-price">
-            <strong>{{ selected_plan.price_label|default:"Consulte" }}</strong>
-            {% if selected_plan.interval_label %}<span>{{ selected_plan.interval_label }}</span>{% endif %}
+          <p class="subscribe-price" id="subscribe-price">
+            <strong id="subscribe-price-value" data-original-label="{{ selected_plan.price_label|default:'Consulte' }}">{{ selected_plan.price_label|default:"Consulte" }}</strong>
+            {% if selected_plan.interval_label %}<span id="subscribe-price-interval">{{ selected_plan.interval_label }}</span>{% endif %}
           </p>
+          <p class="subscribe-price-note" id="subscribe-price-note" hidden></p>
           {% if selected_plan.description %}
           <p class="subscribe-desc">{{ selected_plan.description }}</p>
           {% endif %}
@@ -83,10 +84,14 @@
               </label>
             </div>
 
-            <label class="subscribe-full">
-              Cupom (opcional)
-              <input type="text" name="promotion_code" id="subscribe-coupon" autocomplete="off" placeholder="Código do cupom" />
-            </label>
+            <div class="subscribe-coupon-row">
+              <label class="subscribe-full subscribe-coupon-field">
+                Cupom (opcional)
+                <input type="text" name="promotion_code" id="subscribe-coupon" autocomplete="off" placeholder="Código do cupom" />
+              </label>
+              <button type="button" id="subscribe-validate-coupon" class="btn-outline subscribe-coupon-btn">Validar cupom</button>
+            </div>
+            <p id="subscribe-coupon-status" class="subscribe-coupon-status" hidden></p>
 
             <div class="subscribe-verify" id="subscribe-verify">
               <p class="subscribe-note">Enviaremos um código de confirmação para o e-mail informado.</p>
@@ -116,6 +121,8 @@
         startUrl: "{{ start_url|escapejs }}",
         sendCodeUrl: "{{ send_code_url|escapejs }}",
         verifyCodeUrl: "{{ verify_code_url|escapejs }}",
+        validateCouponUrl: "{{ validate_coupon_url|escapejs }}",
+        confirmSetupUrl: "{{ confirm_setup_url|escapejs }}",
         statusUrlTemplate: "{{ status_url_template|escapejs }}",
         completeUrl: "{{ complete_url|escapejs }}",
         publishableKey: "{{ stripe_publishable_key|escapejs }}",
