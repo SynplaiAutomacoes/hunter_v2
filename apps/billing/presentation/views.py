@@ -579,13 +579,19 @@ def _execute_subscription_cancel(
         raise BillingServiceError("Esta assinatura já está cancelada.")
 
     if subscription.stripe_subscription_id:
-        get_billing_service().cancel_subscription(
+        result = get_billing_service().cancel_subscription(
             CancelSubscriptionRequest(
                 stripe_subscription_id=subscription.stripe_subscription_id,
                 at_period_end=at_period_end,
             )
         )
-        return apply_local_subscription_cancel(subscription, at_period_end=at_period_end)
+        # Stripe já cancelada (desync / painel): força status local CANCELED,
+        # mesmo se o usuário pediu "fim do período".
+        stripe_already_ended = str(result.status or "").lower() == "canceled"
+        return apply_local_subscription_cancel(
+            subscription,
+            at_period_end=at_period_end and not stripe_already_ended,
+        )
 
     # Cortesia / sem Stripe: só cancelamento imediato local.
     if at_period_end:
