@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791577839886,
+      "tag": "0000_create_hunter_leads",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791586670287,
+      "tag": "0001_hunter_private_crm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791586856457,
+      "tag": "0002_tighten_crm_table_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791588306588,
+      "tag": "0003_add_crm_admin_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791588331880,
+      "tag": "0004_crm_profiles_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791588440346,
+      "tag": "0005_restrict_profile_invitation_grants",
+      "breakpoints": true
+    }
+  ]
+}

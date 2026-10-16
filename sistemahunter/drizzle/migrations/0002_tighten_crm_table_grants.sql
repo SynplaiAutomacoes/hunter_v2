@@ -1,0 +1,11 @@
+REVOKE ALL ON public.hunter_leads FROM anon;
+GRANT INSERT ON public.hunter_leads TO anon;
+REVOKE ALL ON public.hunter_leads FROM authenticated;
+GRANT INSERT, SELECT ON public.hunter_leads TO authenticated;
+GRANT ALL ON public.hunter_leads TO service_role;
+REVOKE ALL ON public.hunter_crm_state FROM anon;
+REVOKE ALL ON public.hunter_crm_state FROM authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.hunter_crm_state TO authenticated;
+REVOKE ALL ON public.user_roles FROM anon;
+REVOKE ALL ON public.user_roles FROM authenticated;
+GRANT SELECT ON public.user_roles TO authenticated;

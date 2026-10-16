@@ -6,9 +6,10 @@ from decimal import Decimal
 from typing import Any
 
 import requests
+from django.contrib.auth import authenticate, login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import DecimalField, ExpressionWrapper, F, Sum
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.urls import reverse
 from django.template.response import TemplateResponse
 from django.utils import timezone
@@ -151,6 +152,49 @@ class LandingPageView(TemplateView):
         context["lead_url"] = reverse("marketing_lead_submit")
         context["whatsapp_href"] = f"https://wa.me/{WHATSAPP_CONTACT_PHONE}?text={quote(WHATSAPP_CONTACT_MESSAGE)}"
         return context
+
+
+def _crm_leads_url() -> str:
+    return reverse("admin:core_marketinglead_changelist")
+
+
+class CrmAuthView(View):
+    """Private commercial CRM entry — visual parity with sistemahunter /auth."""
+
+    template_name = "core/crm_auth.html"
+
+    def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        if request.user.is_authenticated and request.user.is_staff:
+            return HttpResponseRedirect(_crm_leads_url())
+        return TemplateResponse(
+            request,
+            self.template_name,
+            {
+                "error": "",
+                "signed_in": False,
+            },
+        )
+
+    def post(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        if request.user.is_authenticated and request.user.is_staff:
+            return HttpResponseRedirect(_crm_leads_url())
+
+        username = str(request.POST.get("username") or "").strip()
+        password = str(request.POST.get("password") or "")
+        user = authenticate(request, username=username, password=password)
+        if user is None or not user.is_staff:
+            return TemplateResponse(
+                request,
+                self.template_name,
+                {
+                    "error": "Acesso restrito à equipe comercial Hunter Auto.",
+                    "signed_in": False,
+                    "username": username,
+                },
+                status=400,
+            )
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return HttpResponseRedirect(_crm_leads_url())
 
 
 class MarketingLeadSubmitView(View):

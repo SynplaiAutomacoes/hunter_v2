@@ -240,6 +240,7 @@ class RequireFirstWorkshopMiddleware:
         "accounts:login_code",
         "accounts:login_code_resend",
         "landing",
+        "crm_auth",
         "marketing_lead_submit",
         "privacy",
         "terms",

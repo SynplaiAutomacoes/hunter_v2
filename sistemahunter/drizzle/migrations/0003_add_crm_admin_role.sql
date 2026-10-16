@@ -1,0 +1,1 @@
+ALTER TYPE public.hunter_crm_role ADD VALUE IF NOT EXISTS 'admin';

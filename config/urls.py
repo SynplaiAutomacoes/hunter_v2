@@ -21,6 +21,7 @@ from django.conf.urls.static import static
 from django.urls import path, include
 
 from apps.core.presentation.views import (
+    CrmAuthView,
     LandingPageView,
     MarketingLeadSubmitView,
     PrivacyPolicyView,
@@ -33,6 +34,7 @@ handler403 = permission_denied
 
 urlpatterns = [
     path("", LandingPageView.as_view(), name="landing"),
+    path("auth/", CrmAuthView.as_view(), name="crm_auth"),
     path("leads/", MarketingLeadSubmitView.as_view(), name="marketing_lead_submit"),
     path("privacidade/", PrivacyPolicyView.as_view(), name="privacy"),
     path("termos/", TermsOfUseView.as_view(), name="terms"),

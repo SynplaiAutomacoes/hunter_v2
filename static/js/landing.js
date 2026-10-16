@@ -7,8 +7,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const submitButton = document.getElementById("lead-submit");
   const submissionIdInput = document.getElementById("lead-submission-id");
   const whatsappInput = document.getElementById("lead-whatsapp");
+  const whatsappFab = document.getElementById("whatsapp-contact");
   const menuToggle = document.getElementById("menu-toggle");
   const mobileNav = document.getElementById("mobile-nav");
+  const menuIconOpen = menuToggle ? menuToggle.querySelector(".menu-icon-open") : null;
+  const menuIconClose = menuToggle ? menuToggle.querySelector(".menu-icon-close") : null;
+  const productPanel = document.getElementById("product-panel");
+  const submitLabel = submitButton ? submitButton.querySelector(".lead-submit-label") : null;
+  const submitArrow = submitButton ? submitButton.querySelector(".lead-submit-arrow") : null;
+  const submitSpinner = submitButton ? submitButton.querySelector(".lead-submit-spinner") : null;
   let busy = false;
 
   function uuid() {
@@ -27,12 +34,35 @@ document.addEventListener("DOMContentLoaded", () => {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   }
 
+  function setWhatsappVisible(visible) {
+    if (!whatsappFab) return;
+    whatsappFab.hidden = !visible;
+  }
+
+  function setMenuOpen(open) {
+    if (!menuToggle || !mobileNav) return;
+    mobileNav.dataset.open = open ? "true" : "false";
+    menuToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    menuToggle.setAttribute("aria-label", open ? "Fechar menu" : "Abrir menu");
+    if (menuIconOpen) menuIconOpen.classList.toggle("hidden", open);
+    if (menuIconClose) menuIconClose.classList.toggle("hidden", !open);
+  }
+
+  function setSubmitBusy(isBusy) {
+    if (!submitButton) return;
+    submitButton.disabled = isBusy;
+    if (submitLabel) submitLabel.textContent = isBusy ? "Enviando..." : "Quero conhecer o Hunter Auto";
+    if (submitArrow) submitArrow.classList.toggle("hidden", isBusy);
+    if (submitSpinner) submitSpinner.classList.toggle("hidden", !isBusy);
+  }
+
   function openLead() {
     if (!modal) return;
     if (submissionIdInput && !submissionIdInput.value) submissionIdInput.value = uuid();
     modal.hidden = false;
     modal.dataset.open = "true";
     document.body.style.overflow = "hidden";
+    setWhatsappVisible(false);
   }
 
   function closeLead() {
@@ -40,6 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.dataset.open = "false";
     modal.hidden = true;
     document.body.style.overflow = "";
+    setWhatsappVisible(true);
   }
 
   document.querySelectorAll("[data-open-lead]").forEach((el) => {
@@ -66,13 +97,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (menuToggle && mobileNav) {
     menuToggle.addEventListener("click", () => {
       const open = mobileNav.dataset.open === "true";
-      mobileNav.dataset.open = open ? "false" : "true";
-      menuToggle.setAttribute("aria-expanded", open ? "false" : "true");
+      setMenuOpen(!open);
     });
     mobileNav.querySelectorAll("a").forEach((link) => {
       link.addEventListener("click", () => {
-        mobileNav.dataset.open = "false";
-        menuToggle.setAttribute("aria-expanded", "false");
+        setMenuOpen(false);
       });
     });
   }
@@ -89,6 +118,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const tab = tabs[index];
       if (!tab) return;
       tabButtons.forEach((item) => item.setAttribute("aria-selected", item === button ? "true" : "false"));
+      if (productPanel) productPanel.setAttribute("aria-labelledby", button.id);
       if (productImage) {
         productImage.src = tab.imageUrl;
         productImage.alt = `Tela real do Hunter Auto: ${tab.label}`;
@@ -125,10 +155,7 @@ document.addEventListener("DOMContentLoaded", () => {
         errorBox.classList.add("hidden");
         errorBox.textContent = "";
       }
-      if (submitButton) {
-        submitButton.disabled = true;
-        submitButton.textContent = "Enviando...";
-      }
+      setSubmitBusy(true);
 
       const formData = new FormData(form);
       const params = new URLSearchParams(window.location.search);
@@ -161,10 +188,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       } finally {
         busy = false;
-        if (submitButton) {
-          submitButton.disabled = false;
-          submitButton.textContent = "Quero conhecer o Hunter Auto";
-        }
+        setSubmitBusy(false);
       }
     });
   }

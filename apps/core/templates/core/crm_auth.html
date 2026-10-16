@@ -1,0 +1,52 @@
+{% load static %}
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acesso ao CRM | Hunter Auto</title>
+    <meta name="description" content="Acesso privado ao CRM comercial Hunter Auto." />
+    <meta property="og:title" content="Acesso ao CRM | Hunter Auto" />
+    <meta property="og:description" content="Acesso privado ao CRM comercial Hunter Auto." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="robots" content="noindex,nofollow" />
+    <link rel="icon" href="{% static 'img/landing/favicon.png' %}" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&family=Plus+Jakarta+Sans:wght@600..800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{% static 'css/landing.css' %}" />
+  </head>
+  <body class="crm-auth-page">
+    <main class="crm-auth">
+      <img src="{% static 'img/landing/logo_sistema_hunter.png' %}" alt="Hunter Auto" width="1920" height="768" />
+      <div class="crm-auth-body">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span class="eyebrow">ÁREA COMERCIAL</span>
+        <h1>Seu atendimento.<br/>Em um só lugar.</h1>
+        <p>Acesso privado da equipe Hunter Auto.</p>
+
+        <form class="crm-auth-form" method="post" action="{% url 'crm_auth' %}">
+          {% csrf_token %}
+          <label>
+            Usuário
+            <input type="text" name="username" autocomplete="username" required value="{{ username|default:'' }}" placeholder="seu.usuario" />
+          </label>
+          <label>
+            Senha
+            <input type="password" name="password" autocomplete="current-password" required placeholder="••••••••" />
+          </label>
+          {% if error %}
+          <p class="form-error" role="alert">{{ error }}</p>
+          {% endif %}
+          <button type="submit" class="btn-conversion">
+            Entrar no CRM
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          </button>
+        </form>
+
+        <a class="crm-back" href="{% url 'landing' %}">Voltar ao site Hunter Auto</a>
+      </div>
+    </main>
+  </body>
+</html>

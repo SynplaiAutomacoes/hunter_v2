@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.core.infrastructure.models import MarketingLead
+
+User = get_user_model()
 
 
 class LandingPageTests(TestCase):
@@ -11,15 +14,33 @@ class LandingPageTests(TestCase):
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, reverse("accounts:login"))
+        self.assertContains(response, "https://hunterapp.io")
+        self.assertContains(response, reverse("crm_auth"))
+        self.assertContains(response, "Entrar no CRM")
         self.assertContains(response, "Hunter Auto")
         self.assertContains(response, "Já sou cliente")
         self.assertContains(response, "Conhecer o Hunter Auto")
         self.assertContains(response, "Sidney Gomes")
+        self.assertContains(response, "Para criá-lo, Sidney reuniu")
+        self.assertContains(response, "Plus+Jakarta+Sans")
         self.assertNotContains(response, "Quero este plano")
         self.assertNotContains(response, reverse("billing:subscribe"))
         self.assertNotContains(response, "DOMINE OS MOTORES DA LINHA JEEP")
         self.assertNotContains(response, "Criar conta")
+
+    def test_crm_auth_page_renders(self) -> None:
+        response = self.client.get(reverse("crm_auth"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Acesso ao CRM")
+        self.assertContains(response, "ÁREA COMERCIAL")
+        self.assertContains(response, "Entrar no CRM")
+
+    def test_crm_auth_staff_redirects_to_leads(self) -> None:
+        user = User.objects.create_user(username="crm.staff", password="SenhaForte123!", is_staff=True)
+        self.client.force_login(user)
+        response = self.client.get(reverse("crm_auth"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("admin:core_marketinglead_changelist"))
 
     def test_lead_submit_creates_marketing_lead(self) -> None:
         response = self.client.post(
