@@ -150,6 +150,7 @@ class LandingPageView(TemplateView):
         context["revenue_options"] = REVENUE_OPTIONS
         context["consent_text"] = CONSENT_TEXT
         context["lead_url"] = reverse("marketing_lead_submit")
+        context["login_url"] = reverse("accounts:login")
         context["whatsapp_href"] = f"https://wa.me/{WHATSAPP_CONTACT_PHONE}?text={quote(WHATSAPP_CONTACT_MESSAGE)}"
         return context
 

@@ -14,7 +14,8 @@ class LandingPageTests(TestCase):
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "https://hunterapp.io")
+        self.assertContains(response, reverse("accounts:login"))
+        self.assertNotContains(response, "https://hunterapp.io")
         self.assertContains(response, reverse("crm_auth"))
         self.assertContains(response, "Entrar no CRM")
         self.assertContains(response, "Hunter Auto")
