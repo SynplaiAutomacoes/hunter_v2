@@ -256,3 +256,21 @@
         color: #fecaca;
     }
 }
+
+/*
+ * HTMX button spinner: wrapper fica fora de @layer para ganhar do DaisyUI `.loading`.
+ * Só aparece (e só ocupa espaço) enquanto o alvo do hx-indicator tem `.htmx-request`.
+ */
+.htmx-btn-spinner {
+    display: none !important;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    align-items: center;
+    justify-content: center;
+}
+
+.htmx-request > .htmx-btn-spinner,
+.htmx-request .htmx-btn-spinner {
+    display: inline-flex !important;
+}

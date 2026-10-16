@@ -1,0 +1,11 @@
+{% for message in messages %}
+    <div class="chat {% if message.author_id == request.user.pk %}chat-end{% else %}chat-start{% endif %}">
+        <div class="chat-header text-xs opacity-70">
+            {{ message.author.username }}
+            <time class="ml-1">{{ message.created_at|date:"d/m H:i" }}</time>
+        </div>
+        <div class="chat-bubble whitespace-pre-wrap">{{ message.body }}</div>
+    </div>
+{% empty %}
+    <p class="text-sm text-base-content/60">Nenhuma mensagem ainda.</p>
+{% endfor %}

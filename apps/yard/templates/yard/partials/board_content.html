@@ -1,0 +1,27 @@
+{% if board|length > 6 %}
+<div class="flex gap-4 overflow-x-auto pb-4 items-start">
+    {% for col in board %}
+    <div class="card bg-base-100 shadow-xl shrink-0 min-w-0" style="flex: 0 0 calc((100% - 5rem) / 6);">
+        {% include 'yard/partials/column_body.html' with col=col %}
+    </div>
+    {% empty %}
+    <div class="alert alert-info w-full">
+        <span class="material-icons">info</span>
+        <span>Nenhuma coluna configurada. Use o botão Configurar Pátio para criar colunas.</span>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="grid gap-4 items-start" style="grid-template-columns: repeat({{ board|length|default:1 }}, minmax(0, 1fr));">
+    {% for col in board %}
+    <div class="card bg-base-100 shadow-xl min-w-0">
+        {% include 'yard/partials/column_body.html' with col=col %}
+    </div>
+    {% empty %}
+    <div class="alert alert-info w-full">
+        <span class="material-icons">info</span>
+        <span>Nenhuma coluna configurada. Use o botão Configurar Pátio para criar colunas.</span>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}

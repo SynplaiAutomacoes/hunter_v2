@@ -1,0 +1,143 @@
+<div class="modal-box w-11/12 max-w-4xl bg-base-100 max-h-[90vh] overflow-y-auto">
+    <button type="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="yard_modal.close()">✕</button>
+    <h3 class="font-bold text-2xl mb-1">Configurar Pátio</h3>
+    <p class="text-sm text-base-content/60 mb-6">Crie colunas por status de Orçamento ou Ordem de Serviço. Status com coluna própria saem automaticamente da coluna “Todos”.</p>
+
+    <div id="yard-config-columns">
+        {% include 'yard/partials/config_columns_list.html' %}
+    </div>
+
+    <div class="divider">Nova coluna</div>
+
+    <div id="yard-config-form-wrapper">
+        {% include 'yard/partials/config_column_form.html' with form=form column=None %}
+    </div>
+
+    <div class="divider">Status ocultos</div>
+    <p class="text-xs text-base-content/60 mb-3">Status nesta lista nunca aparecem no painel, em nenhuma coluna.</p>
+
+    <div class="space-y-2 mb-4">
+        {% for hidden in hidden_statuses %}
+        <div class="flex items-center gap-3 rounded-lg border border-base-300 px-3 py-2">
+            <div class="min-w-0 flex-1">
+                <p class="text-xs text-base-content/60">{{ hidden.get_target_display }}</p>
+                <p class="font-semibold text-sm">{{ hidden.status_label }}</p>
+            </div>
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs text-error"
+                hx-post="{% url 'yard:hidden_delete' hidden.pk %}"
+                hx-target="#yard-modal-container"
+                hx-swap="innerHTML"
+                hx-confirm="Voltar a exibir este status?">
+                <span class="material-icons text-sm">delete</span>
+            </button>
+        </div>
+        {% empty %}
+        <p class="text-sm text-base-content/60 text-center py-2">Nenhum status oculto.</p>
+        {% endfor %}
+    </div>
+
+    <form
+        id="yard-hidden-form"
+        hx-post="{% url 'yard:hidden_create' %}"
+        hx-target="#yard-modal-container"
+        hx-swap="innerHTML"
+        class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end"
+    >
+        {% csrf_token %}
+        <div>
+            <label class="label"><span class="label-text text-xs">{{ hidden_form.target.label }}</span></label>
+            {{ hidden_form.target }}
+            {% if hidden_form.target.errors %}<p class="text-xs text-error mt-1">{{ hidden_form.target.errors.0 }}</p>{% endif %}
+        </div>
+        <div>
+            <label class="label"><span class="label-text text-xs">{{ hidden_form.status.label }}</span></label>
+            {{ hidden_form.status }}
+            {% if hidden_form.status.errors %}<p class="text-xs text-error mt-1">{{ hidden_form.status.errors.0 }}</p>{% endif %}
+        </div>
+        <div>
+            <button type="submit" class="btn btn-outline btn-primary w-full">Ocultar status</button>
+        </div>
+        {% if hidden_form.non_field_errors %}
+        <div class="md:col-span-3 alert alert-error text-sm py-2">
+            {% for error in hidden_form.non_field_errors %}<span>{{ error }}</span>{% endfor %}
+        </div>
+        {% endif %}
+    </form>
+
+    <div class="divider">Agrupar status</div>
+    <p class="text-xs text-base-content/60 mb-3">Exibe vários status sob um único título (somente visual, ex.: “Avaliando Veículo”).</p>
+
+    <div class="space-y-2 mb-4">
+        {% for group in groups %}
+        <div class="flex items-center gap-3 rounded-lg border border-base-300 px-3 py-2">
+            <div class="min-w-0 flex-1">
+                <p class="font-semibold text-sm">{{ group.title }}</p>
+                <p class="text-xs text-base-content/60">{{ group.get_target_display }} · {{ group.statuses|join:", " }}</p>
+            </div>
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs text-info"
+                hx-get="{% url 'yard:group_update' group.pk %}"
+                hx-target="#yard-group-form-wrapper"
+                hx-swap="innerHTML">
+                <span class="material-icons text-sm">edit</span>
+            </button>
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs text-error"
+                hx-post="{% url 'yard:group_delete' group.pk %}"
+                hx-target="#yard-modal-container"
+                hx-swap="innerHTML"
+                hx-confirm="Excluir o agrupamento '{{ group.title }}'?">
+                <span class="material-icons text-sm">delete</span>
+            </button>
+        </div>
+        {% empty %}
+        <p class="text-sm text-base-content/60 text-center py-2">Nenhum agrupamento criado.</p>
+        {% endfor %}
+    </div>
+
+    <div id="yard-group-form-wrapper">
+        {% include 'yard/partials/config_group_form.html' with form=group_form group=editing_group %}
+    </div>
+</div>
+
+<script>
+    (function() {
+        var form = document.getElementById('yard-hidden-form');
+        if (!form || form.dataset.statusFilterBound === '1') {
+            return;
+        }
+        form.dataset.statusFilterBound = '1';
+        var targetSelect = form.querySelector('select[name="target"]');
+        var statusSelect = form.querySelector('select[name="status"]');
+        function filterOptions() {
+            if (!targetSelect || !statusSelect) {
+                return;
+            }
+            var target = targetSelect.value;
+            statusSelect.querySelectorAll('option').forEach(function(opt) {
+                if (!opt.value) {
+                    return;
+                }
+                var group = opt.parentElement;
+                var groupLabel = (group && group.tagName === 'OPTGROUP') ? (group.getAttribute('label') || '') : '';
+                var show = groupLabel === 'Geral'
+                    || (target === 'budget' && groupLabel === 'Orçamentos')
+                    || (target === 'workorder' && groupLabel === 'Ordens de Serviço');
+                opt.hidden = !show;
+                opt.disabled = !show;
+            });
+            var current = statusSelect.querySelector('option:checked');
+            if (current && current.hidden) {
+                statusSelect.value = 'all';
+            }
+        }
+        if (targetSelect) {
+            targetSelect.addEventListener('change', filterOptions);
+        }
+        filterOptions();
+    })();
+</script>

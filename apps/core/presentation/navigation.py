@@ -15,10 +15,6 @@ from apps.workshops.util.workshops import can_view_payroll_details
 VisibilityPredicate = Callable[[HttpRequest, dict[str, Any]], bool]
 
 
-def _is_director_or_manager(request: HttpRequest, flags: dict[str, Any]) -> bool:
-    return bool(flags.get("active_workshop_is_director") or flags.get("active_workshop_is_manager"))
-
-
 def _is_director(request: HttpRequest, flags: dict[str, Any]) -> bool:
     return bool(flags.get("active_workshop_is_director"))
 
@@ -62,9 +58,10 @@ FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movime
 
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {"label": "Orçamentos", "view_name": "budget:budget_list", "favoritable": False},
-    {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False},
+    {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False, "visible_if": _requires_full_plan},
     {
         "label": "Agendamentos",
+        "visible_if": _requires_full_plan,
         "items": (
             {"label": "Criar Agendamento", "view_name": "scheduling:appointment_create"},
             {"label": "Mensagens WhatsApp", "view_name": "messaging:message_template_list"},
@@ -107,7 +104,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "items": (
             {"label": "Cliente", "view_name": "customer:customer_list"},
             {"label": "Colaborador", "view_name": "collaborators:collaborator_list"},
-            {"label": "Fornecedor", "view_name": "suppliers:supplier_list"},
+            {"label": "Fornecedor", "view_name": "suppliers:supplier_list", "visible_if": _requires_full_plan},
             {"label": "Serviço", "view_name": "catalog:services_list"},
             {"label": "Kit", "view_name": "catalog:kits_list"},
             {"label": "Grupo", "view_name": "catalog:group_list"},
@@ -128,6 +125,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Gerenciar Sistema", "view_name": "workshops:system_manage", "visible_if": _is_system_admin},
         ),
     },
+    {"label": "Pátio da Oficina", "view_name": "yard:board", "favoritable": False},
 )
 
 EXTRA_FAVORITABLE_PAGE_DEFINITIONS: tuple[dict[str, Any], ...] = (

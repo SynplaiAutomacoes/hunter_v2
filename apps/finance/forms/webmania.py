@@ -9,7 +9,6 @@ from django import forms
 from django.urls import reverse
 
 from apps.core.infrastructure.providers import get_fiscal_service
-from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.presentation.widgets import CEPInput, CPForCNPJInput, CheckboxInput, EmailInput, PasswordInput, PhoneInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
@@ -53,6 +52,101 @@ WEBMANIA_HOMOLOG_ONLY_FIELDS = (
 def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     quantizer = Decimal(1).scaleb(-places)
     return f"{value.quantize(quantizer):f}"
+
+
+def digits_only(value: object) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def normalize_webmania_phone_widget_value(value: object) -> str:
+    """Match PhoneInput hidden value (+55 + local digits) to avoid false changed_data."""
+    digits = digits_only(value)
+    if digits.startswith("55") and len(digits) >= 12:
+        digits = digits[2:]
+    if not digits:
+        return ""
+    if len(digits) > 11:
+        return str(value or "").strip()
+    return f"+55{digits}"
+
+
+def normalize_telefone_for_webmania_api(value: object) -> str:
+    digits = digits_only(value)
+    if digits.startswith("55") and len(digits) >= 12:
+        digits = digits[2:]
+    return digits
+
+
+def apply_webmania_widget_initials(form: forms.BaseForm, *, instance: WebmaniaCompany) -> None:
+    """Align form.initial with Alpine widget normalization so untouched fields stay out of changed_data."""
+    if "cnpj" in form.fields:
+        form.initial["cnpj"] = digits_only(getattr(instance, "cnpj", ""))
+    if "cpf" in form.fields:
+        form.initial["cpf"] = digits_only(getattr(instance, "cpf", ""))[:11]
+    if "cep" in form.fields:
+        form.initial["cep"] = digits_only(getattr(instance, "cep", ""))[:8]
+    if "telefone" in form.fields:
+        form.initial["telefone"] = normalize_webmania_phone_widget_value(getattr(instance, "telefone", ""))
+
+
+def apply_person_company_document_exclusivity(cleaned_data: dict[str, Any]) -> tuple[dict[str, Any], bool, bool]:
+    """
+    PJ and PF fields are mutually exclusive for Webmania.
+    Returns (cleaned_data, clear_person_fields, clear_company_fields).
+    """
+    cnpj = digits_only(cleaned_data.get("cnpj"))
+    cpf = digits_only(cleaned_data.get("cpf"))[:11]
+    razao_social = str(cleaned_data.get("razao_social") or "").strip()
+    nome_completo = str(cleaned_data.get("nome_completo") or "").strip()
+
+    cleaned_data["cnpj"] = cnpj
+    cleaned_data["cpf"] = cpf
+
+    has_pj_data = bool(cnpj or razao_social)
+    has_pf_data = bool(cpf or nome_completo)
+
+    if has_pj_data:
+        cleaned_data["cpf"] = ""
+        cleaned_data["nome_completo"] = ""
+        return cleaned_data, True, False
+
+    if has_pf_data:
+        cleaned_data["cnpj"] = ""
+        cleaned_data["razao_social"] = ""
+        return cleaned_data, False, True
+
+    return cleaned_data, False, False
+
+
+def finalize_webmania_company_api_payload(
+    payload: dict[str, Any],
+    *,
+    initial_values: dict[str, Any],
+    clear_person_fields: bool = False,
+    clear_company_fields: bool = False,
+) -> dict[str, Any]:
+    """Normalize document/address contact fields and clear the opposite person type when needed."""
+    for field_name in ("cnpj", "cpf", "cep"):
+        if field_name in payload:
+            max_len = 11 if field_name == "cpf" else 14 if field_name == "cnpj" else 8
+            payload[field_name] = digits_only(payload[field_name])[:max_len]
+
+    if "telefone" in payload:
+        payload["telefone"] = normalize_telefone_for_webmania_api(payload["telefone"])
+
+    if clear_person_fields:
+        had_pf = bool(str(initial_values.get("cpf") or "").strip() or str(initial_values.get("nome_completo") or "").strip())
+        if had_pf or "cnpj" in payload or "razao_social" in payload:
+            payload["cpf"] = ""
+            payload["nome_completo"] = ""
+
+    if clear_company_fields:
+        had_pj = bool(str(initial_values.get("cnpj") or "").strip() or str(initial_values.get("razao_social") or "").strip())
+        if had_pj or "cpf" in payload or "nome_completo" in payload:
+            payload["cnpj"] = ""
+            payload["razao_social"] = ""
+
+    return payload
 
 
 class WebmaniaCompanyUpdateForm(CoreModelForm):
@@ -199,6 +293,8 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._clear_person_type_fields = False
+        self._clear_company_type_fields = False
 
         self.show_homolog_fields = get_fiscal_service().is_homolog_environment()
         if not self.show_homolog_fields:
@@ -207,6 +303,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
 
         self._initial_model_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.Meta.fields}
         self._initial_secret_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.secret_fields}
+        apply_webmania_widget_initials(self, instance=self.instance)
 
         self.fields["email"].required = True
 
@@ -368,8 +465,13 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
         cleaned_data_raw = super().clean()
         cleaned_data: dict[str, Any] = dict(cleaned_data_raw or {})
 
-        cnpj = str(cleaned_data.get("cnpj") or "").strip()
-        cpf = str(cleaned_data.get("cpf") or "").strip()
+        if "cep" in cleaned_data:
+            cleaned_data["cep"] = digits_only(cleaned_data.get("cep"))[:8]
+        if "telefone" in cleaned_data:
+            cleaned_data["telefone"] = normalize_webmania_phone_widget_value(cleaned_data.get("telefone"))
+
+        cnpj = digits_only(cleaned_data.get("cnpj"))
+        cpf = digits_only(cleaned_data.get("cpf"))[:11]
         razao_social = str(cleaned_data.get("razao_social") or "").strip()
         nome_completo = str(cleaned_data.get("nome_completo") or "").strip()
 
@@ -384,16 +486,18 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             self.add_error("nome_completo", message)
             return cleaned_data
 
-        if has_pj_data:
-            if not cnpj:
+        cleaned_data, self._clear_person_type_fields, self._clear_company_type_fields = apply_person_company_document_exclusivity(cleaned_data)
+
+        if self._clear_person_type_fields:
+            if not digits_only(cleaned_data.get("cnpj")):
                 self.add_error("cnpj", "Ao informar Razão Social, o CNPJ é obrigatório.")
-            if not razao_social:
+            if not str(cleaned_data.get("razao_social") or "").strip():
                 self.add_error("razao_social", "Ao informar CNPJ, a Razão Social é obrigatória.")
             return cleaned_data
 
-        if not cpf:
+        if not digits_only(cleaned_data.get("cpf")):
             self.add_error("cpf", "Ao informar Nome Completo, o CPF é obrigatório.")
-        if not nome_completo:
+        if not str(cleaned_data.get("nome_completo") or "").strip():
             self.add_error("nome_completo", "Ao informar CPF, o Nome Completo é obrigatório.")
 
         return cleaned_data
@@ -470,7 +574,12 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
 
             payload[field_name] = str(value).strip()
 
-        return payload
+        return finalize_webmania_company_api_payload(
+            payload,
+            initial_values=dict(getattr(self, "_initial_model_values", {})),
+            clear_person_fields=bool(getattr(self, "_clear_person_type_fields", False)),
+            clear_company_fields=bool(getattr(self, "_clear_company_type_fields", False)),
+        )
 
     def save(self, commit: bool = True) -> WebmaniaCompany:
         original_values = dict(getattr(self, "_initial_model_values", {}))
@@ -488,6 +597,13 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
                 continue
 
             setattr(instance, field_name, existing_secret_values.get(field_name, ""))
+
+        if getattr(self, "_clear_person_type_fields", False):
+            instance.cpf = ""
+            instance.nome_completo = ""
+        elif getattr(self, "_clear_company_type_fields", False):
+            instance.cnpj = ""
+            instance.razao_social = ""
 
         if commit:
             instance.save()

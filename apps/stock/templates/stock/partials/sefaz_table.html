@@ -1,3 +1,5 @@
+{% load l10n %}
+
 <div class="mt-4" id="sefaz-container">
     <div class="flex justify-between items-center mb-4">
         <div class="form-control w-full max-w-xs">
@@ -28,8 +30,12 @@
             {% else %}
                 Nenhuma sincronização executada ainda.
             {% endif %}
-            {% if not form.workshop.can_search_sefaz %}
-                <span class="ml-2 text-warning">(Aguarde para nova consulta)</span>
+            {% if form.workshop.last_sefaz_sync_status == "ERROR" %}
+                <span class="ml-2 text-error">{{ form.workshop.last_sefaz_sync_message }}</span>
+            {% elif not form.workshop.can_search_sefaz %}
+                <span class="ml-2 text-success">Sincronizacao automatica em dia. Proxima consulta apos {{ form.workshop.next_sefaz_search_at|date:"d/m/Y H:i" }}.</span>
+            {% else %}
+                <span class="ml-2 text-info">A sincronizacao automatica verificara novas notas em breve.</span>
             {% endif %}
         </div>
         <div>

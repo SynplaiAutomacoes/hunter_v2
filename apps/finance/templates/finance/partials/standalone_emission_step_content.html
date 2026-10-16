@@ -99,6 +99,10 @@
                         this.syncing = true;
                         this.setDecimalField('cost_value', prices.cost || 0, 2);
                         this.setDecimalField('unit_value', prices.sell || 0, 2);
+                        const ncmInput = this.$el.querySelector('input[name="ncm"]');
+                        if (ncmInput && Object.prototype.hasOwnProperty.call(prices, 'ncm')) {
+                            ncmInput.value = prices.ncm || '';
+                        }
                         this.syncing = false;
                         this.recalcTotalFromUnit();
                     },

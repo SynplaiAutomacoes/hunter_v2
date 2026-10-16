@@ -22,7 +22,7 @@ class NfeExternalCorrectionForm(CoreForm):
         ),
     )
     event_sequence = forms.ChoiceField(
-        label="Nº do Evento",
+        label="Nº da Carta de Correção",
         choices=CCE_EVENT_SEQUENCE_CHOICES,
         initial="1",
         widget=forms.Select(attrs={"class": "select select-bordered w-full"}),

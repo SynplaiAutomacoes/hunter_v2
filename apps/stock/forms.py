@@ -1,10 +1,13 @@
 import re
+import logging
+import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from html import escape
 from typing import Any
 
 from django import forms
+from django.conf import settings
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML
 from django.db import transaction
@@ -45,8 +48,8 @@ from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
 
 from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
+from apps.stock.services.sefaz_distribution import synchronize_workshop_sefaz_documents
 from apps.stock.services.files import StockImportFileStorageError, _extract_nfe_xml_from_sefaz_response, save_import_xml_file
-from apps.stock.services.sefaz_distribution import sync_sefaz_distribution_for_workshop
 from apps.stock.services.purchase_fiscal import ensure_purchase_fiscal_foundation
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key
 from apps.suppliers.models import Supplier
@@ -54,6 +57,8 @@ from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import workshop_certificate_temp_path, workshop_has_certificate
 from apps.workshops.util.workshops import has_workshop_perm
 
+
+external_calls_logger = logging.getLogger("performance.external")
 
 MONEY_QUANTIZER = Decimal("0.01")
 NF_WITHOUT_ITEMS_MESSAGE = "A NF-e foi localizada, mas o XML retornado não contém os itens da nota. Sem esses itens não é possível vincular produtos no estoque. Importe o XML completo da NF-e ou tente novamente quando a SEFAZ disponibilizar o documento completo."
@@ -1133,24 +1138,21 @@ class ImportSefazListForm(CoreModelForm):
 
     def update_sefaz_list(self) -> tuple[bool, str]:
         """Atualiza cache de notas da SEFAZ e retorna (sucesso, mensagem)."""
-        result = sync_sefaz_distribution_for_workshop(self.workshop)
-
-        if result.success:
-            return True, f"Lista da SEFAZ atualizada com sucesso ({result.cached_count} nota(s) processada(s))."
-
-        if result.skipped_reason == "throttle":
-            return False, "A busca da SEFAZ foi executada recentemente. Aguarde alguns minutos para atualizar novamente."
-
-        if result.skipped_reason in {"missing_certificate", "missing_certificate_password"}:
-            return False, "Configure certificado e senha da oficina antes de buscar notas na SEFAZ."
-
-        if result.skipped_reason == "no_workshop":
+        if not self.workshop:
             return False, "Oficina não identificada para consulta na SEFAZ."
 
-        if result.error:
-            return False, f"Erro ao atualizar lista da SEFAZ: {result.error}"
-
-        return False, f"Erro ao atualizar lista da SEFAZ: {result.skipped_reason or 'oficina inelegível'}."
+        started_at = time.perf_counter()
+        result = synchronize_workshop_sefaz_documents(workshop=self.workshop)
+        if settings.PERF_LOGGING_ENABLED:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            external_calls_logger.warning(
+                "external_call service=sefaz_consulta_distribuicao duration_ms=%.2f workshop_id=%s success=%s requests=%s",
+                elapsed_ms,
+                self.workshop.id,
+                result.success,
+                result.requests,
+            )
+        return result.success, result.message
 
     def save(self, commit=True):
         instance = super().save(commit=False)

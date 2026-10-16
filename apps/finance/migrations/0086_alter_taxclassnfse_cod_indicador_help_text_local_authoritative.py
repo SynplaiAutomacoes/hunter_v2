@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('finance', '0084_cce_event_sequence_verbose_name'),
+        ('finance', '0085_merge_cce_verbose_name_and_staging'),
     ]
 
     operations = [

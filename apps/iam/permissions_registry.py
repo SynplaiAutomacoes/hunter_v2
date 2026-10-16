@@ -189,6 +189,11 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
         visible=True,
         description="Gerenciar transferências de produtos entre oficinas ou depósitos.",
     ),
+    # ---- Pátio da Oficina ----
+    ("yard", "yardcolumn"): PermissionInfo(
+        visible=True,
+        description="Gerenciar o Pátio da Oficina: visualizar os orçamentos e ordens de serviço e configurar colunas.",
+    ),
     # ---- IAM ----
     ("iam", "workshoprole"): PermissionInfo(
         visible=True,

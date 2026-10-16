@@ -37,6 +37,11 @@ from apps.finance.forms.webmania import (
     WEBMANIA_ORIENTACAO_DANFE_CHOICES,
     WEBMANIA_REGIME_TRIBUTARIO_CHOICES,
     WEBMANIA_UNIDADE_EMPRESA_CHOICES,
+    apply_person_company_document_exclusivity,
+    apply_webmania_widget_initials,
+    digits_only,
+    finalize_webmania_company_api_payload,
+    normalize_webmania_phone_widget_value,
 )
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
 from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
@@ -102,6 +107,8 @@ class BaseWebmaniaCompanySectionForm(CoreModelForm):
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         self.workshop = workshop
+        self._clear_person_type_fields = False
+        self._clear_company_type_fields = False
         super().__init__(*args, **kwargs)
         self.show_homolog_fields = get_fiscal_service().is_homolog_environment()
         if not self.show_homolog_fields:
@@ -111,6 +118,7 @@ class BaseWebmaniaCompanySectionForm(CoreModelForm):
         field_names = tuple(getattr(self.Meta, "fields", ()))
         self._initial_model_values = {field_name: getattr(self.instance, field_name, "") for field_name in field_names}
         self._initial_secret_values = {field_name: getattr(self.instance, field_name, "") for field_name in self.secret_fields}
+        apply_webmania_widget_initials(self, instance=self.instance)
 
         for field_name in self.secret_fields:
             if field_name in self.fields:
@@ -153,7 +161,12 @@ class BaseWebmaniaCompanySectionForm(CoreModelForm):
 
             payload[field_name] = str(value).strip()
 
-        return payload
+        return finalize_webmania_company_api_payload(
+            payload,
+            initial_values=dict(getattr(self, "_initial_model_values", {})),
+            clear_person_fields=bool(getattr(self, "_clear_person_type_fields", False)),
+            clear_company_fields=bool(getattr(self, "_clear_company_type_fields", False)),
+        )
 
     def save(self, commit: bool = True) -> WebmaniaCompany:
         original_values = dict(getattr(self, "_initial_model_values", {}))
@@ -174,6 +187,13 @@ class BaseWebmaniaCompanySectionForm(CoreModelForm):
                 continue
 
             setattr(instance, field_name, existing_secret_values.get(field_name, ""))
+
+        if getattr(self, "_clear_person_type_fields", False):
+            instance.cpf = ""
+            instance.nome_completo = ""
+        elif getattr(self, "_clear_company_type_fields", False):
+            instance.cnpj = ""
+            instance.razao_social = ""
 
         if commit:
             instance.save()
@@ -253,8 +273,11 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         cleaned_data_raw = super().clean()
         cleaned_data: dict[str, Any] = dict(cleaned_data_raw or {})
 
-        cnpj = str(cleaned_data.get("cnpj") or "").strip()
-        cpf = str(cleaned_data.get("cpf") or "").strip()
+        if "telefone" in cleaned_data:
+            cleaned_data["telefone"] = normalize_webmania_phone_widget_value(cleaned_data.get("telefone"))
+
+        cnpj = digits_only(cleaned_data.get("cnpj"))
+        cpf = digits_only(cleaned_data.get("cpf"))[:11]
         razao_social = str(cleaned_data.get("razao_social") or "").strip()
         nome_completo = str(cleaned_data.get("nome_completo") or "").strip()
 
@@ -262,24 +285,26 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         has_pf_data = bool(cpf or nome_completo)
 
         if not has_pj_data and not has_pf_data:
-            message = "Preencha CNPJ + Razao Social ou CPF + Nome Completo."
+            message = "Preencha CNPJ + Razão Social ou CPF + Nome Completo."
             self.add_error("cnpj", message)
             self.add_error("cpf", message)
             self.add_error("razao_social", message)
             self.add_error("nome_completo", message)
             return cleaned_data
 
-        if has_pj_data:
-            if not cnpj:
-                self.add_error("cnpj", "Ao informar Razao Social, o CNPJ e obrigatorio.")
-            if not razao_social:
-                self.add_error("razao_social", "Ao informar CNPJ, a Razao Social e obrigatoria.")
+        cleaned_data, self._clear_person_type_fields, self._clear_company_type_fields = apply_person_company_document_exclusivity(cleaned_data)
+
+        if self._clear_person_type_fields:
+            if not digits_only(cleaned_data.get("cnpj")):
+                self.add_error("cnpj", "Ao informar Razão Social, o CNPJ é obrigatório.")
+            if not str(cleaned_data.get("razao_social") or "").strip():
+                self.add_error("razao_social", "Ao informar CNPJ, a Razão Social é obrigatória.")
             return cleaned_data
 
-        if not cpf:
-            self.add_error("cpf", "Ao informar Nome Completo, o CPF e obrigatorio.")
-        if not nome_completo:
-            self.add_error("nome_completo", "Ao informar CPF, o Nome Completo e obrigatorio.")
+        if not digits_only(cleaned_data.get("cpf")):
+            self.add_error("cpf", "Ao informar Nome Completo, o CPF é obrigatório.")
+        if not str(cleaned_data.get("nome_completo") or "").strip():
+            self.add_error("nome_completo", "Ao informar CPF, o Nome Completo é obrigatório.")
 
         return cleaned_data
 
@@ -358,6 +383,15 @@ class WorkshopAddressSectionForm(BaseWebmaniaCompanySectionForm):
             "cidade": TextInput(),
             "uf": TextInput(),
         }
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data_raw = super().clean()
+        cleaned_data: dict[str, Any] = dict(cleaned_data_raw or {})
+        if "cep" in cleaned_data:
+            cleaned_data["cep"] = digits_only(cleaned_data.get("cep"))[:8]
+        if "uf" in cleaned_data:
+            cleaned_data["uf"] = str(cleaned_data.get("uf") or "").strip().upper()
+        return cleaned_data
 
 
 class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
