@@ -49,6 +49,15 @@ class ManagementReportDataMixin:
     def _get_sort_by(self) -> str:
         return str(self.request.GET.get("ordenar") or "perda").strip()
 
+    def _get_mechanic_id(self) -> int | None:
+        raw = str(self.request.GET.get("mecanico") or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
     def _build_report(self):
         report_key = self._get_report_key()
         if report_key not in REPORT_KEYS:
@@ -61,6 +70,7 @@ class ManagementReportDataMixin:
             report_key=report_key,
             sort_by=self._get_sort_by(),
             selected_columns=self._get_selected_columns() or None,
+            mechanic_id=self._get_mechanic_id(),
         )
 
     def _build_querystring(self) -> str:
@@ -87,7 +97,13 @@ class ManagementReportView(LoginRequiredMixin, WorkshopScopedMixin, ManagementRe
             context["error"] = "Relatório inválido"
             return context
 
-        export_context = build_management_report_context(report=report)
+        selected_mechanic_id = self._get_mechanic_id()
+        is_retorno_garantia = report.report_key == "retorno_garantia"
+        export_context = build_management_report_context(
+            report=report,
+            workshop=self.workshop if is_retorno_garantia else None,
+            selected_mechanic_id=selected_mechanic_id if is_retorno_garantia else None,
+        )
         period = parse_report_period(self.request)
         query = self.request.GET.copy()
         querystring = query.urlencode()

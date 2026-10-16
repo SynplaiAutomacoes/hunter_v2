@@ -51,11 +51,12 @@ def build_management_report(
     report_key: str,
     sort_by: str = "perda",
     selected_columns: list[str] | None = None,
+    mechanic_id: int | None = None,
 ) -> ManagementReport | None:
     if report_key not in REPORT_KEYS:
         return None
     if report_key in PERFORMANCE_KEYS:
-        return build_performance_report(workshop=workshop, period=period, report_key=report_key, sort_by=sort_by)
+        return build_performance_report(workshop=workshop, period=period, report_key=report_key, sort_by=sort_by, mechanic_id=mechanic_id)
     if report_key in STOCK_KEYS:
         return build_stock_report(workshop=workshop, period=period, report_key=report_key)
     if report_key in SALES_KEYS:

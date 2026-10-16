@@ -5,6 +5,7 @@ from typing import Any
 
 from django.utils import timezone
 
+from apps.collaborators.services import work_assignable_collaborators
 from apps.core.domain.contracts.documents import DocumentPayload, DocumentRenderRequest
 from apps.core.infrastructure.excel_report_style import ExcelCell, ExcelColumn, build_hunter_excel_document
 from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf
@@ -34,7 +35,7 @@ def _format_display(value: object, kind: str) -> str:
     return str(value)
 
 
-def build_management_report_context(*, report: ManagementReport) -> dict[str, Any]:
+def build_management_report_context(*, report: ManagementReport, workshop: object | None = None, selected_mechanic_id: int | None = None) -> dict[str, Any]:
     generated_at = timezone.localtime()
     table_rows: list[list[dict[str, str]]] = []
     for row in report.rows:
@@ -47,6 +48,12 @@ def build_management_report_context(*, report: ManagementReport) -> dict[str, An
                 for col in report.columns
             ]
         )
+    mechanic_options = []
+    if workshop is not None:
+        mechanic_options = [
+            {"id": collab.pk, "name": collab.name}
+            for collab in work_assignable_collaborators(workshop=workshop)
+        ]
     return {
         "report": report,
         "report_title": report.title,
@@ -66,6 +73,8 @@ def build_management_report_context(*, report: ManagementReport) -> dict[str, An
         "selected_sort": report.selected_sort,
         "available_columns": report.available_columns,
         "selected_column_keys": report.selected_column_keys,
+        "mechanic_options": mechanic_options,
+        "selected_mechanic_id": selected_mechanic_id,
     }
 
 
