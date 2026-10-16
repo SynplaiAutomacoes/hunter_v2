@@ -191,7 +191,11 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
     def _build_nfse_form(self, *, data: Any | None, editing_tax_class: dict[str, object] | None, tax_classes: list[dict[str, object]] | None = None) -> NfseTaxClassForm:
         suggestion_tax_classes = self._build_nfse_suggestion_tax_classes(tax_classes)
         if data is not None:
-            return NfseTaxClassForm(data, nfse_suggestion_tax_classes=suggestion_tax_classes)
+            initial: dict[str, object] | None = None
+            if editing_tax_class is not None:
+                # Keep referencia in form.initial so clean_referencia works on update POST.
+                initial = {"referencia": str(editing_tax_class.get("referencia") or "").strip()}
+            return NfseTaxClassForm(data, initial=initial, nfse_suggestion_tax_classes=suggestion_tax_classes)
         if editing_tax_class is not None:
             return NfseTaxClassForm(initial=NfseTaxClassForm.initial_from_tax_class(editing_tax_class), nfse_suggestion_tax_classes=suggestion_tax_classes)
         return NfseTaxClassForm(nfse_suggestion_tax_classes=suggestion_tax_classes)
