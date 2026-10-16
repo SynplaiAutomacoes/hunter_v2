@@ -8,6 +8,7 @@ from apps.billing.domain.contracts import BillingServiceError
 from apps.billing.infrastructure.gateways.stripe import (
     construct_webhook_event,
     create_incomplete_subscription,
+    resolve_discount,
     resolve_promotion_code,
     retrieve_price,
     retrieve_product_plan,
@@ -195,6 +196,106 @@ class StripeGatewayTests(SimpleTestCase):
         list_promo.return_value = Mock(data=[])
         with self.assertRaises(BillingServiceError):
             resolve_promotion_code("INVALIDO")
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.list")
+    def test_resolve_discount_prefers_promotion_code(self, list_promo: Mock) -> None:
+        list_promo.return_value = Mock(data=[Mock(id="promo_abc")])
+        self.assertEqual(resolve_discount("HUNTER100"), {"promotion_code": "promo_abc"})
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Coupon.list")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Coupon.retrieve")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.list")
+    def test_resolve_discount_falls_back_to_coupon_by_name(
+        self,
+        list_promo: Mock,
+        retrieve_coupon: Mock,
+        list_coupon: Mock,
+    ) -> None:
+        import stripe as stripe_module
+
+        list_promo.return_value = Mock(data=[])
+        retrieve_coupon.side_effect = stripe_module.StripeError("not a coupon id")
+        list_coupon.return_value = Mock(
+            data=[{"id": "IaVK7htc", "name": "HUNTER100", "valid": True, "percent_off": 100}]
+        )
+
+        self.assertEqual(resolve_discount("HUNTER100"), {"coupon": "IaVK7htc"})
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Coupon.list")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Coupon.retrieve")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.list")
+    def test_resolve_discount_rejects_unknown_code(
+        self,
+        list_promo: Mock,
+        retrieve_coupon: Mock,
+        list_coupon: Mock,
+    ) -> None:
+        import stripe as stripe_module
+
+        list_promo.return_value = Mock(data=[])
+        retrieve_coupon.side_effect = stripe_module.StripeError("not a coupon id")
+        list_coupon.return_value = Mock(data=[])
+
+        with self.assertRaises(BillingServiceError):
+            resolve_discount("NAOEXISTE")
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
+    def test_create_incomplete_subscription_free_invoice_has_no_payment(self, create_customer: Mock, create_subscription: Mock) -> None:
+        create_customer.return_value = Mock(id="cus_1", to_dict=Mock(return_value={"id": "cus_1"}))
+        subscription = Mock()
+        subscription.to_dict.return_value = {
+            "id": "sub_1",
+            "status": "active",
+            "latest_invoice": {
+                "id": "in_1",
+                "status": "paid",
+                "amount_due": 0,
+                "total": 0,
+                "confirmation_secret": None,
+            },
+        }
+        create_subscription.return_value = subscription
+
+        result = create_incomplete_subscription(
+            email="ana@example.com",
+            customer_name="Ana",
+            plan="basic",
+            price_id="price_basic",
+            pending_signup_id=7,
+            promotion_code="",
+        )
+
+        self.assertEqual(result["requires_payment"], False)
+        self.assertEqual(result["client_secret"], "")
+        self.assertEqual(result["subscription_id"], "sub_1")
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
+    def test_create_incomplete_subscription_paid_invoice_still_raises_without_secret(self, create_customer: Mock, create_subscription: Mock) -> None:
+        create_customer.return_value = Mock(id="cus_1", to_dict=Mock(return_value={"id": "cus_1"}))
+        subscription = Mock()
+        subscription.to_dict.return_value = {
+            "id": "sub_1",
+            "status": "incomplete",
+            "latest_invoice": {
+                "id": "in_1",
+                "status": "open",
+                "amount_due": 29990,
+                "total": 29990,
+                "confirmation_secret": {},
+            },
+        }
+        create_subscription.return_value = subscription
+
+        with self.assertRaises(BillingServiceError):
+            create_incomplete_subscription(
+                email="ana@example.com",
+                customer_name="Ana",
+                plan="basic",
+                price_id="price_basic",
+                pending_signup_id=7,
+            )
 
 
 class _StripeResource:
