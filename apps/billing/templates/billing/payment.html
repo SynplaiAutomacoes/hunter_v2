@@ -1,0 +1,183 @@
+{% extends 'billing/billing_shell.html' %}
+{% load static %}
+
+{% block billing_title %}Pagamento — Hunter Auto{% endblock %}
+
+{% block billing_head %}
+<script src="https://js.stripe.com/v3/"></script>
+{% endblock %}
+
+{% block billing_header_extra %}
+<a class="btn-outline header-client" href="{% url 'billing:plans' %}">Planos</a>
+{% endblock %}
+
+{% block billing_content %}
+<div class="billing-hero">
+  <h1>Pagamento</h1>
+  <p>Histórico de cobranças, cartão em uso e opções da sua assinatura.</p>
+</div>
+
+{% if not subscription or not subscription.stripe_customer_id %}
+<div class="billing-panel" style="max-width: 560px; margin: 0 auto;">
+  <h2>Nenhuma cobrança Stripe</h2>
+  <p class="panel-note">Esta conta ainda não possui cliente Stripe vinculado. Escolha um plano para começar.</p>
+  <div class="billing-panel-actions">
+    <a class="btn-conversion" href="{% url 'billing:plans' %}">Ver planos</a>
+  </div>
+</div>
+{% else %}
+
+{% if stripe_error %}
+<ul class="billing-messages">
+  <li class="billing-message billing-message-error">{{ stripe_error }}</li>
+</ul>
+{% endif %}
+
+<div class="billing-payment-layout">
+  <section class="billing-panel">
+    <h2>Assinatura</h2>
+    <p class="panel-note">
+      Plano: <strong>{{ subscription.get_plan_display }}</strong><br />
+      Status: {{ subscription.get_status_display }}
+      {% if subscription.current_period_end %}<br />Renovação: {{ subscription.current_period_end|date:"d/m/Y" }}{% endif %}
+      {% if subscription.cancel_at_period_end %}<br />Cancelamento agendado para o fim do período.{% endif %}
+    </p>
+
+    <h2>Cartão atual</h2>
+    {% if payment_method %}
+    <div class="billing-card-summary" id="current-card-summary">
+      <strong id="current-card-label">{{ payment_method.label }}</strong>
+      {% if payment_method.exp_label %}
+      <span id="current-card-exp">Validade {{ payment_method.exp_label }}</span>
+      {% else %}
+      <span id="current-card-exp"></span>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="billing-card-summary" id="current-card-summary">
+      <strong id="current-card-label">Nenhum cartão padrão encontrado</strong>
+      <span id="current-card-exp">Adicione ou atualize a forma de pagamento abaixo.</span>
+    </div>
+    {% endif %}
+
+    <div class="billing-panel-actions">
+      <button type="button" class="btn-conversion" id="toggle-update-card">Trocar forma de pagamento</button>
+      <form method="post" action="{% url 'billing:portal' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn-outline">Abrir portal Stripe</button>
+      </form>
+    </div>
+
+    <form id="payment-update-form" class="billing-update-form" hidden>
+      {% csrf_token %}
+      <p class="panel-note" style="margin-top: 16px;">Informe o novo cartão. Ele será salvo na Stripe para cobranças futuras.</p>
+      <div id="payment-update-element"></div>
+      <div id="payment-update-error" class="subscribe-error" hidden></div>
+      <div class="billing-panel-actions">
+        <button type="submit" class="btn-conversion" id="payment-update-submit">Salvar cartão</button>
+        <button type="button" class="btn-outline" id="payment-update-cancel">Cancelar</button>
+      </div>
+    </form>
+
+    {% if subscription.status != 'canceled' and not subscription.cancel_at_period_end %}
+    <div class="billing-danger-zone">
+      <h2>Cancelar assinatura</h2>
+      <p class="panel-note">Você pode encerrar imediatamente ou no fim do período atual. Seus dados da conta são preservados.</p>
+      <button type="button" class="btn-outline" style="color: var(--destructive); border-color: color-mix(in oklch, var(--destructive) 40%, var(--border));" onclick="document.getElementById('owner-cancel-modal').showModal()">
+        Cancelar assinatura
+      </button>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="billing-panel">
+    <h2>Histórico de pagamentos</h2>
+    <p class="panel-note">Faturas emitidas pela Stripe para esta conta.</p>
+    {% if invoices %}
+    <div style="overflow-x: auto;">
+      <table class="billing-invoice-table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Fatura</th>
+            <th>Valor</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for invoice in invoices %}
+          <tr>
+            <td>{{ invoice.created_label }}</td>
+            <td>{{ invoice.number }}</td>
+            <td>{{ invoice.amount_label }}</td>
+            <td>{{ invoice.status }}</td>
+            <td>
+              {% if invoice.hosted_invoice_url %}
+              <a href="{{ invoice.hosted_invoice_url }}" target="_blank" rel="noopener noreferrer">Ver</a>
+              {% elif invoice.invoice_pdf %}
+              <a href="{{ invoice.invoice_pdf }}" target="_blank" rel="noopener noreferrer">PDF</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="billing-empty">Nenhum pagamento encontrado ainda.</p>
+    {% endif %}
+  </section>
+</div>
+
+{% if subscription.status != 'canceled' and not subscription.cancel_at_period_end %}
+<dialog id="owner-cancel-modal" class="modal" style="border: none; padding: 0; background: transparent; max-width: 100%;">
+  <div class="billing-panel" style="max-width: 480px; margin: 10vh auto;">
+    <h2>Cancelar assinatura</h2>
+    <p class="panel-note">Escolha como deseja encerrar o plano {{ subscription.get_plan_display }}.</p>
+    <form method="post" action="{% url 'billing:subscription_cancel' %}">
+      {% csrf_token %}
+      <fieldset style="border: 0; padding: 0; margin: 0 0 16px; display: grid; gap: 10px;">
+        <legend class="panel-note" style="margin-bottom: 4px;">Método de cancelamento</legend>
+        {% if subscription.stripe_subscription_id %}
+        <label style="display: flex; gap: 10px; align-items: flex-start; cursor: pointer;">
+          <input type="radio" name="cancel_mode" value="period_end" checked />
+          <span>
+            <strong>Cancelar no fim do período</strong><br />
+            <span class="panel-note" style="margin: 0;">Continua com acesso até {% if subscription.current_period_end %}{{ subscription.current_period_end|date:"d/m/Y" }}{% else %}a renovação{% endif %}.</span>
+          </span>
+        </label>
+        {% endif %}
+        <label style="display: flex; gap: 10px; align-items: flex-start; cursor: pointer;">
+          <input type="radio" name="cancel_mode" value="immediate" {% if not subscription.stripe_subscription_id %}checked{% endif %} />
+          <span>
+            <strong>Cancelar imediatamente</strong><br />
+            <span class="panel-note" style="margin: 0;">Encerra o acesso agora. Seus dados da conta são preservados.</span>
+          </span>
+        </label>
+      </fieldset>
+      <div class="billing-panel-actions">
+        <button type="button" class="btn-outline" onclick="document.getElementById('owner-cancel-modal').close()">Voltar</button>
+        <button type="submit" class="btn-conversion" style="background: var(--destructive);">Confirmar cancelamento</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block billing_scripts %}
+{% if subscription and subscription.stripe_customer_id %}
+<script>
+  window.BILLING_PAYMENT_CONFIG = {
+    publishableKey: "{{ stripe_publishable_key|escapejs }}",
+    setupIntentUrl: "{% url 'billing:payment_setup_intent' %}",
+    confirmUrl: "{% url 'billing:payment_confirm_method' %}",
+    csrfToken: "{{ csrf_token|escapejs }}",
+  };
+</script>
+<script src="{% static 'js/billing_payment.js' %}" defer></script>
+{% endif %}
+{% endblock %}

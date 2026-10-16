@@ -155,7 +155,7 @@ class SubscriptionCancelTests(TestCase):
             {"cancel_mode": "period_end"},
         )
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("billing:plans"))
+        self.assertEqual(response.url, reverse("billing:payment"))
         self.subscription.refresh_from_db()
         self.assertTrue(self.subscription.cancel_at_period_end)
         self.assertTrue(self.subscription.is_active)

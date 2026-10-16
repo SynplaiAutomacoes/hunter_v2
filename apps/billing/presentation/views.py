@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -11,15 +12,19 @@ from django.db.models import Count
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
 from apps.accounts.mixins import AccountOwnerRequiredMixin
 from apps.billing.access import (
+    account_has_active_subscription,
     apply_local_subscription_cancel,
     get_account_subscription,
+    get_post_login_url,
     invalidate_subscription_cache,
 )
+from apps.billing.catalog import format_money_label
 from apps.billing.domain.contracts import (
     BillingPortalRequest,
     BillingServiceError,
@@ -389,16 +394,140 @@ class SubscribeCompleteView(View):
         return JsonResponse({"ok": True, "redirect_url": reverse("billing:checkout_success")})
 
 
+def _is_account_owner(user: Any) -> bool:
+    if getattr(user, "is_superuser", False):
+        return True
+    if getattr(user, "is_account_owner", False):
+        return True
+    account = getattr(user, "account", None)
+    if account is not None and getattr(account, "owner_id", None) == getattr(user, "id", None):
+        return True
+    return False
+
+
+def _billing_shell_context(request: HttpRequest) -> dict[str, Any]:
+    system_home_url = ""
+    if account_has_active_subscription(request):
+        system_home_url = get_post_login_url(request)
+    return {
+        "system_home_url": system_home_url,
+        "is_account_owner": _is_account_owner(request.user),
+    }
+
+
 class PlansView(LoginRequiredMixin, TemplateView):
     template_name = "billing/plans.html"
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
+        context.update(_billing_shell_context(self.request))
         subscription = get_account_subscription(self.request)
         context["subscription"] = subscription
-        context["is_account_owner"] = bool(getattr(self.request.user, "is_superuser", False) or (getattr(self.request.user, "account_id", None) and getattr(self.request.user, "account", None) and self.request.user.account.owner_id == self.request.user.id) or getattr(self.request.user, "is_account_owner", False))
         context["plans"] = get_billing_service().list_public_plans()
         return context
+
+
+class PaymentView(AccountOwnerRequiredMixin, TemplateView):
+    """Owner billing hub: invoices, current card, update PM, cancel."""
+
+    template_name = "billing/payment.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context.update(_billing_shell_context(self.request))
+        subscription = get_account_subscription(self.request)
+        context["subscription"] = subscription
+        context["stripe_publishable_key"] = str(getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") or "")
+        context["payment_method"] = None
+        context["invoices"] = []
+        context["stripe_error"] = ""
+
+        customer_id = (subscription.stripe_customer_id if subscription else "") or ""
+        subscription_id = (subscription.stripe_subscription_id if subscription else "") or ""
+        if not customer_id:
+            return context
+
+        service = get_billing_service()
+        try:
+            context["payment_method"] = service.get_default_payment_method(
+                stripe_customer_id=customer_id,
+                stripe_subscription_id=subscription_id,
+            )
+            invoices = service.list_customer_invoices(stripe_customer_id=customer_id, limit=24)
+            invoice_rows: list[dict[str, Any]] = []
+            for inv in invoices:
+                created_label = "—"
+                if inv.created is not None:
+                    created_dt = datetime.fromtimestamp(inv.created, tz=timezone.get_current_timezone())
+                    created_label = created_dt.strftime("%d/%m/%Y")
+                invoice_rows.append(
+                    {
+                        "id": inv.id,
+                        "number": inv.number,
+                        "status": inv.status,
+                        "amount_label": format_money_label(unit_amount=inv.amount, currency=inv.currency),
+                        "created_label": created_label,
+                        "hosted_invoice_url": inv.hosted_invoice_url,
+                        "invoice_pdf": inv.invoice_pdf,
+                    }
+                )
+            context["invoices"] = invoice_rows
+        except BillingServiceError as exc:
+            context["stripe_error"] = str(exc)
+            logger.warning("Falha ao carregar dados de pagamento: %s", exc)
+
+        return context
+
+
+class PaymentSetupIntentView(AccountOwnerRequiredMixin, View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        subscription = get_account_subscription(request)
+        if subscription is None or not subscription.stripe_customer_id:
+            return JsonResponse({"ok": False, "message": "Nenhuma assinatura Stripe encontrada."}, status=400)
+        try:
+            result = get_billing_service().create_customer_setup_intent(
+                stripe_customer_id=subscription.stripe_customer_id,
+            )
+        except BillingServiceError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=400)
+        return JsonResponse(
+            {
+                "ok": True,
+                "client_secret": result.client_secret,
+                "setup_intent_id": result.setup_intent_id,
+            }
+        )
+
+
+class PaymentConfirmMethodView(AccountOwnerRequiredMixin, View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        subscription = get_account_subscription(request)
+        if subscription is None or not subscription.stripe_customer_id:
+            return JsonResponse({"ok": False, "message": "Nenhuma assinatura Stripe encontrada."}, status=400)
+
+        payment_method_id = str(request.POST.get("payment_method_id") or "").strip()
+        if not payment_method_id:
+            return JsonResponse({"ok": False, "message": "Método de pagamento não informado."}, status=400)
+
+        try:
+            summary = get_billing_service().set_default_payment_method(
+                stripe_customer_id=subscription.stripe_customer_id,
+                payment_method_id=payment_method_id,
+                stripe_subscription_id=subscription.stripe_subscription_id or "",
+            )
+        except BillingServiceError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=400)
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "payment_method": {
+                    "id": summary.id,
+                    "label": summary.label,
+                    "exp_label": summary.exp_label,
+                },
+            }
+        )
 
 
 class CheckoutSessionView(AccountOwnerRequiredMixin, View):
@@ -461,12 +590,12 @@ class BillingPortalView(AccountOwnerRequiredMixin, View):
             result = get_billing_service().create_billing_portal_session(
                 BillingPortalRequest(
                     stripe_customer_id=subscription.stripe_customer_id,
-                    return_url=request.build_absolute_uri(reverse("billing:plans")),
+                    return_url=request.build_absolute_uri(reverse("billing:payment")),
                 )
             )
         except BillingServiceError as exc:
             messages.error(request, f"Não foi possível abrir o portal de cobrança: {exc}")
-            return redirect("billing:plans")
+            return redirect("billing:payment")
 
         return HttpResponseRedirect(result.url)
 
@@ -653,24 +782,25 @@ class SubscriberCancelView(SystemManagementMixin, View):
 
 
 class OwnerSubscriptionCancelView(AccountOwnerRequiredMixin, View):
-    """Account owner cancels own subscription from plans page."""
+    """Account owner cancels own subscription from payment/plans page."""
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         subscription = get_account_subscription(request)
+        redirect_name = "billing:payment"
         if subscription is None:
             messages.error(request, "Nenhuma assinatura encontrada para esta conta.")
-            return redirect("billing:plans")
+            return redirect(redirect_name)
 
         at_period_end = _parse_cancel_mode(str(request.POST.get("cancel_mode") or ""))
         if at_period_end is None:
             messages.error(request, "Escolha o método de cancelamento.")
-            return redirect("billing:plans")
+            return redirect(redirect_name)
 
         try:
             _execute_subscription_cancel(subscription=subscription, at_period_end=at_period_end)
         except BillingServiceError as exc:
             messages.error(request, str(exc))
-            return redirect("billing:plans")
+            return redirect(redirect_name)
 
         invalidate_subscription_cache(request)
         if at_period_end:
@@ -680,4 +810,4 @@ class OwnerSubscriptionCancelView(AccountOwnerRequiredMixin, View):
             )
         else:
             messages.success(request, "Assinatura cancelada. Seu acesso foi encerrado.")
-        return redirect("billing:plans")
+        return redirect(redirect_name)

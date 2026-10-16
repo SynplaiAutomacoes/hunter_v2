@@ -5,6 +5,9 @@ from apps.billing.presentation.views import (
     CheckoutSessionView,
     CheckoutSuccessView,
     OwnerSubscriptionCancelView,
+    PaymentConfirmMethodView,
+    PaymentSetupIntentView,
+    PaymentView,
     PlansView,
     SubscribeCompleteView,
     SubscribeConfirmSetupView,
@@ -24,6 +27,9 @@ app_name = "billing"
 
 urlpatterns = [
     path("planos/", PlansView.as_view(), name="plans"),
+    path("pagamento/", PaymentView.as_view(), name="payment"),
+    path("pagamento/setup-intent/", PaymentSetupIntentView.as_view(), name="payment_setup_intent"),
+    path("pagamento/confirmar-metodo/", PaymentConfirmMethodView.as_view(), name="payment_confirm_method"),
     path("assinar/", SubscribeView.as_view(), name="subscribe"),
     path("assinar/enviar-codigo/", SubscribeSendCodeView.as_view(), name="subscribe_send_code"),
     path("assinar/verificar-codigo/", SubscribeVerifyCodeView.as_view(), name="subscribe_verify_code"),

@@ -48,7 +48,14 @@ def create_checkout_session(
         "cancel_url": cancel_url,
         "client_reference_id": str(account_id),
         "metadata": {"account_id": str(account_id), "plan": plan},
-        "subscription_data": {"metadata": {"account_id": str(account_id), "plan": plan}},
+        "subscription_data": {
+            "metadata": {"account_id": str(account_id), "plan": plan},
+        },
+        "payment_method_collection": "always",
+        "saved_payment_method_options": {
+            "payment_method_save": "enabled",
+            "allow_redisplay_filters": ["always"],
+        },
         "allow_promotion_codes": True,
     }
     if stripe_customer_id:
@@ -82,6 +89,190 @@ def create_billing_portal_session(*, stripe_customer_id: str, return_url: str) -
         raise BillingServiceError(str(exc)) from exc
 
     return {"url": session.url}
+
+
+def _payment_method_summary(payment_method: Any) -> dict[str, Any] | None:
+    data = payment_method.to_dict() if hasattr(payment_method, "to_dict") else _stripe_mapping(payment_method)
+    if not data:
+        return None
+    card = data.get("card") if isinstance(data.get("card"), dict) else {}
+    brand = str(card.get("brand") or data.get("type") or "cartão")
+    last4 = str(card.get("last4") or "")
+    exp_month = card.get("exp_month")
+    exp_year = card.get("exp_year")
+    label = brand.upper() if brand else "CARTÃO"
+    if last4:
+        label = f"{label} •••• {last4}"
+    exp_label = ""
+    if exp_month and exp_year:
+        exp_label = f"{int(exp_month):02d}/{str(exp_year)[-2:]}"
+    return {
+        "id": str(data.get("id") or ""),
+        "brand": brand,
+        "last4": last4,
+        "exp_month": exp_month,
+        "exp_year": exp_year,
+        "label": label,
+        "exp_label": exp_label,
+    }
+
+
+def list_customer_invoices(*, stripe_customer_id: str, limit: int = 24) -> list[dict[str, Any]]:
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    if not stripe_customer_id:
+        return []
+
+    try:
+        result = stripe.Invoice.list(customer=stripe_customer_id, limit=max(1, min(limit, 100)))
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    rows: list[dict[str, Any]] = []
+    data = result.get("data") if isinstance(result, dict) else getattr(result, "data", None)
+    if not isinstance(data, list):
+        mapped = result.to_dict() if hasattr(result, "to_dict") else {}
+        data = mapped.get("data") if isinstance(mapped, dict) else []
+    for invoice in data or []:
+        item = invoice.to_dict() if hasattr(invoice, "to_dict") else _stripe_mapping(invoice)
+        if not item:
+            continue
+        amount = item.get("amount_paid")
+        if amount is None:
+            amount = item.get("total") or item.get("amount_due") or 0
+        currency = str(item.get("currency") or "brl").upper()
+        created = item.get("created")
+        status = str(item.get("status") or "")
+        rows.append(
+            {
+                "id": str(item.get("id") or ""),
+                "number": str(item.get("number") or item.get("id") or ""),
+                "status": status,
+                "amount": int(amount or 0),
+                "currency": currency,
+                "created": int(created) if created is not None else None,
+                "hosted_invoice_url": str(item.get("hosted_invoice_url") or ""),
+                "invoice_pdf": str(item.get("invoice_pdf") or ""),
+            }
+        )
+    return rows
+
+
+def get_default_payment_method(
+    *,
+    stripe_customer_id: str,
+    stripe_subscription_id: str = "",
+) -> dict[str, Any] | None:
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    if not stripe_customer_id:
+        return None
+
+    payment_method_id = ""
+    try:
+        if stripe_subscription_id:
+            subscription = stripe.Subscription.retrieve(stripe_subscription_id)
+            sub_data = subscription.to_dict() if hasattr(subscription, "to_dict") else _stripe_mapping(subscription)
+            raw_pm = sub_data.get("default_payment_method")
+            if isinstance(raw_pm, dict):
+                payment_method_id = str(raw_pm.get("id") or "")
+            else:
+                payment_method_id = str(raw_pm or "")
+
+        if not payment_method_id:
+            customer = stripe.Customer.retrieve(stripe_customer_id)
+            customer_data = customer.to_dict() if hasattr(customer, "to_dict") else _stripe_mapping(customer)
+            invoice_settings = customer_data.get("invoice_settings") or {}
+            if isinstance(invoice_settings, dict):
+                raw_pm = invoice_settings.get("default_payment_method")
+                if isinstance(raw_pm, dict):
+                    payment_method_id = str(raw_pm.get("id") or "")
+                else:
+                    payment_method_id = str(raw_pm or "")
+
+        if not payment_method_id:
+            return None
+
+        payment_method = stripe.PaymentMethod.retrieve(payment_method_id)
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    return _payment_method_summary(payment_method)
+
+
+def create_customer_setup_intent(*, stripe_customer_id: str) -> dict[str, Any]:
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    if not stripe_customer_id:
+        raise BillingServiceError("Cliente Stripe não encontrado para esta conta.")
+
+    try:
+        setup_intent = stripe.SetupIntent.create(
+            customer=stripe_customer_id,
+            usage="off_session",
+            payment_method_types=["card"],
+            metadata={"purpose": "update_default_payment_method"},
+        )
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    data = setup_intent.to_dict() if hasattr(setup_intent, "to_dict") else _stripe_mapping(setup_intent)
+    client_secret = str(data.get("client_secret") or "")
+    if not client_secret:
+        raise BillingServiceError("A Stripe não retornou o client_secret do SetupIntent.")
+    return {
+        "setup_intent_id": str(data.get("id") or ""),
+        "client_secret": client_secret,
+        "customer_id": stripe_customer_id,
+    }
+
+
+def set_default_payment_method(
+    *,
+    stripe_customer_id: str,
+    payment_method_id: str,
+    stripe_subscription_id: str = "",
+) -> dict[str, Any]:
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    if not stripe_customer_id or not payment_method_id:
+        raise BillingServiceError("Dados incompletos para atualizar o cartão.")
+
+    try:
+        stripe.PaymentMethod.attach(payment_method_id, customer=stripe_customer_id)
+    except stripe.InvalidRequestError as exc:
+        # Já anexado ao customer — segue.
+        if "already been attached" not in str(exc).lower():
+            raise BillingServiceError(str(exc)) from exc
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    try:
+        stripe.Customer.modify(
+            stripe_customer_id,
+            invoice_settings={"default_payment_method": payment_method_id},
+        )
+        if stripe_subscription_id:
+            try:
+                stripe.Subscription.modify(
+                    stripe_subscription_id,
+                    default_payment_method=payment_method_id,
+                )
+            except stripe.InvalidRequestError as exc:
+                if getattr(exc, "code", None) != "invalid_canceled_subscription_fields":
+                    raise
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    summary = get_default_payment_method(
+        stripe_customer_id=stripe_customer_id,
+        stripe_subscription_id=stripe_subscription_id,
+    )
+    return summary or {"id": payment_method_id, "label": payment_method_id}
 
 
 def _subscription_cancel_payload(data: dict[str, Any], *, stripe_subscription_id: str) -> dict[str, Any]:

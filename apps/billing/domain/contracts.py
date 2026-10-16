@@ -101,6 +101,34 @@ class CancelSubscriptionResult:
     cancel_at_period_end: bool
 
 
+@dataclass(frozen=True, slots=True)
+class PaymentMethodSummary:
+    id: str
+    brand: str
+    last4: str
+    label: str
+    exp_label: str
+
+
+@dataclass(frozen=True, slots=True)
+class InvoiceSummary:
+    id: str
+    number: str
+    status: str
+    amount: int
+    currency: str
+    created: int | None
+    hosted_invoice_url: str
+    invoice_pdf: str
+
+
+@dataclass(frozen=True, slots=True)
+class CustomerSetupIntentResult:
+    setup_intent_id: str
+    client_secret: str
+    customer_id: str
+
+
 class IBillingService(ABC):
     @abstractmethod
     def create_checkout_session(self, request: CheckoutSessionRequest) -> CheckoutSessionResult: ...
@@ -119,3 +147,26 @@ class IBillingService(ABC):
 
     @abstractmethod
     def cancel_subscription(self, request: CancelSubscriptionRequest) -> CancelSubscriptionResult: ...
+
+    @abstractmethod
+    def list_customer_invoices(self, *, stripe_customer_id: str, limit: int = 24) -> list[InvoiceSummary]: ...
+
+    @abstractmethod
+    def get_default_payment_method(
+        self,
+        *,
+        stripe_customer_id: str,
+        stripe_subscription_id: str = "",
+    ) -> PaymentMethodSummary | None: ...
+
+    @abstractmethod
+    def create_customer_setup_intent(self, *, stripe_customer_id: str) -> CustomerSetupIntentResult: ...
+
+    @abstractmethod
+    def set_default_payment_method(
+        self,
+        *,
+        stripe_customer_id: str,
+        payment_method_id: str,
+        stripe_subscription_id: str = "",
+    ) -> PaymentMethodSummary: ...

@@ -1,121 +1,67 @@
-{% extends 'crud/page.html' %}
+{% extends 'billing/billing_shell.html' %}
 
-{% block crud_content %}
-<div class="mb-8">
-    <h1 class="text-3xl font-bold text-base-content">Escolha seu plano</h1>
-    <p class="text-base-content/70 mt-1">Selecione o plano ideal para a sua oficina. O pagamento é processado com segurança pela Stripe.</p>
+{% block billing_title %}Escolha seu plano — Hunter Auto{% endblock %}
+
+{% block billing_header_extra %}
+{% if is_account_owner %}
+<a class="btn-outline header-client" href="{% url 'billing:payment' %}">Pagamento</a>
+{% endif %}
+{% endblock %}
+
+{% block billing_content %}
+<div class="billing-hero">
+  <h1>Escolha seu plano</h1>
+  <p>Selecione o plano ideal para a sua oficina. O pagamento é processado com segurança pela Stripe.</p>
 </div>
 
 {% if subscription and subscription.is_active %}
-<div class="alert alert-info mb-6 items-start">
-    <span class="material-icons">info</span>
-    <div class="flex-1">
-        <p class="font-semibold">Plano atual: {{ subscription.get_plan_display }}</p>
-        <p class="text-sm">Status: {{ subscription.get_status_display }}</p>
-        {% if subscription.cancel_at_period_end %}
-        <p class="text-sm text-warning mt-1">
-            Cancelamento agendado{% if subscription.current_period_end %} para {{ subscription.current_period_end|date:"d/m/Y" }}{% endif %}.
-            Você mantém o acesso até o fim do período.
-        </p>
-        {% endif %}
-    </div>
-    {% if is_account_owner %}
-    <div class="flex flex-wrap gap-2 ml-auto">
-        {% if subscription.stripe_customer_id %}
-        <form method="post" action="{% url 'billing:portal' %}">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-outline">Gerenciar cobrança</button>
-        </form>
-        {% endif %}
-        {% if not subscription.cancel_at_period_end %}
-        <button type="button" class="btn btn-sm btn-error btn-outline" onclick="document.getElementById('owner-cancel-modal').showModal()">
-            Cancelar assinatura
-        </button>
-        {% endif %}
-    </div>
+<div class="billing-status-banner">
+  <div>
+    <h2>Plano atual: {{ subscription.get_plan_display }}</h2>
+    <p>Status: {{ subscription.get_status_display }}{% if subscription.current_period_end %} · Renova em {{ subscription.current_period_end|date:"d/m/Y" }}{% endif %}</p>
+    {% if subscription.cancel_at_period_end %}
+    <p class="mt-1">Cancelamento agendado{% if subscription.current_period_end %} para {{ subscription.current_period_end|date:"d/m/Y" }}{% endif %}. Você mantém o acesso até o fim do período.</p>
     {% endif %}
-</div>
-
-{% if is_account_owner and not subscription.cancel_at_period_end %}
-<dialog id="owner-cancel-modal" class="modal">
-  <div class="modal-box max-w-lg">
-    <form method="dialog">
-      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Fechar">✕</button>
-    </form>
-    <h3 class="font-bold text-xl mb-2">Cancelar assinatura</h3>
-    <p class="text-base-content/70 mb-6">Escolha como deseja encerrar o plano {{ subscription.get_plan_display }}.</p>
-    <form method="post" action="{% url 'billing:subscription_cancel' %}">
-      {% csrf_token %}
-      <fieldset class="space-y-3 mb-6">
-        <legend class="font-semibold text-sm mb-2">Método de cancelamento</legend>
-        {% if subscription.stripe_subscription_id %}
-        <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
-          <input type="radio" name="cancel_mode" value="period_end" class="radio radio-primary mt-1" checked />
-          <span>
-            <span class="font-medium block">Cancelar no fim do período</span>
-            <span class="text-sm text-base-content/60">
-              Continua com acesso até
-              {% if subscription.current_period_end %}{{ subscription.current_period_end|date:"d/m/Y" }}{% else %}a renovação{% endif %}.
-            </span>
-          </span>
-        </label>
-        {% endif %}
-        <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
-          <input type="radio" name="cancel_mode" value="immediate" class="radio radio-primary mt-1" {% if not subscription.stripe_subscription_id %}checked{% endif %} />
-          <span>
-            <span class="font-medium block">Cancelar imediatamente</span>
-            <span class="text-sm text-base-content/60">Encerra o acesso agora. Seus dados da conta são preservados.</span>
-          </span>
-        </label>
-      </fieldset>
-      <div class="modal-action">
-        <button type="button" class="btn" onclick="document.getElementById('owner-cancel-modal').close()">Voltar</button>
-        <button type="submit" class="btn btn-error">Confirmar cancelamento</button>
-      </div>
-    </form>
   </div>
-  <form method="dialog" class="modal-backdrop"><button>close</button></form>
-</dialog>
-{% endif %}
+  {% if is_account_owner %}
+  <div class="banner-actions">
+    <a class="btn-outline header-client" href="{% url 'billing:payment' %}">Gerenciar pagamento</a>
+  </div>
+  {% endif %}
+</div>
 {% endif %}
 
-<div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl">
-    {% for plan in plans %}
-    <div class="card bg-base-100 shadow-xl border border-base-200 {% if subscription and subscription.plan == plan.key and subscription.is_active %}ring-2 ring-primary{% endif %}">
-        <div class="card-body">
-            <h2 class="card-title text-2xl">{{ plan.name }}</h2>
-            <p class="text-base-content/70">{{ plan.description }}</p>
-            <ul class="mt-4 space-y-2">
-                {% for feature in plan.features %}
-                <li class="flex items-start gap-2 text-sm">
-                    <span class="material-icons text-success text-base mt-0.5">check_circle</span>
-                    <span>{{ feature }}</span>
-                </li>
-                {% endfor %}
-            </ul>
-            {% if plan.price_label %}
-            <p class="mt-4 text-2xl font-bold">
-                {{ plan.price_label }}{% if plan.interval_label %}<span class="text-base font-medium text-base-content/60">{{ plan.interval_label }}</span>{% endif %}
-            </p>
-            {% endif %}
-            <div class="card-actions justify-end mt-6">
-                {% if not is_account_owner %}
-                <p class="text-sm text-base-content/60">Somente o dono da conta pode assinar ou alterar o plano.</p>
-                {% elif subscription and subscription.plan == plan.key and subscription.is_active %}
-                <button type="button" class="btn btn-disabled btn-sm">Plano atual</button>
-                {% else %}
-                <form method="post" action="{% url 'billing:checkout' %}">
-                    {% csrf_token %}
-                    <input type="hidden" name="plan" value="{{ plan.key }}">
-                    <button type="submit" class="btn btn-primary btn-sm">
-                        {% if subscription and subscription.is_active %}Trocar para este plano{% else %}Assinar{% endif %}
-                        <span class="material-icons text-sm">arrow_forward</span>
-                    </button>
-                </form>
-                {% endif %}
-            </div>
-        </div>
+<div class="billing-plans-grid">
+  {% for plan in plans %}
+  <article class="billing-plan-card {% if subscription and subscription.plan == plan.key and subscription.is_active %}is-current{% endif %}">
+    <h2>{{ plan.name }}</h2>
+    <p class="plan-desc">{{ plan.description }}</p>
+    <ul>
+      {% for feature in plan.features %}
+      <li>{{ feature }}</li>
+      {% endfor %}
+    </ul>
+    {% if plan.price_label %}
+    <p class="billing-plan-price">
+      {{ plan.price_label }}{% if plan.interval_label %}<span>{{ plan.interval_label }}</span>{% endif %}
+    </p>
+    {% endif %}
+    <div class="billing-plan-actions">
+      {% if not is_account_owner %}
+      <p class="billing-plan-note">Somente o dono da conta pode assinar ou alterar o plano.</p>
+      {% elif subscription and subscription.plan == plan.key and subscription.is_active %}
+      <button type="button" class="btn-outline" disabled>Plano atual</button>
+      {% else %}
+      <form method="post" action="{% url 'billing:checkout' %}">
+        {% csrf_token %}
+        <input type="hidden" name="plan" value="{{ plan.key }}">
+        <button type="submit" class="btn-conversion">
+          {% if subscription and subscription.is_active %}Trocar para este plano{% else %}Assinar{% endif %}
+        </button>
+      </form>
+      {% endif %}
     </div>
-    {% endfor %}
+  </article>
+  {% endfor %}
 </div>
 {% endblock %}

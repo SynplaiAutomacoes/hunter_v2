@@ -1,0 +1,46 @@
+{% load static %}
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block billing_title %}Hunter Auto{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{% static 'css/landing.css' %}" />
+    <link rel="stylesheet" href="{% static 'css/subscribe.css' %}" />
+    <link rel="stylesheet" href="{% static 'css/billing-account.css' %}" />
+    {% block billing_head %}{% endblock %}
+  </head>
+  <body class="landing-page subscribe-page billing-account-page">
+    <header class="site-header">
+      <div class="container header-inner subscribe-header-inner">
+        <a class="brand" href="{% if system_home_url %}{{ system_home_url }}{% else %}{% url 'billing:plans' %}{% endif %}" aria-label="Hunter Auto">
+          <img class="brand-logo" src="{% static 'img/landing/logo_sistema_hunter.png' %}" alt="Hunter Auto" width="1920" height="768" />
+        </a>
+        <div class="billing-header-actions">
+          {% if system_home_url %}
+          <a class="btn-outline header-client" href="{{ system_home_url }}">Voltar ao sistema</a>
+          {% endif %}
+          {% block billing_header_extra %}{% endblock %}
+        </div>
+      </div>
+    </header>
+
+    <main class="subscribe-main billing-account-main">
+      <div class="container">
+        {% if messages %}
+        <ul class="billing-messages" aria-live="polite">
+          {% for message in messages %}
+          <li class="billing-message billing-message-{{ message.tags|default:'info' }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% block billing_content %}{% endblock %}
+      </div>
+    </main>
+
+    {% block billing_scripts %}{% endblock %}
+  </body>
+</html>

@@ -22,9 +22,12 @@ from apps.billing.domain.contracts import (
     CheckoutSessionRequest,
     CheckoutSessionResult,
     CouponPreviewResult,
+    CustomerSetupIntentResult,
     IBillingService,
     IncompleteSubscriptionRequest,
     IncompleteSubscriptionResult,
+    InvoiceSummary,
+    PaymentMethodSummary,
     PublicPlanCard,
     StripeWebhookEventPayload,
 )
@@ -273,3 +276,67 @@ class StripeBillingService(IBillingService):
             "payment_method_id": str(result["payment_method_id"]),
             "setup_intent_id": str(result["setup_intent_id"]),
         }
+
+    def list_customer_invoices(self, *, stripe_customer_id: str, limit: int = 24) -> list[InvoiceSummary]:
+        rows = stripe_gateway.list_customer_invoices(stripe_customer_id=stripe_customer_id, limit=limit)
+        return [
+            InvoiceSummary(
+                id=str(row.get("id") or ""),
+                number=str(row.get("number") or ""),
+                status=str(row.get("status") or ""),
+                amount=int(row.get("amount") or 0),
+                currency=str(row.get("currency") or "BRL"),
+                created=row.get("created") if isinstance(row.get("created"), int) else None,
+                hosted_invoice_url=str(row.get("hosted_invoice_url") or ""),
+                invoice_pdf=str(row.get("invoice_pdf") or ""),
+            )
+            for row in rows
+        ]
+
+    def get_default_payment_method(
+        self,
+        *,
+        stripe_customer_id: str,
+        stripe_subscription_id: str = "",
+    ) -> PaymentMethodSummary | None:
+        row = stripe_gateway.get_default_payment_method(
+            stripe_customer_id=stripe_customer_id,
+            stripe_subscription_id=stripe_subscription_id,
+        )
+        if not row:
+            return None
+        return PaymentMethodSummary(
+            id=str(row.get("id") or ""),
+            brand=str(row.get("brand") or ""),
+            last4=str(row.get("last4") or ""),
+            label=str(row.get("label") or ""),
+            exp_label=str(row.get("exp_label") or ""),
+        )
+
+    def create_customer_setup_intent(self, *, stripe_customer_id: str) -> CustomerSetupIntentResult:
+        result = stripe_gateway.create_customer_setup_intent(stripe_customer_id=stripe_customer_id)
+        return CustomerSetupIntentResult(
+            setup_intent_id=str(result["setup_intent_id"]),
+            client_secret=str(result["client_secret"]),
+            customer_id=str(result["customer_id"]),
+        )
+
+    def set_default_payment_method(
+        self,
+        *,
+        stripe_customer_id: str,
+        payment_method_id: str,
+        stripe_subscription_id: str = "",
+    ) -> PaymentMethodSummary:
+        row = stripe_gateway.set_default_payment_method(
+            stripe_customer_id=stripe_customer_id,
+            payment_method_id=payment_method_id,
+            stripe_subscription_id=stripe_subscription_id,
+        )
+        return PaymentMethodSummary(
+            id=str(row.get("id") or payment_method_id),
+            brand=str(row.get("brand") or ""),
+            last4=str(row.get("last4") or ""),
+            label=str(row.get("label") or payment_method_id),
+            exp_label=str(row.get("exp_label") or ""),
+        )
