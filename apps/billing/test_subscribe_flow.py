@@ -76,6 +76,29 @@ class SubscribeFlowTests(TestCase):
         self.assertIn("e-mail", response.json()["message"].lower())
         self.assertEqual(PendingSignup.objects.count(), 0)
 
+    def test_subscribe_start_missing_password_names_the_field(self) -> None:
+        self._verify_email("ana@example.com")
+        response = self.client.post(
+            reverse("billing:subscribe_start"),
+            data={
+                "first_name": "Ana",
+                "last_name": "Silva",
+                "username": "ana.silva",
+                "email": "ana@example.com",
+                "cpf": "52998224725",
+                "password1": "",
+                "password2": "",
+                "plan": Plan.BASIC,
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["ok"])
+        self.assertIn("password1", payload["errors"])
+        self.assertIn("Senha", payload["message"])
+        self.assertNotEqual(payload["message"].strip().lower(), "este campo é obrigatório.")
+        self.assertEqual(PendingSignup.objects.count(), 0)
+
     def test_subscribe_start_creates_pending_without_account(self) -> None:
         self._verify_email("ana@example.com")
         with (

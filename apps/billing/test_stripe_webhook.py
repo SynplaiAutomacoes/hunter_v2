@@ -210,3 +210,78 @@ class StripeWebhookTests(TestCase):
         assert result is not None
         expected = datetime.fromtimestamp(second_end, tz=timezone.get_current_timezone())
         self.assertEqual(result.current_period_end, expected)
+
+    def test_resubscribe_then_stale_deleted_keeps_active(self) -> None:
+        """Cancel → new checkout → late deleted for old sub must not flip status back."""
+        AccountSubscription.objects.create(
+            account=self.account,
+            plan=SubscriptionPlan.BASIC,
+            status=SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_old",
+            stripe_customer_id="cus_same",
+        )
+        process_stripe_event(
+            event_type="customer.subscription.deleted",
+            data={
+                "id": "sub_old",
+                "customer": "cus_same",
+                "status": "canceled",
+                "metadata": {"account_id": str(self.account.pk), "plan": "basic"},
+            },
+        )
+        canceled = AccountSubscription.objects.get(account=self.account)
+        self.assertEqual(canceled.status, SubscriptionStatus.CANCELED)
+
+        reactivated = process_stripe_event(
+            event_type="checkout.session.completed",
+            data={
+                "client_reference_id": str(self.account.pk),
+                "customer": "cus_same",
+                "subscription": "sub_new",
+                "metadata": {"account_id": str(self.account.pk), "plan": "basic"},
+            },
+        )
+        self.assertIsNotNone(reactivated)
+        assert reactivated is not None
+        self.assertEqual(reactivated.status, SubscriptionStatus.ACTIVE)
+        self.assertEqual(reactivated.stripe_subscription_id, "sub_new")
+        self.assertFalse(reactivated.cancel_at_period_end)
+
+        # Late/out-of-order deleted for the previous subscription (matched by customer).
+        after_stale = process_stripe_event(
+            event_type="customer.subscription.deleted",
+            data={
+                "id": "sub_old",
+                "customer": "cus_same",
+                "status": "canceled",
+                "metadata": {"account_id": str(self.account.pk), "plan": "basic"},
+            },
+        )
+        self.assertIsNotNone(after_stale)
+        assert after_stale is not None
+        self.assertEqual(after_stale.status, SubscriptionStatus.ACTIVE)
+        self.assertEqual(after_stale.stripe_subscription_id, "sub_new")
+        self.assertTrue(after_stale.is_active)
+
+    def test_invoice_paid_reactivates_canceled_subscription(self) -> None:
+        AccountSubscription.objects.create(
+            account=self.account,
+            plan=SubscriptionPlan.FULL,
+            status=SubscriptionStatus.CANCELED,
+            stripe_subscription_id="sub_inv",
+            stripe_customer_id="cus_inv",
+            cancel_at_period_end=True,
+        )
+        result = process_stripe_event(
+            event_type="invoice.paid",
+            data={
+                "subscription": "sub_inv",
+                "customer": "cus_inv",
+                "status": "paid",
+            },
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.status, SubscriptionStatus.ACTIVE)
+        self.assertFalse(result.cancel_at_period_end)
+        self.assertTrue(result.is_active)
