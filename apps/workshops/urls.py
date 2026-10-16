@@ -48,6 +48,7 @@ from apps.workshops.views.workshop_costs import (
 
 from apps.workshops.views.system_management import (
     NotificationBroadcastView,
+    SupportChatAccessView,
     SystemManageDashboardView,
 )
 
@@ -57,6 +58,7 @@ urlpatterns = [
     # System Management
     path("sistema/gerenciar/", SystemManageDashboardView.as_view(), name="system_manage"),
     path("sistema/gerenciar/notificacoes/broadcast/", NotificationBroadcastView.as_view(), name="system_broadcast"),
+    path("sistema/gerenciar/chat/acesso/", SupportChatAccessView.as_view(), name="system_chat_access"),
 
     # Workshop
     path("", WorkshopListView.as_view(), name="list"),

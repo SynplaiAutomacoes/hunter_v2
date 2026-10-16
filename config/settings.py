@@ -53,6 +53,13 @@ SYSTEM_ADMIN_USERNAMES = [u.strip() for u in os.getenv("SYSTEM_ADMIN_USERNAMES",
 NOTIFICATIONS_DROPDOWN_LIMIT = int(os.getenv("NOTIFICATIONS_DROPDOWN_LIMIT", "5"))
 NOTIFICATIONS_AUTO_CAPTURE_MESSAGES = os.getenv("NOTIFICATIONS_AUTO_CAPTURE_MESSAGES", "1").lower() in ("1", "true", "yes")
 
+# Support Chat (Chat Hunter API — proxy backend, sem logs de conversa)
+SUPPORT_CHAT_ENABLED = os.getenv("SUPPORT_CHAT_ENABLED", "1").lower() in ("1", "true", "yes")
+CHAT_HUNTER_BASE_URL = os.getenv("CHAT_HUNTER_BASE_URL", "https://chathunter.up.railway.app").rstrip("/")
+CHAT_HUNTER_API_KEY = os.getenv("CHAT_HUNTER_API_KEY", "")
+SUPPORT_CHAT_SESSION_TIMEOUT_MINUTES = int(os.getenv("SUPPORT_CHAT_SESSION_TIMEOUT_MINUTES", "5"))
+SUPPORT_CHAT_HISTORY_CACHE_SECONDS = int(os.getenv("SUPPORT_CHAT_HISTORY_CACHE_SECONDS", "60"))
+
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "hunter-web")
@@ -174,6 +181,7 @@ INSTALLED_APPS = [
     "apps.terms",
     "apps.notifications",
     "apps.billing",
+    "apps.support_chat",
 ]
 
 MIDDLEWARE = [
@@ -213,6 +221,7 @@ TEMPLATES = [
                 # Local
                 "apps.workshops.context_processors.active_workshops",
                 "apps.core.presentation.context_processors.navbar",
+                "apps.support_chat.context_processors.support_chat",
             ],
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",
