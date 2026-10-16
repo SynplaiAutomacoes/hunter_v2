@@ -49,6 +49,21 @@ class ManagementReportDataMixin:
     def _get_sort_by(self) -> str:
         return str(self.request.GET.get("ordenar") or "perda").strip()
 
+    def _get_mechanic_id(self) -> int | None:
+        raw = str(self.request.GET.get("mecanico") or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _get_budget_status(self) -> str | None:
+        return str(self.request.GET.get("budget_status") or "").strip() or None
+
+    def _get_workorder_status(self) -> str | None:
+        return str(self.request.GET.get("workorder_status") or "").strip() or None
+
     def _build_report(self):
         report_key = self._get_report_key()
         if report_key not in REPORT_KEYS:
@@ -61,6 +76,9 @@ class ManagementReportDataMixin:
             report_key=report_key,
             sort_by=self._get_sort_by(),
             selected_columns=self._get_selected_columns() or None,
+            mechanic_id=self._get_mechanic_id(),
+            budget_status=self._get_budget_status(),
+            workorder_status=self._get_workorder_status(),
         )
 
     def _build_querystring(self) -> str:
@@ -87,7 +105,15 @@ class ManagementReportView(LoginRequiredMixin, WorkshopScopedMixin, ManagementRe
             context["error"] = "Relatório inválido"
             return context
 
-        export_context = build_management_report_context(report=report)
+        is_retorno_garantia = report.report_key == "retorno_garantia"
+        is_taxa_aprovacao = report.report_key == "taxa_aprovacao"
+        export_context = build_management_report_context(
+            report=report,
+            workshop=self.workshop if is_retorno_garantia else None,
+            selected_mechanic_id=self._get_mechanic_id() if is_retorno_garantia else None,
+            budget_status=self._get_budget_status() if is_taxa_aprovacao else None,
+            workorder_status=self._get_workorder_status() if is_taxa_aprovacao else None,
+        )
         period = parse_report_period(self.request)
         query = self.request.GET.copy()
         querystring = query.urlencode()
