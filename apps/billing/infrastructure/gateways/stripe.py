@@ -288,6 +288,44 @@ def resolve_discount(promotion_code: str) -> dict[str, str]:
     raise BillingServiceError("Cupom inválido ou expirado.")
 
 
+def _coupon_payload_from_resource(coupon: Any) -> dict[str, Any]:
+    data = _stripe_mapping(coupon)
+    percent_off = data.get("percent_off")
+    amount_off = data.get("amount_off")
+    return {
+        "coupon_id": str(data.get("id") or ""),
+        "percent_off": float(percent_off) if percent_off is not None else None,
+        "amount_off": int(amount_off) if amount_off is not None else None,
+        "currency": str(data.get("currency") or ""),
+        "name": str(data.get("name") or ""),
+    }
+
+
+def preview_discount(*, code: str) -> dict[str, Any]:
+    """Resolve a user-facing code and return coupon discount fields for preview."""
+    discount = resolve_discount(code)
+    _configure_stripe()
+
+    if "promotion_code" in discount:
+        try:
+            promo = stripe.PromotionCode.retrieve(discount["promotion_code"], expand=["coupon"])
+        except stripe.StripeError as exc:
+            raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
+        promo_data = _stripe_mapping(promo)
+        coupon = promo_data.get("coupon")
+        coupon_payload = _coupon_payload_from_resource(coupon)
+        coupon_payload["promotion_code_id"] = str(promo_data.get("id") or discount["promotion_code"])
+        return coupon_payload
+
+    try:
+        coupon = stripe.Coupon.retrieve(discount["coupon"])
+    except stripe.StripeError as exc:
+        raise BillingServiceError("Não foi possível validar o cupom. Tente novamente.") from exc
+    coupon_payload = _coupon_payload_from_resource(coupon)
+    coupon_payload["promotion_code_id"] = ""
+    return coupon_payload
+
+
 def resolve_promotion_code(code: str) -> str:
     """Return Stripe promotion_code id for an active user-facing code."""
     _configure_stripe()
@@ -406,18 +444,22 @@ def create_incomplete_subscription(
         or _payments_payment_intent_id(payments)
         or ""
     )
+    customer_data = customer.to_dict() if hasattr(customer, "to_dict") else (dict(customer) if isinstance(customer, dict) else {})
+    customer_id = str(customer_data.get("id") or getattr(customer, "id", "") or "")
+    subscription_id = str(subscription_data.get("id") or "")
+
     if client_secret:
-        customer_data = customer.to_dict() if hasattr(customer, "to_dict") else (dict(customer) if isinstance(customer, dict) else {})
         return {
-            "customer_id": str(customer_data.get("id") or getattr(customer, "id", "") or ""),
-            "subscription_id": str(subscription_data.get("id") or ""),
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
             "client_secret": client_secret,
             "payment_intent_id": payment_intent_id,
             "requires_payment": True,
+            "confirmation_mode": "payment",
         }
 
-    # Sem client_secret: pode ser fatura gratuita (cupom 100% / valor zerado).
-    # Nesse caso não há nada a cobrar — a conta deve ser criada sem Payment Element.
+    # Sem client_secret: fatura gratuita (cupom 100% / valor zerado).
+    # Ainda assim coletamos cartão via SetupIntent para renovação futura.
     amount_due = latest_invoice.get("amount_due")
     total = latest_invoice.get("total")
     invoice_status = str(latest_invoice.get("status") or "")
@@ -437,27 +479,43 @@ def create_incomplete_subscription(
     )
     if is_free_invoice:
         logger.info(
-            "Assinatura sem cobrança inicial (gratuita). subscription=%s invoice=%s status=%s sub_status=%s amount_due=%s total=%s price=%s",
-            subscription_data.get("id"),
+            "Assinatura sem cobrança inicial; criando SetupIntent. subscription=%s invoice=%s amount_due=%s total=%s",
+            subscription_id,
             latest_invoice.get("id"),
-            invoice_status,
-            subscription_status,
             amount_due,
             total,
-            price_id,
         )
-        customer_data = customer.to_dict() if hasattr(customer, "to_dict") else (dict(customer) if isinstance(customer, dict) else {})
+        try:
+            setup_intent = stripe.SetupIntent.create(
+                customer=customer_id,
+                usage="off_session",
+                payment_method_types=["card"],
+                metadata={
+                    **metadata,
+                    "stripe_subscription_id": subscription_id,
+                },
+            )
+        except stripe.StripeError as exc:
+            logger.exception("Falha ao criar SetupIntent para assinatura gratuita %s", subscription_id)
+            raise BillingServiceError(str(exc)) from exc
+
+        setup_data = setup_intent.to_dict() if hasattr(setup_intent, "to_dict") else _stripe_mapping(setup_intent)
+        setup_secret = str(setup_data.get("client_secret") or "")
+        setup_id = str(setup_data.get("id") or "")
+        if not setup_secret:
+            raise BillingServiceError("A Stripe não retornou o client_secret do cartão.")
         return {
-            "customer_id": str(customer_data.get("id") or getattr(customer, "id", "") or ""),
-            "subscription_id": str(subscription_data.get("id") or ""),
-            "client_secret": "",
-            "payment_intent_id": payment_intent_id,
-            "requires_payment": False,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "client_secret": setup_secret,
+            "payment_intent_id": setup_id,
+            "requires_payment": True,
+            "confirmation_mode": "setup",
         }
 
     logger.error(
         "Stripe não retornou client_secret. subscription=%s invoice=%s invoice_status=%s sub_status=%s amount_due=%s total=%s confirmation_secret=%s price=%s invoice_keys=%s",
-        subscription_data.get("id"),
+        subscription_id,
         latest_invoice.get("id"),
         invoice_status,
         subscription_status,
@@ -468,3 +526,51 @@ def create_incomplete_subscription(
         sorted(latest_invoice.keys()),
     )
     raise BillingServiceError("A Stripe não retornou o client_secret do pagamento.")
+
+
+def finalize_setup_intent(*, setup_intent_id: str, customer_id: str, subscription_id: str) -> dict[str, Any]:
+    """Attach the SetupIntent payment method as default on customer and subscription."""
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    if not setup_intent_id or not customer_id or not subscription_id:
+        raise BillingServiceError("Dados incompletos para confirmar o cartão.")
+
+    try:
+        setup_intent = stripe.SetupIntent.retrieve(setup_intent_id)
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+
+    setup_data = setup_intent.to_dict() if hasattr(setup_intent, "to_dict") else _stripe_mapping(setup_intent)
+    if str(setup_data.get("status") or "") != "succeeded":
+        raise BillingServiceError("Cartão ainda não confirmado. Conclua o formulário de pagamento.")
+    if str(setup_data.get("customer") or "") != customer_id:
+        raise BillingServiceError("Cartão não corresponde ao cliente da assinatura.")
+
+    payment_method = setup_data.get("payment_method")
+    if isinstance(payment_method, dict):
+        payment_method_id = str(payment_method.get("id") or "")
+    else:
+        payment_method_id = str(payment_method or "")
+    if not payment_method_id:
+        raise BillingServiceError("Nenhum método de pagamento encontrado no SetupIntent.")
+
+    try:
+        stripe.Customer.modify(
+            customer_id,
+            invoice_settings={"default_payment_method": payment_method_id},
+        )
+        stripe.Subscription.modify(
+            subscription_id,
+            default_payment_method=payment_method_id,
+        )
+    except stripe.StripeError as exc:
+        logger.exception("Falha ao anexar método de pagamento à assinatura %s", subscription_id)
+        raise BillingServiceError(str(exc)) from exc
+
+    return {
+        "customer_id": customer_id,
+        "subscription_id": subscription_id,
+        "payment_method_id": payment_method_id,
+        "setup_intent_id": setup_intent_id,
+    }

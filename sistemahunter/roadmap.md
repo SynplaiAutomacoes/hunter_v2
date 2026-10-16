@@ -1,0 +1,25 @@
+# Hunter Auto
+- [x] Align the original founder photo and vertical indicators on mobile only; verified matching top/bottom edges at 320/375/390px, preserved desktop heading/buttons and checked modal opening.
+- [x] Remove the Edit with Lovable badge through publishing settings — hiding confirmed by the publishing service.
+- [x] Add searchable lead database view and Excel export with all captured fields, follow-up and paginated authorized reads; workbook and pagination tests passed.
+- [ ] Verify Excel download in authenticated CRM — awaiting authorized login approval; session mint was declined.
+- [x] Add a “Já sou cliente” header button beside “Conhecer o Hunter Auto” opening https://hunterapp.io in a new tab, with the same access in the phone menu so the mobile logo stays visible; verified at 1280/873/390/320.
+- [x] Fix CRM connection failure recovery and verify authenticated loading, interrupted requests and retry.
+- [x] Build commercial page with original assets and interactive product views.
+- [x] Store validated, consented leads privately and verify the submission flow.
+- [x] Verify desktop/mobile, metadata and form rules.
+- [x] Incorporate the newly supplied JPG in the founder section.
+- [x] Replace existing brand placements with the official uploaded logo and update favicon.
+- [x] Animate first-screen pricing, revenue, goals and performance graphics; verify desktop/mobile and reduced motion without changing other sections.
+- [x] Add supplied CNPJ, privacy email and two-year retention policy to the legal pages; verify links and policy values.
+- [x] Include supplied supplier legal name and address in both legal pages and verify the displayed details.
+- [x] Add the supplied workshop background and readable gradient to the second section; enlarge and animate its topic icons on hover.
+- [x] Add and verify the floating WhatsApp contact with the supplied number and message.
+- [x] Uniformize first-screen cards, update their labels and green pricing status; enlarge and animate the founder-positioning frame, and make WhatsApp icon-only and circular.
+- [x] Align the four first-screen indicators in a downward vertical carousel with three visible; remove internal example labels and verify proportions and reduced motion.
+- [x] Remove the loose caption below the first-screen charts and replace Sidney's biography with the supplied five paragraphs, preserving its heading and signature.
+- [x] Create restricted Google sign-in for the authorized CRM operator.
+- [x] Build live lead Kanban, complete contact details, WhatsApp actions and saved follow-up notes/stages.
+- [x] Add discreet header login link, user profiles and administrator-managed invitations; verify admin profile saving and desktop/mobile access.
+- [ ] Enable SMS delivery and test a real code — phone sign-in is disabled; requires SMS provider configuration in Cloud → Users → Auth settings → Phone.
+- [ ] Verify live incoming leads and invitation acceptance end-to-end — requires a new lead submission and invited attendant identity; administrator Kanban and profile saving verified.

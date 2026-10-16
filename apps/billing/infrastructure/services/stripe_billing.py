@@ -19,6 +19,7 @@ from apps.billing.domain.contracts import (
     BillingServiceError,
     CheckoutSessionRequest,
     CheckoutSessionResult,
+    CouponPreviewResult,
     IBillingService,
     IncompleteSubscriptionRequest,
     IncompleteSubscriptionResult,
@@ -204,4 +205,56 @@ class StripeBillingService(IBillingService):
             client_secret=result["client_secret"],
             payment_intent_id=result["payment_intent_id"],
             requires_payment=bool(result.get("requires_payment", True)),
+            confirmation_mode=str(result.get("confirmation_mode") or "payment"),
         )
+
+    def preview_plan_coupon(self, *, plan: str, code: str) -> CouponPreviewResult:
+        if plan not in (Plan.BASIC, Plan.FULL):
+            raise BillingServiceError("Plano inválido.")
+        card = next((item for item in self.list_public_plans() if item.key == plan), None)
+        if card is None or card.unit_amount is None:
+            raise BillingServiceError("Não foi possível carregar o valor do plano.")
+
+        discount = stripe_gateway.preview_discount(code=code)
+        original = int(card.unit_amount)
+        currency = card.currency or str(discount.get("currency") or "brl")
+        percent_off = discount.get("percent_off")
+        amount_off = discount.get("amount_off")
+
+        if percent_off is not None:
+            final = int(round(original * (100.0 - float(percent_off)) / 100.0))
+            discount_label = f"{float(percent_off):g}%"
+        elif amount_off is not None:
+            final = max(0, original - int(amount_off))
+            discount_label = format_money_label(unit_amount=int(amount_off), currency=currency)
+        else:
+            raise BillingServiceError("Cupom sem desconto configurado.")
+
+        return CouponPreviewResult(
+            original_amount=original,
+            final_amount=final,
+            original_label=format_money_label(unit_amount=original, currency=currency),
+            final_label=format_money_label(unit_amount=final, currency=currency),
+            interval_label=card.interval_label,
+            discount_label=discount_label,
+            currency=currency,
+        )
+
+    def finalize_setup_intent(
+        self,
+        *,
+        setup_intent_id: str,
+        customer_id: str,
+        subscription_id: str,
+    ) -> dict[str, str]:
+        result = stripe_gateway.finalize_setup_intent(
+            setup_intent_id=setup_intent_id,
+            customer_id=customer_id,
+            subscription_id=subscription_id,
+        )
+        return {
+            "customer_id": str(result["customer_id"]),
+            "subscription_id": str(result["subscription_id"]),
+            "payment_method_id": str(result["payment_method_id"]),
+            "setup_intent_id": str(result["setup_intent_id"]),
+        }

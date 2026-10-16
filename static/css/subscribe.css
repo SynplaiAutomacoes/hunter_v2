@@ -159,6 +159,46 @@
 .subscribe-full {
   margin-top: 12px;
 }
+.subscribe-coupon-row {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+  align-items: end;
+}
+@media (min-width: 640px) {
+  .subscribe-coupon-row {
+    grid-template-columns: 1fr auto;
+  }
+}
+.subscribe-coupon-field {
+  margin-top: 0;
+}
+.subscribe-coupon-btn {
+  height: 44px;
+  white-space: nowrap;
+}
+.subscribe-coupon-status {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--primary);
+  font-weight: 650;
+}
+.subscribe-coupon-status.is-error {
+  color: var(--destructive);
+}
+.subscribe-price-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--primary);
+  font-weight: 650;
+}
+.subscribe-price-note s {
+  color: var(--muted-foreground);
+  font-weight: 500;
+  margin-right: 6px;
+}
 .subscribe-verify {
   margin-top: 18px;
   padding-top: 16px;

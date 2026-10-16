@@ -74,6 +74,18 @@ class IncompleteSubscriptionResult:
     client_secret: str
     payment_intent_id: str
     requires_payment: bool = True
+    confirmation_mode: str = "payment"  # "payment" | "setup"
+
+
+@dataclass(frozen=True, slots=True)
+class CouponPreviewResult:
+    original_amount: int
+    final_amount: int
+    original_label: str
+    final_label: str
+    interval_label: str
+    discount_label: str
+    currency: str
 
 
 class IBillingService(ABC):

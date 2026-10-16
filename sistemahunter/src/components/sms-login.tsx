@@ -1,0 +1,12 @@
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
+import { otpSchema, smsPhoneSchema } from '@/lib/crm-users';
+export function SmsLogin({ onSuccess }: { onSuccess: () => Promise<unknown> }) {
+ const [phone,setPhone]=useState(''); const [sentPhone,setSentPhone]=useState(''); const [code,setCode]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [retryAt,setRetryAt]=useState(0);
+ async function submit() { setBusy(true); setError(''); try {
+  if (sentPhone) { const token=otpSchema.parse(code); const { error }=await supabase.auth.verifyOtp({ phone:sentPhone,token,type:'sms' }); if (error) throw error; await onSuccess(); }
+  else { const normalized=smsPhoneSchema.parse(phone); if (Date.now()<retryAt) { setError('Aguarde um minuto antes de solicitar outro código.'); return; } const { error }=await supabase.auth.signInWithOtp({ phone:normalized,options:{ shouldCreateUser:true,channel:'sms' } }); if (error) { setError('Não foi possível enviar o SMS. O envio pode ainda não estar configurado; entre com Google.'); return; } setSentPhone(normalized); setRetryAt(Date.now()+60000); }
+ } catch { setError(sentPhone ? 'Código inválido ou expirado. Confira e tente novamente.' : 'Informe seu celular com DDD.'); } finally { setBusy(false); } }
+ return <form className="crm-detail-form sms-login" onSubmit={e => { e.preventDefault(); void submit(); }}><label>{sentPhone ? 'Código recebido por SMS' : 'Celular com DDD'}<input aria-label={sentPhone ? 'Código SMS' : 'Celular com DDD'} type={sentPhone ? 'text' : 'tel'} inputMode={sentPhone ? 'numeric' : 'tel'} autoComplete={sentPhone ? 'one-time-code' : 'tel'} required maxLength={sentPhone ? 6 : 20} value={sentPhone ? code : phone} onChange={e => sentPhone ? setCode(e.target.value.replace(/\D/g,'')) : setPhone(e.target.value)}/></label><Button variant="conversion" disabled={busy}>{busy ? 'Aguarde…' : sentPhone ? 'Confirmar código' : 'Receber código por SMS'}</Button>{sentPhone && <Button type="button" variant="ghost" disabled={busy} onClick={() => { setSentPhone(''); setCode(''); }}>Alterar número / reenviar</Button>}{error && <p role="alert" className="form-error">{error}</p>}</form>;
+}

@@ -10,7 +10,12 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import Account
-from apps.billing.domain.contracts import BillingServiceError, IncompleteSubscriptionResult, PublicPlanCard
+from apps.billing.domain.contracts import (
+    BillingServiceError,
+    CouponPreviewResult,
+    IncompleteSubscriptionResult,
+    PublicPlanCard,
+)
 from apps.billing.domain.plans import Plan
 from apps.billing.infrastructure.services.pending_signup import materialize_account_from_pending_signup
 from apps.billing.infrastructure.services.webhook_processor import process_stripe_event
@@ -105,6 +110,8 @@ class SubscribeFlowTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["client_secret"], "pi_secret")
+        self.assertTrue(payload["requires_payment"])
+        self.assertEqual(payload["confirmation_mode"], "payment")
         self.assertEqual(User.objects.count(), 0)
         self.assertEqual(Account.objects.count(), 0)
         pending = PendingSignup.objects.get(email="ana@example.com")
@@ -112,7 +119,7 @@ class SubscribeFlowTests(TestCase):
         self.assertEqual(pending.stripe_customer_id, "cus_pending")
         self.assertEqual(pending.stripe_subscription_id, "sub_pending")
 
-    def test_subscribe_start_free_coupon_creates_account_without_payment(self) -> None:
+    def test_subscribe_start_free_coupon_returns_setup_without_creating_account(self) -> None:
         self._verify_email("ana@example.com")
         with patch("apps.billing.presentation.views.get_billing_service") as get_service:
             service = get_service.return_value
@@ -120,9 +127,10 @@ class SubscribeFlowTests(TestCase):
             service.create_incomplete_subscription.return_value = IncompleteSubscriptionResult(
                 customer_id="cus_free",
                 subscription_id="sub_free",
-                client_secret="",
-                payment_intent_id="",
-                requires_payment=False,
+                client_secret="seti_secret",
+                payment_intent_id="seti_free",
+                requires_payment=True,
+                confirmation_mode="setup",
             )
 
             response = self.client.post(
@@ -136,18 +144,92 @@ class SubscribeFlowTests(TestCase):
                     "password1": "SenhaForte123!",
                     "password2": "SenhaForte123!",
                     "plan": Plan.BASIC,
+                    "promotion_code": "HUNTER100",
                 },
             )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["requires_payment"], False)
+        self.assertTrue(payload["requires_payment"])
+        self.assertEqual(payload["confirmation_mode"], "setup")
+        self.assertEqual(payload["client_secret"], "seti_secret")
         pending = PendingSignup.objects.get(email="ana@example.com")
+        self.assertEqual(pending.status, PendingSignupStatus.PENDING)
+        self.assertFalse(pending.login_token)
+        self.assertEqual(User.objects.count(), 0)
+        self.assertEqual(Account.objects.count(), 0)
+
+    def test_subscribe_confirm_setup_materializes_account(self) -> None:
+        pending = PendingSignup.objects.create(
+            email="ana@example.com",
+            username="ana.silva",
+            password_hash=make_password("SenhaForte123!"),
+            first_name="Ana",
+            last_name="Silva",
+            cpf="52998224725",
+            plan=SubscriptionPlan.BASIC,
+            status=PendingSignupStatus.PENDING,
+            stripe_customer_id="cus_free",
+            stripe_subscription_id="sub_free",
+            expires_at=timezone.now() + timezone.timedelta(hours=2),
+        )
+        with patch("apps.billing.presentation.views.get_billing_service") as get_service:
+            service = get_service.return_value
+            service.finalize_setup_intent.return_value = {
+                "customer_id": "cus_free",
+                "subscription_id": "sub_free",
+                "payment_method_id": "pm_1",
+                "setup_intent_id": "seti_1",
+            }
+
+            response = self.client.post(
+                reverse("billing:subscribe_confirm_setup"),
+                data={
+                    "pending_signup_id": pending.pk,
+                    "setup_intent_id": "seti_1",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["login_token"])
+        pending.refresh_from_db()
         self.assertEqual(pending.status, PendingSignupStatus.PAID)
-        self.assertTrue(pending.login_token)
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(Account.objects.count(), 1)
+        service.finalize_setup_intent.assert_called_once_with(
+            setup_intent_id="seti_1",
+            customer_id="cus_free",
+            subscription_id="sub_free",
+        )
+
+    def test_subscribe_validate_coupon_returns_discounted_labels(self) -> None:
+        with patch("apps.billing.presentation.views.get_billing_service") as get_service:
+            service = get_service.return_value
+            service.preview_plan_coupon.return_value = CouponPreviewResult(
+                original_amount=9900,
+                final_amount=4950,
+                original_label="R$ 99,00",
+                final_label="R$ 49,50",
+                interval_label="/mês",
+                discount_label="50%",
+                currency="brl",
+            )
+
+            response = self.client.post(
+                reverse("billing:subscribe_validate_coupon"),
+                data={"plan": Plan.BASIC, "promotion_code": "METADE"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["original_label"], "R$ 99,00")
+        self.assertEqual(payload["final_label"], "R$ 49,50")
+        self.assertEqual(payload["discount_label"], "50%")
+        service.preview_plan_coupon.assert_called_once_with(plan=Plan.BASIC, code="METADE")
 
     def test_subscribe_start_replaces_unfinished_pending_signup(self) -> None:
         self._verify_email("ana@example.com")
@@ -405,6 +487,11 @@ class SubscribePageTests(TestCase):
         self.assertContains(response, "R$ 199,00")
         self.assertContains(response, "payment-element")
         self.assertContains(response, "promotion_code")
+        self.assertContains(response, "Validar cupom")
+        self.assertContains(response, "subscribe-validate-coupon")
+        self.assertContains(response, "subscribe-price-value")
+        self.assertContains(response, "validateCouponUrl")
+        self.assertContains(response, "confirmSetupUrl")
         self.assertContains(response, "subscribe-send-code")
         self.assertContains(response, 'id="subscribe-code-step"')
         self.assertContains(response, "subscribe-code-step hidden")

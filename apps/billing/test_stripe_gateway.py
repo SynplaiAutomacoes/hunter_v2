@@ -8,6 +8,7 @@ from apps.billing.domain.contracts import BillingServiceError
 from apps.billing.infrastructure.gateways.stripe import (
     construct_webhook_event,
     create_incomplete_subscription,
+    preview_discount,
     resolve_discount,
     resolve_promotion_code,
     retrieve_price,
@@ -155,6 +156,8 @@ class StripeGatewayTests(SimpleTestCase):
 
         self.assertEqual(result["client_secret"], "pi_secret_123")
         self.assertEqual(result["subscription_id"], "sub_1")
+        self.assertEqual(result["confirmation_mode"], "payment")
+        self.assertTrue(result["requires_payment"])
         expand = create_subscription.call_args.kwargs["expand"]
         self.assertIn("latest_invoice.confirmation_secret", expand)
         self.assertNotIn("discounts", create_subscription.call_args.kwargs)
@@ -239,9 +242,15 @@ class StripeGatewayTests(SimpleTestCase):
         with self.assertRaises(BillingServiceError):
             resolve_discount("NAOEXISTE")
 
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.SetupIntent.create")
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
-    def test_create_incomplete_subscription_free_invoice_has_no_payment(self, create_customer: Mock, create_subscription: Mock) -> None:
+    def test_create_incomplete_subscription_free_invoice_creates_setup_intent(
+        self,
+        create_customer: Mock,
+        create_subscription: Mock,
+        create_setup_intent: Mock,
+    ) -> None:
         create_customer.return_value = Mock(id="cus_1", to_dict=Mock(return_value={"id": "cus_1"}))
         subscription = Mock()
         subscription.to_dict.return_value = {
@@ -256,6 +265,14 @@ class StripeGatewayTests(SimpleTestCase):
             },
         }
         create_subscription.return_value = subscription
+        create_setup_intent.return_value = Mock(
+            to_dict=Mock(
+                return_value={
+                    "id": "seti_1",
+                    "client_secret": "seti_secret_123",
+                }
+            )
+        )
 
         result = create_incomplete_subscription(
             email="ana@example.com",
@@ -266,9 +283,65 @@ class StripeGatewayTests(SimpleTestCase):
             promotion_code="",
         )
 
-        self.assertEqual(result["requires_payment"], False)
-        self.assertEqual(result["client_secret"], "")
+        self.assertTrue(result["requires_payment"])
+        self.assertEqual(result["confirmation_mode"], "setup")
+        self.assertEqual(result["client_secret"], "seti_secret_123")
+        self.assertEqual(result["payment_intent_id"], "seti_1")
         self.assertEqual(result["subscription_id"], "sub_1")
+        create_setup_intent.assert_called_once()
+        self.assertEqual(create_setup_intent.call_args.kwargs["customer"], "cus_1")
+        self.assertEqual(create_setup_intent.call_args.kwargs["usage"], "off_session")
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Coupon.retrieve")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.list")
+    def test_preview_discount_percent_off_from_coupon(self, list_promo: Mock, retrieve_coupon: Mock) -> None:
+        list_promo.return_value = Mock(data=[])
+        retrieve_coupon.return_value = Mock(
+            to_dict=Mock(
+                return_value={
+                    "id": "coup_50",
+                    "percent_off": 50,
+                    "amount_off": None,
+                    "currency": "brl",
+                    "name": "METADE",
+                    "valid": True,
+                }
+            )
+        )
+
+        result = preview_discount(code="coup_50")
+
+        self.assertEqual(result["coupon_id"], "coup_50")
+        self.assertEqual(result["percent_off"], 50.0)
+        self.assertIsNone(result["amount_off"])
+        self.assertGreaterEqual(retrieve_coupon.call_count, 1)
+        retrieve_coupon.assert_any_call("coup_50")
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.retrieve")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.list")
+    def test_preview_discount_amount_off_from_promotion_code(self, list_promo: Mock, retrieve_promo: Mock) -> None:
+        list_promo.return_value = Mock(data=[Mock(id="promo_abc")])
+        retrieve_promo.return_value = Mock(
+            to_dict=Mock(
+                return_value={
+                    "id": "promo_abc",
+                    "coupon": {
+                        "id": "coup_amount",
+                        "percent_off": None,
+                        "amount_off": 5000,
+                        "currency": "brl",
+                        "name": "R$50",
+                    },
+                }
+            )
+        )
+
+        result = preview_discount(code="DESCONTO50")
+
+        self.assertEqual(result["coupon_id"], "coup_amount")
+        self.assertEqual(result["amount_off"], 5000)
+        self.assertEqual(result["promotion_code_id"], "promo_abc")
+        retrieve_promo.assert_called_once_with("promo_abc", expand=["coupon"])
 
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
