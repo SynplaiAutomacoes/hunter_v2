@@ -4,6 +4,7 @@ from apps.billing.presentation.views import (
     BillingPortalView,
     CheckoutSessionView,
     CheckoutSuccessView,
+    OwnerSubscriptionCancelView,
     PlansView,
     SubscribeCompleteView,
     SubscribeConfirmSetupView,
@@ -13,6 +14,7 @@ from apps.billing.presentation.views import (
     SubscribeValidateCouponView,
     SubscribeVerifyCodeView,
     SubscribeView,
+    SubscriberCancelView,
     SubscriberListView,
     UpgradeRequiredView,
 )
@@ -33,8 +35,10 @@ urlpatterns = [
     path("checkout/", CheckoutSessionView.as_view(), name="checkout"),
     path("checkout/sucesso/", CheckoutSuccessView.as_view(), name="checkout_success"),
     path("portal/", BillingPortalView.as_view(), name="portal"),
+    path("assinatura/cancelar/", OwnerSubscriptionCancelView.as_view(), name="subscription_cancel"),
     path("upgrade/", UpgradeRequiredView.as_view(), name="upgrade_required"),
     path("assinantes/", SubscriberListView.as_view(), name="subscriber_list"),
+    path("assinantes/<int:pk>/cancelar/", SubscriberCancelView.as_view(), name="subscriber_cancel"),
     path("webhook/ping/", StripeWebhookView.as_view(), name="webhook_ping"),
     path("webhook/", StripeWebhookView.as_view(), name="webhook"),
 ]

@@ -106,7 +106,7 @@ class SubscriberListViewTests(TestCase):
         content = response.content.decode()
         self.assertIn("Pagamento atrasado", content)
         self.assertIn("Cortesia (conta antiga)", content)
-        self.assertIn("Cancelada", content)
+        self.assertIn("Assinatura Cancelada", content)
         self.assertIn("Conta Assinante", content)
 
     def test_filter_by_canceled_status(self) -> None:
@@ -120,4 +120,4 @@ class SubscriberListViewTests(TestCase):
         subscriptions = list(response.context["subscriptions"])
         self.assertEqual(len(subscriptions), 1)
         self.assertEqual(subscriptions[0].status, SubscriptionStatus.CANCELED)
-        self.assertEqual(subscriptions[0].get_status_display(), "Cancelada")
+        self.assertEqual(subscriptions[0].get_status_display(), "Assinatura Cancelada")

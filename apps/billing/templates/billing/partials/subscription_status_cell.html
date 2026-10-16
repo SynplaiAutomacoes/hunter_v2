@@ -1,1 +1,8 @@
-<span class="badge {{ cell.value.badge_class }} badge-sm whitespace-nowrap">{{ cell.value.label }}</span>
+<div class="flex flex-col gap-1 items-start">
+  <span class="badge {{ cell.value.badge_class }} badge-sm whitespace-nowrap">{{ cell.value.label }}</span>
+  {% if cell.value.cancel_at_period_end %}
+  <span class="badge badge-warning badge-outline badge-sm whitespace-nowrap">
+    Cancela no fim do período{% if cell.value.period_end %} · {{ cell.value.period_end|date:"d/m/Y" }}{% endif %}
+  </span>
+  {% endif %}
+</div>

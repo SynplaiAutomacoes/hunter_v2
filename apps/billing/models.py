@@ -15,7 +15,7 @@ class SubscriptionPlan(models.TextChoices):
 class SubscriptionStatus(models.TextChoices):
     ACTIVE = "active", "Ativa"
     PAST_DUE = "past_due", "Pagamento atrasado"
-    CANCELED = "canceled", "Cancelada"
+    CANCELED = "canceled", "Assinatura Cancelada"
     INCOMPLETE = "incomplete", "Aguardando pagamento"
     GRANDFATHERED = "grandfathered", "Cortesia (conta antiga)"
 

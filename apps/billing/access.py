@@ -11,18 +11,15 @@ SESSION_CACHE_KEY = "billing_subscription_access"
 
 
 def invalidate_subscription_cache(request: HttpRequest) -> None:
+    """Drop request-scoped and legacy session snapshots.
+
+    Access decisions always re-read the DB (via request-local cache only), so a
+    Stripe cancel webhook takes effect on the next request without waiting for
+    session expiry.
+    """
     request.session.pop(SESSION_CACHE_KEY, None)
     if hasattr(request, "_billing_subscription"):
         delattr(request, "_billing_subscription")
-
-
-def _cache_subscription_snapshot(request: HttpRequest, *, account_id: int, plan: str, status: str, is_active: bool) -> None:
-    request.session[SESSION_CACHE_KEY] = {
-        "account_id": account_id,
-        "plan": plan,
-        "status": status,
-        "is_active": is_active,
-    }
 
 
 def get_account_subscription(request: HttpRequest) -> AccountSubscription | None:
@@ -37,14 +34,6 @@ def get_account_subscription(request: HttpRequest) -> AccountSubscription | None
 
     subscription = AccountSubscription.objects.filter(account_id=account_id).first()
     setattr(request, "_billing_subscription", subscription if subscription is not None else False)
-    if subscription is not None:
-        _cache_subscription_snapshot(
-            request,
-            account_id=account_id,
-            plan=subscription.plan,
-            status=subscription.status,
-            is_active=subscription.is_active,
-        )
     return subscription
 
 
@@ -53,10 +42,8 @@ def get_subscription_snapshot(request: HttpRequest) -> dict[str, Any] | None:
     if not account_id:
         return None
 
-    cached = request.session.get(SESSION_CACHE_KEY)
-    if isinstance(cached, dict) and cached.get("account_id") == account_id:
-        return cached
-
+    # Always resolve from DB (request-scoped cache only). Do not trust session:
+    # webhooks update AccountSubscription without the user's session.
     subscription = get_account_subscription(request)
     if subscription is None:
         return None
@@ -144,4 +131,21 @@ def sync_subscription_from_stripe(
         account_id=account_id,
         defaults=defaults,
     )
+    return subscription
+
+
+def apply_local_subscription_cancel(
+    subscription: AccountSubscription,
+    *,
+    at_period_end: bool,
+) -> AccountSubscription:
+    """Optimistic local sync after Stripe cancel (webhook remains source of truth)."""
+    if at_period_end:
+        subscription.cancel_at_period_end = True
+        subscription.save(update_fields=["cancel_at_period_end", "atualizado_em"])
+        return subscription
+
+    subscription.status = SubscriptionStatus.CANCELED
+    subscription.cancel_at_period_end = False
+    subscription.save(update_fields=["status", "cancel_at_period_end", "atualizado_em"])
     return subscription

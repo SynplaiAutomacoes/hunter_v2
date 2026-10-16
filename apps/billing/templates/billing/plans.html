@@ -7,19 +7,76 @@
 </div>
 
 {% if subscription and subscription.is_active %}
-<div class="alert alert-info mb-6">
+<div class="alert alert-info mb-6 items-start">
     <span class="material-icons">info</span>
-    <div>
+    <div class="flex-1">
         <p class="font-semibold">Plano atual: {{ subscription.get_plan_display }}</p>
         <p class="text-sm">Status: {{ subscription.get_status_display }}</p>
+        {% if subscription.cancel_at_period_end %}
+        <p class="text-sm text-warning mt-1">
+            Cancelamento agendado{% if subscription.current_period_end %} para {{ subscription.current_period_end|date:"d/m/Y" }}{% endif %}.
+            Você mantém o acesso até o fim do período.
+        </p>
+        {% endif %}
     </div>
-    {% if is_account_owner and subscription.stripe_customer_id %}
-    <form method="post" action="{% url 'billing:portal' %}" class="ml-auto">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-outline">Gerenciar cobrança</button>
-    </form>
+    {% if is_account_owner %}
+    <div class="flex flex-wrap gap-2 ml-auto">
+        {% if subscription.stripe_customer_id %}
+        <form method="post" action="{% url 'billing:portal' %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline">Gerenciar cobrança</button>
+        </form>
+        {% endif %}
+        {% if not subscription.cancel_at_period_end %}
+        <button type="button" class="btn btn-sm btn-error btn-outline" onclick="document.getElementById('owner-cancel-modal').showModal()">
+            Cancelar assinatura
+        </button>
+        {% endif %}
+    </div>
     {% endif %}
 </div>
+
+{% if is_account_owner and not subscription.cancel_at_period_end %}
+<dialog id="owner-cancel-modal" class="modal">
+  <div class="modal-box max-w-lg">
+    <form method="dialog">
+      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Fechar">✕</button>
+    </form>
+    <h3 class="font-bold text-xl mb-2">Cancelar assinatura</h3>
+    <p class="text-base-content/70 mb-6">Escolha como deseja encerrar o plano {{ subscription.get_plan_display }}.</p>
+    <form method="post" action="{% url 'billing:subscription_cancel' %}">
+      {% csrf_token %}
+      <fieldset class="space-y-3 mb-6">
+        <legend class="font-semibold text-sm mb-2">Método de cancelamento</legend>
+        {% if subscription.stripe_subscription_id %}
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
+          <input type="radio" name="cancel_mode" value="period_end" class="radio radio-primary mt-1" checked />
+          <span>
+            <span class="font-medium block">Cancelar no fim do período</span>
+            <span class="text-sm text-base-content/60">
+              Continua com acesso até
+              {% if subscription.current_period_end %}{{ subscription.current_period_end|date:"d/m/Y" }}{% else %}a renovação{% endif %}.
+            </span>
+          </span>
+        </label>
+        {% endif %}
+        <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
+          <input type="radio" name="cancel_mode" value="immediate" class="radio radio-primary mt-1" {% if not subscription.stripe_subscription_id %}checked{% endif %} />
+          <span>
+            <span class="font-medium block">Cancelar imediatamente</span>
+            <span class="text-sm text-base-content/60">Encerra o acesso agora. Seus dados da conta são preservados.</span>
+          </span>
+        </label>
+      </fieldset>
+      <div class="modal-action">
+        <button type="button" class="btn" onclick="document.getElementById('owner-cancel-modal').close()">Voltar</button>
+        <button type="submit" class="btn btn-error">Confirmar cancelamento</button>
+      </div>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+{% endif %}
 {% endif %}
 
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl">
