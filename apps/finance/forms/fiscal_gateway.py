@@ -23,10 +23,16 @@ class NoteDocument:
     NFSE = "nfse"
 
 
+class CorrectionSource:
+    REGISTERED = "registered"
+    UNREGISTERED = "unregistered"
+
+
 class GatewayStep:
     OPERATION = "operation"
     LINKAGE = "linkage"
     DOCUMENT = "document"
+    CORRECTION_SOURCE = "correction_source"
 
 
 FISCAL_OPERATION_CHOICES: tuple[tuple[str, str], ...] = (
@@ -45,9 +51,18 @@ NOTE_DOCUMENT_CHOICES: tuple[tuple[str, str], ...] = (
     (NoteDocument.NFSE, "Serviço (NFS-e)"),
 )
 
+CORRECTION_SOURCE_CHOICES: tuple[tuple[str, str], ...] = (
+    (CorrectionSource.REGISTERED, "Já cadastrada"),
+    (CorrectionSource.UNREGISTERED, "Não cadastrada"),
+)
+
 DOCUMENT_OPERATIONS: frozenset[str] = frozenset({FiscalOperation.EMISSION})
 NOTE_DOCUMENTS: frozenset[str] = frozenset({NoteDocument.NFE, NoteDocument.NFSE})
 LINKAGE_VALUES: frozenset[str] = frozenset({EmissionLinkage.WORKORDER, EmissionLinkage.STANDALONE})
+CORRECTION_SOURCE_VALUES: frozenset[str] = frozenset({CorrectionSource.REGISTERED, CorrectionSource.UNREGISTERED})
+GATEWAY_STEP_VALUES: frozenset[str] = frozenset(
+    {GatewayStep.OPERATION, GatewayStep.LINKAGE, GatewayStep.DOCUMENT, GatewayStep.CORRECTION_SOURCE}
+)
 
 
 class FiscalOperationGatewayForm(CoreForm):
@@ -68,11 +83,18 @@ class FiscalOperationGatewayForm(CoreForm):
         widget=forms.RadioSelect,
         required=False,
     )
+    correction_source = forms.ChoiceField(
+        label="Origem da nota",
+        choices=CORRECTION_SOURCE_CHOICES,
+        widget=forms.RadioSelect,
+        required=False,
+    )
     gateway_step = forms.ChoiceField(
         choices=(
             (GatewayStep.OPERATION, "Operação"),
             (GatewayStep.LINKAGE, "Vínculo"),
             (GatewayStep.DOCUMENT, "Documento"),
+            (GatewayStep.CORRECTION_SOURCE, "Origem da CC"),
         ),
         widget=forms.HiddenInput,
         initial=GatewayStep.OPERATION,
@@ -84,10 +106,25 @@ class FiscalOperationGatewayForm(CoreForm):
         operation = str(cleaned_data.get("operation") or "").strip()
         linkage = str(cleaned_data.get("linkage") or "").strip()
         note_document = str(cleaned_data.get("note_document") or "").strip()
+        correction_source = str(cleaned_data.get("correction_source") or "").strip()
         gateway_step = str(cleaned_data.get("gateway_step") or GatewayStep.OPERATION).strip()
-        if gateway_step not in {GatewayStep.OPERATION, GatewayStep.LINKAGE, GatewayStep.DOCUMENT}:
+        if gateway_step not in GATEWAY_STEP_VALUES:
             gateway_step = GatewayStep.OPERATION
         cleaned_data["gateway_step"] = gateway_step
+
+        if operation == FiscalOperation.CORRECTION:
+            cleaned_data["linkage"] = ""
+            cleaned_data["note_document"] = ""
+            if gateway_step == GatewayStep.CORRECTION_SOURCE:
+                if correction_source not in CORRECTION_SOURCE_VALUES:
+                    self.add_error("correction_source", "Escolha se a NF-e já está cadastrada no sistema ou não.")
+                cleaned_data["correction_source"] = correction_source
+            else:
+                cleaned_data["correction_source"] = ""
+                cleaned_data["gateway_step"] = GatewayStep.OPERATION
+            return cleaned_data
+
+        cleaned_data["correction_source"] = ""
 
         if operation not in DOCUMENT_OPERATIONS:
             cleaned_data["linkage"] = ""

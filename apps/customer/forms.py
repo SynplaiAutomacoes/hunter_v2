@@ -12,7 +12,7 @@ from django.urls import reverse
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from .models import Customer, Vehicle
 from apps.core.text_normalization import name_case, plate_case, sentence_case
-from apps.core.presentation.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
+from apps.core.presentation.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput, MoneyInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj, normalize_cpf_or_cnpj
 from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from .vehicle_fuel import normalize_vehicle_fuel_choice
@@ -199,6 +199,8 @@ VehicleFormSet = inlineformset_factory(
         "type",
         "renavam",
         "chassi",
+        "motor_registry",
+        "fipe_value",
         "km",
     ],
     extra=0,
@@ -215,6 +217,8 @@ VehicleFormSet = inlineformset_factory(
         "type": TextInput(),
         "renavam": TextInput(),
         "chassi": TextInput(),
+        "motor_registry": TextInput(),
+        "fipe_value": MoneyInput(),
         "km": NumberInput(),
     },
 )
@@ -775,7 +779,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
 
     class Meta:
         model = Vehicle
-        fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color", "km"]
+        fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color", "chassi", "renavam", "motor_registry", "type", "fipe_value", "km"]
         widgets = {
             "plate": PlateInput(),
             "brand": SearchableSelectInput(choices=[]),
@@ -785,6 +789,11 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
             "year_fabrication": TextInput(),
             "year_model": TextInput(),
             "color": TextInput(),
+            "chassi": TextInput(),
+            "renavam": TextInput(),
+            "motor_registry": TextInput(),
+            "type": TextInput(),
+            "fipe_value": MoneyInput(),
             "km": NumberInput(),
         }
 
@@ -965,6 +974,42 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             detail: { message: normalizedMessage, type }
                         }));
                     },
+                    setPlateLoading(container, isLoading = true) {
+                        if (!container || !container.dataset) {
+                            return;
+                        }
+                        container.dataset.plateLoading = isLoading ? '1' : '0';
+                        const fields = container.querySelectorAll('input, select, textarea, button');
+                        fields.forEach((field) => {
+                            if (isLoading) {
+                                if (!field.dataset.plateLoadingEnabled) {
+                                    field.dataset.plateLoadingEnabled = '1';
+                                    field.dataset.plateLoadingDisabled = field.disabled ? '1' : '0';
+                                    field.disabled = true;
+                                }
+                            } else if (field.dataset.plateLoadingEnabled === '1') {
+                                field.disabled = field.dataset.plateLoadingDisabled === '1';
+                                delete field.dataset.plateLoadingEnabled;
+                                delete field.dataset.plateLoadingDisabled;
+                            }
+                        });
+
+                        const existingOverlay = container.querySelector('.plate-loading-overlay');
+                        if (isLoading) {
+                            if (existingOverlay) {
+                                return;
+                            }
+const overlay = document.createElement('div');
+                        overlay.className = 'plate-loading-overlay';
+                        const label = document.createElement('span');
+                        label.className = 'plate-loading-label';
+                        label.textContent = 'Buscando informações do veículo...';
+                        overlay.appendChild(label);
+                        container.appendChild(overlay);
+                        } else if (existingOverlay) {
+                            existingOverlay.remove();
+                        }
+                    },
                     async loadModels(container, { preserveModel = '', preserveFuel = '', preserveEngine = '', silent = false } = {}) {
                         const brand = this.getFieldValue(container, 'brand');
                         await this.loadModelsFor(container, { brand, preserveModel, preserveFuel, preserveEngine, silent });
@@ -1061,13 +1106,44 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             }
                         });
                     },
+                    setMoneyFieldValue(container, fieldName, value) {
+                        if (value === null || value === undefined || value === '') {
+                            return;
+                        }
+                        const amountInput = container.querySelector(`[name="${fieldName}_0"], [name$="-${fieldName}_0"]`);
+                        if (!amountInput) {
+                            return;
+                        }
+                        const raw = String(value);
+                        let normalized = raw.indexOf(',') !== -1 ? raw.replace(/\./g, '').replace(/,/g, '.') : raw.replace(/[^\d.]/g, '');
+                        if (!normalized) {
+                            return;
+                        }
+                        const widgetContainer = this.getWidgetContainer(amountInput);
+                        if (widgetContainer && window.Alpine) {
+                            let data;
+                            try {
+                                data = Alpine.$data(widgetContainer);
+                            } catch (err) {
+                                data = null;
+                            }
+                            if (data && typeof data.syncDisplay === 'function') {
+                                data.syncDisplay(normalized);
+                                const currencyInput = widgetContainer.querySelector('input[name$="_1"]');
+                                if (currencyInput) {
+                                    currencyInput.value = 'BRL';
+                                }
+                                return;
+                            }
+                        }
+                        amountInput.value = normalized;
+                    },
                     async fillFromPlate(container, data) {
                         this.setHydrating(container, true);
                         try {
                             const brand = String(data.brand || '').trim();
                             const model = String(data.model || '').trim();
                             const fuel = String(data.fuel || '').trim();
-                            const engine = String(data.engine || '').trim();
                             const brandInput = this.getField(container, 'brand');
 
                             this.setSearchableSelection(brandInput, brand, brand, brand ? [{ id: brand, label: brand }] : [], { silent: true });
@@ -1088,16 +1164,16 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                                 this.showToast(fuelPayload.warning);
                             }
 
-                            this.syncEngine(container, engine, { silent: true, modelName: model });
-
                             this.fillTextFields(container, {
                                 year_fabrication: data.year_fabrication,
                                 year_model: data.year_model,
                                 color: data.color,
                                 chassi: data.chassi,
                                 renavam: data.renavam,
+                                motor_registry: data.motor_registry,
                                 type: data.type,
                             });
+                            this.setMoneyFieldValue(container, 'fipe_value', data.fipe_value);
                         } finally {
                             this.setHydrating(container, false);
                         }
@@ -1156,6 +1232,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                     }
 
                     element.classList.add('loading-api');
+                    api.setPlateLoading(container, true);
                     try {
                         const media = rawPlate.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
                         const [checkPlateResult, dupResult] = await Promise.allSettled([
@@ -1170,7 +1247,6 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                                 await api.fillFromPlate(container, data);
 
                                 const missingFields = [];
-                                if (!data.engine) missingFields.push('Motor');
                                 if (!data.fuel) missingFields.push('Combustível');
 
                                 if (missingFields.length > 0) {
@@ -1213,6 +1289,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         console.error('Erro ao processar placa:', error);
                     } finally {
                         element.classList.remove('loading-api');
+                        api.setPlateLoading(container, false);
                     }
                 });
 
@@ -1267,6 +1344,11 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                 Field("year_model", wrapper_class="col-span-12 sm:col-span-6 xl:col-span-2"),
                 Field("color", wrapper_class="col-span-12 md:col-span-6 xl:col-span-2"),
                 Field("km", wrapper_class="col-span-12 md:col-span-6 xl:col-span-2"),
+                Field("chassi", wrapper_class="col-span-12 md:col-span-6 xl:col-span-4"),
+                Field("renavam", wrapper_class="col-span-12 md:col-span-6 xl:col-span-4"),
+                Field("motor_registry", wrapper_class="col-span-12 md:col-span-6 xl:col-span-4"),
+                Field("type", wrapper_class="col-span-12 md:col-span-6 xl:col-span-4"),
+                Field("fipe_value", wrapper_class="col-span-12 md:col-span-6 xl:col-span-4"),
                 css_class="customer-vehicle-catalog-form grid grid-cols-12 gap-x-4 gap-y-3 items-start",
             ),
         )

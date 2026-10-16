@@ -173,6 +173,42 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                         detail: { message: normalizedMessage, type }
                     }));
                 },
+                setPlateLoading(container, isLoading = true) {
+                    if (!container || !container.dataset) {
+                        return;
+                    }
+                    container.dataset.plateLoading = isLoading ? '1' : '0';
+                    const fields = container.querySelectorAll('input, select, textarea, button');
+                    fields.forEach((field) => {
+                        if (isLoading) {
+                            if (!field.dataset.plateLoadingEnabled) {
+                                field.dataset.plateLoadingEnabled = '1';
+                                field.dataset.plateLoadingDisabled = field.disabled ? '1' : '0';
+                                field.disabled = true;
+                            }
+                        } else if (field.dataset.plateLoadingEnabled === '1') {
+                            field.disabled = field.dataset.plateLoadingDisabled === '1';
+                            delete field.dataset.plateLoadingEnabled;
+                            delete field.dataset.plateLoadingDisabled;
+                        }
+                    });
+
+                    const existingOverlay = container.querySelector('.plate-loading-overlay');
+                    if (isLoading) {
+                        if (existingOverlay) {
+                            return;
+                        }
+                        const overlay = document.createElement('div');
+                        overlay.className = 'plate-loading-overlay';
+                        const label = document.createElement('span');
+                        label.className = 'plate-loading-label';
+                        label.textContent = 'Buscando informações do veículo...';
+                        overlay.appendChild(label);
+                        container.appendChild(overlay);
+                    } else if (existingOverlay) {
+                        existingOverlay.remove();
+                    }
+                },
                 async loadModels(container, { preserveModel = '', preserveFuel = '', preserveEngine = '', silent = false } = {}) {
                     const brand = this.getFieldValue(container, 'brand');
                     await this.loadModelsFor(container, { brand, preserveModel, preserveFuel, preserveEngine, silent });
@@ -269,6 +305,38 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                         }
                     });
                 },
+                setMoneyFieldValue(container, fieldName, value) {
+                    if (value === null || value === undefined || value === '') {
+                        return;
+                    }
+                    const amountInput = container.querySelector(`[name="${fieldName}_0"], [name$="-${fieldName}_0"]`);
+                    if (!amountInput) {
+                        return;
+                    }
+                    const raw = String(value);
+                    let normalized = raw.indexOf(',') !== -1 ? raw.replace(/\./g, '').replace(/,/g, '.') : raw.replace(/[^\d.]/g, '');
+                    if (!normalized) {
+                        return;
+                    }
+                    const widgetContainer = this.getWidgetContainer(amountInput);
+                    if (widgetContainer && window.Alpine) {
+                        let data;
+                        try {
+                            data = Alpine.$data(widgetContainer);
+                        } catch (err) {
+                            data = null;
+                        }
+                        if (data && typeof data.syncDisplay === 'function') {
+                            data.syncDisplay(normalized);
+                            const currencyInput = widgetContainer.querySelector('input[type="hidden"]') || widgetContainer.querySelector('input[name$="_1"]');
+                            if (currencyInput && currencyInput.name && currencyInput.name.endsWith('_1')) {
+                                currencyInput.value = 'BRL';
+                            }
+                            return;
+                        }
+                    }
+                    amountInput.value = normalized;
+                },
                 async fillFromPlate(container, data) {
                     this.setHydrating(container, true);
                     try {
@@ -304,8 +372,10 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                             color: data.color,
                             chassi: data.chassi,
                             renavam: data.renavam,
+                            motor_registry: data.motor_registry,
                             type: data.type,
                         });
+                        this.setMoneyFieldValue(container, 'fipe_value', data.fipe_value);
                     } finally {
                         this.setHydrating(container, false);
                     }
@@ -365,57 +435,62 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                     }
                 }
 
-                const [checkPlateResult, dupResult] = await Promise.allSettled([
-                    fetch(`/customer/check-plate/${plate}/`),
-                    fetch(`/customer/check-plate-duplicate/${plate}/`),
-                ]);
+                api.setPlateLoading(container, true);
+                try {
+                    const [checkPlateResult, dupResult] = await Promise.allSettled([
+                        fetch(`/customer/check-plate/${plate}/`),
+                        fetch(`/customer/check-plate-duplicate/${plate}/`),
+                    ]);
 
-                if (checkPlateResult.status === 'fulfilled') {
-                    try {
-                        const response = checkPlateResult.value;
-                        if (response.ok) {
-                            const data = await response.json();
-                            await api.fillFromPlate(container, data);
+                    if (checkPlateResult.status === 'fulfilled') {
+                        try {
+                            const response = checkPlateResult.value;
+                            if (response.ok) {
+                                const data = await response.json();
+                                await api.fillFromPlate(container, data);
 
-                            const missingFields = [];
-                            if (!data.engine) missingFields.push('Motor');
-                            if (!data.fuel) missingFields.push('Combustível');
+                                const missingFields = [];
+                                if (!data.engine) missingFields.push('Motor');
+                                if (!data.fuel) missingFields.push('Combustível');
 
-                            if (missingFields.length > 0) {
-                                document.body.dispatchEvent(new CustomEvent('showToast', {
-                                    detail: {
-                                        message: `Campos não disponíveis: ${missingFields.join(', ')}`,
-                                        type: 'warning'
-                                    }
-                                }));
+                                if (missingFields.length > 0) {
+                                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                                        detail: {
+                                            message: `Campos não disponíveis: ${missingFields.join(', ')}`,
+                                            type: 'warning'
+                                        }
+                                    }));
+                                }
                             }
+                        } catch (error) {
+                            console.error('Erro ao buscar placa:', error);
                         }
-                    } catch (error) {
-                        console.error('Erro ao buscar placa:', error);
                     }
-                }
 
-                if (dupResult.status === 'fulfilled') {
-                    try {
-                        const response = dupResult.value;
-                        if (response.ok) {
-                            const dupData = await response.json();
-                            if (dupData.exists) {
-                                container.dataset.transferVehicleId = dupData.vehicle_id;
-                                container.dataset.transferCustomerName = dupData.customer_name;
+                    if (dupResult.status === 'fulfilled') {
+                        try {
+                            const response = dupResult.value;
+                            if (response.ok) {
+                                const dupData = await response.json();
+                                if (dupData.exists) {
+                                    container.dataset.transferVehicleId = dupData.vehicle_id;
+                                    container.dataset.transferCustomerName = dupData.customer_name;
 
-                                const plateDisplay = container.querySelector('.transfer-plate-display');
-                                const customerDisplay = container.querySelector('.transfer-customer-display');
-                                if (plateDisplay) plateDisplay.textContent = element.value;
-                                if (customerDisplay) customerDisplay.textContent = dupData.customer_name;
+                                    const plateDisplay = container.querySelector('.transfer-plate-display');
+                                    const customerDisplay = container.querySelector('.transfer-customer-display');
+                                    if (plateDisplay) plateDisplay.textContent = element.value;
+                                    if (customerDisplay) customerDisplay.textContent = dupData.customer_name;
 
-                                const modalToggle = container.querySelector('.transfer-modal-toggle');
-                                if (modalToggle) modalToggle.checked = true;
+                                    const modalToggle = container.querySelector('.transfer-modal-toggle');
+                                    if (modalToggle) modalToggle.checked = true;
+                                }
                             }
+                        } catch (error) {
+                            console.warn('Erro ao verificar placa duplicada:', error);
                         }
-                    } catch (error) {
-                        console.warn('Erro ao verificar placa duplicada:', error);
                     }
+                } finally {
+                    api.setPlateLoading(container, false);
                 }
             });
 

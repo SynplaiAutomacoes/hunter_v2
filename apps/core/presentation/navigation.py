@@ -40,18 +40,24 @@ def _is_system_admin(request: HttpRequest, flags: dict[str, Any]) -> bool:
     return request.user.is_authenticated and request.user.username in admin_usernames
 
 
+def _requires_full_plan(request: HttpRequest, flags: dict[str, Any]) -> bool:
+    from apps.billing.access import account_has_full_plan
+
+    return account_has_full_plan(request)
+
+
 BUDGET_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Orçamento", "view_name": "budget:budget_create"}
 CREATE_CLIENT_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar Cliente", "view_name": "customer:customer_create"}
 COLLABORATOR_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar colaborador", "view_name": "collaborators:collaborator_create"}
-SUPPLIER_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar fornecedor", "view_name": "suppliers:supplier_create"}
+SUPPLIER_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar fornecedor", "view_name": "suppliers:supplier_create", "visible_if": _requires_full_plan}
 PRODUCT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Produto", "view_name": "catalog:product_create"}
 SERVICE_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Serviço", "view_name": "catalog:services_create"}
 KIT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Kit", "view_name": "catalog:kits_create"}
 CATALOG_GROUP_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Criar grupo", "view_name": "catalog:group_create"}
 CHECKLIST_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Checklist", "view_name": "checklist:checklist_create"}
-APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}}
-STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Importação", "view_name": "stock:import"}
-FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movimentação Financeira", "view_name": "finance:financial_movement_create"}
+APPOINTMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Novo Agendamento", "view_name": "scheduling:appointment_calendar", "query": {"open": "create"}, "visible_if": _requires_full_plan}
+STOCK_IMPORT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Importação", "view_name": "stock:import", "visible_if": _requires_full_plan}
+FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movimentação Financeira", "view_name": "finance:financial_movement_create", "visible_if": _requires_full_plan}
 
 
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
@@ -68,6 +74,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     },
     {
         "label": "Estoque",
+        "visible_if": _requires_full_plan,
         "items": (
             {"label": "Consulta no Estoque", "view_name": "stock:stock_inquiry"},
             {"label": "Cadastro de Produto", "view_name": "catalog:product_list"},
@@ -82,6 +89,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     },
     {
         "label": "Financeiro",
+        "visible_if": _requires_full_plan,
         "items": (
             {"label": "Emitir nota", "view_name": "finance:emission_create"},
             {"label": "Central de Notas", "view_name": "finance:issued_documents_list"},

@@ -56,6 +56,37 @@
                     <label for="reports-filter-data-final" class="min-h-5 text-sm leading-5 text-base-content/80">Data final</label>
                     <input id="reports-filter-data-final" type="date" name="data_final" value="{{ request.GET.data_final }}" class="input input-bordered w-full" />
                 </div>
+                {% if report_key == 'retorno_garantia' %}
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-mecanico" class="min-h-5 text-sm leading-5 text-base-content/80">Mecânico</label>
+                    <select id="reports-filter-mecanico" name="mecanico" class="select select-bordered w-full">
+                        <option value="">Todos</option>
+                        {% for mech in mechanic_options %}
+                        <option value="{{ mech.id }}" {% if selected_mechanic_id == mech.id %}selected{% endif %}>{{ mech.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                {% if report_key == 'taxa_aprovacao' %}
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-budget-status" class="min-h-5 text-sm leading-5 text-base-content/80">Status do Orçamento</label>
+                    <select id="reports-filter-budget-status" name="budget_status" class="select select-bordered w-full">
+                        <option value="">Todos</option>
+                        {% for opt in budget_status_options %}
+                        <option value="{{ opt.value }}" {% if selected_budget_status == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label for="reports-filter-workorder-status" class="min-h-5 text-sm leading-5 text-base-content/80">Status da O.S.</label>
+                    <select id="reports-filter-workorder-status" name="workorder_status" class="select select-bordered w-full">
+                        <option value="">Todos</option>
+                        {% for opt in workorder_status_options %}
+                        <option value="{{ opt.value }}" {% if selected_workorder_status == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
             </div>
 
             {% if sort_options %}
