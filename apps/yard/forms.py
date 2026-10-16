@@ -113,6 +113,7 @@ class YardHiddenStatusForm(forms.ModelForm):
         ]
         self.fields["target"].initial = YardColumnTarget.BUDGET
         self.fields["status"].choices = yard_status_choices()
+        self.fields["status"].widget.choices = self.fields["status"].choices
 
     def clean(self) -> dict:
         cleaned_data = super().clean()
