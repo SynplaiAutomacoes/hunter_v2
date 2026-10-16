@@ -151,6 +151,12 @@
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+.subscribe-grid input.is-invalid,
+.subscribe-full input.is-invalid {
+  border-color: var(--destructive);
+  outline: 2px solid color-mix(in oklch, var(--destructive) 45%, transparent);
+  outline-offset: 1px;
+}
 .subscribe-grid input:read-only,
 .subscribe-full input:read-only {
   background: var(--secondary);

@@ -77,6 +77,23 @@ STATUS_BADGE_CLASS = {
 }
 
 
+def _format_subscribe_form_errors(form: SubscribeSignupForm) -> str:
+    """Build a user-facing message that names each invalid field."""
+    parts: list[str] = []
+    for field_name, messages_list in form.errors.items():
+        if field_name == "__all__":
+            parts.extend(str(message) for message in messages_list)
+            continue
+        label = str(form.fields[field_name].label) if field_name in form.fields else field_name
+        for message in messages_list:
+            text = str(message)
+            if text.lower() == "este campo é obrigatório.":
+                parts.append(f"{label} é obrigatório.")
+            else:
+                parts.append(f"{label}: {text}")
+    return " ".join(parts) or "Não foi possível validar o formulário."
+
+
 class SubscribeView(TemplateView):
     template_name = "billing/subscribe.html"
 
@@ -161,11 +178,7 @@ class SubscribeVerifyCodeView(View):
         if not email or not code:
             return JsonResponse({"ok": False, "message": "Informe o e-mail e o código."}, status=400)
 
-        token = (
-            SignupEmailVerification.objects.filter(email__iexact=email, used=False)
-            .order_by("-criado_em")
-            .first()
-        )
+        token = SignupEmailVerification.objects.filter(email__iexact=email, used=False).order_by("-criado_em").first()
         if token is None:
             return JsonResponse({"ok": False, "message": "Código inválido. Solicite um novo."}, status=400)
 
@@ -190,7 +203,14 @@ class SubscribeStartView(View):
 
         form = SubscribeSignupForm(request.POST)
         if not form.is_valid():
-            return JsonResponse({"ok": False, "errors": form.errors}, status=400)
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "errors": form.errors,
+                    "message": _format_subscribe_form_errors(form),
+                },
+                status=400,
+            )
 
         verified_email = str(request.session.get(SIGNUP_EMAIL_SESSION_KEY) or "").strip().lower()
         if not verified_email or verified_email != form.cleaned_data["email"]:
@@ -569,9 +589,7 @@ def _execute_subscription_cancel(
 
     # Cortesia / sem Stripe: só cancelamento imediato local.
     if at_period_end:
-        raise BillingServiceError(
-            "Cancelamento no fim do período só está disponível para assinaturas Stripe."
-        )
+        raise BillingServiceError("Cancelamento no fim do período só está disponível para assinaturas Stripe.")
     return apply_local_subscription_cancel(subscription, at_period_end=False)
 
 

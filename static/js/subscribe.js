@@ -45,6 +45,18 @@ document.addEventListener("DOMContentLoaded", () => {
   let paymentReady = false;
   let emailVerified = false;
 
+  const FIELD_LABELS = {
+    first_name: "Nome",
+    last_name: "Sobrenome",
+    username: "Usuário",
+    email: "E-mail",
+    cpf: "CPF",
+    password1: "Senha",
+    password2: "Confirmar senha",
+    plan: "Plano",
+    promotion_code: "Cupom",
+  };
+
   function showError(message) {
     if (!errorBox) return;
     errorBox.hidden = false;
@@ -55,6 +67,34 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!errorBox) return;
     errorBox.hidden = true;
     errorBox.textContent = "";
+    form.querySelectorAll(".is-invalid").forEach((input) => {
+      input.classList.remove("is-invalid");
+    });
+  }
+
+  function markInvalidFields(errors) {
+    if (!errors || typeof errors !== "object") return;
+    Object.keys(errors).forEach((fieldName) => {
+      if (fieldName === "__all__") return;
+      const input = form.querySelector(`[name="${fieldName}"]`);
+      if (input) input.classList.add("is-invalid");
+    });
+  }
+
+  function formatFormErrors(errors) {
+    if (!errors || typeof errors !== "object") return "";
+    return Object.entries(errors)
+      .map(([fieldName, messages]) => {
+        const text = Array.isArray(messages) ? messages.join(" ") : String(messages);
+        if (fieldName === "__all__") return text;
+        const label = FIELD_LABELS[fieldName] || fieldName;
+        if (/^este campo é obrigatório\.?$/i.test(text.trim())) {
+          return `${label} é obrigatório.`;
+        }
+        return `${label}: ${text}`;
+      })
+      .filter(Boolean)
+      .join(" ");
   }
 
   function setLoading(isLoading, label) {
@@ -165,9 +205,12 @@ document.addEventListener("DOMContentLoaded", () => {
       throw new Error("Não foi possível iniciar o pagamento. Tente novamente.");
     }
     if (!startResponse.ok || !startPayload.ok) {
+      if (startPayload.errors) {
+        markInvalidFields(startPayload.errors);
+      }
       const firstError =
         startPayload.message ||
-        (startPayload.errors && Object.values(startPayload.errors).flat().join(" ")) ||
+        formatFormErrors(startPayload.errors) ||
         "Não foi possível iniciar o pagamento.";
       throw new Error(firstError);
     }
@@ -385,6 +428,13 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  form.addEventListener("input", (event) => {
+    const target = event.target;
+    if (target && target.classList) {
+      target.classList.remove("is-invalid");
+    }
+  });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

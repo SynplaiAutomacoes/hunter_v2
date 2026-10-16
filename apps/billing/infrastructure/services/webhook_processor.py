@@ -166,6 +166,28 @@ def mark_webhook_processed(event: StripeWebhookEvent) -> None:
     event.save(update_fields=["processed_at", "atualizado_em"])
 
 
+def _is_stale_terminal_event_for_subscription(
+    *,
+    existing: AccountSubscription,
+    incoming_subscription_id: str,
+    deleted: bool,
+    stripe_status: str,
+) -> bool:
+    """Ignore cancel/delete for an old Stripe sub after the account already re-subscribed.
+
+    Stripe may deliver ``customer.subscription.deleted`` for ``sub_old`` after
+    checkout already activated ``sub_new`` on the same customer. Matching only by
+    ``customer_id`` / ``account_id`` would wrongly flip the new row back to canceled.
+    """
+    if not (deleted or stripe_status in ("canceled", "incomplete_expired")):
+        return False
+    current_id = (existing.stripe_subscription_id or "").strip()
+    incoming_id = (incoming_subscription_id or "").strip()
+    if not current_id or not incoming_id:
+        return False
+    return current_id != incoming_id
+
+
 def process_checkout_session_completed(data: dict[str, Any]) -> AccountSubscription | None:
     account_id = _extract_account_id(data)
     if account_id is None:
@@ -183,6 +205,7 @@ def process_checkout_session_completed(data: dict[str, Any]) -> AccountSubscript
         stripe_customer_id=customer_id,
         stripe_subscription_id=subscription_id,
         stripe_price_id=_extract_price_id(data),
+        cancel_at_period_end=False,
     )
 
 
@@ -267,16 +290,34 @@ def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -
     customer_id = str(data.get("customer") or "")
     subscription_id = str(data.get("id") or "")
 
-    if account_id is None and subscription_id:
+    existing: AccountSubscription | None = None
+    if subscription_id:
         existing = AccountSubscription.objects.filter(stripe_subscription_id=subscription_id).first()
-        if existing is None and customer_id:
-            existing = AccountSubscription.objects.filter(stripe_customer_id=customer_id).first()
-        if existing is not None:
-            account_id = existing.account_id
+    if existing is None and customer_id:
+        existing = AccountSubscription.objects.filter(stripe_customer_id=customer_id).first()
+    if existing is None and account_id is not None:
+        existing = AccountSubscription.objects.filter(account_id=account_id).first()
+
+    if account_id is None and existing is not None:
+        account_id = existing.account_id
 
     if account_id is None:
         logger.warning("subscription event sem account_id: %s", subscription_id)
         return None
+
+    if existing is not None and _is_stale_terminal_event_for_subscription(
+        existing=existing,
+        incoming_subscription_id=subscription_id,
+        deleted=deleted,
+        stripe_status=stripe_status,
+    ):
+        logger.info(
+            "Ignorando cancelamento stale da assinatura %s (local=%s, account=%s)",
+            subscription_id,
+            existing.stripe_subscription_id,
+            account_id,
+        )
+        return existing
 
     status = SubscriptionStatus.CANCELED if deleted else STRIPE_STATUS_MAP.get(stripe_status, SubscriptionStatus.INCOMPLETE)
     plan = _plan_from_data(data)
@@ -284,13 +325,13 @@ def process_subscription_event(data: dict[str, Any], *, deleted: bool = False) -
 
     return sync_subscription_from_stripe(
         account_id=account_id,
-        plan=plan or SubscriptionPlan.BASIC,
+        plan=plan or (existing.plan if existing is not None else SubscriptionPlan.BASIC),
         status=status,
-        stripe_customer_id=customer_id,
-        stripe_subscription_id=subscription_id,
-        stripe_price_id=price_id,
+        stripe_customer_id=customer_id or (existing.stripe_customer_id if existing is not None else ""),
+        stripe_subscription_id=subscription_id or (existing.stripe_subscription_id if existing is not None else ""),
+        stripe_price_id=price_id or (existing.stripe_price_id if existing is not None else ""),
         current_period_end=_extract_current_period_end(data),
-        cancel_at_period_end=bool(data.get("cancel_at_period_end")),
+        cancel_at_period_end=bool(data.get("cancel_at_period_end")) if not deleted else False,
     )
 
 
@@ -300,19 +341,50 @@ def process_invoice_paid(data: dict[str, Any]) -> AccountSubscription | None:
         subscription_id = str(data.get("subscription") or "")
         if subscription_id:
             pending = PendingSignup.objects.filter(stripe_subscription_id=subscription_id).first()
-    if pending is None:
+    if pending is not None:
+        return process_pending_signup_paid(
+            {
+                **data,
+                "id": str(data.get("subscription") or pending.stripe_subscription_id or ""),
+                "metadata": {
+                    **(data.get("metadata") or {}),
+                    "pending_signup_id": str(pending.pk),
+                    "plan": pending.plan,
+                },
+                "status": "active",
+            }
+        )
+
+    # Conta existente (ex.: reassinatura / fatura paga): reativa se encontrarmos a row.
+    subscription_id = str(data.get("subscription") or "")
+    customer_id = str(data.get("customer") or "")
+    existing = None
+    if subscription_id:
+        existing = AccountSubscription.objects.filter(stripe_subscription_id=subscription_id).first()
+    if existing is None and customer_id:
+        existing = AccountSubscription.objects.filter(stripe_customer_id=customer_id).first()
+    if existing is None:
         return None
-    return process_pending_signup_paid(
-        {
-            **data,
-            "id": str(data.get("subscription") or pending.stripe_subscription_id or ""),
-            "metadata": {
-                **(data.get("metadata") or {}),
-                "pending_signup_id": str(pending.pk),
-                "plan": pending.plan,
-            },
-            "status": "active",
-        }
+    if existing.status == SubscriptionStatus.GRANDFATHERED:
+        return existing
+    if (
+        subscription_id
+        and existing.stripe_subscription_id
+        and existing.stripe_subscription_id != subscription_id
+        and existing.status == SubscriptionStatus.ACTIVE
+    ):
+        # Fatura de assinatura antiga enquanto a local já aponta para outra ativa.
+        return existing
+
+    return sync_subscription_from_stripe(
+        account_id=existing.account_id,
+        plan=existing.plan,
+        status=SubscriptionStatus.ACTIVE,
+        stripe_customer_id=customer_id or existing.stripe_customer_id,
+        stripe_subscription_id=subscription_id or existing.stripe_subscription_id,
+        stripe_price_id=_extract_price_id(data) or existing.stripe_price_id,
+        current_period_end=_extract_current_period_end(data),
+        cancel_at_period_end=False,
     )
 
 
