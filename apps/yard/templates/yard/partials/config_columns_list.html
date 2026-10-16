@@ -1,11 +1,93 @@
-<div class="space-y-2 overflow-y-auto pr-1" style="max-height: 372px;">
+{% load l10n %}
+<div
+    id="yard-columns-list"
+    class="space-y-2 overflow-y-auto pr-1"
+    style="max-height: 372px;"
+    x-data="{
+        reorderUrl: '{% url 'yard:columns_reorder' %}',
+        csrfToken: '{{ csrf_token|escapejs }}',
+        isReordering: false,
+        async reorderYardColumns() {
+            const list = document.getElementById('yard-columns-list');
+            if (this.isReordering || !list) {
+                return;
+            }
+            const columnIds = Array.from(list.querySelectorAll('[data-column-id]')).map(function (element) {
+                return element.dataset.columnId;
+            });
+            if (columnIds.length < 2) {
+                return;
+            }
+            this.isReordering = true;
+            const payload = new URLSearchParams();
+            columnIds.forEach(function (columnId) {
+                payload.append('column_ids', columnId);
+            });
+            try {
+                const response = await fetch(this.reorderUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                        'HX-Request': 'true',
+                        'X-CSRFToken': this.csrfToken,
+                    },
+                    body: payload.toString(),
+                });
+                const triggerHeader = response.headers.get('HX-Trigger');
+                if (triggerHeader) {
+                    try {
+                        const triggers = JSON.parse(triggerHeader);
+                        Object.entries(triggers).forEach(function ([eventName, detail]) {
+                            document.body.dispatchEvent(new CustomEvent(eventName, { detail: detail }));
+                        });
+                    } catch (error) {
+                    }
+                }
+                if (!response.ok) {
+                    throw new Error('Não foi possível reordenar as colunas.');
+                }
+            } catch (error) {
+                document.body.dispatchEvent(new CustomEvent('showToast', {
+                    detail: { message: 'Não foi possível reordenar as colunas.', type: 'error' }
+                }));
+                window.setTimeout(function () { window.location.reload(); }, 250);
+            } finally {
+                this.isReordering = false;
+            }
+        },
+    }"
+    x-sort="reorderYardColumns()"
+>
     {% for column in columns %}
-    <div class="flex items-center gap-3 rounded-lg border border-base-300 px-3 py-2">
+    <div class="flex items-center gap-2 rounded-lg border border-base-300 px-3 py-2" x-sort:item="{{ column.pk|unlocalize }}" data-column-id="{{ column.pk|unlocalize }}">
+        <span class="material-icons text-base-content/40 cursor-grab active:cursor-grabbing shrink-0" title="Arrastar para reordenar">drag_indicator</span>
         <span class="w-4 h-4 rounded-full shrink-0" style="background-color: {{ column.color }};"></span>
         <div class="min-w-0 flex-1">
             <p class="font-semibold text-sm truncate">{{ column.title }}</p>
             <p class="text-xs text-base-content/60">{{ column.get_target_display }} · {{ column.status_label }} · {{ column.get_date_base_display }}</p>
         </div>
+        <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            title="Mover para cima"
+            aria-label="Mover coluna {{ column.title }} para cima"
+            hx-post="{% url 'yard:column_move' column.pk %}"
+            hx-vals='{"direction": "up"}'
+            hx-target="#yard-config-columns"
+            hx-swap="innerHTML">
+            <span class="material-icons text-sm">arrow_upward</span>
+        </button>
+        <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            title="Mover para baixo"
+            aria-label="Mover coluna {{ column.title }} para baixo"
+            hx-post="{% url 'yard:column_move' column.pk %}"
+            hx-vals='{"direction": "down"}'
+            hx-target="#yard-config-columns"
+            hx-swap="innerHTML">
+            <span class="material-icons text-sm">arrow_downward</span>
+        </button>
         <button
             type="button"
             class="btn btn-ghost btn-xs text-info"

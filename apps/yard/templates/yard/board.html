@@ -1,28 +1,71 @@
 {% extends 'crud/page.html' %}
 
 {% block crud_content %}
-<div class="flex items-center justify-between gap-4 w-full">
+<style>
+    body.yard-fullscreen nav {
+        display: none;
+    }
+    body.yard-fullscreen .yard-hide-fullscreen {
+        display: none;
+    }
+    body.yard-fullscreen #yard-exit-fullscreen {
+        display: inline-flex;
+    }
+    #yard-exit-fullscreen {
+        display: none;
+    }
+    body.yard-fullscreen #yard-board > div {
+        min-height: calc(100vh - 150px);
+        align-items: stretch;
+    }
+    body.yard-fullscreen .yard-column-cards {
+        max-height: calc(100vh - 300px);
+    }
+</style>
+<div id="yard-page-header" class="flex items-center justify-between gap-4 w-full">
     <div>
         <h1 class="text-3xl font-bold text-base-content">Pátio da Oficina</h1>
         <p class="text-base-content/70 mt-1">Acompanhe orçamentos e ordens de serviço em tempo real</p>
     </div>
-    {% if can_edit %}
-    <button
-        type="button"
-        class="btn btn-primary"
-        hx-get="{% url 'yard:config_modal' %}"
-        hx-target="#yard-modal-container"
-        hx-swap="innerHTML"
-        onclick="yard_modal.showModal()">
-        <span class="material-icons" style="vertical-align: middle;">settings</span> Configurar Pátio
-    </button>
-    {% endif %}
+    <div class="flex items-center gap-2 flex-wrap justify-end">
+        <button
+            type="button"
+            class="btn {% if preference.hide_similar %}btn-primary{% else %}btn-outline{% endif %} yard-hide-fullscreen"
+            hx-post="{% url 'yard:preference_toggle_similar' %}"
+            title="Quando ligado, orçamentos com o mesmo número de uma OS são ocultados">
+            <span class="material-icons" style="vertical-align: middle;">visibility_off</span> Não exibir similares
+        </button>
+        <button
+            type="button"
+            id="yard-exit-fullscreen"
+            class="btn btn-outline"
+            onclick="document.body.classList.remove('yard-fullscreen')">
+            <span class="material-icons" style="vertical-align: middle;">fullscreen_exit</span> Sair da Tela Cheia
+        </button>
+        <button
+            type="button"
+            class="btn btn-outline yard-hide-fullscreen"
+            onclick="document.body.classList.add('yard-fullscreen')">
+            <span class="material-icons" style="vertical-align: middle;">fullscreen</span> Tela Cheia
+        </button>
+        {% if can_edit %}
+        <button
+            type="button"
+            class="btn btn-primary yard-hide-fullscreen"
+            hx-get="{% url 'yard:config_modal' %}"
+            hx-target="#yard-modal-container"
+            hx-swap="innerHTML"
+            onclick="yard_modal.showModal()">
+            <span class="material-icons" style="vertical-align: middle;">settings</span> Configurar Pátio
+        </button>
+        {% endif %}
+    </div>
 </div>
 
 <div
     id="yard-board"
     hx-get="{% url 'yard:board_content' %}"
-    hx-trigger="yard-board-refresh from:body"
+    hx-trigger="yard-board-refresh from:body, every 35s"
     hx-swap="innerHTML"
     hx-target="this"
 >
@@ -43,6 +86,11 @@
             const modal = document.getElementById('yard_modal');
             if (modal && modal.open) {
                 modal.close();
+            }
+        });
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                document.body.classList.remove('yard-fullscreen');
             }
         });
     })();

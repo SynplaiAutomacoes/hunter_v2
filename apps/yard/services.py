@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetImage, BudgetImageType, BudgetStatus
 from apps.collaborators.models import WorkshopCollaborator
-from apps.yard.models import STATUS_ALL, YardColumn, YardColumnTarget, YardDateBase
+from apps.yard.models import STATUS_ALL, YardColumn, YardColumnTarget, YardDateBase, YardHiddenStatus, YardPreference, YardStatusGroup
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
@@ -63,26 +63,35 @@ def _principal_image_url(*, budget: Budget | None) -> str | None:
     return reverse("budget:image_view", kwargs={"pk": images[0].pk})
 
 
-def _responsible_name(*, kind: str, budget: Budget, workorder: WorkOrder | None = None) -> str:
+def _responsible_names(*, kind: str, budget: Budget, workorder: WorkOrder | None = None) -> list[str]:
     if kind == "budget":
+        principal = getattr(budget, "collaborator", None)
+        if principal is not None:
+            return [getattr(principal, "name", "—") or "—"]
+        try:
+            first_additional = budget.collaborators.order_by("pk").first()
+        except Exception:
+            first_additional = None
+        if first_additional is not None:
+            return [getattr(first_additional, "name", "—") or "—"]
         analyst = getattr(budget, "cost_estimator", None)
         if analyst is None:
-            return "—"
+            return ["—"]
         full_name = analyst.get_full_name() if callable(getattr(analyst, "get_full_name", None)) else ""
-        return full_name.strip() or getattr(analyst, "username", "—")
+        return [full_name.strip() or getattr(analyst, "username", "—")]
     assert workorder is not None
     try:
         collaborators = list(workorder.collaborators.all())
     except Exception:
         collaborators = []
     productive = [collaborator for collaborator in collaborators if getattr(collaborator, "collaborator_type", None) == WorkshopCollaborator.CollaboratorType.PRODUCTIVE]
-    chosen = (productive or collaborators or [None])[0]
-    if chosen is not None:
-        return getattr(chosen, "name", "—") or "—"
+    names = [getattr(collaborator, "name", None) or "—" for collaborator in (productive or collaborators)]
+    if names:
+        return names
     previous_mechanic = getattr(workorder, "previous_mechanic", None)
     if previous_mechanic is not None:
-        return getattr(previous_mechanic, "name", "—") or "—"
-    return "—"
+        return [getattr(previous_mechanic, "name", "—") or "—"]
+    return ["—"]
 
 
 def _expected_at(*, budget: Budget) -> Any:
@@ -96,10 +105,13 @@ def _format_expected(value: Any) -> str:
     return local_value.strftime("%b %d - %H:%M")
 
 
-def _build_budget_card(*, budget: Budget, color: str, show_status: bool) -> dict[str, Any]:
+def _build_budget_card(*, budget: Budget, color: str, show_status: bool, status_aliases: dict[str, str] | None = None) -> dict[str, Any]:
     vehicle = getattr(budget, "vehicle", None)
     customer = getattr(budget, "customer", None)
     expected_at = _expected_at(budget=budget)
+    status_label = ""
+    if show_status:
+        status_label = (status_aliases or {}).get(str(budget.status)) or budget.get_status_display()
     return {
         "kind": "budget",
         "plate": getattr(vehicle, "plate", None) or "—",
@@ -107,20 +119,23 @@ def _build_budget_card(*, budget: Budget, color: str, show_status: bool) -> dict
         "model": getattr(vehicle, "model", None) or "",
         "show_id": getattr(budget, "public_number", None) or getattr(budget, "number", "—"),
         "customer": getattr(customer, "name", None) or "—",
-        "status_label": budget.get_status_display() if show_status else "",
+        "status_label": status_label,
         "photo_url": _principal_image_url(budget=budget),
-        "responsible": _responsible_name(kind="budget", budget=budget),
+        "responsibles": _responsible_names(kind="budget", budget=budget),
         "expected_label": _format_expected(expected_at),
         "color": color,
         "detail_url": reverse("budget:budget_update", kwargs={"pk": budget.pk}),
     }
 
 
-def _build_workorder_card(*, workorder: WorkOrder, color: str, show_status: bool) -> dict[str, Any]:
+def _build_workorder_card(*, workorder: WorkOrder, color: str, show_status: bool, status_aliases: dict[str, str] | None = None) -> dict[str, Any]:
     budget = getattr(workorder, "budget", None)
     vehicle = getattr(budget, "vehicle", None) if budget is not None else None
     customer = getattr(budget, "customer", None) if budget is not None else None
     expected_at = _expected_at(budget=budget) if budget is not None else None
+    status_label = ""
+    if show_status:
+        status_label = (status_aliases or {}).get(str(workorder.status)) or workorder.get_status_display()
     return {
         "kind": "workorder",
         "plate": getattr(vehicle, "plate", None) or "—",
@@ -128,28 +143,31 @@ def _build_workorder_card(*, workorder: WorkOrder, color: str, show_status: bool
         "model": getattr(vehicle, "model", None) or "",
         "show_id": workorder.get_id,
         "customer": getattr(customer, "name", None) or "—",
-        "status_label": workorder.get_status_display() if show_status else "",
+        "status_label": status_label,
         "photo_url": _principal_image_url(budget=budget),
-        "responsible": _responsible_name(kind="workorder", budget=budget, workorder=workorder),
+        "responsibles": _responsible_names(kind="workorder", budget=budget, workorder=workorder),
         "expected_label": _format_expected(expected_at),
         "color": color,
         "detail_url": reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk}),
     }
 
 
-def _budget_queryset(*, workshop, column: YardColumn, covered_statuses: set[str], start: date, end: date):
+def _budget_queryset(*, workshop, column: YardColumn, covered_statuses: set[str], hidden_statuses: set[str], start: date, end: date):
     queryset = (
         Budget.objects.filter(workshop=workshop, entry_date__gte=start, entry_date__lte=end)
-        .select_related("vehicle", "customer", "cost_estimator")
-        .prefetch_related(Prefetch("budget_image", queryset=BudgetImage.objects.filter(image_type=BudgetImageType.PRINCIPAL), to_attr="_yard_principal_images"))
+        .select_related("vehicle", "customer", "cost_estimator", "collaborator")
+        .prefetch_related(
+            Prefetch("budget_image", queryset=BudgetImage.objects.filter(image_type=BudgetImageType.PRINCIPAL), to_attr="_yard_principal_images"),
+            "collaborators",
+        )
         .order_by("-entry_date", "-id")
     )
     if column.status == STATUS_ALL:
-        return queryset.exclude(status__in=sorted(covered_statuses))
+        return queryset.exclude(status__in=sorted(covered_statuses | hidden_statuses))
     return queryset.filter(status=column.status)
 
 
-def _workorder_queryset(*, workshop, column: YardColumn, covered_statuses: set[str], start: date, end: date):
+def _workorder_queryset(*, workshop, column: YardColumn, covered_statuses: set[str], hidden_statuses: set[str], start: date, end: date):
     queryset = (
         WorkOrder.objects.filter(workshop=workshop)
         .select_related("budget", "budget__vehicle", "budget__customer", "budget__cost_estimator", "previous_mechanic")
@@ -164,7 +182,7 @@ def _workorder_queryset(*, workshop, column: YardColumn, covered_statuses: set[s
     else:
         queryset = queryset.filter(criado_em__date__gte=start, criado_em__date__lte=end)
         if column.status == STATUS_ALL:
-            queryset = queryset.exclude(status__in=sorted(covered_statuses))
+            queryset = queryset.exclude(status__in=sorted(covered_statuses | hidden_statuses))
         else:
             queryset = queryset.filter(status=column.status)
     return queryset
@@ -173,24 +191,39 @@ def _workorder_queryset(*, workshop, column: YardColumn, covered_statuses: set[s
 def get_board_data(*, workshop) -> list[dict[str, Any]]:
     """Monta as colunas ativas com seus cards para o Kanban do Pátio."""
     columns = ensure_default_columns(workshop=workshop)
-    active_columns = list(columns)
     today = timezone.localdate()
 
+    hidden: dict[str, set[str]] = {YardColumnTarget.BUDGET: set(), YardColumnTarget.WORKORDER: set()}
+    for hidden_status in YardHiddenStatus.objects.filter(workshop=workshop):
+        hidden.setdefault(hidden_status.target, set()).add(hidden_status.status)
+
+    group_titles: dict[str, dict[str, str]] = {YardColumnTarget.BUDGET: {}, YardColumnTarget.WORKORDER: {}}
+    for group in YardStatusGroup.objects.filter(workshop=workshop):
+        for status in group.statuses or []:
+            group_titles.setdefault(group.target, {}).setdefault(str(status), group.title)
+
+    preference, _created = YardPreference.objects.get_or_create(workshop=workshop)
+
     covered: dict[str, set[str]] = {YardColumnTarget.BUDGET: set(), YardColumnTarget.WORKORDER: set()}
-    for column in active_columns:
+    for column in columns:
         if column.status != STATUS_ALL:
             covered[column.target].add(column.status)
 
     board: list[dict[str, Any]] = []
-    for column in active_columns:
+    workorder_ids: set[str] = set()
+    for column in columns:
+        if column.status != STATUS_ALL and column.status in hidden.get(column.target, set()):
+            continue
         start, end = period_range(date_base=column.date_base, today=today)
         show_status = column.status == STATUS_ALL
+        aliases = group_titles.get(column.target, {})
         if column.target == YardColumnTarget.BUDGET:
-            items = _budget_queryset(workshop=workshop, column=column, covered_statuses=covered[column.target], start=start, end=end)
-            cards = [_build_budget_card(budget=item, color=column.color, show_status=show_status) for item in items]
+            items = _budget_queryset(workshop=workshop, column=column, covered_statuses=covered[column.target], hidden_statuses=hidden.get(column.target, set()), start=start, end=end)
+            cards = [_build_budget_card(budget=item, color=column.color, show_status=show_status, status_aliases=aliases) for item in items]
         else:
-            items = _workorder_queryset(workshop=workshop, column=column, covered_statuses=covered[column.target], start=start, end=end)
-            cards = [_build_workorder_card(workorder=item, color=column.color, show_status=show_status) for item in items]
+            items = _workorder_queryset(workshop=workshop, column=column, covered_statuses=covered[column.target], hidden_statuses=hidden.get(column.target, set()), start=start, end=end)
+            cards = [_build_workorder_card(workorder=item, color=column.color, show_status=show_status, status_aliases=aliases) for item in items]
+            workorder_ids.update(str(card["show_id"]) for card in cards)
         board.append(
             {
                 "column": column,
@@ -201,4 +234,17 @@ def get_board_data(*, workshop) -> list[dict[str, Any]]:
                 "show_status": show_status,
             }
         )
+
+    if preference.hide_similar:
+        for entry in board:
+            entry["cards"] = [
+                card for card in entry["cards"]
+                if not (card["kind"] == "budget" and str(card["show_id"]) in workorder_ids)
+            ]
+            entry["count"] = len(entry["cards"])
     return board
+
+
+def get_board_preference(*, workshop) -> YardPreference:
+    preference, _created = YardPreference.objects.get_or_create(workshop=workshop)
+    return preference
