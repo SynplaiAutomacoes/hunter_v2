@@ -41,7 +41,12 @@ class BudgetStep3Form(BudgetStepBaseForm):
 
         initial_collaborators = []
         if self.instance.pk:
-            initial_collaborators = [{"id": str(c.id), "name": c.name, "is_new": False} for c in self.instance.collaborators.all()]
+            principal_id = getattr(self.instance, "collaborator_id", None)
+            ordered_collabs = sorted(
+                self.instance.collaborators.all(),
+                key=lambda collaborator: (0 if collaborator.pk == principal_id else 1, collaborator.pk or 0),
+            )
+            initial_collaborators = [{"id": str(c.id), "name": c.name, "is_new": False} for c in ordered_collabs]
 
         if not initial_collaborators:
             initial_collaborators = [{"id": "", "is_new": True}]
@@ -865,13 +870,17 @@ class BudgetStep3Form(BudgetStepBaseForm):
     def save(self, commit=True):
         budget = super().save(commit=commit)
 
-        # Processamento dos Colaboradores
+        # Processamento dos Colaboradores (índice 0 = Principal)
         if "collaborators_list" in self.request.POST:
             collaborator_ids = [cid for cid in self.request.POST.getlist("collaborators_list") if cid.strip()]
             if collaborator_ids:
                 budget.collaborators.set(collaborator_ids)
+                Budget.objects.filter(pk=budget.pk).update(collaborator_id=int(collaborator_ids[0]))
+                budget.collaborator_id = int(collaborator_ids[0])
             else:
                 budget.collaborators.clear()
+                Budget.objects.filter(pk=budget.pk).update(collaborator=None)
+                budget.collaborator = None
 
             if budget.status == BudgetStatus.APPROVED:
                 workorder = budget.workorders.order_by("id").first()

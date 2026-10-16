@@ -1,0 +1,16 @@
+<div class="px-4 pt-4 pb-3 border-b-4" style="border-color: {{ col.color }};">
+    <div class="flex items-center justify-between gap-2">
+        <h2 class="text-lg font-bold text-base-content truncate">{{ col.title }}</h2>
+        <span class="badge font-bold text-white shrink-0" style="background-color: {{ col.color }}; border-color: {{ col.color }};">{{ col.count }}</span>
+    </div>
+</div>
+<div class="yard-column-cards p-3 space-y-3 max-h-[70vh] overflow-y-auto">
+    {% for card in col.cards %}
+        {% include 'yard/partials/card.html' with card=card %}
+    {% empty %}
+    <div class="text-center text-sm text-base-content/50 py-8">
+        <span class="material-icons text-4xl mb-2">inbox</span>
+        <p>Nenhum item nesta coluna</p>
+    </div>
+    {% endfor %}
+</div>

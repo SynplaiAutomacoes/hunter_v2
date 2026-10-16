@@ -19,7 +19,11 @@
             <img src="{{ card.photo_url }}" alt="Foto do veículo {{ card.plate }}" class="w-full h-36 object-cover" loading="lazy">
         </div>
         {% endif %}
-        <div class="text-sm text-base-content/60">{{ card.responsible }}</div>
+        <div class="text-sm text-base-content/60 leading-snug">
+            {% for name in card.responsibles %}
+            <p>{{ name }}</p>
+            {% endfor %}
+        </div>
         <div class="flex items-center gap-1.5 text-sm font-semibold text-base-content pt-1 border-t border-base-300/60">
             <span class="material-icons text-base" style="color: {{ card.color }};">date_range</span>
             <span>{{ card.expected_label }}</span>
