@@ -7,10 +7,10 @@
     })"
 >
     <div class="sticky top-0 z-100 bg-navbar text-navbar-text shadow-sm">
-        <div class="navbar gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center md:px-10 lg:flex xl:px-20">
-            <div class="navbar-start gap-2 md:w-auto md:min-w-0 lg:w-1/2">
+        <div class="navbar flex-wrap gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:flex-nowrap md:items-center md:px-10 lg:flex xl:px-20">
+            <div class="navbar-start shrink-0 gap-2 md:w-auto lg:w-auto">
             <div class="dropdown">
-                <div tabindex="0" role="button" class="pr-5 lg:hidden" aria-label="Abrir menu">
+                <div tabindex="0" role="button" class="pr-5 xl:hidden" aria-label="Abrir menu">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
                     </svg>
@@ -55,7 +55,7 @@
             </a>
             </div>
 
-            <div class="navbar-center hidden lg:flex lg:flex-none">
+            <div class="navbar-center hidden min-w-0 flex-1 justify-center xl:flex">
             <ul class="menu menu-horizontal">
                 {% for menu in navbar_menus %}
                     <li>
@@ -98,7 +98,7 @@
             </ul>
             </div>
 
-            <div class="navbar-end gap-2 md:w-auto md:min-w-0 md:justify-self-end lg:w-1/2">
+            <div class="navbar-end shrink-0 justify-end gap-2 md:w-auto md:min-w-0 md:justify-self-end lg:w-auto">
             {% include 'navbar/partials/workshop_select.html' %}
 
             <label class="swap swap-rotate px-2 text-navbar-text m-0" aria-label="Alternar tema">

@@ -1,0 +1,100 @@
+{% if column %}
+<form
+    hx-post="{% url 'yard:column_update' column.pk %}"
+    hx-target="#yard-modal-container"
+    hx-swap="innerHTML"
+    class="grid grid-cols-1 md:grid-cols-2 gap-4"
+>
+{% else %}
+<form
+    hx-post="{% url 'yard:column_create' %}"
+    hx-target="#yard-modal-container"
+    hx-swap="innerHTML"
+    class="grid grid-cols-1 md:grid-cols-2 gap-4"
+>
+{% endif %}
+    {% csrf_token %}
+    <div>
+        <label class="label"><span class="label-text text-xs">{{ form.target.label }}</span></label>
+        {{ form.target }}
+        {% if form.target.errors %}<p class="text-xs text-error mt-1">{{ form.target.errors.0 }}</p>{% endif %}
+    </div>
+    <div>
+        <label class="label"><span class="label-text text-xs">{{ form.status.label }}</span></label>
+        {{ form.status }}
+        {% if form.status.errors %}<p class="text-xs text-error mt-1">{{ form.status.errors.0 }}</p>{% endif %}
+    </div>
+    <div>
+        <label class="label"><span class="label-text text-xs">{{ form.title.label }}</span></label>
+        {{ form.title }}
+        {% if form.title.errors %}<p class="text-xs text-error mt-1">{{ form.title.errors.0 }}</p>{% endif %}
+    </div>
+    <div>
+        <label class="label"><span class="label-text text-xs">{{ form.date_base.label }}</span></label>
+        {{ form.date_base }}
+        {% if form.date_base.errors %}<p class="text-xs text-error mt-1">{{ form.date_base.errors.0 }}</p>{% endif %}
+    </div>
+    <div class="md:col-span-2">
+        <span class="label"><span class="label-text text-xs">{{ form.color.label }}</span></span>
+        <div class="flex flex-wrap gap-1 justify-between">
+            {% for value, label in form.color.field.choices %}
+            <label title="{{ label }}" class="cursor-pointer">
+                <input type="radio" name="{{ form.color.html_name }}" value="{{ value }}" class="peer sr-only" {% if form.color.value == value %}checked{% endif %}>
+                <span class="block w-11 h-11 rounded-md shadow peer-checked:ring-2 peer-checked:ring-primary peer-checked:ring-offset-2 peer-checked:ring-offset-base-100" style="background-color: {{ value }};"></span>
+            </label>
+            {% endfor %}
+        </div>
+        {% if form.color.errors %}<p class="text-xs text-error mt-1">{{ form.color.errors.0 }}</p>{% endif %}
+    </div>
+    {% if form.non_field_errors %}
+    <div class="md:col-span-2 alert alert-error text-sm py-2">
+        {% for error in form.non_field_errors %}<span>{{ error }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="md:col-span-2 flex justify-end gap-2">
+        {% if column %}
+        <button
+            type="button"
+            class="btn btn-ghost"
+            hx-get="{% url 'yard:config_modal' %}"
+            hx-target="#yard-modal-container"
+            hx-swap="innerHTML">
+            Nova coluna
+        </button>
+        {% endif %}
+        <button type="submit" class="btn btn-primary">{% if column %}Salvar alterações{% else %}Criar coluna{% endif %}</button>
+    </div>
+</form>
+
+<script>
+    (function() {
+        var targetSelect = document.querySelector('#yard-config-form-wrapper select[name="target"], #yard-modal-container select[name="target"]');
+        var statusSelect = document.querySelector('#yard-config-form-wrapper select[name="status"], #yard-modal-container select[name="status"]');
+        if (!targetSelect || !statusSelect) {
+            return;
+        }
+        function filterStatusOptions() {
+            var target = targetSelect.value;
+            var options = statusSelect.querySelectorAll('option');
+            options.forEach(function(opt) {
+                var group = opt.parentElement;
+                var groupLabel = (group && group.tagName === 'OPTGROUP') ? (group.getAttribute('label') || '') : '';
+                var show = groupLabel === 'Geral'
+                    || (target === 'budget' && groupLabel === 'Orçamentos')
+                    || (target === 'workorder' && groupLabel === 'Ordens de Serviço');
+                opt.hidden = !show;
+                opt.disabled = !show;
+            });
+            statusSelect.querySelectorAll('optgroup').forEach(function(group) {
+                var anyVisible = Array.prototype.some.call(group.querySelectorAll('option'), function(o) { return !o.hidden; });
+                group.style.display = anyVisible ? '' : 'none';
+            });
+            var current = statusSelect.querySelector('option:checked');
+            if (current && current.hidden) {
+                statusSelect.value = 'all';
+            }
+        }
+        targetSelect.addEventListener('change', filterStatusOptions);
+        filterStatusOptions();
+    })();
+</script>
