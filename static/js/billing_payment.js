@@ -36,6 +36,51 @@ document.addEventListener("DOMContentLoaded", () => {
     submitButton.textContent = isLoading ? "Salvando…" : "Salvar cartão";
   }
 
+  function ensurePaymentMountStructure() {
+    if (!mount) return null;
+    let host = mount.querySelector(".payment-element-host");
+    if (!host || !mount.querySelector(".payment-element-loading")) {
+      mount.innerHTML = `
+        <div class="payment-element-loading" role="status" aria-live="polite">
+          <span class="payment-element-spinner" aria-hidden="true"></span>
+          <span class="payment-element-loading-text">Carregando formulário do cartão…</span>
+        </div>
+        <div class="payment-element-host"></div>
+      `;
+      host = mount.querySelector(".payment-element-host");
+    }
+    return host;
+  }
+
+  function showPaymentLoading(message) {
+    if (!mount) return;
+    ensurePaymentMountStructure();
+    const text = mount.querySelector(".payment-element-loading-text");
+    if (text) {
+      text.textContent = message || "Carregando formulário do cartão…";
+    }
+    mount.classList.add("is-loading", "payment-element");
+  }
+
+  function clearPaymentLoading() {
+    if (!mount) return;
+    mount.classList.remove("is-loading");
+  }
+
+  function waitForPaymentElementReady(element) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearPaymentLoading();
+        resolve();
+      };
+      element.on("ready", finish);
+      window.setTimeout(finish, 8000);
+    });
+  }
+
   async function postForm(url, fields) {
     const body = new FormData();
     body.append("csrfmiddlewaretoken", config.csrfToken || "");
@@ -60,6 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
     form.hidden = false;
     toggleButton.disabled = true;
     setLoading(true);
+    showPaymentLoading("Preparando formulário do cartão…");
     try {
       const data = await postForm(config.setupIntentUrl, {});
       clientSecret = data.client_secret;
@@ -71,9 +117,14 @@ document.addEventListener("DOMContentLoaded", () => {
         clientSecret,
         appearance: { theme: "stripe" },
       });
+      const host = ensurePaymentMountStructure();
+      showPaymentLoading("Carregando formulário do cartão…");
       paymentElement = elements.create("payment");
-      paymentElement.mount(mount);
+      paymentElement.mount(host);
+      await waitForPaymentElementReady(paymentElement);
     } catch (err) {
+      clearPaymentLoading();
+      if (mount) mount.innerHTML = "";
       showError(err.message || "Falha ao iniciar a troca de cartão.");
       form.hidden = true;
       toggleButton.disabled = false;
@@ -92,6 +143,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     elements = null;
     clientSecret = null;
+    clearPaymentLoading();
+    if (mount) mount.innerHTML = "";
   }
 
   toggleButton.addEventListener("click", () => {

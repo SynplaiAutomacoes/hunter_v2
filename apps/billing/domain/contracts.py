@@ -63,7 +63,9 @@ class IncompleteSubscriptionRequest:
     customer_name: str
     plan: str
     price_id: str
-    pending_signup_id: int
+    pending_signup_id: int = 0
+    account_id: int | None = None
+    stripe_customer_id: str = ""
     promotion_code: str = ""
 
 

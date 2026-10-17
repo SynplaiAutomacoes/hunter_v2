@@ -168,6 +168,12 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                     getattr(user_account, "id", None),
                     getattr(user, "id", None),
                 )
+            from apps.core.presentation.middlewares import RequireFirstWorkshopMiddleware
+
+            RequireFirstWorkshopMiddleware.mark_workshop_access_granted(
+                self.request,
+                workshop_id=getattr(workshop, "pk", None),
+            )
         except FiscalServiceError as exc:
             logger.exception(
                 "workshop_create_failed_integration user_id=%s account_id=%s",

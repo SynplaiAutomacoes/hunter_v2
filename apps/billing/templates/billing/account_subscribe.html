@@ -1,0 +1,76 @@
+{% extends 'billing/billing_shell.html' %}
+{% load static %}
+
+{% block billing_title %}Pagar assinatura — Hunter Auto{% endblock %}
+
+{% block billing_head %}
+<script src="https://js.stripe.com/v3/"></script>
+{% endblock %}
+
+{% block billing_header_extra %}
+<a class="btn-outline header-client" href="{% url 'billing:plans' %}">Planos</a>
+{% endblock %}
+
+{% block billing_content %}
+<div class="subscribe-wrap billing-account-checkout">
+  <aside class="subscribe-summary">
+    <p class="subscribe-plan-label">Assinatura Hunter Auto</p>
+    <h1>{{ selected_plan.name|default:"Plano Hunter Auto" }}</h1>
+    <p class="subscribe-price" id="subscribe-price">
+      <strong id="subscribe-price-value" data-original-label="{{ selected_plan.price_label|default:'Consulte' }}">{{ selected_plan.price_label|default:"Consulte" }}</strong>
+      {% if selected_plan.interval_label %}<span id="subscribe-price-interval">{{ selected_plan.interval_label }}</span>{% endif %}
+    </p>
+    <p class="subscribe-price-note" id="subscribe-price-note" hidden></p>
+    {% if selected_plan.description %}
+    <p class="subscribe-desc">{{ selected_plan.description }}</p>
+    {% endif %}
+    {% if selected_plan.features %}
+    <ul class="subscribe-features">
+      {% for feature in selected_plan.features %}
+      <li>{{ feature }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <p class="subscribe-assurance">O pagamento é processado com segurança pela Stripe, sem sair do Hunter Auto.</p>
+  </aside>
+
+  <section class="subscribe-card">
+    <h2>Concluir pagamento</h2>
+    <p class="subscribe-note">Informe um cupom se tiver e preencha os dados do cartão abaixo.</p>
+
+    <form id="subscribe-form" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="plan" value="{{ plan_key }}" />
+
+      <div class="subscribe-coupon-row">
+        <label class="subscribe-full subscribe-coupon-field">
+          Cupom (opcional)
+          <input type="text" name="promotion_code" id="subscribe-coupon" autocomplete="off" placeholder="Código do cupom" />
+        </label>
+        <button type="button" id="subscribe-validate-coupon" class="btn-outline subscribe-coupon-btn">Validar cupom</button>
+      </div>
+      <p id="subscribe-coupon-status" class="subscribe-coupon-status" hidden></p>
+
+      <div id="payment-element" class="payment-element"></div>
+      <p class="subscribe-note subscribe-installments-note">
+        Se o seu cartão for elegível, a Stripe exibirá opções de parcelamento no formulário de pagamento.
+      </p>
+      <div id="subscribe-error" class="subscribe-error" hidden></div>
+      <button id="subscribe-submit" type="submit" class="btn-conversion subscribe-submit">Pagar assinatura</button>
+    </form>
+  </section>
+</div>
+
+<script>
+  window.SUBSCRIBE_CONFIG = {
+    mode: "account",
+    startUrl: "{{ start_url|escapejs }}",
+    validateCouponUrl: "{{ validate_coupon_url|escapejs }}",
+    confirmSetupUrl: "{{ confirm_setup_url|escapejs }}",
+    completeUrl: "{{ complete_url|escapejs }}",
+    publishableKey: "{{ stripe_publishable_key|escapejs }}",
+    csrfToken: "{{ csrf_token|escapejs }}",
+  };
+</script>
+<script src="{% static 'js/subscribe.js' %}" defer></script>
+{% endblock %}

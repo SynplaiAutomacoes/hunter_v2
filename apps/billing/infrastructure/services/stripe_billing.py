@@ -33,6 +33,7 @@ from apps.billing.domain.contracts import (
 )
 from apps.billing.domain.plans import Plan
 from apps.billing.infrastructure.gateways import stripe as stripe_gateway
+from apps.billing.models import AccountSubscription, SubscriptionStatus
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +216,8 @@ class StripeBillingService(IBillingService):
             plan=request.plan,
             price_id=price_id,
             pending_signup_id=request.pending_signup_id,
+            account_id=request.account_id,
+            stripe_customer_id=request.stripe_customer_id,
             promotion_code=request.promotion_code,
         )
         return IncompleteSubscriptionResult(
@@ -276,6 +279,38 @@ class StripeBillingService(IBillingService):
             "payment_method_id": str(result["payment_method_id"]),
             "setup_intent_id": str(result["setup_intent_id"]),
         }
+
+    def sync_account_subscription_from_stripe(
+        self,
+        *,
+        account_id: int,
+        stripe_subscription_id: str,
+        plan: str = "",
+    ) -> AccountSubscription:
+        from apps.billing.access import sync_subscription_from_stripe
+        from apps.billing.infrastructure.services.webhook_processor import (
+            STRIPE_STATUS_MAP,
+            _extract_price_id,
+            _parse_unix_timestamp,
+            _plan_from_data,
+        )
+
+        data = stripe_gateway.retrieve_subscription(stripe_subscription_id=stripe_subscription_id)
+        stripe_status = str(data.get("status") or "")
+        mapped_status = STRIPE_STATUS_MAP.get(stripe_status, SubscriptionStatus.INCOMPLETE)
+        resolved_plan = plan if plan in (Plan.BASIC, Plan.FULL) else _plan_from_data(data)
+        customer = data.get("customer")
+        customer_id = str(customer.get("id") if isinstance(customer, dict) else (customer or ""))
+        return sync_subscription_from_stripe(
+            account_id=account_id,
+            plan=resolved_plan,
+            status=mapped_status,
+            stripe_customer_id=customer_id,
+            stripe_subscription_id=str(data.get("id") or stripe_subscription_id),
+            stripe_price_id=_extract_price_id(data),
+            current_period_end=_parse_unix_timestamp(data.get("current_period_end")),
+            cancel_at_period_end=bool(data.get("cancel_at_period_end")),
+        )
 
     def list_customer_invoices(self, *, stripe_customer_id: str, limit: int = 24) -> list[InvoiceSummary]:
         rows = stripe_gateway.list_customer_invoices(stripe_customer_id=stripe_customer_id, limit=limit)

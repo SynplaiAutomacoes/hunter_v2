@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, override_settings
 from apps.billing.domain.contracts import BillingServiceError
 from apps.billing.infrastructure.gateways.stripe import (
     construct_webhook_event,
+    create_checkout_session,
     create_incomplete_subscription,
     preview_discount,
     resolve_discount,
@@ -161,6 +162,97 @@ class StripeGatewayTests(SimpleTestCase):
         expand = create_subscription.call_args.kwargs["expand"]
         self.assertIn("latest_invoice.confirmation_secret", expand)
         self.assertNotIn("discounts", create_subscription.call_args.kwargs)
+        payment_settings = create_subscription.call_args.kwargs["payment_settings"]
+        self.assertEqual(payment_settings["save_default_payment_method"], "on_subscription")
+        self.assertNotIn("payment_method_options", payment_settings)
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.modify")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
+    def test_create_incomplete_subscription_reuses_customer_and_account_metadata(
+        self,
+        create_customer: Mock,
+        modify_customer: Mock,
+        create_subscription: Mock,
+    ) -> None:
+        subscription = Mock()
+        subscription.to_dict.return_value = {
+            "id": "sub_account",
+            "latest_invoice": {
+                "id": "in_1",
+                "confirmation_secret": {"client_secret": "pi_secret_acc", "type": "payment_intent"},
+            },
+        }
+        create_subscription.return_value = subscription
+
+        result = create_incomplete_subscription(
+            email="owner@example.com",
+            customer_name="Owner",
+            plan="full",
+            price_id="price_full",
+            account_id=42,
+            stripe_customer_id="cus_existing",
+        )
+
+        create_customer.assert_not_called()
+        modify_customer.assert_called_once()
+        self.assertEqual(create_subscription.call_args.kwargs["customer"], "cus_existing")
+        self.assertEqual(
+            create_subscription.call_args.kwargs["metadata"],
+            {"plan": "full", "account_id": "42"},
+        )
+        self.assertEqual(result["customer_id"], "cus_existing")
+        self.assertEqual(result["subscription_id"], "sub_account")
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.PaymentIntent.modify")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.Customer.create")
+    def test_create_incomplete_subscription_enables_installments_on_payment_intent(
+        self,
+        create_customer: Mock,
+        create_subscription: Mock,
+        modify_pi: Mock,
+    ) -> None:
+        create_customer.return_value = Mock(id="cus_1", to_dict=Mock(return_value={"id": "cus_1"}))
+        subscription = Mock()
+        subscription.to_dict.return_value = {
+            "id": "sub_1",
+            "latest_invoice": {
+                "id": "in_1",
+                "confirmation_secret": {"client_secret": "pi_secret_123", "type": "payment_intent"},
+                "payment_intent": {"id": "pi_install", "client_secret": "pi_secret_123"},
+            },
+        }
+        create_subscription.return_value = subscription
+
+        create_incomplete_subscription(
+            email="ana@example.com",
+            customer_name="Ana",
+            plan="basic",
+            price_id="price_basic",
+            pending_signup_id=7,
+        )
+
+        modify_pi.assert_called_once_with(
+            "pi_install",
+            payment_method_options={"card": {"installments": {"enabled": True}}},
+        )
+
+    @patch("apps.billing.infrastructure.gateways.stripe.stripe.checkout.Session.create")
+    def test_create_checkout_session_omits_installments_in_subscription_mode(self, create_session: Mock) -> None:
+        create_session.return_value = Mock(id="cs_1", url="https://checkout.stripe.test/cs_1")
+        result = create_checkout_session(
+            price_id="price_basic",
+            success_url="https://app.test/ok",
+            cancel_url="https://app.test/cancel",
+            customer_email="ana@example.com",
+            account_id=1,
+            plan="basic",
+        )
+        self.assertEqual(result["id"], "cs_1")
+        kwargs = create_session.call_args.kwargs
+        self.assertEqual(kwargs["mode"], "subscription")
+        self.assertNotIn("payment_method_options", kwargs)
 
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.PromotionCode.list")
     @patch("apps.billing.infrastructure.gateways.stripe.stripe.Subscription.create")

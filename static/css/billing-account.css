@@ -193,6 +193,20 @@
   gap: 8px;
 }
 
+.billing-status-banner .banner-actions .btn-outline,
+.billing-status-banner .banner-actions .header-client {
+  color: var(--inverse);
+  border-color: color-mix(in oklch, var(--inverse) 45%, transparent);
+  background: transparent;
+}
+
+.billing-status-banner .banner-actions .btn-outline:hover,
+.billing-status-banner .banner-actions .header-client:hover {
+  color: var(--inverse);
+  border-color: var(--inverse);
+  background: color-mix(in oklch, var(--inverse) 12%, transparent);
+}
+
 .billing-payment-layout {
   display: grid;
   grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
@@ -290,9 +304,26 @@
   border-top: 1px solid var(--border);
 }
 
+.billing-account-checkout.subscribe-wrap {
+  margin: 0 auto;
+  max-width: 1080px;
+}
+
 #payment-update-element {
   margin: 12px 0;
   min-height: 24px;
+  position: relative;
+}
+#payment-update-element.is-loading {
+  min-height: 120px;
+}
+#payment-update-element.is-loading .payment-element-loading {
+  display: flex;
+}
+#payment-update-element.is-loading .payment-element-host {
+  opacity: 0;
+  pointer-events: none;
+  min-height: 120px;
 }
 
 .billing-update-form[hidden] {

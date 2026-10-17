@@ -24,6 +24,29 @@ def _stripe_mapping(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _card_installments_options() -> dict[str, Any]:
+    """Parcelamento só é válido em PaymentIntent (modo payment), não em Checkout/Subscription."""
+    return {"card": {"installments": {"enabled": True}}}
+
+
+def _enable_installments_on_payment_intent(payment_intent_id: str) -> None:
+    """Habilita installments no PI da 1ª fatura (Payment Element). Stripe rejeita isso em mode=subscription."""
+    if not payment_intent_id or not str(payment_intent_id).startswith("pi_"):
+        return
+    try:
+        stripe.PaymentIntent.modify(
+            payment_intent_id,
+            payment_method_options=_card_installments_options(),
+        )
+    except stripe.StripeError as exc:
+        # Não bloqueia o checkout se a conta/cartão não suportar parcelamento.
+        logger.info(
+            "Não foi possível habilitar parcelamento no PaymentIntent %s: %s",
+            payment_intent_id,
+            exc,
+        )
+
+
 def create_checkout_session(
     *,
     price_id: str,
@@ -646,7 +669,9 @@ def create_incomplete_subscription(
     customer_name: str,
     plan: str,
     price_id: str,
-    pending_signup_id: int,
+    pending_signup_id: int = 0,
+    account_id: int | None = None,
+    stripe_customer_id: str = "",
     promotion_code: str = "",
 ) -> dict[str, Any]:
     _configure_stripe()
@@ -655,25 +680,47 @@ def create_incomplete_subscription(
     if not price_id:
         raise BillingServiceError("Price ID do plano não configurado.")
 
-    metadata = {"pending_signup_id": str(pending_signup_id), "plan": plan}
+    metadata: dict[str, str] = {"plan": plan}
+    if account_id is not None:
+        metadata["account_id"] = str(account_id)
+    if pending_signup_id:
+        metadata["pending_signup_id"] = str(pending_signup_id)
     discounts: list[dict[str, str]] = []
     if promotion_code.strip():
         discounts.append(resolve_discount(promotion_code))
 
     try:
-        customer = stripe.Customer.create(
-            email=email,
-            name=customer_name or None,
-            metadata=metadata,
-        )
+        existing_customer_id = (stripe_customer_id or "").strip()
+        if existing_customer_id:
+            customer_id = existing_customer_id
+            try:
+                customer_update: dict[str, Any] = {"metadata": metadata}
+                if email:
+                    customer_update["email"] = email
+                if customer_name:
+                    customer_update["name"] = customer_name
+                stripe.Customer.modify(customer_id, **customer_update)
+            except stripe.StripeError:
+                logger.info("Não foi possível atualizar metadados do customer %s; seguindo com o ID existente.", customer_id)
+        else:
+            customer = stripe.Customer.create(
+                email=email,
+                name=customer_name or None,
+                metadata=metadata,
+            )
+            customer_data = customer.to_dict() if hasattr(customer, "to_dict") else (dict(customer) if isinstance(customer, dict) else {})
+            customer_id = str(customer_data.get("id") or getattr(customer, "id", "") or "")
         create_kwargs: dict[str, Any] = {
-            "customer": customer.id,
+            "customer": customer_id,
             "items": [{"price": price_id}],
             "payment_behavior": "default_incomplete",
-            "payment_settings": {"save_default_payment_method": "on_subscription"},
+            "payment_settings": {
+                "save_default_payment_method": "on_subscription",
+            },
             "expand": [
                 "latest_invoice",
                 "latest_invoice.confirmation_secret",
+                "latest_invoice.payment_intent",
                 "latest_invoice.payments",
             ],
             "metadata": metadata,
@@ -704,11 +751,10 @@ def create_incomplete_subscription(
         or _payments_payment_intent_id(payments)
         or ""
     )
-    customer_data = customer.to_dict() if hasattr(customer, "to_dict") else (dict(customer) if isinstance(customer, dict) else {})
-    customer_id = str(customer_data.get("id") or getattr(customer, "id", "") or "")
     subscription_id = str(subscription_data.get("id") or "")
 
     if client_secret:
+        _enable_installments_on_payment_intent(payment_intent_id)
         return {
             "customer_id": customer_id,
             "subscription_id": subscription_id,
@@ -786,6 +832,24 @@ def create_incomplete_subscription(
         sorted(latest_invoice.keys()),
     )
     raise BillingServiceError("A Stripe não retornou o client_secret do pagamento.")
+
+
+
+def retrieve_subscription(*, stripe_subscription_id: str) -> dict[str, Any]:
+    _configure_stripe()
+    if not stripe.api_key:
+        raise BillingServiceError("Stripe não configurado (STRIPE_SECRET_KEY ausente).")
+    if not stripe_subscription_id:
+        raise BillingServiceError("Assinatura Stripe não encontrada.")
+    try:
+        subscription = stripe.Subscription.retrieve(
+            stripe_subscription_id,
+            expand=["items.data.price"],
+        )
+    except stripe.StripeError as exc:
+        raise BillingServiceError(str(exc)) from exc
+    data = subscription.to_dict() if hasattr(subscription, "to_dict") else _stripe_mapping(subscription)
+    return data if isinstance(data, dict) else {}
 
 
 def finalize_setup_intent(*, setup_intent_id: str, customer_id: str, subscription_id: str) -> dict[str, Any]:

@@ -237,6 +237,51 @@
 .payment-element {
   margin: 18px 0 8px;
   min-height: 24px;
+  position: relative;
+}
+.payment-element.is-loading {
+  min-height: 120px;
+}
+.payment-element-loading {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 650;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--secondary);
+}
+.payment-element.is-loading .payment-element-loading {
+  display: flex;
+}
+.payment-element.is-loading .payment-element-host {
+  opacity: 0;
+  pointer-events: none;
+  min-height: 120px;
+}
+.payment-element-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid color-mix(in oklch, var(--primary) 25%, var(--border));
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: payment-element-spin 0.75s linear infinite;
+}
+@keyframes payment-element-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.subscribe-installments-note {
+  margin: 0 0 8px;
+  font-size: 12px;
 }
 .subscribe-error {
   background: color-mix(in oklch, var(--destructive) 12%, var(--background));

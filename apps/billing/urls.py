@@ -1,6 +1,10 @@
 from django.urls import path
 
 from apps.billing.presentation.views import (
+    AccountCheckoutCompleteView,
+    AccountCheckoutConfirmSetupView,
+    AccountCheckoutStartView,
+    AccountCheckoutView,
     BillingPortalView,
     CheckoutSessionView,
     CheckoutSuccessView,
@@ -38,6 +42,10 @@ urlpatterns = [
     path("assinar/confirmar-setup/", SubscribeConfirmSetupView.as_view(), name="subscribe_confirm_setup"),
     path("assinar/status/<int:pending_id>/", SubscribeStatusView.as_view(), name="subscribe_status"),
     path("assinar/concluir/", SubscribeCompleteView.as_view(), name="subscribe_complete"),
+    path("planos/pagar/", AccountCheckoutView.as_view(), name="account_checkout"),
+    path("planos/pagar/iniciar/", AccountCheckoutStartView.as_view(), name="account_checkout_start"),
+    path("planos/pagar/confirmar-setup/", AccountCheckoutConfirmSetupView.as_view(), name="account_checkout_confirm_setup"),
+    path("planos/pagar/concluir/", AccountCheckoutCompleteView.as_view(), name="account_checkout_complete"),
     path("checkout/", CheckoutSessionView.as_view(), name="checkout"),
     path("checkout/sucesso/", CheckoutSuccessView.as_view(), name="checkout_success"),
     path("portal/", BillingPortalView.as_view(), name="portal"),

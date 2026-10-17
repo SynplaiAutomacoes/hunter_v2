@@ -292,21 +292,31 @@ class RequireFirstWorkshopMiddleware:
 
     def _account_owner_has_workshop(self, request) -> bool:
         account_id = getattr(request.user, "account_id", None)
+        # Só confia em cache positivo. Cachear False prendia o owner no
+        # /workshops/create mesmo depois de cadastrar a primeira oficina.
         cached = self._get_cached_access_flag(request, cache_key="require_first_workshop_owner_access", account_id=account_id)
-        if cached is not None:
-            return cached
+        if cached is True:
+            return True
 
         from apps.workshops.models.workshops import Workshop
 
         has_workshop = Workshop.objects.filter(account_id=account_id, is_active=True).exists()
-        self._set_cached_access_flag(request, cache_key="require_first_workshop_owner_access", account_id=account_id, value=has_workshop)
+        if has_workshop:
+            self._set_cached_access_flag(
+                request,
+                cache_key="require_first_workshop_owner_access",
+                account_id=account_id,
+                value=True,
+            )
+        else:
+            request.session.pop("require_first_workshop_owner_access", None)
         return has_workshop
 
     def _member_has_workshop(self, request) -> bool:
         account_id = getattr(request.user, "account_id", None)
         cached = self._get_cached_access_flag(request, cache_key="require_first_workshop_member_access", account_id=account_id)
-        if cached is not None:
-            return cached
+        if cached is True:
+            return True
 
         from apps.collaborators.models import WorkshopMember
 
@@ -316,8 +326,37 @@ class RequireFirstWorkshopMiddleware:
             workshop__account_id=account_id,
             workshop__is_active=True,
         ).exists()
-        self._set_cached_access_flag(request, cache_key="require_first_workshop_member_access", account_id=account_id, value=has_workshop)
+        if has_workshop:
+            self._set_cached_access_flag(
+                request,
+                cache_key="require_first_workshop_member_access",
+                account_id=account_id,
+                value=True,
+            )
+        else:
+            request.session.pop("require_first_workshop_member_access", None)
         return has_workshop
+
+    @staticmethod
+    def mark_workshop_access_granted(request, *, workshop_id: int | None = None) -> None:
+        """Chamar após criar/vincular a 1ª oficina para liberar o fluxo imediatamente."""
+        account_id = getattr(getattr(request, "user", None), "account_id", None)
+        if account_id is None:
+            return
+        RequireFirstWorkshopMiddleware._set_cached_access_flag(
+            request,
+            cache_key="require_first_workshop_owner_access",
+            account_id=account_id,
+            value=True,
+        )
+        RequireFirstWorkshopMiddleware._set_cached_access_flag(
+            request,
+            cache_key="require_first_workshop_member_access",
+            account_id=account_id,
+            value=True,
+        )
+        if workshop_id is not None:
+            request.session["active_workshop_id"] = int(workshop_id)
 
     def __call__(self, request):
         if request.user.is_authenticated:

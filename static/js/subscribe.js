@@ -17,8 +17,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const priceInterval = document.getElementById("subscribe-price-interval");
   const priceNote = document.getElementById("subscribe-price-note");
 
+  const isAccountMode = config.mode === "account";
+
   if (!form || !config.publishableKey) {
-    showError("Stripe não configurado (STRIPE_PUBLISHABLE_KEY ausente).");
+    const err = document.getElementById("subscribe-error");
+    if (err) {
+      err.hidden = false;
+      err.textContent = "Stripe não configurado (STRIPE_PUBLISHABLE_KEY ausente).";
+    }
     return;
   }
 
@@ -40,10 +46,18 @@ document.addEventListener("DOMContentLoaded", () => {
   let elements = null;
   let paymentElement = null;
   let pendingSignupId = null;
+  let stripeSubscriptionId = null;
+  let stripeCustomerId = null;
   let clientSecret = null;
   let confirmationMode = "payment";
   let paymentReady = false;
-  let emailVerified = false;
+  let emailVerified = isAccountMode;
+
+  const defaultSubmitLabel = isAccountMode ? "Pagar assinatura" : "Pagar e criar conta";
+  if (isAccountMode && submitButton) {
+    submitButton.disabled = false;
+    submitButton.textContent = defaultSubmitLabel;
+  }
 
   const FIELD_LABELS = {
     first_name: "Nome",
@@ -99,8 +113,62 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setLoading(isLoading, label) {
     if (!submitButton) return;
-    submitButton.disabled = isLoading || !emailVerified;
-    submitButton.textContent = label || (isLoading ? "Processando..." : "Pagar e criar conta");
+    submitButton.disabled = isLoading || (!isAccountMode && !emailVerified);
+    submitButton.textContent =
+      label || (isLoading ? "Processando..." : defaultSubmitLabel);
+  }
+
+  function ensurePaymentMountStructure() {
+    if (!paymentMount) return null;
+    let host = paymentMount.querySelector(".payment-element-host");
+    let loading = paymentMount.querySelector(".payment-element-loading");
+    if (!host || !loading) {
+      paymentMount.innerHTML = `
+        <div class="payment-element-loading" role="status" aria-live="polite">
+          <span class="payment-element-spinner" aria-hidden="true"></span>
+          <span class="payment-element-loading-text">Carregando formulário do cartão…</span>
+        </div>
+        <div class="payment-element-host"></div>
+      `;
+      host = paymentMount.querySelector(".payment-element-host");
+      loading = paymentMount.querySelector(".payment-element-loading");
+    }
+    return host;
+  }
+
+  function showPaymentLoading(message) {
+    if (!paymentMount) return;
+    ensurePaymentMountStructure();
+    const text = paymentMount.querySelector(".payment-element-loading-text");
+    if (text) {
+      text.textContent = message || "Carregando formulário do cartão…";
+    }
+    paymentMount.classList.add("is-loading");
+  }
+
+  function clearPaymentLoading() {
+    if (!paymentMount) return;
+    paymentMount.classList.remove("is-loading");
+  }
+
+  function resetPaymentMount() {
+    if (!paymentMount) return;
+    clearPaymentLoading();
+    paymentMount.innerHTML = "";
+  }
+
+  function waitForPaymentElementReady(element) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearPaymentLoading();
+        resolve();
+      };
+      element.on("ready", finish);
+      window.setTimeout(finish, 8000);
+    });
   }
 
   function setVerifyStatus(message) {
@@ -190,7 +258,35 @@ document.addEventListener("DOMContentLoaded", () => {
     await finishWithToken(pendingId, loginToken);
   }
 
+  async function finishAccountCheckout() {
+    const planInput = form.querySelector('input[name="plan"]');
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const completeData = new FormData();
+      completeData.append("subscription_id", String(stripeSubscriptionId || ""));
+      completeData.append("plan", planInput ? planInput.value : "");
+      const completeResponse = await fetch(config.completeUrl, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": config.csrfToken,
+          Accept: "application/json",
+        },
+        body: completeData,
+      });
+      const completePayload = await completeResponse.json();
+      if (completeResponse.ok && completePayload.ok && completePayload.redirect_url) {
+        window.location.href = completePayload.redirect_url;
+        return;
+      }
+      if (completeResponse.status >= 500) {
+        throw new Error(completePayload.message || "Não foi possível concluir a assinatura.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error("Ainda estamos confirmando o pagamento. Atualize a página em instantes.");
+  }
+
   async function preparePayment() {
+    showPaymentLoading("Preparando pagamento…");
     const formData = new FormData(form);
     const startResponse = await fetch(config.startUrl, {
       method: "POST",
@@ -202,9 +298,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     const startPayload = await startResponse.json();
     if (startResponse.status >= 500) {
+      resetPaymentMount();
       throw new Error("Não foi possível iniciar o pagamento. Tente novamente.");
     }
     if (!startResponse.ok || !startPayload.ok) {
+      resetPaymentMount();
       if (startPayload.errors) {
         markInvalidFields(startPayload.errors);
       }
@@ -215,12 +313,16 @@ document.addEventListener("DOMContentLoaded", () => {
       throw new Error(firstError);
     }
 
-    pendingSignupId = startPayload.pending_signup_id;
+    pendingSignupId = startPayload.pending_signup_id || null;
+    stripeSubscriptionId = startPayload.subscription_id || null;
+    stripeCustomerId = startPayload.customer_id || null;
     clientSecret = startPayload.client_secret;
     confirmationMode = startPayload.confirmation_mode === "setup" ? "setup" : "payment";
     if (!clientSecret) {
+      resetPaymentMount();
       throw new Error("Não foi possível iniciar o pagamento. Tente novamente.");
     }
+    showPaymentLoading("Carregando formulário do cartão…");
     elements = stripe.elements({
       clientSecret,
       appearance: {
@@ -239,8 +341,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (paymentElement) {
       paymentElement.unmount();
     }
+    const host = ensurePaymentMountStructure();
+    showPaymentLoading("Carregando formulário do cartão…");
     paymentElement = elements.create("payment");
-    paymentElement.mount(paymentMount);
+    paymentElement.mount(host);
+    await waitForPaymentElementReady(paymentElement);
     paymentReady = true;
 
     if (accountFields) {
@@ -269,6 +374,29 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (!setupIntent || setupIntent.status !== "succeeded") {
         throw new Error("Cartão não confirmado.");
+      }
+
+      if (isAccountMode) {
+        const planInput = form.querySelector('input[name="plan"]');
+        const setupData = new FormData();
+        setupData.append("setup_intent_id", setupIntent.id);
+        setupData.append("subscription_id", String(stripeSubscriptionId || ""));
+        setupData.append("customer_id", String(stripeCustomerId || ""));
+        setupData.append("plan", planInput ? planInput.value : "");
+        const setupResponse = await fetch(config.confirmSetupUrl, {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": config.csrfToken,
+            Accept: "application/json",
+          },
+          body: setupData,
+        });
+        const setupPayload = await setupResponse.json();
+        if (!setupResponse.ok || !setupPayload.ok) {
+          throw new Error(setupPayload.message || "Não foi possível concluir a assinatura com cupom.");
+        }
+        window.location.href = setupPayload.redirect_url;
+        return;
       }
 
       const setupData = new FormData();
@@ -305,6 +433,10 @@ document.addEventListener("DOMContentLoaded", () => {
       throw new Error("Pagamento não confirmado.");
     }
 
+    if (isAccountMode) {
+      await finishAccountCheckout();
+      return;
+    }
     await finishLogin(pendingSignupId);
   }
 
@@ -439,7 +571,7 @@ document.addEventListener("DOMContentLoaded", () => {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     clearError();
-    if (!emailVerified) {
+    if (!isAccountMode && !emailVerified) {
       showError("Confirme seu e-mail com o código enviado antes de continuar.");
       return;
     }
@@ -466,7 +598,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ? confirmationMode === "setup"
             ? "Confirmar cartão"
             : "Confirmar pagamento"
-          : "Pagar e criar conta"
+          : defaultSubmitLabel
       );
     }
   });

@@ -29,7 +29,6 @@ from apps.billing.domain.contracts import (
     BillingPortalRequest,
     BillingServiceError,
     CancelSubscriptionRequest,
-    CheckoutSessionRequest,
     IncompleteSubscriptionRequest,
 )
 from apps.billing.domain.plans import Plan
@@ -530,39 +529,194 @@ class PaymentConfirmMethodView(AccountOwnerRequiredMixin, View):
         )
 
 
+class AccountCheckoutView(AccountOwnerRequiredMixin, TemplateView):
+    """Pagamento in-app (Payment Element) para dono reassinar ou trocar de plano."""
+
+    template_name = "billing/account_subscribe.html"
+
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        plan = str(request.GET.get("plan") or "").strip()
+        if plan not in (Plan.BASIC, Plan.FULL):
+            messages.error(request, "Selecione um plano válido.")
+            return redirect("billing:plans")
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context.update(_billing_shell_context(self.request))
+        plan_key = str(self.request.GET.get("plan") or Plan.BASIC).strip()
+        if plan_key not in (Plan.BASIC, Plan.FULL):
+            plan_key = Plan.BASIC
+        plans = get_billing_service().list_public_plans()
+        selected = next((plan for plan in plans if plan.key == plan_key), None)
+        if selected is None and plans:
+            selected = plans[0]
+            plan_key = selected.key
+        context["selected_plan"] = selected
+        context["plan_key"] = plan_key
+        context["stripe_publishable_key"] = str(getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") or "")
+        context["start_url"] = reverse("billing:account_checkout_start")
+        context["validate_coupon_url"] = reverse("billing:subscribe_validate_coupon")
+        context["confirm_setup_url"] = reverse("billing:account_checkout_confirm_setup")
+        context["complete_url"] = reverse("billing:account_checkout_complete")
+        context["plans_url"] = reverse("billing:plans")
+        return context
+
+
+class AccountCheckoutStartView(AccountOwnerRequiredMixin, View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        plan = str(request.POST.get("plan") or "").strip()
+        promotion_code = str(request.POST.get("promotion_code") or "").strip()
+        if plan not in (Plan.BASIC, Plan.FULL):
+            return JsonResponse({"ok": False, "message": "Selecione um plano válido."}, status=400)
+
+        account = request.user.account
+        subscription = get_account_subscription(request)
+        if subscription is not None and subscription.is_active and subscription.plan == plan:
+            return JsonResponse({"ok": False, "message": "Este já é o plano atual da sua conta."}, status=400)
+
+        price_id = ""
+        for card in get_billing_service().list_public_plans():
+            if card.key == plan:
+                price_id = card.stripe_price_id
+                break
+        if not price_id:
+            return JsonResponse({"ok": False, "message": "Price ID do plano não configurado."}, status=400)
+
+        try:
+            result = get_billing_service().create_incomplete_subscription(
+                IncompleteSubscriptionRequest(
+                    email=request.user.email or "",
+                    customer_name=request.user.get_full_name() or request.user.username,
+                    plan=plan,
+                    price_id=price_id,
+                    account_id=account.pk,
+                    stripe_customer_id=(subscription.stripe_customer_id if subscription else ""),
+                    promotion_code=promotion_code,
+                )
+            )
+        except BillingServiceError as exc:
+            logger.exception("Falha Stripe ao iniciar checkout da conta %s", account.pk)
+            error_message = str(exc)
+            if "cupom" in error_message.lower():
+                return JsonResponse({"ok": False, "message": error_message}, status=400)
+            return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=500)
+
+        if not result.client_secret:
+            return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=500)
+
+        from apps.billing.access import sync_subscription_from_stripe
+
+        sync_subscription_from_stripe(
+            account_id=account.pk,
+            plan=plan,
+            status=SubscriptionStatus.INCOMPLETE,
+            stripe_customer_id=result.customer_id,
+            stripe_subscription_id=result.subscription_id,
+            stripe_price_id=price_id,
+            cancel_at_period_end=False,
+        )
+        invalidate_subscription_cache(request)
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "requires_payment": True,
+                "confirmation_mode": result.confirmation_mode or "payment",
+                "client_secret": result.client_secret,
+                "subscription_id": result.subscription_id,
+                "customer_id": result.customer_id,
+                "publishable_key": str(getattr(settings, "STRIPE_PUBLISHABLE_KEY", "") or ""),
+            }
+        )
+
+
+class AccountCheckoutConfirmSetupView(AccountOwnerRequiredMixin, View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        setup_intent_id = str(request.POST.get("setup_intent_id") or "").strip()
+        subscription_id = str(request.POST.get("subscription_id") or "").strip()
+        customer_id = str(request.POST.get("customer_id") or "").strip()
+        plan = str(request.POST.get("plan") or "").strip()
+        if not setup_intent_id or not subscription_id or not customer_id:
+            return JsonResponse({"ok": False, "message": "Confirme o cartão antes de continuar."}, status=400)
+
+        account = request.user.account
+        subscription = get_account_subscription(request)
+        if subscription is None or subscription.stripe_subscription_id != subscription_id:
+            return JsonResponse({"ok": False, "message": "Assinatura inválida para esta conta."}, status=400)
+        if subscription.stripe_customer_id and subscription.stripe_customer_id != customer_id:
+            return JsonResponse({"ok": False, "message": "Cliente Stripe inválido para esta conta."}, status=400)
+
+        try:
+            get_billing_service().finalize_setup_intent(
+                setup_intent_id=setup_intent_id,
+                customer_id=customer_id,
+                subscription_id=subscription_id,
+            )
+            get_billing_service().sync_account_subscription_from_stripe(
+                account_id=account.pk,
+                stripe_subscription_id=subscription_id,
+                plan=plan,
+            )
+        except BillingServiceError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=400)
+        except Exception:
+            logger.exception("Falha ao confirmar SetupIntent da conta %s", account.pk)
+            return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=500)
+
+        invalidate_subscription_cache(request)
+        return JsonResponse({"ok": True, "redirect_url": reverse("billing:checkout_success")})
+
+
+class AccountCheckoutCompleteView(AccountOwnerRequiredMixin, View):
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        subscription_id = str(request.POST.get("subscription_id") or "").strip()
+        plan = str(request.POST.get("plan") or "").strip()
+        if not subscription_id:
+            return JsonResponse({"ok": False, "message": "Assinatura não encontrada."}, status=400)
+
+        account = request.user.account
+        subscription = get_account_subscription(request)
+        if subscription is None or subscription.stripe_subscription_id != subscription_id:
+            return JsonResponse({"ok": False, "message": "Assinatura inválida para esta conta."}, status=400)
+
+        try:
+            synced = get_billing_service().sync_account_subscription_from_stripe(
+                account_id=account.pk,
+                stripe_subscription_id=subscription_id,
+                plan=plan,
+            )
+        except BillingServiceError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=400)
+        except Exception:
+            logger.exception("Falha ao concluir checkout da conta %s", account.pk)
+            return JsonResponse({"ok": False, "message": STRIPE_USER_ERROR_MESSAGE}, status=500)
+
+        if not synced.is_active:
+            return JsonResponse(
+                {"ok": False, "message": "Pagamento ainda não confirmado. Aguarde alguns segundos e tente novamente."},
+                status=400,
+            )
+
+        invalidate_subscription_cache(request)
+        return JsonResponse({"ok": True, "redirect_url": reverse("billing:checkout_success")})
+
+
 class CheckoutSessionView(AccountOwnerRequiredMixin, View):
+    """Compat: redireciona para o checkout in-app (não usa mais Stripe Checkout hospedado)."""
+
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         plan = str(request.POST.get("plan") or "").strip()
         if plan not in (Plan.BASIC, Plan.FULL):
             messages.error(request, "Selecione um plano válido.")
             return redirect("billing:plans")
+        return redirect(f"{reverse('billing:account_checkout')}?plan={plan}")
 
-        account = request.user.account
-        subscription = get_account_subscription(request)
-        success_url = request.build_absolute_uri(reverse("billing:checkout_success")) + "?session_id={CHECKOUT_SESSION_ID}"
-        cancel_url = request.build_absolute_uri(reverse("billing:plans"))
-
-        try:
-            result = get_billing_service().create_checkout_session(
-                CheckoutSessionRequest(
-                    account_id=account.pk,
-                    plan=plan,
-                    customer_email=request.user.email or "",
-                    success_url=success_url,
-                    cancel_url=cancel_url,
-                    stripe_customer_id=(subscription.stripe_customer_id if subscription else ""),
-                    customer_name=request.user.get_full_name() or request.user.username,
-                )
-            )
-        except BillingServiceError as exc:
-            messages.error(request, f"Não foi possível iniciar o pagamento: {exc}")
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        plan = str(request.GET.get("plan") or "").strip()
+        if plan not in (Plan.BASIC, Plan.FULL):
             return redirect("billing:plans")
-
-        if not result.url:
-            messages.error(request, "A Stripe não retornou uma URL de checkout.")
-            return redirect("billing:plans")
-
-        return HttpResponseRedirect(result.url)
+        return redirect(f"{reverse('billing:account_checkout')}?plan={plan}")
 
 
 class CheckoutSuccessView(AccountOwnerRequiredMixin, TemplateView):
